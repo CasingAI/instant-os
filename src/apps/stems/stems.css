@@ -827,194 +827,165 @@
   cursor: default;
 }
 
-/* 空态 */
+/* 空态：左右分栏 —— 左投递区（垂直居中）+ 右最近打开托盘（吃剩余高度，内部滚动） */
 .stems__empty {
   flex: 1;
   min-height: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  justify-content: safe center;
-  gap: 8px;
+  padding: 24px 32px;
   color: var(--stems-ink-muted);
-  padding: 32px;
   text-align: center;
-  /* 空态内容（标题/提示/最近打开列表）超出可视区时可纵向滚动，避免被根容器 overflow:hidden 裁掉 */
-  overflow-y: auto;
+  /* 空态自身不滚动：投递区高度跟内容走，托盘内部滚动 */
+  overflow: hidden;
 }
 
-.stems__empty-badge {
-  position: relative;
-  width: 72px;
-  height: 72px;
-  margin-bottom: 8px;
+.stems__empty--with-recents {
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
-.stems__empty-badge-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.7) 0%, transparent 40%),
-    linear-gradient(180deg, #f4f0e8 0%, #cfc9bd 55%, #b0aaa0 100%);
-  border: 1px solid #8e887e;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 3px 8px rgba(0, 0, 0, 0.22);
-}
-
-.stems__empty-badge-core {
-  position: absolute;
-  inset: 16px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 35% 30%, #7eb4ef 0%, #2f7fd6 55%, #1f5ea8 100%);
-  border: 1px solid #145da8;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),
-    0 1px 2px rgba(0, 0, 0, 0.3);
-}
-
-.stems__empty-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--stems-ink);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
-}
-
-.stems__empty-hint {
-  margin: 0;
-  font-size: 12px;
-  max-width: 420px;
-  line-height: 1.5;
-  opacity: 0.9;
-}
-
-/* 最近打开：空态内独立区块，铝板浮起列表 */
-.stems__recents {
-  width: min(420px, 100%);
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--stems-border-light);
-  text-align: left;
-}
-
-.stems__recents-title {
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--stems-ink-muted);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
-}
-
-.stems__recents-list {
+/* 左栏：投递区，垂直居中 */
+.stems__hero-pane {
+  flex: none;
+  min-width: 320px;
+  max-width: 46%;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  justify-content: center;
+  align-items: center;
+  min-height: 0;
+  padding-right: 24px;
+  border-right: 1px solid var(--stems-border);
 }
 
-.stems__recents-item {
+/* 无最近记录：投递区整体居中，不画分隔线 */
+.stems__empty:not(.stems__empty--with-recents) .stems__hero-pane {
+  max-width: min(420px, 100%);
+  padding-right: 0;
+  border-right: 0;
+}
+
+/* 投递槽：铝板浮卡，内嵌凹陷暗槽。flex:none 保证高度不被挤压 */
+.stems__hero {
+  flex: none;
+  width: 100%;
+  max-width: 420px;
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 26px 28px 22px;
   background: linear-gradient(180deg, var(--stems-surface-raised) 0%, var(--stems-surface) 100%);
   border: 1px solid var(--stems-border);
   border-radius: var(--stems-radius);
   box-shadow: var(--stems-panel-shadow);
-  overflow: hidden;
 }
 
-.stems__recents-item:hover {
-  border-color: #7d766c;
+/* 凹陷暗槽：六条淡色轨带（主乐器轨，无 other2），模拟未上带的机架 */
+.stems__hero-deck {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  width: 100%;
+  max-width: 340px;
+  height: 46px;
+  padding: 7px 8px;
+  background: var(--stems-well);
+  border: 1px solid var(--stems-well-edge);
+  border-radius: 6px;
+  box-shadow: var(--stems-bevel-down);
 }
 
-.stems__recents-open {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 8px 12px;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
+.stems__hero-deck-track {
+  border-radius: 3px;
+  background: var(--stem-color);
+  opacity: 0.5;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-.stems__recents-open:hover {
-  background: linear-gradient(180deg, #f7f5ef 0%, #e6e1d8 100%);
-}
-
-.stems__recents-open:active {
-  background: linear-gradient(180deg, #cfcac0 0%, #e6e1d8 100%);
-}
-
-.stems__recents-open:focus-visible {
-  outline: 2px solid var(--stems-accent);
-  outline-offset: -2px;
-}
-
-.stems__recents-name {
-  font-size: 13px;
+.stems__hero-title {
+  margin: 0;
+  font-size: 16px;
   font-weight: 700;
   color: var(--stems-ink);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.stems__recents-meta {
+.stems__hero-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 380px;
+  opacity: 0.9;
+}
+
+.stems__hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+/* 状态灯：复用工具栏引擎灯的绿/琥珀语义，不占正文 */
+.stems__hero-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.stems__status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--stems-border);
+  background: linear-gradient(180deg, #fff 0%, #ece6da 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
   color: var(--stems-ink-muted);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.stems__recents-remove {
-  width: 32px;
+.stems__status-chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   flex: none;
-  align-self: center;
-  height: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--stems-ink-muted);
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease;
+  background: #9a948a;
 }
 
-.stems__recents-remove:hover {
-  color: #c0392b;
+.stems__status-chip--ok {
+  color: #1f7a4a;
+}
+.stems__status-chip--ok::before {
+  background: #2eae62;
+  box-shadow: 0 0 0 2px rgba(46, 174, 98, 0.28), 0 0 5px rgba(46, 174, 98, 0.55);
 }
 
-.stems__recents-remove:focus-visible {
-  opacity: 1;
-  outline: 2px solid var(--stems-accent);
-  outline-offset: -2px;
+.stems__status-chip--warn {
+  color: #9a6b1c;
+}
+.stems__status-chip--warn::before {
+  background: #e0a53a;
+  box-shadow: 0 0 0 2px rgba(224, 165, 58, 0.28), 0 0 5px rgba(224, 165, 58, 0.5);
 }
 
-.stems__recents-item:hover .stems__recents-remove {
-  opacity: 1;
-}
-
-.stems__progress-card {
-  margin-top: 12px;
-  width: min(420px, 100%);
-  padding: 14px 16px;
+/* 忙时进度：放进投递槽宽度，与闲时布局一致，不单独撑高 */
+.stems__progress {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 10px;
   text-align: left;
-  background: linear-gradient(180deg, var(--stems-surface-raised) 0%, var(--stems-surface) 100%);
-  border: 1px solid var(--stems-border);
-  border-radius: var(--stems-radius);
-  box-shadow: var(--stems-panel-shadow);
 }
 
 .stems__progress-phase {
@@ -1063,6 +1034,148 @@
   font-size: 12px;
   color: var(--stems-ink-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* 载入已保存结果（占用投递槽宽度，与进度一致） */
+.stems__hero-loading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--stems-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* 最近打开托盘：右栏，吃剩余高度，列表在托盘内滚动 */
+.stems__recents {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-left: 24px;
+  text-align: left;
+}
+
+.stems__recents--dimmed {
+  opacity: 0.55;
+}
+
+.stems__recents-title {
+  flex: none;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--stems-ink-muted);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.stems__recents-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+}
+
+.stems__recents-item {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  background: linear-gradient(180deg, var(--stems-surface-raised) 0%, var(--stems-surface) 100%);
+  border: 1px solid var(--stems-border);
+  border-radius: var(--stems-radius);
+  box-shadow: var(--stems-panel-shadow);
+  overflow: hidden;
+}
+
+.stems__recents-item:hover {
+  border-color: #7d766c;
+}
+
+.stems__recents-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stems__recents-open:hover {
+  background: linear-gradient(180deg, #f7f5ef 0%, #e6e1d8 100%);
+}
+
+/* 按压反馈作用在整个条目：两个按钮按下时都露出统一的按压渐变 */
+.stems__recents-item:active {
+  background: linear-gradient(180deg, #cfcac0 0%, #e6e1d8 100%);
+}
+
+.stems__recents-open:active,
+.stems__recents-remove:active {
+  background: transparent;
+}
+
+.stems__recents-open:focus-visible {
+  outline: 2px solid var(--stems-accent);
+  outline-offset: -2px;
+}
+
+.stems__recents-open:disabled,
+.stems__recents-remove:disabled {
+  cursor: default;
+}
+
+.stems__recents-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--stems-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stems__recents-meta {
+  font-size: 11px;
+  color: var(--stems-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stems__recents-remove {
+  width: 32px;
+  flex: none;
+  align-self: center;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--stems-ink-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.stems__recents-remove:hover {
+  color: #c0392b;
+}
+
+.stems__recents-remove:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--stems-accent);
+  outline-offset: -2px;
+}
+
+.stems__recents-item:hover .stems__recents-remove {
+  opacity: 1;
 }
 
 /* 歌词轨：整首歌逐字标签按时间戳横向排成一行，与波形列共用时间轴 */

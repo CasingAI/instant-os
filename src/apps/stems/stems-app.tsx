@@ -48,6 +48,7 @@ import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
 import { looksLikeLrc, parseLrc } from '../music/music-lyrics.ts'
 import type { LyricsLine, LyricsWord } from '../music/music-lyrics.ts'
 import { LyricsAnalysisDrawer } from './lyrics-analysis-drawer.tsx'
+import { StemsEmpty } from './stems-empty.tsx'
 import {
   alignLineByLineTimes,
   computeLineStats,
@@ -60,7 +61,6 @@ import { rescueLine, scoreLineUnits, shouldRescueLine } from './lyrics-line-resc
 import { CLEAN_VERSION, cleanLyricsWithLlm, type CleanProgress } from './lyrics-llm-clean.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
-  formatRecentTime,
   loadRecentProjects,
   pushRecentProject,
   removeRecentProject,
@@ -3287,104 +3287,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           )}
         </div>
       ) : (
-        <div class="stems__empty">
-          {!emptyBusy && (
-            <>
-              <div class="stems__empty-badge" aria-hidden="true">
-                <span class="stems__empty-badge-ring" />
-                <span class="stems__empty-badge-core" />
-              </div>
-              <p class="stems__empty-title">打开或拖入一个音乐文件，然后点击「开始分轨」。</p>
-              <p class="stems__empty-hint">
-                分轨会把人声、鼓、贝斯、吉他、钢琴、其他声部分离为独立音轨，可逐轨试听与调节。
-              </p>
-            </>
-          )}
-          {loadingArchive && (
-            <p class="stems__empty-hint">检测到已保存的分轨结果，正在载入…</p>
-          )}
-          {isSeparating && (
-            <div class="stems__progress-card">
-              <p class="stems__progress-phase">{separationProgress.phaseLabel}</p>
-              <div
-                class="stems__progress-bar-wrap"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={separationProgress.overallPercent}
-              >
-                <div
-                  class={`stems__progress-bar${separationProgress.overallPercent === undefined ? ' stems__progress-bar--indeterminate' : ''}`}
-                  style={
-                    separationProgress.overallPercent !== undefined
-                      ? { width: `${separationProgress.overallPercent}%` }
-                      : undefined
-                  }
-                />
-              </div>
-              <div class="stems__progress-meta">
-                <span>
-                  {separationProgress.overallPercent !== undefined
-                    ? `总进度 ${separationProgress.overallPercent}%`
-                    : '准备中…'}
-                  {separationProgress.chunkLabel ? ` · ${separationProgress.chunkLabel}` : ''}
-                </span>
-                <span>
-                  {separationProgress.remainingMs !== undefined
-                    ? `约 ${formatDurationMs(separationProgress.remainingMs)} 后 · ${formatEtaClock(separationProgress.remainingMs)} 结束`
-                    : separationProgress.phasePercent !== undefined
-                      ? '正在估算剩余时间…'
-                      : '模型加载中…'}
-                </span>
-              </div>
-            </div>
-          )}
-          {!progress && !mdxBusy && !emptyBusy && gpuAvailable === true && (
-            <p class="stems__empty-hint">已检测到 WebGPU，分轨将优先使用 GPU 加速。</p>
-          )}
-          {!progress && !mdxBusy && !emptyBusy && gpuAvailable === false && (
-            <p class="stems__empty-hint">
-              未检测到 WebGPU，分轨将使用 WASM 模式（较慢）；建议在 Chrome 中开启硬件加速。
-            </p>
-          )}
-          {!progress && !mdxBusy && !emptyBusy && (mdxCached === false || modelCached === false) && (
-            <p class="stems__empty-hint">
-              提示：分轨所需模型尚未完全缓存（人声分离模型约 67MB，分轨模型约 285MB），首次分轨需下载；可在 设置 → 存储 → 模型缓存 中提前缓存。
-            </p>
-          )}
-          {recentProjects.length > 0 && !emptyBusy && (
-            <div class="stems__recents">
-              <p class="stems__recents-title">最近打开</p>
-              <div class="stems__recents-list">
-                {recentProjects.map((item) => (
-                  <div class="stems__recents-item" key={item.path}>
-                    <button
-                      type="button"
-                      class="stems__recents-open"
-                      onClick={() => void handleOpenRecent(item.path)}
-                      title={item.path}
-                    >
-                      <span class="stems__recents-name">{item.name}</span>
-                      <span class="stems__recents-meta">
-                        {item.path.slice(0, item.path.lastIndexOf('/'))} ·{' '}
-                        {formatRecentTime(item.openedAt)}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      class="stems__recents-remove"
-                      aria-label="从最近打开移除"
-                      title="从最近打开移除"
-                      onClick={() => handleRemoveRecent(item.path)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <StemsEmpty
+          busy={emptyBusy}
+          loadingArchive={loadingArchive}
+          progress={separationProgress}
+          gpuAvailable={gpuAvailable}
+          mdxCached={mdxCached}
+          modelCached={modelCached}
+          recentProjects={recentProjects}
+          onPickFile={() => void handlePickFile()}
+          onOpenRecent={(path) => void handleOpenRecent(path)}
+          onRemoveRecent={handleRemoveRecent}
+        />
       )}
       {systemDialog}
       <WindowModal
@@ -3833,23 +3747,6 @@ function formatZoomLabel(level: number): string {
   const factor = Math.pow(2, level)
   if (factor >= 100) return `${Math.round(factor)}×`
   return `${Math.round(factor * 100)}%`
-}
-
-function formatDurationMs(ms: number): string {
-  const totalSec = Math.max(0, Math.ceil(ms / 1000))
-  const hours = Math.floor(totalSec / 3600)
-  const minutes = Math.floor((totalSec % 3600) / 60)
-  const seconds = totalSec % 60
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-  }
-  return `${minutes}:${String(seconds).padStart(2, '0')}`
-}
-
-/** 预估结束时刻（本地时钟，如 15:42）。 */
-function formatEtaClock(remainingMs: number): string {
-  const end = new Date(Date.now() + Math.max(0, remainingMs))
-  return `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`
 }
 
 type SeparationProgressView = {
