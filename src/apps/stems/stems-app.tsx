@@ -97,7 +97,7 @@ const RMS_BLEND_MAX_MS = 96
 const RMS_GAIN = 2.5
 
 /** 歌词对齐模型：zipformer（中文）/ sense-voice（五语） */
-type AlignModel = 'zipformer' | 'sense-voice'
+import type { AlignModel } from './lyrics-analysis.ts'
 const ALIGN_MODEL_STORAGE_KEY = 'stems-align-model'
 
 /** 歌词时间轴标签：由对齐结果逐字拍平（无逐字时整行一个标签） */
@@ -829,14 +829,16 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     if (!lrc) return false
     alignedLrcRef.current = lrc
     setAlignedLrc(lrc)
-    // 复用音素段快速重对齐 = 整首识别 + 文本对齐路径
-    const sources: LineSource[] = parseLrc(lrc).lines.map(() => 'whole-recognize')
+    // 复用音素段快速重对齐 = 整首识别 + 文本对齐路径（模型按当前选中标记）
+    const sources: LineSource[] = parseLrc(lrc).lines.map(
+      (): LineSource => `whole-recognize:${alignModel}`,
+    )
     lineSourcesRef.current = sources
     setLineSources(sources)
     setAlignRestoredFrom(false)
     setLyricsHint(null)
     return true
-  }, [])
+  }, [alignModel])
 
   /**
    * 失败行补救：默认模型（SenseVoice）整首对齐后，对红词多/被挤压的行，
@@ -859,7 +861,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const sources: LineSource[] =
         lineSourcesRef.current.length === lines.length
           ? [...lineSourcesRef.current]
-          : lines.map(() => 'whole-recognize')
+          : lines.map((): LineSource => `whole-recognize:${alignModel}`)
       // 行时间基准：优先源 LRC 映射的真实行时间戳，回退对齐结果自带 timeMs
       const lineTimesRef = lyricsLineTimesRef.current
       const times: (number | undefined)[] =
@@ -981,7 +983,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setLineSources(sources)
       return current
     },
-    [],
+    [alignModel],
   )
 
   /**
@@ -1111,7 +1113,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               }))
               alignedLrcRef.current = lrc
               setAlignedLrc(lrc)
-              const ctcSources: LineSource[] = skeleton.map(() => 'whole-ctc')
+              const ctcSources: LineSource[] = skeleton.map(() => 'whole-ctc:zipformer')
               lineSourcesRef.current = ctcSources
               setLineSources(ctcSources)
               setAlignRestoredFrom(false)
@@ -1155,7 +1157,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         }
         alignedLrcRef.current = lrc
         setAlignedLrc(lrc)
-        const recogSources: LineSource[] = parseLrc(lrc).lines.map(() => 'whole-recognize')
+        const recogSources: LineSource[] = parseLrc(lrc).lines.map(
+          (): LineSource => `whole-recognize:${alignModel}`,
+        )
         lineSourcesRef.current = recogSources
         setLineSources(recogSources)
         setAlignRestoredFrom(false)

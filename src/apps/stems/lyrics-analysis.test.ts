@@ -686,24 +686,40 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   assert.ok(dump.includes('主界面当前词'))
 }
 
-// —— LineSource：持久化解析与中文标签 ——
+// —— LineSource：持久化解析与中文标签（含模型维度） ——
 {
+  // 旧格式（无模型）仍可解析，兼容旧包
   assert.equal(parseLineSource('whole-recognize'), 'whole-recognize')
   assert.equal(parseLineSource('whole-ctc'), 'whole-ctc')
   assert.equal(parseLineSource('rescue-recognize'), 'rescue-recognize')
   assert.equal(parseLineSource('rescue-ctc'), 'rescue-ctc')
   assert.equal(parseLineSource('restored'), 'restored')
   assert.equal(parseLineSource('manual-ctc-align'), 'manual-ctc-align', '合法 manual 动作可解析')
+  // 新格式：带模型后缀
+  assert.equal(parseLineSource('whole-recognize:sense-voice'), 'whole-recognize:sense-voice')
+  assert.equal(parseLineSource('whole-recognize:zipformer'), 'whole-recognize:zipformer')
+  assert.equal(parseLineSource('whole-ctc:zipformer'), 'whole-ctc:zipformer')
+  assert.equal(parseLineSource('manual-rerun-line:sense-voice'), 'manual-rerun-line:sense-voice')
+  // 非法
   assert.equal(parseLineSource('manual-bogus'), undefined, '未知 manual 动作非法')
+  assert.equal(parseLineSource('manual-bogus:zipformer'), undefined, '未知 manual 动作带模型也非法')
   assert.equal(parseLineSource('not-a-source'), undefined, '未知来源非法')
+  assert.equal(parseLineSource('whole-recognize:claude'), undefined, '未知模型非法')
   assert.equal(parseLineSource(42), undefined, '非字符串非法')
 
+  // 旧格式（无模型）标签
   assert.equal(lineSourceLabel('whole-recognize'), '整首识别对齐')
-  assert.equal(lineSourceLabel('whole-ctc'), '整首 CTC 强制对齐')
-  assert.equal(lineSourceLabel('rescue-recognize'), '补救·方案1（识别行窗）')
-  assert.equal(lineSourceLabel('rescue-ctc'), '补救·方案2（CTC 行窗）')
+  assert.equal(lineSourceLabel('whole-ctc'), '整首 CTC 对齐')
+  assert.equal(lineSourceLabel('rescue-recognize'), 'Zipformer 识别补救（方案1）')
+  assert.equal(lineSourceLabel('rescue-ctc'), 'Zipformer CTC 补救（方案2）')
   assert.equal(lineSourceLabel('restored'), '载入恢复')
   assert.equal(lineSourceLabel('manual-spread'), '手动·摊开到行区间')
   assert.equal(lineSourceLabel('manual-ctc-align'), '手动·Zipformer CTC 强制对齐')
+  // 新格式（带模型）标签：明确来源模型
+  assert.equal(lineSourceLabel('whole-recognize:sense-voice'), 'SenseVoice 整首识别对齐')
+  assert.equal(lineSourceLabel('whole-recognize:zipformer'), 'Zipformer 整首识别对齐')
+  assert.equal(lineSourceLabel('whole-ctc:zipformer'), 'Zipformer CTC 整首对齐')
+  assert.equal(lineSourceLabel('manual-rerun-line:sense-voice'), '手动·重识别这一行（SenseVoice）')
+  assert.equal(lineSourceLabel('manual-rerun-line:zipformer'), '手动·重识别这一行（Zipformer）')
   assert.equal(lineSourceLabel(undefined), '未知')
 }

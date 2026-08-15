@@ -33,6 +33,7 @@ import {
   resolveLineTimes,
   splitLineParens,
   spreadLineToWindow,
+  type AlignModel,
   type LineSource,
   type ManualActionKey,
 } from './lyrics-analysis.ts'
@@ -72,8 +73,8 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** 歌词识别模型（与主界面一致） */
-export type AlignModel = 'zipformer' | 'sense-voice'
+/** 歌词识别模型（与主界面一致；定义在 lyrics-analysis，drawer 引用同一来源） */
+export type { AlignModel } from './lyrics-analysis.ts'
 
 export type LyricsAnalysisDrawerProps = {
   open: boolean
@@ -571,10 +572,13 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
 
   const applyPreview = useCallback(() => {
     if (preview?.line?.words && preview.line.words.length > 0 && focusLine !== null) {
-      onApplyLine(focusLine, preview.line.words, `manual-${preview.key}`)
+      // rerun-line 跟随当前主模型；其余动作（含 zip-rerun / ctc-align）恒为 Zipformer
+      const source: LineSource =
+        preview.key === 'rerun-line' ? `manual-rerun-line:${alignModel}` : `manual-${preview.key}`
+      onApplyLine(focusLine, preview.line.words, source)
       setAppliedKey(preview.key)
     }
-  }, [preview, focusLine, onApplyLine])
+  }, [preview, focusLine, onApplyLine, alignModel])
 
   if (!open) return null
 

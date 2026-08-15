@@ -13,6 +13,15 @@ import { buildAlignLrc, formatLrcTimestamp } from '../align/align-lrc.ts'
 import type { AlignedUnit } from '../align/align-types.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
 
+/** 歌词识别模型（与主界面一致） */
+export type AlignModel = 'zipformer' | 'sense-voice'
+
+/** 模型中文展示名（方案来源徽章 / 动作描述共用） */
+export const ALIGN_MODEL_LABELS: Record<AlignModel, string> = {
+  'sense-voice': 'SenseVoice',
+  zipformer: 'Zipformer',
+}
+
 /** 手动修复动作标识（与抽屉「修复动作」一一对应；定义在 analysis 避免 drawer 循环依赖） */
 export type ManualActionKey =
   | 'spread'
@@ -34,52 +43,72 @@ export const MANUAL_ACTION_LABELS: Record<ManualActionKey, string> = {
   'ctc-align': 'Zipformer CTC 强制对齐',
 }
 
-/** 一行歌词对齐结果的方案来源（与 karaokeLines / lineSources 行一一对应） */
+/**
+ * 一行歌词对齐结果的方案来源（与 karaokeLines / lineSources 行一一对应）。
+ * 格式 `<方案>:<模型>`：模型可缺省（旧包/未记录），restored 表示载入恢复（旧包无来源记录）。
+ */
 export type LineSource =
-  | 'whole-recognize' // 整首识别 + 文本对齐
-  | 'whole-ctc' // 整首 Zipformer CTC 强制对齐
-  | 'rescue-recognize' // 失败行补救·方案1：Zipformer 识别行窗
-  | 'rescue-ctc' // 失败行补救·方案2：Zipformer CTC 行窗
-  | `manual-${ManualActionKey}` // 手动修复动作
+  | `whole-recognize${ModelSuffix}` // 整首识别 + 文本对齐（模型 = 当时主模型）
+  | `whole-ctc${ModelSuffix}` // 整首 Zipformer CTC 强制对齐
+  | `rescue-recognize${ModelSuffix}` // 失败行补救·方案1：Zipformer 识别行窗
+  | `rescue-ctc${ModelSuffix}` // 失败行补救·方案2：Zipformer CTC 行窗
+  | `manual-${ManualActionKey}${ModelSuffix}` // 手动修复动作
   | 'restored' // 载入恢复（旧包无来源记录）
 
-/** 校验任意值是否为合法 LineSource；非法返回 undefined（持久化解析用，兼容旧包） */
+/** 模型后缀：可缺省（旧格式/未记录） */
+type ModelSuffix = '' | `:${AlignModel}`
+
+/** 拆解 LineSource → 方案名 + 模型（可能缺省）；非法输入返回 undefined */
+function splitLineSource(src: LineSource): { scheme: string; model: AlignModel | undefined } | undefined {
+  if (src === 'restored') return { scheme: 'restored', model: undefined }
+  const colon = src.indexOf(':')
+  const scheme = colon < 0 ? src : src.slice(0, colon)
+  const model = colon < 0 ? undefined : src.slice(colon + 1)
+  if (model !== undefined && model !== 'zipformer' && model !== 'sense-voice') return undefined
+  const okScheme =
+    scheme === 'whole-recognize' ||
+    scheme === 'whole-ctc' ||
+    scheme === 'rescue-recognize' ||
+    scheme === 'rescue-ctc' ||
+    (scheme.startsWith('manual-') &&
+      (scheme.slice('manual-'.length) as ManualActionKey) in MANUAL_ACTION_LABELS)
+  if (!okScheme) return undefined
+  return { scheme, model: model as AlignModel | undefined }
+}
+
+/** 校验任意值是否为合法 LineSource；非法返回 undefined（持久化解析用，兼容旧包无模型格式） */
 export function parseLineSource(raw: unknown): LineSource | undefined {
   if (typeof raw !== 'string') return undefined
-  if (
-    raw === 'whole-recognize' ||
-    raw === 'whole-ctc' ||
-    raw === 'rescue-recognize' ||
-    raw === 'rescue-ctc' ||
-    raw === 'restored'
-  ) {
-    return raw
-  }
-  if (raw.startsWith('manual-')) {
-    const key = raw.slice('manual-'.length) as ManualActionKey
-    if (key in MANUAL_ACTION_LABELS) return `manual-${key}`
-  }
-  return undefined
+  return splitLineSource(raw as LineSource) ? (raw as LineSource) : undefined
 }
 
 /** 方案来源中文标签（undefined = 无记录/未知，兜底显示） */
 export function lineSourceLabel(src: LineSource | undefined): string {
-  switch (src) {
-    case 'whole-recognize':
-      return '整首识别对齐'
-    case 'whole-ctc':
-      return '整首 CTC 强制对齐'
-    case 'rescue-recognize':
-      return '补救·方案1（识别行窗）'
-    case 'rescue-ctc':
-      return '补救·方案2（CTC 行窗）'
+  if (src === undefined) return '未知'
+  const split = splitLineSource(src)
+  if (!split) return src
+  const { scheme, model } = split
+  const modelName = model !== undefined ? ALIGN_MODEL_LABELS[model] : undefined
+  switch (scheme) {
     case 'restored':
       return '载入恢复'
-    case undefined:
-      return '未知'
+    case 'whole-recognize':
+      return modelName ? `${modelName} 整首识别对齐` : '整首识别对齐'
+    case 'whole-ctc':
+      return modelName ? `${modelName} CTC 整首对齐` : '整首 CTC 对齐'
+    case 'rescue-recognize':
+      // 补救方案 1 恒为 Zipformer 识别行窗
+      return 'Zipformer 识别补救（方案1）'
+    case 'rescue-ctc':
+      // 补救方案 2 恒为 Zipformer CTC 行窗
+      return 'Zipformer CTC 补救（方案2）'
     default:
-      if (src.startsWith('manual-')) {
-        return `手动·${MANUAL_ACTION_LABELS[src.slice('manual-'.length) as ManualActionKey]}`
+      if (scheme.startsWith('manual-')) {
+        const key = scheme.slice('manual-'.length) as ManualActionKey
+        const label = MANUAL_ACTION_LABELS[key]
+        // 只有 rerun-line 跟随当前主模型（zip-rerun / ctc-align 恒为 Zipformer）
+        if (modelName && key === 'rerun-line') return `手动·${label}（${modelName}）`
+        return `手动·${label}`
       }
       return src
   }
