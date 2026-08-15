@@ -2,17 +2,20 @@
  * FLAC 无损编解码封装。
  *
  * 编码路径：WebCodecs（Chromium `AudioEncoder` codec 'flac'）优先，失败/不支持时回退 WASM libflacjs；
- * 解码路径：统一 WASM libflacjs，保证任意浏览器都能打开已保存的包，同时天然 round-trip 验证 WebCodecs 产物。
+ * 解码路径：统一用 @wasm-audio-decoders/flac（libFLAC WASM，成熟可靠），
+ * 保证任意浏览器都能打开已保存的包，同时天然 round-trip 验证 WebCodecs 产物。
  *
- * WASM libflacjs 仅在 worker / 首次需要时加载：
+ * 说明：libflacjs 的解码器对 16-bit 数据存在字节去重 hack（__fix_write_buffer），
+ * 在含大量 0x00/0xFF 字节的 PCM 上会越界崩溃，故解码不采用 libflacjs；
+ * 其 Encoder 不经过该路径，仅用作编码回退。
+ *
+ * libflacjs WASM 仅在 worker / 首次需要时加载：
  * 动态 import glue + `?url` wasm 静态资源；libflacjs 支持通过 `globalThis.FLAC_SCRIPT_LOCATION`
  * （按文件名映射）指定 wasm 位置，在 glue 模块执行前设置即可生效（见 dist/libflac.wasm.js）。
- *
- * 本模块不做主线程的阻塞编解码（由调用方决定在哪个线程执行）；测试可通过注入 loader 换 asm.js 变体。
+ * 测试可通过注入 loader 换 asm.js 变体。
  */
-import { Encoder } from 'libflacjs/lib/encoder.js'
-import { Decoder } from 'libflacjs/lib/decoder.js'
 import { md5 } from '@noble/hashes/legacy.js'
+import { FLACDecoder } from '@wasm-audio-decoders/flac'
 import type libFactory from 'libflacjs'
 
 export type FlacLib = libFactory.Flac
@@ -21,13 +24,10 @@ export type FlacLibLoader = () => FlacLib | Promise<FlacLib>
 /** WebCodecs FLAC 配置支持检测结果缓存（worker 内单例）。 */
 let webCodecsSupported: boolean | undefined
 
-/** WebCodecs FLAC 编码产物校验状态：首次编码小段数据用 WASM 解码验证，避免跨实现不匹配写出坏文件。 */
+/** WebCodecs FLAC 编码产物校验状态：首次编码小段数据用解码验证，避免跨实现不匹配写出坏文件。 */
 let webCodecsVerified = false
 
-/**
- * 把 interleaved stereo Float32 量化为 16-bit PCM 字节（与 WAV encode 一致），
- * 供 FLAC 的 MD5（解码后 PCM 字节流）计算使用。
- */
+/** 把 interleaved stereo Float32 量化为 16-bit PCM 字节（与 WAV encode 一致），供 MD5 计算。 */
 function pcm16Bytes(data: Float32Array): Uint8Array {
   const bytes = new Uint8Array(data.length * 2)
   const view = new DataView(bytes.buffer)
@@ -40,19 +40,7 @@ function pcm16Bytes(data: Float32Array): Uint8Array {
   return bytes
 }
 
-/** 16-bit PCM 字节（interleaved LE）→ interleaved stereo Float32。 */
-function pcm16BytesToFloat32(bytes: Uint8Array): Float32Array {
-  const sampleCount = Math.floor(bytes.byteLength / 2)
-  const data = new Float32Array(sampleCount)
-  const view = new Int16Array(bytes.buffer, bytes.byteOffset, sampleCount)
-  for (let i = 0; i < sampleCount; i++) {
-    const s = view[i]
-    data[i] = s < 0 ? s / 0x8000 : s / 0x7fff
-  }
-  return data
-}
-
-// —— WASM libflacjs 加载 ——
+// —— WASM libflacjs 加载（仅编码用） ——
 
 let wasmLibPromise: Promise<FlacLib> | null = null
 
@@ -85,10 +73,77 @@ export async function loadFlacLibWasm(): Promise<FlacLib> {
   return wasmLibPromise
 }
 
-// —— WASM 编解码 ——
+// —— WASM 编码（libflacjs 原生 API 自封装） ——
 
 /** 每块 PCM 帧数（控制峰值内存：块 ≈ 2 MiB，与 WAV 转换一致）。 */
 const FLAC_CHUNK_FRAMES = 1 << 19
+
+/**
+ * libflacjs WASM 实例上暴露的原生编码 API（绕过 lib/ 下的 Node CJS 封装，
+ * 后者内部 require() 无法在浏览器 worker 中运行）。
+ */
+type FlacEncoderNative = {
+  create_libflac_encoder(
+    sampleRate: number,
+    channels: number,
+    bitsPerSample: number,
+    compression: number,
+    totalSamples?: number,
+    verify?: boolean,
+  ): number
+  init_encoder_stream(
+    encoder: number,
+    writeCallback: (data: Uint8Array, numberOfBytes: number, samples: number, currentFrame: number) => boolean | void,
+    metadataCallback?: (metadata: unknown) => void,
+  ): number
+  FLAC__stream_encoder_process_interleaved(encoder: number, buffer: Int32Array, numberOfSamples: number): boolean
+  FLAC__stream_encoder_finish(encoder: number): boolean
+  FLAC__stream_encoder_delete(encoder: number): void
+}
+
+/** 轻量 FLAC 编码器：收集 write 回调块、process/finish/delete 均直连原生 API。 */
+class FlacEncoder {
+  private readonly flac: FlacLib & FlacEncoderNative
+  private readonly id: number
+  private chunks: Uint8Array[] = []
+
+  constructor(flac: FlacLib & FlacEncoderNative, options: { sampleRate: number; compression: number }) {
+    this.flac = flac
+    this.id = flac.create_libflac_encoder(options.sampleRate, 2, 16, options.compression, undefined, false)
+    if (this.id === 0) throw new Error('FLAC 编码器创建失败')
+    const state = flac.init_encoder_stream(this.id, (data) => {
+      this.chunks.push(data.slice())
+    })
+    if (state !== 0) {
+      flac.FLAC__stream_encoder_delete(this.id)
+      throw new Error(`FLAC 编码器初始化失败（状态 ${state}）`)
+    }
+  }
+
+  /** 送入 interleaved int32 PCM（16-bit 值右对齐），numFrames 为帧数。 */
+  encode(pcm: Int32Array, numFrames: number): boolean {
+    return this.flac.FLAC__stream_encoder_process_interleaved(this.id, pcm, numFrames)
+  }
+
+  /** 结束编码并返回完整 FLAC 字节。 */
+  finish(): Uint8Array {
+    this.flac.FLAC__stream_encoder_finish(this.id)
+    let total = 0
+    for (const c of this.chunks) total += c.length
+    const out = new Uint8Array(total)
+    let offset = 0
+    for (const c of this.chunks) {
+      out.set(c, offset)
+      offset += c.length
+    }
+    return out
+  }
+
+  destroy(): void {
+    this.flac.FLAC__stream_encoder_delete(this.id)
+    this.chunks.length = 0
+  }
+}
 
 /** 用 libflacjs WASM 把 interleaved stereo Float32 编码为完整 FLAC 字节（16-bit）。 */
 export async function encodeFlacWasm(
@@ -96,45 +151,48 @@ export async function encodeFlacWasm(
   sampleRate: number,
   loader: FlacLibLoader = loadFlacLibWasm,
 ): Promise<Uint8Array> {
-  const Flac = await loader()
+  const flac = (await loader()) as FlacLib & FlacEncoderNative
   const frames = Math.floor(data.length / 2)
   const pcm = new Int32Array(data.length)
   for (let i = 0; i < data.length; i++) {
     const s = Math.max(-1, Math.min(1, data[i]))
     pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff
   }
-  const encoder = new Encoder(Flac, {
-    sampleRate,
-    channels: 2,
-    bitsPerSample: 16,
-    compression: 5,
-    verify: false,
-  })
-  for (let f = 0; f < frames; f += FLAC_CHUNK_FRAMES) {
-    const end = Math.min(frames, f + FLAC_CHUNK_FRAMES)
-    if (!encoder.encode(pcm.subarray(f * 2, end * 2))) {
-      encoder.destroy()
-      throw new Error('FLAC 编码失败')
+  const encoder = new FlacEncoder(flac, { sampleRate, compression: 5 })
+  try {
+    for (let f = 0; f < frames; f += FLAC_CHUNK_FRAMES) {
+      const end = Math.min(frames, f + FLAC_CHUNK_FRAMES)
+      if (!encoder.encode(pcm.subarray(f * 2, end * 2), end - f)) {
+        throw new Error('FLAC 编码失败')
+      }
     }
+    return encoder.finish()
+  } finally {
+    encoder.destroy()
   }
-  encoder.encode()
-  const flac = encoder.getSamples()
-  encoder.destroy()
-  return flac
 }
 
-/** 用 libflacjs WASM 把完整 FLAC 字节解码为 interleaved stereo Float32（16-bit）。 */
-export async function decodeFlacWasm(
-  bytes: Uint8Array,
-  loader: FlacLibLoader = loadFlacLibWasm,
-): Promise<Float32Array> {
-  const Flac = await loader()
-  const decoder = new Decoder(Flac, {})
+// —— 解码（@wasm-audio-decoders/flac） ——
+
+/** 把完整 FLAC 字节解码为 interleaved stereo Float32（16-bit）。 */
+export async function decodeFlac(bytes: Uint8Array): Promise<Float32Array> {
+  const decoder = new FLACDecoder()
   try {
-    if (!decoder.decode(bytes as Uint8Array<ArrayBuffer>)) throw new Error('FLAC 解码失败')
-    return pcm16BytesToFloat32(decoder.getSamples(true))
+    await decoder.ready
+    const { channelData, samplesDecoded } = await decoder.decodeFile(bytes)
+    if (channelData.length !== 2) {
+      throw new Error(`FLAC 声道数异常：${channelData.length}`)
+    }
+    const interleaved = new Float32Array(samplesDecoded * 2)
+    const l = channelData[0]
+    const r = channelData[1]
+    for (let i = 0; i < samplesDecoded; i++) {
+      interleaved[i * 2] = l[i]
+      interleaved[i * 2 + 1] = r[i]
+    }
+    return interleaved
   } finally {
-    decoder.destroy()
+    decoder.free()
   }
 }
 
@@ -261,7 +319,7 @@ export async function encodeFlacWebCodecs(
   return assembleFlacFile(chunks, sampleRate, frames, md5(pcm16Bytes(data)))
 }
 
-/** 首次 WebCodecs 编码前用 WASM 解码验证产物，避免跨实现不匹配写出坏文件。 */
+/** 首次 WebCodecs 编码前用解码器验证产物，避免跨实现不匹配写出坏文件。 */
 async function verifyWebCodecsOnce(sampleRate: number): Promise<void> {
   if (webCodecsVerified) return
   const seconds = 1
@@ -272,7 +330,7 @@ async function verifyWebCodecsOnce(sampleRate: number): Promise<void> {
     data[i * 2 + 1] = v
   }
   const encoded = await encodeFlacWebCodecs(data, sampleRate)
-  const decoded = await decodeFlacWasm(encoded)
+  const decoded = await decodeFlac(encoded)
   if (decoded.length !== data.length) {
     throw new Error('WebCodecs FLAC 校验失败：样本数不一致')
   }
@@ -297,12 +355,4 @@ export async function encodeFlac(
     }
   }
   return encodeFlacWasm(data, sampleRate, loader)
-}
-
-/** 把完整 FLAC 字节解码为 interleaved stereo Float32（统一 WASM）。 */
-export async function decodeFlac(
-  bytes: Uint8Array,
-  loader: FlacLibLoader = loadFlacLibWasm,
-): Promise<Float32Array> {
-  return decodeFlacWasm(bytes, loader)
 }

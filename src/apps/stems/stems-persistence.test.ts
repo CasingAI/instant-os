@@ -12,7 +12,7 @@ import {
 } from './stems-separator.ts'
 import { STEM_IDS } from './stems-types.ts'
 import type { StemAudio } from './stems-types.ts'
-import { decodeFlacWasm, encodeFlacWasm } from './stems-flac.ts'
+import { decodeFlac, encodeFlacWasm } from './stems-flac.ts'
 import type { FlacLib } from './stems-flac.ts'
 import {
   convertToPcm16,
@@ -823,7 +823,7 @@ function testArchiveEntryNames(): void {
   console.log('ok: stemsArchiveEntryNames')
 }
 
-/** FLAC WASM 编解码 round-trip：16-bit 量化误差应与 encodeWav 一致。 */
+/** FLAC 编解码 round-trip：16-bit 量化误差应与 encodeWav 一致。 */
 async function testFlacRoundTrip(): Promise<void> {
   const frames = 600_000
   const data = new Float32Array(frames * STEM_CHANNELS)
@@ -834,7 +834,7 @@ async function testFlacRoundTrip(): Promise<void> {
   }
   const flac = await encodeFlacWasm(data, 44100, loadFlacAsmJs)
   assert.equal(String.fromCharCode(flac[0], flac[1], flac[2], flac[3]), 'fLaC', 'FLAC magic 头')
-  const decoded = await decodeFlacWasm(flac, loadFlacAsmJs)
+  const decoded = await decodeFlac(flac)
   assert.equal(decoded.length, data.length, '样本数一致')
   let maxErr = 0
   for (let i = 0; i < data.length; i++) {
@@ -896,7 +896,7 @@ async function testFlacArchiveRoundTrip(): Promise<void> {
 
   // 完整解包恢复：与原始 PCM 16-bit 量化一致
   const loaded = await loadStemsArchive(new Blob([zipBytes]), undefined, {
-    decodeFlacTrack: (b) => decodeFlacWasm(b, loadFlacAsmJs),
+    decodeFlacTrack: (b) => decodeFlac(b),
   })
   assert.equal(loaded.manifest.codec, 'flac')
   assert.equal(loaded.stems.length, stems.length)
@@ -914,7 +914,7 @@ async function testFlacArchiveRoundTrip(): Promise<void> {
   const ranged = await readStemsArchiveLayoutRanged(
     async (rOffset, length) => zipBytes.slice(rOffset, rOffset + length),
     zipBytes.length,
-    { decodeFlacTrack: (b) => decodeFlacWasm(b, loadFlacAsmJs) },
+    { decodeFlacTrack: (b) => decodeFlac(b) },
   )
   assert.equal(ranged.manifest.codec, 'flac')
   const first = await ranged.readStemBytes(stems[0].stemId)
@@ -931,26 +931,28 @@ function testManifestFlacValidation(): void {
     durationSec: 1,
     createdAt: 0,
   }
+  const allStemsFlac = STEM_IDS.map((id) => ({ id, file: `${id}.flac` }))
+  const allStemsWav = STEM_IDS.map((id) => ({ id, file: `${id}.wav` }))
   // codec=flac 但条目为 .wav → 不合法
   const bad = parseStemsManifest(
-    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'flac', stems: [{ id: 'drums', file: 'drums.wav' }] }),
+    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'flac', stems: allStemsWav }),
   )
   assert.equal(bad, null, 'flac 包条目应为 .flac')
   // 合法 flac 包
   const good = parseStemsManifest(
-    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'flac', stems: [{ id: 'drums', file: 'drums.flac' }] }),
+    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'flac', stems: allStemsFlac }),
   )
   assert.ok(good, '合法 flac 包应通过')
   assert.equal(good?.codec, 'flac')
   // 非法 codec 值 → 按缺失处理为 wav（不整体拒绝）
   const unknownCodec = parseStemsManifest(
-    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'opus', stems: [{ id: 'drums', file: 'drums.wav' }] }),
+    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'opus', stems: allStemsWav }),
   )
   assert.ok(unknownCodec, '未知 codec 按缺失处理')
   assert.equal(unknownCodec?.codec, 'wav')
   // 旧版无 codec → 缺省 wav
   const legacy = parseStemsManifest(
-    JSON.stringify({ ...base, version: 4, stems: [{ id: 'drums', file: 'drums.wav' }] }),
+    JSON.stringify({ ...base, version: 4, stems: allStemsWav }),
   )
   assert.ok(legacy)
   assert.equal(legacy?.codec, 'wav', '旧包缺省 wav')
