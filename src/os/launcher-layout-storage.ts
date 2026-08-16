@@ -155,6 +155,7 @@ function readLauncherLayout(): LauncherLayoutState {
       : legacyPinnedDockAppIds ?? getDefaultPinnedDockItemIds()
 
     let desktopPages: DesktopItemId[][]
+    let pagesRepaired = false
     if (
       Array.isArray(parsed.desktopPages) &&
       parsed.desktopPages.every((page) => Array.isArray(page))
@@ -162,6 +163,14 @@ function readLauncherLayout(): LauncherLayoutState {
       desktopPages = parsed.desktopPages.map((page) =>
         page.filter((id): id is DesktopItemId => typeof id === 'string'),
       )
+      // 自愈损坏形状：历史 bug 会把布局拆成「每页 ≤1 个图标」的超多页，重新分页。
+      if (
+        desktopPages.length > 1 &&
+        desktopPages.every((page) => page.length <= 1)
+      ) {
+        desktopPages = chunkOrderForMigration(desktopPages.flat())
+        pagesRepaired = true
+      }
     } else {
       let desktopIconOrder: DesktopItemId[] = []
       if (Array.isArray(parsed.desktopIconOrder)) {
@@ -199,7 +208,7 @@ function readLauncherLayout(): LauncherLayoutState {
       pinnedDockItemIds.length !== storedPinnedDockItemIds.length ||
       legacyPinnedDockAppIds !== undefined
 
-    if (pinsMigrated) {
+    if (pinsMigrated || pagesRepaired) {
       writeLauncherLayout(state)
     }
 

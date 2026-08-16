@@ -846,13 +846,17 @@ export function Desktop() {
       return
     }
 
+    const gridReady = pagerSize.width > 0 && pagerSize.height > 0
     const reconciledFolders = reconcileDesktopFolders(desktopFolders, persistableVisibleAppIds)
     const reconciledPages = reconcileDesktopPages(
       desktopPages,
       persistableVisibleAppIds,
       reconciledFolders,
     )
-    const capacityEnforced = enforcePageCapacity(reconciledPages, gridMetrics.iconsPerPage)
+    // 网格未就绪时 iconsPerPage 会退化为 1，此时拆分会把布局拆散并写回，必须跳过。
+    const capacityEnforced = gridReady
+      ? enforcePageCapacity(reconciledPages, gridMetrics.iconsPerPage)
+      : reconciledPages
 
     const foldersChanged =
       JSON.stringify(reconciledFolders) !== JSON.stringify(desktopFolders)
@@ -865,6 +869,8 @@ export function Desktop() {
     desktopFolders,
     desktopPages,
     gridMetrics.iconsPerPage,
+    pagerSize.width,
+    pagerSize.height,
     reorderSession,
     syncDesktopLayout,
     persistableVisibleAppIds,
