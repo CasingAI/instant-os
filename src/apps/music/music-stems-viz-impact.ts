@@ -5,7 +5,7 @@
 import type { StemId } from '../stems/stems-types.ts'
 import { STEM_COLORS } from '../stems/stems-types.ts'
 import type { StemVizSample } from './music-stems-features.ts'
-import { beatPulse, beatWave, clamp, decay, meanEnergy, onsetPulse, rgb, rgbArr, stemColor, withAlpha, MUSIC_ACCENT, paintBackground } from './music-stems-viz-math.ts'
+import { beatPulse, clamp, decay, meanEnergy, onsetPulse, rgb, rgbArr, stemColor, withAlpha, MUSIC_ACCENT, paintBackground } from './music-stems-viz-math.ts'
 
 type Ripple = { life: number; maxLife: number; strength: number; kind: 'kick' | 'beat' | 'bass' }
 type P = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string }

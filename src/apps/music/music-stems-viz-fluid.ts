@@ -4,7 +4,7 @@
 import type { StemId } from '../stems/stems-types.ts'
 import { STEM_IDS } from '../stems/stems-types.ts'
 import type { StemVizSample } from './music-stems-features.ts'
-import { beatPulse, beatWave, decay, meanEnergy, onsetPulse, rgb, rgbArr, stemColor, MUSIC_ACCENT } from './music-stems-viz-math.ts'
+import { beatPulse, decay, meanEnergy, onsetPulse, rgb, rgbArr, stemColor, MUSIC_ACCENT } from './music-stems-viz-math.ts'
 
 export type FluidDrawState = {
   kickLevel: number; time: number

@@ -486,6 +486,7 @@ function injectFsStreams(params: {
         await state.writer.write(bytes)
         state.written = next
       }
+      return context.undefined
     }),
   )
   context.setProp(context.global, HOST_FS_WRITE_CHUNK_KEY, writeChunk)

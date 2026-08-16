@@ -275,68 +275,6 @@ export function createQuickJsAsyncBridge(
     hostTasks.length = 0
   }
 
-  const heapValueHandle = (ptr: number): QuickJSHandle =>
-    (context as unknown as { memory: { heapValueHandle: (p: number) => QuickJSHandle } }).memory
-      .heapValueHandle(ptr)
-
-  const createHostErrorHandle = (error: unknown): QuickJSHandle => {
-    const message = error instanceof Error ? error.message : String(error)
-    try {
-      return context.newError(message)
-    } catch {
-      // wasm 已损坏时 newError 也可能崩；退回纯字符串句柄
-      return context.newString(`[QuickJS host error] ${message}`)
-    }
-  }
-
-  /**
-   * 复刻 vendor `callFunction`（QTS_Call），但走挂起感知路径：
-   * 调用后 `Asyncify.Qa` 变化说明回调内发生了 asyncified（`*Sync`）挂起，
-   * 注册 whenDone 等 rewind 完成再结算，避免 raw export 重入破坏 asyncify 状态。
-   */
-  const callFunctionSuspensionAware = async (
-    fnHandle: QuickJSHandle,
-    thisHandle: QuickJSHandle,
-    ...argHandles: QuickJSHandle[]
-  ): Promise<{ error: QuickJSHandle } | { value: QuickJSHandle }> => {
-    const rt = internals()
-    const args = argHandles
-    const argvLifetime = rt.memory.toPointerArray(args)
-    try {
-      const prevData = rt.module.Asyncify.Qa
-      let resultPtr: number
-      try {
-        resultPtr = rt.module._QTS_Call(
-          context.value,
-          fnHandle.value,
-          thisHandle.value,
-          args.length,
-          argvLifetime.value.ptr,
-        )
-      } catch (error) {
-        return {
-          error: createHostErrorHandle(error),
-        }
-      }
-      if (rt.module.Asyncify.Qa !== prevData) {
-        resultPtr = await new Promise<number>((resolve, reject) => {
-          rt.module.Asyncify.Wa = {
-            resolve: (rewound) => resolve(rewound as number),
-            reject: (error) => reject(error),
-          }
-        })
-      }
-      const errorPtr = rt.ffi.QTS_ResolveException(context.value, resultPtr)
-      if (errorPtr) {
-        rt.ffi.QTS_FreeValuePointer(context.value, resultPtr)
-        return { error: heapValueHandle(errorPtr) }
-      }
-      return { value: heapValueHandle(resultPtr) }
-    } finally {
-      argvLifetime.dispose()
-    }
-  }
-
   const runGuestCallback = async (
     fnHandle: QuickJSHandle,
     argHandles: QuickJSHandle[] = [],
@@ -382,9 +320,12 @@ export function createQuickJsAsyncBridge(
    * 复刻 vendor `executePendingJobs` 的结果结算（ctxPtrOut / 异常包装），
    * 但 raw export 调用本身走挂起感知路径（见 {@link executePendingJobsSuspensionAware}）。
    */
-  const finishPendingJob = (valuePtr: number, ctxPtrOut: { dispose: () => void }): void => {
+  const finishPendingJob = (
+    valuePtr: number,
+    ctxPtrOut: { value: { typedArray: Int32Array }; dispose: () => void },
+  ): void => {
     const rt = internals()
-    const ctxPtr = (ctxPtrOut as { value: { typedArray: Int32Array } }).value.typedArray[0]
+    const ctxPtr = ctxPtrOut.value.typedArray[0]
     ctxPtrOut.dispose()
     if (ctxPtr === 0) {
       rt.ffi.QTS_FreeValuePointerRuntime(rt.rt.value, valuePtr)
@@ -429,7 +370,7 @@ export function createQuickJsAsyncBridge(
       return
     }
     if (rt.module.Asyncify.Qa !== prevData) {
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve) => {
         rt.module.Asyncify.Wa = {
           resolve: (rewound) => {
             finishPendingJob(rewound as number, ctxPtrOut)

@@ -3,7 +3,7 @@
  * 简易透视 3D 太阳系
  */
 import type { StemId } from '../stems/stems-types.ts'
-import { STEM_COLORS, STEM_IDS } from '../stems/stems-types.ts'
+import { STEM_COLORS } from '../stems/stems-types.ts'
 import type { StemVizSample } from './music-stems-features.ts'
 import { beatPulse, decay, meanEnergy, onsetPulse, rgbArr, stemColor, MUSIC_ACCENT } from './music-stems-viz-math.ts'
 

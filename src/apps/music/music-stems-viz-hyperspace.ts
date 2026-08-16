@@ -2,7 +2,6 @@
  * 分轨可视化 · 穿梭
  * 星场光速跳跃：粒子星从中心喷射，kick 加速+闪白。
  */
-import type { StemId } from '../stems/stems-types.ts'
 import { STEM_COLORS, STEM_IDS } from '../stems/stems-types.ts'
 import type { StemVizSample } from './music-stems-features.ts'
 import { beatPulse, clamp, decay, meanEnergy, onsetPulse, rgbArr, stemColor, withAlpha, MUSIC_ACCENT } from './music-stems-viz-math.ts'

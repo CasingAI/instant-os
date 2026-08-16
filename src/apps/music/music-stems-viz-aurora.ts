@@ -1,7 +1,6 @@
 /**
  * 分轨可视化 · 极光
  */
-import type { StemId } from '../stems/stems-types.ts'
 import { STEM_IDS } from '../stems/stems-types.ts'
 import type { StemVizSample } from './music-stems-features.ts'
 import { beatPulse, decay, meanEnergy, onsetPulse, rgbArr, stemColor, MUSIC_ACCENT } from './music-stems-viz-math.ts'

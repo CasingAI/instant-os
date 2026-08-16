@@ -5,7 +5,7 @@
 import type { StemId } from '../stems/stems-types.ts'
 import { STEM_IDS } from '../stems/stems-types.ts'
 import type { StemVizSample } from './music-stems-features.ts'
-import { beatPulse, clamp, decay, hslToRgb, meanEnergy, onsetPulse, MUSIC_ACCENT } from './music-stems-viz-math.ts'
+import { beatPulse, clamp, decay, hslToRgb, meanEnergy, onsetPulse } from './music-stems-viz-math.ts'
 
 export type PlasmaDrawState = {
   kickLevel: number; time: number; hueShift: number; smoothE: Record<StemId, number>
