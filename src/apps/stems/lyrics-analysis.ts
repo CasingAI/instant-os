@@ -31,6 +31,7 @@ export type ManualActionKey =
   | 'rerun-line'
   | 'zip-rerun'
   | 'ctc-align'
+  | 'slow-recognize'
 
 /** 手动修复动作中文名（抽屉 ACTION_LABELS 的单一来源，drawer 引用此处） */
 export const MANUAL_ACTION_LABELS: Record<ManualActionKey, string> = {
@@ -41,6 +42,7 @@ export const MANUAL_ACTION_LABELS: Record<ManualActionKey, string> = {
   'rerun-line': '重识别这一行',
   'zip-rerun': 'Zipformer 识别这一行',
   'ctc-align': 'Zipformer CTC 强制对齐',
+  'slow-recognize': '放慢重识别',
 }
 
 /**

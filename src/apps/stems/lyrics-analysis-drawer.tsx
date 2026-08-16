@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { formatLrcTimestamp, isPunctuationOnly } from '../align/align-lrc.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
 import type { AlignedUnit } from '../align/align-types.ts'
@@ -20,6 +21,7 @@ import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
 import type { ZipformerAlignLine, ZipformerProgress } from '../align/zipformer-worker.ts'
 import type { LyricsLine, LyricsWord } from '../music/music-lyrics.ts'
+import { clampStretchRate, timeStretchAudio, type StretchMethod } from './lyrics-time-stretch.ts'
 import {
   alignLineByLineTimes,
   alignLineFree,
@@ -220,6 +222,11 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
   const [recognizedCopyState, setRecognizedCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [allLinesCopyState, setAllLinesCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const asyncSeqRef = useRef(0)
+
+  // 放慢重识别实验参数：跨聚焦行保留，不随行切换重置
+  const [stretchRate, setStretchRate] = useState(0.7)
+  const [stretchMethod, setStretchMethod] = useState<StretchMethod>('wsola')
+  const [stretchModel, setStretchModel] = useState<AlignModel>(alignModel)
 
   // 切换聚焦行/关闭时清空预览与在途任务状态
   useEffect(() => {
@@ -513,6 +520,88 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     }
   }, [vocalsAudio, sampleRate, focusLine, focusWindow, karaokeLines, lineTimes, phonemes])
 
+  // —— 异步动作：放慢后重识别这一行 ——
+  // 先保调放慢（rate<1，WSOLA / Phase Vocoder 二选一），把快嘴拉回模型训练分布，
+  // 再用所选模型识别；识别段时间戳从放慢轴映射回原轴（× rate）再加窗口偏移回全局轴。
+  const handleSlowRecognize = useCallback(async () => {
+    if (!vocalsAudio || sampleRate <= 0 || focusLine === null || focusWindow === null) return
+    const lineText = karaokeLines[focusLine]?.text
+    if (!lineText) return
+    const a = Math.floor(focusWindow.startSec * sampleRate) * STEM_CHANNELS
+    const b = Math.min(vocalsAudio.length, Math.ceil(focusWindow.endSec * sampleRate) * STEM_CHANNELS)
+    if (a >= b) {
+      setAsyncError('行窗口切片为空，无法识别')
+      return
+    }
+    const slice = vocalsAudio.slice(a, b)
+    const rate = clampStretchRate(stretchRate)
+    const stretched = timeStretchAudio(slice, sampleRate, rate, stretchMethod)
+    const seq = ++asyncSeqRef.current
+    setAsyncBusy('slow-recognize')
+    setAsyncError(null)
+    setAsyncProgress(null)
+    setAsyncText(null)
+    setAppliedKey(null)
+    setPreview(null)
+    try {
+      const modelId = stretchModel === 'zipformer' ? 'align-zipformer' : 'align-sense-voice'
+      const { segments, text } = await enqueueAiTask<
+        ZipformerProgress | SenseVoiceProgress,
+        { segments: HypSegment[]; text: string }
+      >(
+        modelId,
+        { type: 'recognize', audio: stretched, sampleRate },
+        {
+          route: (msg) => {
+            if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
+              return { action: 'continue' }
+            }
+            if (msg.kind === 'progress') {
+              setAsyncProgress({ chunk: msg.chunk, total: msg.total })
+              return { action: 'continue' }
+            }
+            if (msg.kind === 'done') {
+              return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+            }
+            if (msg.kind === 'error') {
+              return { action: 'reject', error: new Error(msg.message) }
+            }
+            return { action: 'reject', error: new Error('识别服务返回未知消息') }
+          },
+        },
+      )
+      if (seq !== asyncSeqRef.current) return
+      setAsyncText(text)
+      // 放慢轴时间戳 → 原轴（× rate）→ 全局轴（+ 窗口起点）
+      const offset = focusWindow.startSec
+      const shifted = segments.map((s) => ({
+        ...s,
+        start: s.start * rate + offset,
+        end: s.end * rate + offset,
+      }))
+      const startMs = lineTimes[focusLine] ?? Math.round(focusWindow.startSec * 1000)
+      const line = alignLineByLineTimes(shifted, lineText, startMs, lineTimes[focusLine + 1])
+      const trace = buildLineMappedTrace(
+        shifted,
+        lineText,
+        startMs / 1000,
+        (lineTimes[focusLine + 1] ?? startMs) / 1000,
+        focusWindow,
+      )
+      setPreview({
+        key: 'slow-recognize',
+        line,
+        note: `${stretchMethod === 'wsola' ? 'WSOLA' : 'Phase Vocoder'} 放慢 ${Math.round(rate * 100)}% 后用 ${stretchModel === 'zipformer' ? 'Zipformer' : 'SenseVoice'} 重识别（时间戳已映射回原轴）`,
+        trace,
+      })
+    } catch (cause) {
+      if (seq !== asyncSeqRef.current) return
+      setAsyncError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      if (seq === asyncSeqRef.current) setAsyncBusy(null)
+    }
+  }, [vocalsAudio, sampleRate, focusLine, focusWindow, karaokeLines, lineTimes, stretchRate, stretchMethod, stretchModel])
+
   // 试听整行（当前行）
   const playWholeLine = useCallback(() => {
     if (!focusLineObj) return
@@ -622,13 +711,17 @@ function rescueReviewNote(
 
   const applyPreview = useCallback(() => {
     if (preview?.line?.words && preview.line.words.length > 0 && focusLine !== null) {
-      // rerun-line 跟随当前主模型；其余动作（含 zip-rerun / ctc-align）恒为 Zipformer
+      // rerun-line 跟随当前主模型；slow-recognize 带所选实验模型；其余动作恒为 Zipformer
       const source: LineSource =
-        preview.key === 'rerun-line' ? `manual-rerun-line:${alignModel}` : `manual-${preview.key}`
+        preview.key === 'rerun-line'
+          ? `manual-rerun-line:${alignModel}`
+          : preview.key === 'slow-recognize'
+            ? `manual-slow-recognize:${stretchModel}`
+            : `manual-${preview.key}`
       onApplyLine(focusLine, preview.line.words, source)
       setAppliedKey(preview.key)
     }
-  }, [preview, focusLine, onApplyLine, alignModel])
+  }, [preview, focusLine, onApplyLine, alignModel, stretchModel])
 
   if (!open) return null
 
@@ -753,6 +846,65 @@ function rescueReviewNote(
                 onClick={() => void handleCtcAlign()}
               />
             </div>
+          </section>
+
+          {/* 放慢重识别（实验）：先保调放慢再识别，对照快嘴 rap 的语速分布外问题 */}
+          <section class="stems__analysis-section">
+            <h4 class="stems__analysis-section-title">放慢重识别（实验）</h4>
+            <div class="stems__analysis-stretch-params">
+              <div class="stems__analysis-stretch-row">
+                <span class="stems__analysis-stretch-label">速度</span>
+                <SegmentedControl
+                  value={String(stretchRate)}
+                  items={[0.5, 0.6, 0.7, 0.8, 0.9].map((r) => ({
+                    id: String(r),
+                    label: `${Math.round(r * 100)}%`,
+                  }))}
+                  onChange={(id) => setStretchRate(Number(id))}
+                  ariaLabel="放慢速度"
+                />
+              </div>
+              <div class="stems__analysis-stretch-row">
+                <span class="stems__analysis-stretch-label">算法</span>
+                <SegmentedControl
+                  value={stretchMethod}
+                  items={[
+                    { id: 'wsola' as const, label: 'WSOLA' },
+                    { id: 'phase-vocoder' as const, label: 'Phase Vocoder' },
+                  ]}
+                  onChange={setStretchMethod}
+                  ariaLabel="放慢算法"
+                />
+              </div>
+              <div class="stems__analysis-stretch-row">
+                <span class="stems__analysis-stretch-label">模型</span>
+                <SegmentedControl
+                  value={stretchModel}
+                  items={[
+                    { id: 'sense-voice' as const, label: 'SenseVoice' },
+                    { id: 'zipformer' as const, label: 'Zipformer' },
+                  ]}
+                  onChange={setStretchModel}
+                  ariaLabel="识别模型"
+                />
+              </div>
+            </div>
+            <div class="stems__analysis-actions">
+              <IosButton
+                tone="primary"
+                disabled={busy || !vocalsAudio || focusLineObj === undefined}
+                onClick={() => void handleSlowRecognize()}
+              >
+                {asyncBusy === 'slow-recognize'
+                  ? asyncProgress
+                    ? `${Math.round((asyncProgress.chunk / asyncProgress.total) * 100)}%`
+                    : '处理中…'
+                  : '放慢并重识别'}
+              </IosButton>
+            </div>
+            <p class="stems__analysis-stretch-hint">
+              先保调放慢（音高不变）再识别：快嘴语速超出模型训练分布，放慢后拉回分布内；时间戳自动映射回原轴。放慢只用于识别，试听仍是原速。
+            </p>
           </section>
 
           {/* 识别文本（异步动作完成时展示模型听到了什么） */}
