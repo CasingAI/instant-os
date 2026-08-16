@@ -1,7 +1,7 @@
 /**
  * Debug 模式 env 预置播种：
  * - 仅当 dev 构建 + ?debug=1（isDebugMode）且钥匙串尚未配置任何账户时，
- *   把 VITE_DEBUG_OPENAI_*（默认 OpenCode Go / grok-4.5）写入钥匙串，
+ *   把 VITE_DEBUG_OPENAI_*（默认 OpenCode Go / deepseek-v4-flash）写入钥匙串，
  *   使钥匙串界面与实际生效的 AI 配置一致。
  * - 钥匙串已有配置时不做任何写入（钥匙串优先，忽略 Debug env）。
  * - 不触碰非 Debug 模式（isDebugMode 为 false 时直接返回）。
@@ -19,7 +19,7 @@ import {
 import { isDebugMode } from './debug-launch.ts'
 
 const DEBUG_PROVIDER_ID = 'opencode-go' as const
-const DEBUG_DEFAULT_MODEL = 'grok-4.5'
+const DEBUG_DEFAULT_MODEL = 'deepseek-v4-flash'
 
 /**
  * 钥匙串为空时，用 Debug env 预置配置播种钥匙串。

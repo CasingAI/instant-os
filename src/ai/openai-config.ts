@@ -34,7 +34,7 @@ const DEFAULT_MODEL = 'deepseek-v4-flash'
  */
 const DEBUG_DEFAULT_PROVIDER_ID: AiProviderId = 'opencode-go'
 const DEBUG_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
-const DEBUG_DEFAULT_MODEL = 'grok-4.5'
+const DEBUG_DEFAULT_MODEL = 'deepseek-v4-flash'
 
 /**
  * 优先级：overrides > 本机钥匙串 > env（Debug env 仅在钥匙串为空时经

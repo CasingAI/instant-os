@@ -16,5 +16,5 @@
 - 绕过初始化直接进桌面；每次启动都弹全局警告框，确认后才进桌面并执行 `cmd`，取消则清理 URL 参数回退正常流程。
 - 进桌面后通过 `openApp('terminal', { bootCommand })` 在系统终端执行 `cmd`。
 - env 预置配置（`.env` / `.env.example`）：`VITE_DEBUG_OPENAI_API_KEY/BASE_URL/MODEL/PROXY`。钥匙串未配置时这些值会作为默认值播种写入钥匙串（`src/os/debug-env-seed.ts`）；钥匙串已配置时以钥匙串为准，忽略 env。普通 `VITE_OPENAI_*` 仅在两者皆无时兜底。
-- 默认 provider `opencode-go`（`https://opencode.ai/zen/go/v1`，模型 `grok-4.5`），强制走代理。
+- 默认 provider `opencode-go`（`https://opencode.ai/zen/go/v1`，模型 `deepseek-v4-flash`），强制走代理。
 - 代理：`VITE_DEBUG_OPENAI_PROXY` 可取 `shared` / `off` / 自定义 Worker URL；未设置时沿用系统代理设置，若系统也未开启则兜底 Instant 共享代理。
