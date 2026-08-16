@@ -5,6 +5,7 @@ import {
   defaultProviderEntry,
   findAiProviderPreset,
   isCustomProvider,
+  isInstantFreeProvider,
   normalizeCustomModelCapabilities,
   providerRequiresProxy,
   resolveModelCapabilities,
@@ -307,7 +308,12 @@ export function AiProviderForm({
 
       {renderModelSection()}
 
-      {wideLayout ? (
+      {isInstantFreeProvider(entry.providerId) ? (
+        <div class={fieldClass}>
+          <span class={labelClass}>API Key</span>
+          <span class="settings__row-hint">免费额度，无需密钥</span>
+        </div>
+      ) : wideLayout ? (
         <SettingsInlineInputRow
           label="API Key"
           type="password"

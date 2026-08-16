@@ -325,4 +325,11 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '配置与消息保存在本机；打开「系统设置 → 账户」可管理模型供应商与 API Key。',
     ],
   },
+  welcome: {
+    version: '欢迎',
+    paragraphs: [
+      '欢迎应用在首次启动 Instant OS 时自动打开，介绍系统能力与快速入口。',
+      '可随时从启动台重新打开；关窗即完成引导，不影响正常使用。',
+    ],
+  },
 }

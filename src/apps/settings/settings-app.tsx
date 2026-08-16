@@ -85,6 +85,12 @@ import {
   consumePendingOpenSoundsView,
   OPEN_SETTINGS_SOUNDS_EVENT,
 } from '../../os/system-volume.ts'
+import {
+  consumePendingOpenSettingsAccountView,
+  consumePendingOpenSettingsDateTimeView,
+  OPEN_SETTINGS_ACCOUNT_EVENT,
+  OPEN_SETTINGS_DATE_TIME_EVENT,
+} from '../../os/settings-route-open.ts'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
 
@@ -204,6 +210,14 @@ export function SettingsApp() {
       consumePendingOpenSoundsView()
       setRoute({ view: 'sounds' })
     }
+    const handleOpenAccount = () => {
+      consumePendingOpenSettingsAccountView()
+      setRoute({ view: 'account' })
+    }
+    const handleOpenDateTime = () => {
+      consumePendingOpenSettingsDateTimeView()
+      setRoute({ view: 'date-time' })
+    }
 
     if (consumePendingOpenSettingsUsageView()) {
       setCacheRevision((value) => value + 1)
@@ -218,13 +232,25 @@ export function SettingsApp() {
       setRoute({ view: 'sounds' })
     }
 
+    if (consumePendingOpenSettingsAccountView()) {
+      setRoute({ view: 'account' })
+    }
+
+    if (consumePendingOpenSettingsDateTimeView()) {
+      setRoute({ view: 'date-time' })
+    }
+
     window.addEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
     window.addEventListener(OPEN_SETTINGS_PROXY_SERVER_EVENT, handleOpenProxyServer)
     window.addEventListener(OPEN_SETTINGS_SOUNDS_EVENT, handleOpenSounds)
+    window.addEventListener(OPEN_SETTINGS_ACCOUNT_EVENT, handleOpenAccount)
+    window.addEventListener(OPEN_SETTINGS_DATE_TIME_EVENT, handleOpenDateTime)
     return () => {
       window.removeEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
       window.removeEventListener(OPEN_SETTINGS_PROXY_SERVER_EVENT, handleOpenProxyServer)
       window.removeEventListener(OPEN_SETTINGS_SOUNDS_EVENT, handleOpenSounds)
+      window.removeEventListener(OPEN_SETTINGS_ACCOUNT_EVENT, handleOpenAccount)
+      window.removeEventListener(OPEN_SETTINGS_DATE_TIME_EVENT, handleOpenDateTime)
     }
   }, [])
 

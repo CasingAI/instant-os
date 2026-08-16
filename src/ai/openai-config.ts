@@ -1,5 +1,4 @@
 import { accountSettingsToOpenAiConfig, loadAccountSettings } from '../os/account-settings-storage.ts'
-import { isDebugMode } from '../os/debug-launch.ts'
 import { loadProxyServerSettings } from '../os/proxy-server-settings-storage.ts'
 import {
   getDefaultThinkingEnabled,
@@ -30,16 +29,7 @@ export type OpenAiConfig = {
 const DEFAULT_MODEL = 'deepseek-v4-flash'
 
 /**
- * Debug 模式（dev 构建 + ?debug=1）默认供应商：OpenCode Go 订阅入口。
- * 只要求用户在 env 里填 API Key，baseURL / 模型 / provider 均用以下默认值。
- */
-const DEBUG_DEFAULT_PROVIDER_ID: AiProviderId = 'opencode-go'
-const DEBUG_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
-const DEBUG_DEFAULT_MODEL = 'deepseek-v4-flash'
-
-/**
- * 优先级：overrides > 本机钥匙串 > env（Debug env 仅在钥匙串为空时经
- * seedDebugEnvAccountIfEmpty 播种，或作为兜底读取）。
+ * 优先级：overrides > 本机钥匙串 > env。
  */
 export { notifyOpenAiConfigChange, subscribeOpenAiConfig }
 
@@ -48,24 +38,10 @@ function readEnvConfig(): Partial<OpenAiConfig> {
   const baseURL = import.meta.env.VITE_OPENAI_BASE_URL?.trim()
   const defaultModel = import.meta.env.VITE_OPENAI_MODEL?.trim() || DEFAULT_MODEL
 
-  if (!isDebugMode()) {
-    return {
-      apiKey: apiKey || undefined,
-      baseURL: baseURL || undefined,
-      defaultModel,
-    }
-  }
-
-  // Debug 模式：预置 OpenCode Go；只需 VITE_DEBUG_OPENAI_API_KEY，其余用默认值
-  const debugApiKey = import.meta.env.VITE_DEBUG_OPENAI_API_KEY?.trim()
-  const debugBaseURL = import.meta.env.VITE_DEBUG_OPENAI_BASE_URL?.trim()
-  const debugModel = import.meta.env.VITE_DEBUG_OPENAI_MODEL?.trim()
-
   return {
-    apiKey: debugApiKey ?? apiKey,
-    baseURL: debugBaseURL ?? DEBUG_DEFAULT_BASE_URL,
-    defaultModel: debugModel || DEBUG_DEFAULT_MODEL,
-    providerId: DEBUG_DEFAULT_PROVIDER_ID,
+    apiKey: apiKey || undefined,
+    baseURL: baseURL || undefined,
+    defaultModel,
   }
 }
 
@@ -141,13 +117,6 @@ export function hasOpenAiApiKey(): boolean {
     // 免费额度网关不需要用户自带 key
     return true
   }
-  if (isDebugMode()) {
-    // Debug 模式：Debug env 或普通 env 有 key 即视为已配置（无需初始化向导）
-    return Boolean(
-      import.meta.env.VITE_DEBUG_OPENAI_API_KEY?.trim() ||
-        import.meta.env.VITE_OPENAI_API_KEY?.trim(),
-    )
-  }
   const settings = loadAccountSettings()
   if (settings && settings.providers.length > 0) {
     const preferred =
@@ -163,9 +132,6 @@ export function readDefaultModelId(capability: AiModelCapability = 'text'): stri
   if (isInstantFreeProxy()) {
     // 免费额度网关仅放行白名单便宜模型
     return DEFAULT_MODEL
-  }
-  if (isDebugMode()) {
-    return import.meta.env.VITE_DEBUG_OPENAI_MODEL?.trim() || DEBUG_DEFAULT_MODEL
   }
   const settings = loadAccountSettings()
   if (settings && settings.providers.length > 0) {

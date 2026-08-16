@@ -45,6 +45,7 @@ import { MusicApp } from '../apps/music/music-app.tsx'
 import { StemsApp } from '../apps/stems/stems-app.tsx'
 import { SrmlDemoApp } from '../apps/srml-demo/srml-app.tsx'
 import { LlmPlaygroundApp } from '../apps/llm-playground/llm-playground-app.tsx'
+import { WelcomeApp } from '../apps/welcome/welcome-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
@@ -393,6 +394,14 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: true,
     desktop: true,
   }),
+  withAbout({
+    id: 'welcome',
+    name: BUILTIN_APP_DISPLAY_NAMES['welcome'],
+    icon: InstantLogoIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: string }>> = {
@@ -442,6 +451,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'ui-kit': UiKitApp,
   'srml-demo': SrmlDemoApp,
   'llm-playground': LlmPlaygroundApp,
+  welcome: WelcomeApp,
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {

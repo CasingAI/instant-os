@@ -38,6 +38,7 @@ import {
   findAiModelPreset,
   findAiProviderPreset,
   isCustomProvider,
+  isInstantFreeProvider,
   isProviderEntryValid,
   listEnabledModelsForCapability,
   matchPricingModelKey,
@@ -754,6 +755,15 @@ export function KeychainApp() {
     const provider = workingProviders[editingProviderIndex]
     const displayName = getProviderDisplayName(provider)
 
+    if (isInstantFreeProvider(provider.providerId)) {
+      await modal.confirm({
+        title: '无法删除',
+        message: '「Instant 免费额度」是内置供应商，不可删除。',
+        confirmLabel: '知道了',
+      })
+      return
+    }
+
     const confirmed = await modal.confirm({
       title: '删除供应商',
       message: `确定要删除「${displayName}」吗？该供应商的所有配置将被移除。`,
@@ -946,7 +956,10 @@ export function KeychainApp() {
           editingEntry ?? workingProviders[editingProviderIndex],
         ) || '供应商'
       const showSave = isAddingProvider || providerFormDirty
-      const showDelete = !isAddingProvider && !providerFormDirty
+      const showDelete =
+        !isAddingProvider &&
+        !providerFormDirty &&
+        !isInstantFreeProvider(editingEntry?.providerId)
       const fieldMeta = fieldDialog ? FIELD_EDIT_META[fieldDialog] : undefined
       const fieldValue =
         editingEntry && fieldDialog
@@ -1012,6 +1025,9 @@ export function KeychainApp() {
                 onOpenModel={handleOpenModelSettings}
                 onAddModel={handleOpenAddModel}
                 onOpenFieldEdit={handleOpenFieldDialog}
+                existingProviderIds={workingProviders
+                  .filter((_, index) => index !== editingProviderIndex)
+                  .map((provider) => provider.providerId)}
               />
             )}
           </section>
@@ -1484,6 +1500,7 @@ function ProviderSettingsForm({
   onOpenModel,
   onAddModel,
   onOpenFieldEdit,
+  existingProviderIds,
 }: {
   entry: AiProviderEntry
   wideLayout: boolean
@@ -1491,14 +1508,22 @@ function ProviderSettingsForm({
   onOpenModel: (modelId: string) => void
   onAddModel: () => void
   onOpenFieldEdit: (field: FieldEditTarget) => void
+  /** 当前编辑条目之外的已存在 providerId；用于添加时隐藏已存在的 instant-free */
+  existingProviderIds: readonly string[]
 }) {
   const isCustom = isCustomProvider(entry.providerId)
+  const isFree = isInstantFreeProvider(entry.providerId)
   const preset = findAiProviderPreset(entry.providerId)
   const modelRows = listProviderModelRows(entry)
   const providerLabel = preset?.name ?? entry.providerId
   const nameValue = entry.name?.trim() || '可选'
   const baseUrlValue = entry.baseURL?.trim() || '未设置'
   const apiKeyConfigured = entry.apiKey.length > 0
+  const providerOptions = isFree
+    ? PROVIDER_OPTIONS
+    : PROVIDER_OPTIONS.filter(
+        (option) => option.id !== 'instant-free' || !existingProviderIds.includes('instant-free'),
+      )
 
   const handleProviderChange = (value: string) => {
     const providerId = value as AiProviderId
@@ -1523,7 +1548,7 @@ function ProviderSettingsForm({
             label="供应商"
             value={entry.providerId}
             displayValue={providerLabel}
-            options={PROVIDER_OPTIONS}
+            options={providerOptions}
             onChange={(value) => handleProviderChange(value)}
             wideLayout
             presentation="list"
@@ -1550,13 +1575,20 @@ function ProviderSettingsForm({
                   }
                 />
               )}
-              <SettingsInlineInputRow
-                label="API Key"
-                type="password"
-                value={entry.apiKey}
-                placeholder="sk-..."
-                onChange={(apiKey) => onChange({ ...entry, apiKey })}
-              />
+              {isFree ? (
+                <div class="settings__row settings__row--static">
+                  <span class="settings__row-name">API Key</span>
+                  <span class="settings__row-hint">免费额度，无需密钥</span>
+                </div>
+              ) : (
+                <SettingsInlineInputRow
+                  label="API Key"
+                  type="password"
+                  value={entry.apiKey}
+                  placeholder="sk-..."
+                  onChange={(apiKey) => onChange({ ...entry, apiKey })}
+                />
+              )}
             </>
           ) : (
             <>
@@ -1572,14 +1604,21 @@ function ProviderSettingsForm({
                   onClick={() => onOpenFieldEdit('baseURL')}
                 />
               )}
-              <SettingsNavRow
-                label="API Key"
-                value={apiKeyConfigured ? '已配置' : '未配置'}
-                secretLength={
-                  apiKeyConfigured ? entry.apiKey.length : undefined
-                }
-                onClick={() => onOpenFieldEdit('apiKey')}
-              />
+              {isFree ? (
+                <div class="settings__row settings__row--static">
+                  <span class="settings__row-name">API Key</span>
+                  <span class="settings__row-hint">免费额度，无需密钥</span>
+                </div>
+              ) : (
+                <SettingsNavRow
+                  label="API Key"
+                  value={apiKeyConfigured ? '已配置' : '未配置'}
+                  secretLength={
+                    apiKeyConfigured ? entry.apiKey.length : undefined
+                  }
+                  onClick={() => onOpenFieldEdit('apiKey')}
+                />
+              )}
             </>
           )}
         </div>

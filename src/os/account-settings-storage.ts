@@ -103,6 +103,7 @@ function normalizeProviderId(value: unknown): AiProviderId {
     value === 'ark-coding-plan' ||
     value === 'ark-agent-plan' ||
     value === 'opencode-go' ||
+    value === 'instant-free' ||
     value === 'custom'
   ) {
     return value

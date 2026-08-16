@@ -1,6 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 import { osOpenApp } from './os-open-app-bridge.ts'
-import { isDebugMode } from './debug-launch.ts'
 
 /**
  * 与 virtual-chromo 宿主 CORS relay 约定一致：`{base}/-----{absoluteTargetUrl}`。
@@ -13,9 +12,10 @@ export const PROXY_SERVER_SHARED_ORIGIN = 'https://virtual-chromo.r6sg.workers.d
 
 /**
  * Instant 免费额度网关（Instant-demo-api Worker）。
- * 与虚拟 chrome 共享同一子域模式（r6sg），已部署。
+ * 部署后把 wrangler deploy 输出的地址替换到这里。
+ * 未部署前为占位地址，探测会失败并在设置页给出提示。
  */
-export const PROXY_SERVER_FREE_ORIGIN = 'https://instant-demo-api.r6sg.workers.dev'
+export const PROXY_SERVER_FREE_ORIGIN = 'https://instant-demo-api.example.workers.dev'
 
 export type ProxyServerPresetId = 'off' | 'shared' | 'custom' | 'instant-free'
 
@@ -43,7 +43,7 @@ const LEGACY_STORAGE_KEY = 'instant-os-network-settings'
 
 const DEFAULT_SETTINGS: ProxyServerSettings = {
   version: 2,
-  preset: 'off',
+  preset: 'instant-free',
   customProxyBaseUrl: '',
   connected: false,
 }
@@ -79,32 +79,7 @@ function resolveStoredProxyBaseUrl(settings: ProxyServerSettings): string | unde
   return normalizeProxyBaseUrl(settings.customProxyBaseUrl) || undefined
 }
 
-/**
- * Debug 模式下的代理解析：优先看 env `VITE_DEBUG_OPENAI_PROXY`（不写 localStorage）。
- * - `off` / `0` / `false`：显式关闭，返回 undefined
- * - `shared` / `on` / `1` / `true`：使用「Instant 共享」
- * - 其他值：视为自定义 Worker URL（无效时兜底「Instant 共享」）
- * - env 未设置：沿用已保存设置；未开启/无效时兜底「Instant 共享」
- *   （Debug 默认走 OpenCode Go，强制经代理，需保证有可用的 Worker origin）
- */
-function resolveDebugProxyBaseUrl(settings: ProxyServerSettings): string | undefined {
-  const raw = import.meta.env.VITE_DEBUG_OPENAI_PROXY?.trim()
-  if (raw !== undefined && raw !== '') {
-    if (raw === 'off' || raw === '0' || raw === 'false') {
-      return undefined
-    }
-    if (raw === 'shared' || raw === 'on' || raw === '1' || raw === 'true') {
-      return PROXY_SERVER_SHARED_ORIGIN
-    }
-    return normalizeProxyBaseUrl(raw) || PROXY_SERVER_SHARED_ORIGIN
-  }
-  return resolveStoredProxyBaseUrl(settings) ?? PROXY_SERVER_SHARED_ORIGIN
-}
-
 export function resolveProxyBaseUrl(settings: ProxyServerSettings = loadProxyServerSettings()): string | undefined {
-  if (isDebugMode()) {
-    return resolveDebugProxyBaseUrl(settings)
-  }
   return resolveStoredProxyBaseUrl(settings)
 }
 

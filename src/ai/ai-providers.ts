@@ -5,6 +5,7 @@ import {
   type ModelPricingEntry,
 } from './ai-model-pricing-cache.ts'
 import { getOpenRouterPricing } from './openrouter-pricing-cache.ts'
+import { INSTANT_FREE_PROVIDER_BASE_URL } from './instant-free-gateway.ts'
 
 /** 本地词表族（与 /assets/tokenizers 目录对应） */
 export const AI_TOKENIZER_FAMILIES = [
@@ -117,6 +118,7 @@ export type AiProviderId =
   | 'ark-coding-plan'
   | 'ark-agent-plan'
   | 'opencode-go'
+  | 'instant-free'
   | 'custom'
 
 /**
@@ -825,6 +827,27 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     defaultModel: 'mimo-v2.5',
   },
   {
+    id: 'instant-free',
+    name: 'Instant 免费额度',
+    // 经 PoW 网关转发到 OpenCode Go；POST 前客户端完成 Proof-of-Work，网关用自己的 key 转发
+    baseURL: INSTANT_FREE_PROVIDER_BASE_URL,
+    models: [
+      {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+        pricing: {
+          inputPricePerMillion: 0.14,
+          outputPricePerMillion: 0.28,
+          currency: 'USD',
+        },
+      },
+    ],
+    defaultModel: 'deepseek-v4-flash',
+  },
+  {
     id: 'custom',
     name: '自定义',
     baseURL: '',
@@ -1481,6 +1504,11 @@ export function isOpencodeGoProvider(providerId: AiProviderId | undefined): bool
   return providerId === 'opencode-go'
 }
 
+/** Instant 免费额度网关 Provider（经 PoW 代理，无需用户自带 key） */
+export function isInstantFreeProvider(providerId: AiProviderId | undefined): boolean {
+  return providerId === 'instant-free'
+}
+
 /** 内置供应商（非 custom）；用于定价键解析等 */
 export function isBuiltinProviderId(
   providerId: string,
@@ -1492,13 +1520,18 @@ export function isBuiltinProviderId(
     providerId === 'mimo-token-plan' ||
     providerId === 'ark-coding-plan' ||
     providerId === 'ark-agent-plan' ||
-    providerId === 'opencode-go'
+    providerId === 'opencode-go' ||
+    providerId === 'instant-free'
   )
 }
 
-/** 必须经代理服务器访问的供应商（浏览器直连会因 CORS / 网络策略失败） */
+/** 必须经代理访问的供应商（浏览器直连会因 CORS / 网络策略失败） */
 export function providerRequiresProxy(providerId: AiProviderId | undefined): boolean {
-  return isArkPlanProvider(providerId) || isOpencodeGoProvider(providerId)
+  return (
+    isArkPlanProvider(providerId) ||
+    isOpencodeGoProvider(providerId) ||
+    isInstantFreeProvider(providerId)
+  )
 }
 
 export function normalizeStoredModel(providerId: AiProviderId, model: string): string {
@@ -1590,7 +1623,8 @@ export function defaultProviderEntry(
   return {
     id: generateProviderEntryId(),
     providerId,
-    apiKey: '',
+    // 免费额度网关不需要真实 key；占位值用于通过「已配置」校验
+    apiKey: isInstantFreeProvider(providerId) ? 'instant-free' : '',
     enabledModels: buildEnabledModelsFromPreset(providerId),
     defaultModel: preset?.defaultModel ?? '',
     thinkingEnabled: getDefaultThinkingEnabled(providerId),
@@ -1599,7 +1633,10 @@ export function defaultProviderEntry(
 }
 
 export function isProviderEntryValid(entry: AiProviderEntry): boolean {
-  const hasCredentials = Boolean(entry.apiKey.trim() && entry.defaultModel.trim())
+  // 免费额度网关免 key（占位符也可能被用户清空），其余字段照常校验
+  const hasCredentials =
+    isInstantFreeProvider(entry.providerId) ||
+    Boolean(entry.apiKey.trim() && entry.defaultModel.trim())
   const hasModels = entry.enabledModels.some(
     (model) => model.modelId.trim() === entry.defaultModel.trim(),
   )
