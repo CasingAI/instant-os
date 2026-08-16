@@ -61,6 +61,7 @@ export const DEVICE_STORAGE_KEYS = {
   musicVolume: 'instant-os-music-volume',
   systemVolume: 'instant-os-system-volume',
   llmPlayground: 'instant-os-llm-playground',
+  attunebench: 'instant-os-attunebench',
   welcomeSeen: 'instant-os-welcome-seen',
 } as const
 

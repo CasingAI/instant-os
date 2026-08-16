@@ -49,6 +49,10 @@ public/assets/zipformer-ctc-en/models/*.onnx
 # Fetch via: bash scripts/vendor-sense-voice.sh
 public/assets/sense-voice/models/
 
+# AttuneBench 评测数据集（~19 MB）— not committed to git.
+# Fetch via: bash scripts/vendor-attunebench.sh
+public/assets/attunebench/
+
 # ZCode agent session artifacts
 .zcode/
 

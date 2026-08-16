@@ -50,6 +50,7 @@ export const BUILTIN_APP_DISPLAY_NAMES: Record<BuiltinAppId, string> = {
   stems: '音乐实验室',
   'srml-demo': 'SRML 演示',
   'llm-playground': 'LLM Playground',
+  attunebench: '评测',
   welcome: '欢迎',
 }
 
@@ -100,5 +101,6 @@ export const BUILTIN_APP_CATALOG_ORDER: readonly BuiltinAppId[] = [
   'stems',
   'srml-demo',
   'llm-playground',
+  'attunebench',
   'welcome',
 ]

@@ -325,6 +325,14 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '配置与消息保存在本机；打开「系统设置 → 账户」可管理模型供应商与 API Key。',
     ],
   },
+  attunebench: {
+    version: 'AI 情商评测',
+    paragraphs: [
+      '评测 App 基于公开的 AttuneBench 基准（Thoughtful Lab，代码 MIT / 数据 CC BY 4.0），用真实多轮人机对话评测你账户中已配置的文本模型的情商（情绪智能）。',
+      '选择数据集（Sample20/25/50/100/200）、模型与运行模式后开始批量评测；每轮对话模型需要数十次 LLM 调用，可随时中断并从断点继续，全部完成后生成 0-100 综合评分报告。',
+      '评测数据按需从网络下载并缓存到本机，不随应用打包；评测请求会计入 AI 用量与事件日志。',
+    ],
+  },
   welcome: {
     version: '欢迎',
     paragraphs: [

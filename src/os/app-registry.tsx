@@ -45,6 +45,7 @@ import { MusicApp } from '../apps/music/music-app.tsx'
 import { StemsApp } from '../apps/stems/stems-app.tsx'
 import { SrmlDemoApp } from '../apps/srml-demo/srml-app.tsx'
 import { LlmPlaygroundApp } from '../apps/llm-playground/llm-playground-app.tsx'
+import { AttuneBenchApp } from '../apps/attunebench/attunebench-app.tsx'
 import { WelcomeApp } from '../apps/welcome/welcome-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
@@ -52,6 +53,7 @@ import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
 import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
+import { AttuneBenchIcon } from '../apps/attunebench/attunebench-icon.tsx'
 import { withAppIconDecoration } from '../icons/app-icon-decoration.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
@@ -395,6 +397,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: true,
   }),
   withAbout({
+    id: 'attunebench',
+    name: BUILTIN_APP_DISPLAY_NAMES['attunebench'],
+    icon: AttuneBenchIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
     id: 'welcome',
     name: BUILTIN_APP_DISPLAY_NAMES['welcome'],
     icon: InstantLogoIcon,
@@ -451,6 +460,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'ui-kit': UiKitApp,
   'srml-demo': SrmlDemoApp,
   'llm-playground': LlmPlaygroundApp,
+  attunebench: AttuneBenchApp,
   welcome: WelcomeApp,
 }
 
