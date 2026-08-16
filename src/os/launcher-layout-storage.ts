@@ -1,5 +1,5 @@
 import { APP_REGISTRY } from './app-registry.tsx'
-import { removeAppFromFolders } from './desktop-folder-operations.ts'
+import { getAppsInFolders, removeAppFromFolders } from './desktop-folder-operations.ts'
 import type { DesktopFolder, DesktopItemId } from './desktop-folder-types.ts'
 import { isDesktopFolderId } from './desktop-folder-types.ts'
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
@@ -196,6 +196,22 @@ function readLauncherLayout(): LauncherLayoutState {
             Array.isArray(folder.appIds),
         )
       : []
+
+    // 内置 App 无「隐藏」机制；注册表新增的内置 App 应自动补到桌面末尾，
+    // 否则已保存布局的老用户看不到新 App。
+    const folderApps = getAppsInFolders(desktopFolders)
+    const presentAppIds = new Set(
+      desktopPages.flat().filter((id): id is AppId => !isDesktopFolderId(id)),
+    )
+    const missingDesktopApps = getDefaultDesktopIconOrder().filter(
+      (appId) => !presentAppIds.has(appId) && !folderApps.has(appId),
+    )
+    if (missingDesktopApps.length > 0) {
+      if (desktopPages.length === 0) {
+        desktopPages = [[]]
+      }
+      desktopPages[desktopPages.length - 1].push(...missingDesktopApps)
+    }
 
     const pinnedDockItemIds = reconcilePinnedDockItemIds(storedPinnedDockItemIds, desktopFolders)
     const state: LauncherLayoutState = {
