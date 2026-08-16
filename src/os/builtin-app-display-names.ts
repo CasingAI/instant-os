@@ -50,8 +50,6 @@ export const BUILTIN_APP_DISPLAY_NAMES: Record<BuiltinAppId, string> = {
   stems: '音乐实验室',
   'srml-demo': 'SRML 演示',
   'llm-playground': 'LLM Playground',
-  'test-ribbon': '丝带测试',
-  'test-sleeve': '套子测试',
 }
 
 /** 目录枚举顺序（与历史 APP_REGISTRY 顺序一致，便于对照；catalog 最终仍会按 bundleName 排序）。 */
@@ -101,6 +99,4 @@ export const BUILTIN_APP_CATALOG_ORDER: readonly BuiltinAppId[] = [
   'stems',
   'srml-demo',
   'llm-playground',
-  'test-ribbon',
-  'test-sleeve',
 ]

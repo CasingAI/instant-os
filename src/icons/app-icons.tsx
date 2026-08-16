@@ -1711,25 +1711,3 @@ export function LlmPlaygroundIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
-
-/** 测试用 · 验证后删除：右上角丝带装饰的灰底占位图标 */
-export function TestRibbonIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#8e8e93" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        🎀
-      </span>
-    </AppIconTile>
-  )
-}
-
-/** 测试用 · 验证后删除：底部套子装饰的灰底占位图标 */
-export function TestSleeveIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#8e8e93" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        🧵
-      </span>
-    </AppIconTile>
-  )
-}

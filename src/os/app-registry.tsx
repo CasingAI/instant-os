@@ -50,7 +50,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, LlmPlaygroundIcon, TestRibbonIcon, TestSleeveIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
 import { withAppIconDecoration } from '../icons/app-icon-decoration.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
@@ -393,24 +393,6 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: true,
     desktop: true,
   }),
-  // 【测试用 · 验证后删除】图标右上角丝带装饰
-  withAbout({
-    id: 'test-ribbon',
-    name: BUILTIN_APP_DISPLAY_NAMES['test-ribbon'],
-    icon: TestRibbonIcon,
-    dock: true,
-    desktop: true,
-    iconDecoration: { ribbon: { label: 'BETA' } },
-  }),
-  // 【测试用 · 验证后删除】图标底部套子装饰
-  withAbout({
-    id: 'test-sleeve',
-    name: BUILTIN_APP_DISPLAY_NAMES['test-sleeve'],
-    icon: TestSleeveIcon,
-    dock: true,
-    desktop: true,
-    iconDecoration: { sleeve: { label: 'PRO' } },
-  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: string }>> = {
@@ -460,8 +442,6 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'ui-kit': UiKitApp,
   'srml-demo': SrmlDemoApp,
   'llm-playground': LlmPlaygroundApp,
-  'test-ribbon': PlaceholderApp('test-ribbon', '丝带测试'),
-  'test-sleeve': PlaceholderApp('test-sleeve', '套子测试'),
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {

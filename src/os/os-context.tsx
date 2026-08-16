@@ -143,8 +143,6 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   'ui-kit': { title: 'UI 组件库', width: 980, height: 700 },
   'srml-demo': { title: 'SRML 演示', width: 1040, height: 700 },
   'llm-playground': { title: 'LLM Playground', width: 1060, height: 720 },
-  'test-ribbon': { title: '丝带测试', width: 720, height: 540 },
-  'test-sleeve': { title: '套子测试', width: 720, height: 540 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {
