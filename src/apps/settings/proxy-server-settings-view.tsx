@@ -3,7 +3,6 @@ import { probeProxyServer, selectProxyServerPreset } from '../../os/proxy-server
 import {
   loadProxyServerSettings,
   normalizeProxyBaseUrl,
-  PROXY_SERVER_FREE_ORIGIN,
   PROXY_SERVER_PRESET_OPTIONS,
   PROXY_SERVER_SHARED_ORIGIN,
   resolveProxyBaseUrl,
@@ -34,9 +33,6 @@ function serverDisplayValue(preset: ProxyServerPresetId, customUrl: string): str
   }
   if (preset === 'shared') {
     return 'Instant 共享'
-  }
-  if (preset === 'instant-free') {
-    return 'Instant 免费额度'
   }
   const normalized = normalizeProxyBaseUrl(customUrl)
   if (!normalized) {
@@ -294,22 +290,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
                 </span>
               </div>
             )}
-            {preset === 'instant-free' && (
-              <div class="settings__row settings__row--static">
-                <span class="settings__row-name">地址</span>
-                <span class="settings__row-size" style={{ wordBreak: 'break-all' }}>
-                  {PROXY_SERVER_FREE_ORIGIN}
-                </span>
-              </div>
-            )}
           </div>
-
-          {preset === 'instant-free' && (
-            <p class="settings__section-subtitle">
-              免登录领取免费 AI 额度：每次 AI 请求前会在本地完成一次 Proof-of-Work
-              计算（约 1-2 秒），网关无状态验证后用自己的密钥转发。免费档仅支持文本输入与白名单内模型。
-            </p>
-          )}
 
           {preset !== 'off' && (
             <div class="settings__actions settings__actions--form settings__actions--stack">

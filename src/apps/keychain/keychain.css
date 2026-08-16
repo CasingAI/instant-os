@@ -427,6 +427,19 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+/* ── 模型行内免费徽标（OpenCode Zen 免费模型）── */
+
+.keychain-model-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.keychain-model-label .ai-model-free-badge {
+  flex-shrink: 0;
+}
+
 /* ── 模型列表（对齐 settings__list）── */
 
 .keychain__list {

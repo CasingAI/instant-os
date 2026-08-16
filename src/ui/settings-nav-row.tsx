@@ -1,9 +1,9 @@
-import type { Ref } from 'preact'
+import type { ComponentChildren, Ref } from 'preact'
 import { ForwardIcon } from '../icons/app-icons.tsx'
 import { settingsSecretMaskText } from './settings-secret-mask.ts'
 
 type SettingsNavRowProps = {
-  label: string
+  label: ComponentChildren
   value: string
   onClick: () => void
   disabled?: boolean

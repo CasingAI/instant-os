@@ -3,9 +3,11 @@ import {
   AI_PROVIDER_PRESETS,
   buildCustomModelCapabilities,
   defaultProviderEntry,
+  findAiModelPreset,
   findAiProviderPreset,
   isCustomProvider,
   isInstantFreeProvider,
+  isOpencodeZenProvider,
   normalizeCustomModelCapabilities,
   providerRequiresProxy,
   resolveModelCapabilities,
@@ -128,6 +130,7 @@ export function AiProviderForm({
       name: string
       enabled: boolean
       isFromPreset: boolean
+      free: boolean
       capabilities: readonly AiModelCapability[]
     }> = []
 
@@ -138,6 +141,7 @@ export function AiProviderForm({
           name: model.name,
           enabled: true,
           isFromPreset: false,
+          free: false,
           capabilities: normalizeCustomModelCapabilities(model.capabilities),
         })
       }
@@ -150,6 +154,7 @@ export function AiProviderForm({
           name: pm.name,
           enabled: entry.enabledModels.some((m) => m.modelId === pm.id),
           isFromPreset: true,
+          free: Boolean(pm.free),
           capabilities: resolveModelCapabilities(entry.providerId, pm.id),
         })
       }
@@ -160,6 +165,7 @@ export function AiProviderForm({
           name: em.name,
           enabled: true,
           isFromPreset: false,
+          free: Boolean(findAiModelPreset(entry.providerId, em.modelId)?.free),
           capabilities: normalizeCustomModelCapabilities(em.capabilities),
         })
       }
@@ -185,7 +191,12 @@ export function AiProviderForm({
                       onChange={() => handleModelToggle(row.modelId, row.name)}
                     />
                   )}
-                  <span class="ai-model-card__title">{row.name}</span>
+                  <span class="ai-model-card__title">
+                    {row.name}
+                  </span>
+                  {row.free && (
+                    <span class="ai-model-free-badge">免费</span>
+                  )}
                   {!row.isFromPreset && (
                     <div class="ai-model-card__actions">
                       <button
@@ -313,6 +324,40 @@ export function AiProviderForm({
           <span class={labelClass}>API Key</span>
           <span class="settings__row-hint">免费额度，无需密钥</span>
         </div>
+      ) : isOpencodeZenProvider(entry.providerId) ? (
+        wideLayout ? (
+          <>
+            <SettingsInlineInputRow
+              label="API Key"
+              type="password"
+              value={entry.apiKey}
+              placeholder="可选：免费模型可留空"
+              onChange={(apiKey) => onChange({ ...entry, apiKey })}
+            />
+            <div class={fieldClass}>
+              <span class="settings__row-hint">
+                免费模型（标「免费」）无需密钥；填写后解锁全部付费模型。
+              </span>
+            </div>
+          </>
+        ) : (
+          <div class={fieldClass}>
+            <span class={labelClass}>API Key</span>
+            <input
+              class={inputClass}
+              type="password"
+              value={entry.apiKey}
+              placeholder="可选：免费模型可留空"
+              autoComplete="off"
+              onInput={(event) =>
+                onChange({
+                  ...entry,
+                  apiKey: (event.currentTarget as HTMLInputElement).value,
+                })
+              }
+            />
+          </div>
+        )
       ) : wideLayout ? (
         <SettingsInlineInputRow
           label="API Key"

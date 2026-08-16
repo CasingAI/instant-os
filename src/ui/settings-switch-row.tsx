@@ -22,15 +22,13 @@ export function SettingsSwitchRow({
         disabled ? ' settings__row--switch-disabled' : ''
       }${detail ? ' settings__row--switch-with-detail' : ''}`}
     >
-      <div class="settings__row-switch-main">
-        <span class="settings__row-name">{label}</span>
-        <IosSwitch
-          checked={checked}
-          onChange={onChange}
-          label={label}
-          disabled={disabled}
-        />
-      </div>
+      <span class="settings__row-name">{label}</span>
+      <IosSwitch
+        checked={checked}
+        onChange={onChange}
+        label={label}
+        disabled={disabled}
+      />
       {detail ? <p class="settings__row-switch-detail">{detail}</p> : undefined}
     </div>
   )

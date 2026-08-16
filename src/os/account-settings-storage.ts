@@ -5,6 +5,7 @@ import {
   appendMissingPresetModels,
   defaultProviderEntry,
   isCustomProvider,
+  isOpencodeZenProvider,
   isProviderEntryValid,
   normalizeStoredModel,
   parseStoredModelCapabilities,
@@ -103,6 +104,7 @@ function normalizeProviderId(value: unknown): AiProviderId {
     value === 'ark-coding-plan' ||
     value === 'ark-agent-plan' ||
     value === 'opencode-go' ||
+    value === 'opencode-zen' ||
     value === 'instant-free' ||
     value === 'custom'
   ) {
@@ -185,7 +187,7 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
     }
   }
 
-  if (!apiKey) {
+  if (!apiKey && !isOpencodeZenProvider(providerId)) {
     return undefined
   }
 
@@ -346,29 +348,35 @@ function resolveAccountSettingsStorage(storage?: Storage): Storage {
 export function loadAccountSettings(storage?: Storage): AccountSettingsV2 | undefined {
   try {
     const raw = resolveAccountSettingsStorage(storage).getItem(STORAGE_KEY)
-    if (!raw) {
-      return undefined
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        !Array.isArray(parsed) &&
+        'version' in parsed
+      ) {
+        const v2 = normalizeV2Settings(parsed)
+        if (v2) {
+          return v2
+        }
+      } else {
+        const legacy = normalizeLegacySettings(parsed)
+        if (legacy) {
+          return migrateLegacySettings(legacy)
+        }
+      }
     }
-    const parsed = JSON.parse(raw)
-
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      !Array.isArray(parsed) &&
-      'version' in parsed
-    ) {
-      return normalizeV2Settings(parsed)
-    }
-
-    const legacy = normalizeLegacySettings(parsed)
-    if (legacy) {
-      return migrateLegacySettings(legacy)
-    }
-
-    return undefined
   } catch {
+    // 存储损坏，回落到默认免费档
+  }
+  // 显式传入 storage（测试等场景）保持纯读，不落盘
+  if (storage) {
     return undefined
   }
+  // 无配置：落盘默认免费档（instant-free + auto），与用户添加的 Provider 完全同构
+  const defaults = defaultAccountSettingsV2()
+  return saveAccountSettings(defaults) ? defaults : undefined
 }
 
 export function saveAccountSettings(
@@ -461,7 +469,8 @@ export function openAiConfigForModelRef(
 }
 
 export function defaultAccountSettingsV2(): AccountSettingsV2 {
-  const entry = defaultProviderEntry()
+  // 开箱即用的默认：内置免费额度（auto 多候选模型），无任何配置时钥匙串即显示该条目
+  const entry = defaultProviderEntry('instant-free')
   const providers = [entry]
   const reconciled = reconcilePreferredByCapability(providers, undefined, 0)
   return {

@@ -118,6 +118,7 @@ export type AiProviderId =
   | 'ark-coding-plan'
   | 'ark-agent-plan'
   | 'opencode-go'
+  | 'opencode-zen'
   | 'instant-free'
   | 'custom'
 
@@ -172,6 +173,8 @@ export type AiModelPreset = {
   name: string
   /** 该模型支持的能力标注 */
   capabilities: readonly AiModelCapability[]
+  /** 免费模型（无 key 也可访问）；用于 OpenCode Zen 等混合免费/付费端点 */
+  free?: boolean
   /**
    * 内置的静态定价快照（作为无网络时的兜底）；
    * 远端定价由 ai-model-pricing-cache 按 `providerId:modelId` 单独缓存并优先取用。
@@ -692,47 +695,28 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     baseURL: 'https://opencode.ai/zen/go/v1',
     models: [
       {
-        id: 'grok-4.5',
-        name: 'Grok 4.5',
-        capabilities: CAP_TEXT,
-        contextWindow: CW_256K,
-        reasoningEfforts: REASONING_EFFORTS_BINARY,
-        pricing: {
-          inputPricePerMillion: 2,
-          outputPricePerMillion: 6,
-          currency: 'USD',
-        },
-      },
-      {
-        id: 'glm-5.2',
-        name: 'GLM 5.2',
+        id: 'minimax-m3',
+        name: 'MiniMax M3',
         capabilities: CAP_TEXT,
         contextWindow: CW_1M,
-        reasoningEfforts: REASONING_EFFORTS_GLM,
-        pricing: {
-          inputPricePerMillion: 1.4,
-          outputPricePerMillion: 4.4,
-          currency: 'USD',
-        },
       },
       {
-        id: 'glm-5.1',
-        name: 'GLM 5.1',
+        id: 'minimax-m2.7',
+        name: 'MiniMax M2.7',
         capabilities: CAP_TEXT,
         contextWindow: CW_1M,
-        reasoningEfforts: REASONING_EFFORTS_GLM,
-        pricing: {
-          inputPricePerMillion: 1.4,
-          outputPricePerMillion: 4.4,
-          currency: 'USD',
-        },
+      },
+      {
+        id: 'minimax-m2.5',
+        name: 'MiniMax M2.5',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
       },
       {
         id: 'kimi-k3',
         name: 'Kimi K3',
         capabilities: CAP_TEXT,
         contextWindow: CW_1M,
-        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
         pricing: {
           inputPricePerMillion: 3,
           outputPricePerMillion: 15,
@@ -744,7 +728,6 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
         name: 'Kimi K2.7 Code',
         capabilities: CAP_TEXT,
         contextWindow: CW_256K,
-        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
         pricing: {
           inputPricePerMillion: 0.95,
           outputPricePerMillion: 4,
@@ -756,7 +739,6 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
         name: 'Kimi K2.6',
         capabilities: CAP_TEXT,
         contextWindow: CW_256K,
-        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
         pricing: {
           inputPricePerMillion: 0.95,
           outputPricePerMillion: 4,
@@ -764,11 +746,50 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
         },
       },
       {
+        id: 'kimi-k2.5',
+        name: 'Kimi K2.5',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+      },
+      {
+        id: 'glm-5.2',
+        name: 'GLM 5.2',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        pricing: {
+          inputPricePerMillion: 1.4,
+          outputPricePerMillion: 4.4,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'glm-5.3',
+        name: 'GLM 5.3',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'glm-5.1',
+        name: 'GLM 5.1',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        pricing: {
+          inputPricePerMillion: 1.4,
+          outputPricePerMillion: 4.4,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'glm-5',
+        name: 'GLM 5',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
         id: 'deepseek-v4-pro',
         name: 'DeepSeek V4 Pro',
         capabilities: CAP_TEXT,
         contextWindow: CW_1M,
-        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
         pricing: {
           inputPricePerMillion: 0.435,
           outputPricePerMillion: 0.87,
@@ -780,7 +801,6 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
         name: 'DeepSeek V4 Flash',
         capabilities: CAP_TEXT,
         contextWindow: CW_1M,
-        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
         pricing: {
           inputPricePerMillion: 0.14,
           outputPricePerMillion: 0.28,
@@ -788,11 +808,49 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
         },
       },
       {
+        id: 'qwen3.7-max',
+        name: 'Qwen3.7 Max',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'qwen3.8-max',
+        name: 'Qwen3.8 Max',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'qwen3.7-plus',
+        name: 'Qwen3.7 Plus',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'qwen3.6-plus',
+        name: 'Qwen3.6 Plus',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'qwen3.5-plus',
+        name: 'Qwen3.5 Plus',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'mimo-v2-pro',
+        name: 'MiMo V2 Pro',
+        capabilities: CAP_TEXT,
+      },
+      {
+        id: 'mimo-v2-omni',
+        name: 'MiMo V2 Omni',
+        capabilities: CAP_TEXT,
+      },
+      {
         id: 'mimo-v2.5-pro',
         name: 'MiMo V2.5 Pro',
         capabilities: CAP_TEXT,
-        contextWindow: CW_1M,
-        reasoningEfforts: REASONING_EFFORTS_BINARY,
         pricing: {
           inputPricePerMillion: 0.435,
           outputPricePerMillion: 0.87,
@@ -802,9 +860,7 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
       {
         id: 'mimo-v2.5',
         name: 'MiMo V2.5',
-        capabilities: CAP_TEXT_VISION,
-        contextWindow: CW_1M,
-        reasoningEfforts: REASONING_EFFORTS_BINARY,
+        capabilities: CAP_TEXT,
         pricing: {
           inputPricePerMillion: 0.14,
           outputPricePerMillion: 0.28,
@@ -815,11 +871,29 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
         id: 'hy3',
         name: 'Hy3',
         capabilities: CAP_TEXT,
-        contextWindow: CW_256K,
-        reasoningEfforts: REASONING_EFFORTS_BINARY,
         pricing: {
           inputPricePerMillion: 0.14,
           outputPricePerMillion: 0.58,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'hy3-preview',
+        name: 'Hy3 Preview',
+        capabilities: CAP_TEXT,
+      },
+      {
+        id: 'gpt-5.6-luna',
+        name: 'GPT 5.6 Luna',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'grok-4.5',
+        name: 'Grok 4.5',
+        capabilities: CAP_TEXT_VISION,
+        pricing: {
+          inputPricePerMillion: 2,
+          outputPricePerMillion: 6,
           currency: 'USD',
         },
       },
@@ -827,25 +901,378 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     defaultModel: 'mimo-v2.5',
   },
   {
-    id: 'instant-free',
-    name: 'Instant 免费额度',
-    // 经 PoW 网关转发到 OpenCode Go；POST 前客户端完成 Proof-of-Work，网关用自己的 key 转发
-    baseURL: INSTANT_FREE_PROVIDER_BASE_URL,
+    id: 'opencode-zen',
+    name: 'OpenCode Zen',
+    // OpenAI 兼容 chat/completions；Zen 端点同时含免费（free: true，无需 key）与付费模型
+    baseURL: 'https://opencode.ai/zen/v1',
     models: [
+      {
+        id: 'claude-fable-5',
+        name: 'Claude Fable 5',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-opus-5',
+        name: 'Claude Opus 5',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-opus-4-8',
+        name: 'Claude Opus 4 8',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-opus-4-7',
+        name: 'Claude Opus 4 7',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-opus-4-6',
+        name: 'Claude Opus 4 6',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-opus-4-5',
+        name: 'Claude Opus 4 5',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-sonnet-5',
+        name: 'Claude Sonnet 5',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-sonnet-4-6',
+        name: 'Claude Sonnet 4 6',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-sonnet-4-5',
+        name: 'Claude Sonnet 4 5',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-sonnet-4',
+        name: 'Claude Sonnet 4',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'claude-haiku-4-5',
+        name: 'Claude Haiku 4 5',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_200K,
+      },
+      {
+        id: 'gemini-3.6-flash',
+        name: 'Gemini 3.6 Flash',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'gemini-3.7-flash',
+        name: 'Gemini 3.7 Flash',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'gemini-3.5-flash-lite',
+        name: 'Gemini 3.5 Flash Lite',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'gemini-3.5-flash',
+        name: 'Gemini 3.5 Flash',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'gemini-3.1-pro',
+        name: 'Gemini 3.1 Pro',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'gemini-3-flash',
+        name: 'Gemini 3 Flash',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'gpt-5.6-sol',
+        name: 'GPT 5.6 Sol',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.6-terra',
+        name: 'GPT 5.6 Terra',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.6-luna',
+        name: 'GPT 5.6 Luna',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.5',
+        name: 'GPT 5.5',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.5-pro',
+        name: 'GPT 5.5 Pro',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.4',
+        name: 'GPT 5.4',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.4-pro',
+        name: 'GPT 5.4 Pro',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.4-mini',
+        name: 'GPT 5.4 Mini',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.4-nano',
+        name: 'GPT 5.4 Nano',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.3-codex-spark',
+        name: 'GPT 5.3 Codex Spark',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.3-codex',
+        name: 'GPT 5.3 Codex',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.2',
+        name: 'GPT 5.2',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.2-codex',
+        name: 'GPT 5.2 Codex',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.1',
+        name: 'GPT 5.1',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.1-codex-max',
+        name: 'GPT 5.1 Codex Max',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.1-codex',
+        name: 'GPT 5.1 Codex',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5.1-codex-mini',
+        name: 'GPT 5.1 Codex Mini',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5',
+        name: 'GPT 5',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5-codex',
+        name: 'GPT 5 Codex',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'gpt-5-nano',
+        name: 'GPT 5 Nano',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'grok-build-0.1',
+        name: 'Grok Build 0.1',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'grok-4.6',
+        name: 'Grok 4.6',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'grok-4.5',
+        name: 'Grok 4.5',
+        capabilities: CAP_TEXT_VISION,
+      },
+      {
+        id: 'muse-spark-1.2',
+        name: 'Muse Spark 1.2',
+        capabilities: CAP_TEXT,
+      },
+      {
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek V4 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
       {
         id: 'deepseek-v4-flash',
         name: 'DeepSeek V4 Flash',
         capabilities: CAP_TEXT,
         contextWindow: CW_1M,
-        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
-        pricing: {
-          inputPricePerMillion: 0.14,
-          outputPricePerMillion: 0.28,
-          currency: 'USD',
-        },
+      },
+      {
+        id: 'glm-5.2',
+        name: 'GLM 5.2',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'glm-5.1',
+        name: 'GLM 5.1',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'glm-5',
+        name: 'GLM 5',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'minimax-m3',
+        name: 'MiniMax M3',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'minimax-m2.7',
+        name: 'MiniMax M2.7',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'minimax-m2.5',
+        name: 'MiniMax M2.5',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'kimi-k3',
+        name: 'Kimi K3',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'kimi-k2.7-code',
+        name: 'Kimi K2.7 Code',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+      },
+      {
+        id: 'kimi-k2.6',
+        name: 'Kimi K2.6',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+      },
+      {
+        id: 'kimi-k2.5',
+        name: 'Kimi K2.5',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+      },
+      {
+        id: 'qwen3.6-plus',
+        name: 'Qwen3.6 Plus',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'qwen3.5-plus',
+        name: 'Qwen3.5 Plus',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+      },
+      {
+        id: 'big-pickle',
+        name: 'Big Pickle',
+        capabilities: CAP_TEXT,
+        free: true,
+      },
+      {
+        id: 'deepseek-v4-flash-free',
+        name: 'DeepSeek V4 Flash Free',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        free: true,
+      },
+      {
+        id: 'mimo-v2.5-free',
+        name: 'MiMo V2.5 Free',
+        capabilities: CAP_TEXT,
+        free: true,
+      },
+      {
+        id: 'hy3-free',
+        name: 'Hy3 Free',
+        capabilities: CAP_TEXT,
+        free: true,
+      },
+      {
+        id: 'nemotron-3-ultra-free',
+        name: 'Nemotron 3 Ultra Free',
+        capabilities: CAP_TEXT,
+        free: true,
+      },
+      {
+        id: 'nemotron-3.5-lightning-free',
+        name: 'Nemotron 3.5 Lightning Free',
+        capabilities: CAP_TEXT,
+        free: true,
+      },
+      {
+        id: 'laguna-s-2.1-free',
+        name: 'Laguna S 2.1 Free',
+        capabilities: CAP_TEXT,
+        free: true,
       },
     ],
-    defaultModel: 'deepseek-v4-flash',
+    defaultModel: 'big-pickle',
+  },
+  {
+    id: 'instant-free',
+    name: 'Instant 免费额度',
+    // 经 PoW 网关转发到 OpenCode Go；POST 前客户端完成 Proof-of-Work，网关用自己的 key 转发。
+    // auto 为网关对外暴露的多候选模型名：按 routes 顺序转发，首选失败自动降级。
+    baseURL: INSTANT_FREE_PROVIDER_BASE_URL,
+    models: [
+      {
+        id: 'auto',
+        name: 'Auto 自动优选',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_128K,
+      },
+    ],
+    defaultModel: 'auto',
   },
   {
     id: 'custom',
@@ -1504,6 +1931,11 @@ export function isOpencodeGoProvider(providerId: AiProviderId | undefined): bool
   return providerId === 'opencode-go'
 }
 
+/** OpenCode Zen 订阅入口（托管 Zen API，含免费模型） */
+export function isOpencodeZenProvider(providerId: AiProviderId | undefined): boolean {
+  return providerId === 'opencode-zen'
+}
+
 /** Instant 免费额度网关 Provider（经 PoW 代理，无需用户自带 key） */
 export function isInstantFreeProvider(providerId: AiProviderId | undefined): boolean {
   return providerId === 'instant-free'
@@ -1521,6 +1953,7 @@ export function isBuiltinProviderId(
     providerId === 'ark-coding-plan' ||
     providerId === 'ark-agent-plan' ||
     providerId === 'opencode-go' ||
+    providerId === 'opencode-zen' ||
     providerId === 'instant-free'
   )
 }
@@ -1530,6 +1963,7 @@ export function providerRequiresProxy(providerId: AiProviderId | undefined): boo
   return (
     isArkPlanProvider(providerId) ||
     isOpencodeGoProvider(providerId) ||
+    isOpencodeZenProvider(providerId) ||
     isInstantFreeProvider(providerId)
   )
 }
@@ -1623,7 +2057,8 @@ export function defaultProviderEntry(
   return {
     id: generateProviderEntryId(),
     providerId,
-    // 免费额度网关不需要真实 key；占位值用于通过「已配置」校验
+    // 免费额度网关不需要真实 key（占位值用于通过「已配置」校验）；
+    // OpenCode Zen 免费模型无需 key，用户可自行填写
     apiKey: isInstantFreeProvider(providerId) ? 'instant-free' : '',
     enabledModels: buildEnabledModelsFromPreset(providerId),
     defaultModel: preset?.defaultModel ?? '',
@@ -1633,10 +2068,11 @@ export function defaultProviderEntry(
 }
 
 export function isProviderEntryValid(entry: AiProviderEntry): boolean {
-  // 免费额度网关免 key（占位符也可能被用户清空），其余字段照常校验
+  // 免费额度网关免 key；OpenCode Zen 免费模型无需 key（填了 key 可解锁付费模型），其余字段照常校验
+  const keyOptional =
+    isInstantFreeProvider(entry.providerId) || isOpencodeZenProvider(entry.providerId)
   const hasCredentials =
-    isInstantFreeProvider(entry.providerId) ||
-    Boolean(entry.apiKey.trim() && entry.defaultModel.trim())
+    keyOptional || Boolean(entry.apiKey.trim() && entry.defaultModel.trim())
   const hasModels = entry.enabledModels.some(
     (model) => model.modelId.trim() === entry.defaultModel.trim(),
   )

@@ -39,6 +39,7 @@ import {
   findAiProviderPreset,
   isCustomProvider,
   isInstantFreeProvider,
+  isOpencodeZenProvider,
   isProviderEntryValid,
   listEnabledModelsForCapability,
   matchPricingModelKey,
@@ -218,6 +219,7 @@ function listProviderModelRows(entry: AiProviderEntry): Array<{
   name: string
   enabled: boolean
   isFromPreset: boolean
+  free: boolean
   capabilities: readonly AiModelCapability[]
 }> {
   const isCustom = isCustomProvider(entry.providerId)
@@ -227,6 +229,7 @@ function listProviderModelRows(entry: AiProviderEntry): Array<{
     name: string
     enabled: boolean
     isFromPreset: boolean
+    free: boolean
     capabilities: readonly AiModelCapability[]
   }> = []
 
@@ -237,6 +240,7 @@ function listProviderModelRows(entry: AiProviderEntry): Array<{
         name: model.name,
         enabled: true,
         isFromPreset: false,
+        free: false,
         capabilities: normalizeCustomModelCapabilities(model.capabilities),
       })
     }
@@ -251,6 +255,7 @@ function listProviderModelRows(entry: AiProviderEntry): Array<{
       name: pm.name,
       enabled: entry.enabledModels.some((m) => m.modelId === pm.id),
       isFromPreset: true,
+      free: Boolean(pm.free),
       capabilities: resolveModelCapabilities(entry.providerId, pm.id),
     })
   }
@@ -262,6 +267,7 @@ function listProviderModelRows(entry: AiProviderEntry): Array<{
       name: em.name,
       enabled: true,
       isFromPreset: false,
+      free: Boolean(findAiModelPreset(entry.providerId, em.modelId)?.free),
       capabilities: normalizeCustomModelCapabilities(em.capabilities),
     })
   }
@@ -354,11 +360,7 @@ function loadInitialState(): {
       preferredIndex: stored.preferredIndex,
     }
   }
-  return {
-    providers: [],
-    preferredByCapability: {},
-    preferredIndex: 0,
-  }
+  return { providers: [], preferredByCapability: {}, preferredIndex: 0 }
 }
 
 export function KeychainApp() {
@@ -659,10 +661,10 @@ export function KeychainApp() {
       const settings: AccountSettingsV2 = {
         version: 2,
         providers: synced.providers.map((p) => ({
-          ...p,
-          useProxy: providerRequiresProxy(p.providerId) ? true : p.useProxy,
-          enabledModels: p.enabledModels.map((m) => ({ ...m })),
-        })),
+            ...p,
+            useProxy: providerRequiresProxy(p.providerId) ? true : p.useProxy,
+            enabledModels: p.enabledModels.map((m) => ({ ...m })),
+          })),
         preferredIndex: synced.preferredIndex,
         preferredByCapability: synced.preferredByCapability,
         presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
@@ -960,7 +962,16 @@ export function KeychainApp() {
         !isAddingProvider &&
         !providerFormDirty &&
         !isInstantFreeProvider(editingEntry?.providerId)
-      const fieldMeta = fieldDialog ? FIELD_EDIT_META[fieldDialog] : undefined
+      const fieldMeta = fieldDialog
+        ? fieldDialog === 'apiKey' && isOpencodeZenProvider(editingEntry?.providerId)
+          ? {
+              ...FIELD_EDIT_META.apiKey,
+              placeholder: '可选：免费模型可留空',
+              message: '免费模型（标「免费」）无需密钥；填写后解锁全部付费模型。',
+              allowEmpty: true,
+            }
+          : FIELD_EDIT_META[fieldDialog]
+        : undefined
       const fieldValue =
         editingEntry && fieldDialog
           ? fieldDialog === 'name'
@@ -1025,9 +1036,6 @@ export function KeychainApp() {
                 onOpenModel={handleOpenModelSettings}
                 onAddModel={handleOpenAddModel}
                 onOpenFieldEdit={handleOpenFieldDialog}
-                existingProviderIds={workingProviders
-                  .filter((_, index) => index !== editingProviderIndex)
-                  .map((provider) => provider.providerId)}
               />
             )}
           </section>
@@ -1500,7 +1508,6 @@ function ProviderSettingsForm({
   onOpenModel,
   onAddModel,
   onOpenFieldEdit,
-  existingProviderIds,
 }: {
   entry: AiProviderEntry
   wideLayout: boolean
@@ -1508,22 +1515,20 @@ function ProviderSettingsForm({
   onOpenModel: (modelId: string) => void
   onAddModel: () => void
   onOpenFieldEdit: (field: FieldEditTarget) => void
-  /** 当前编辑条目之外的已存在 providerId；用于添加时隐藏已存在的 instant-free */
-  existingProviderIds: readonly string[]
 }) {
   const isCustom = isCustomProvider(entry.providerId)
   const isFree = isInstantFreeProvider(entry.providerId)
+  const isZen = isOpencodeZenProvider(entry.providerId)
   const preset = findAiProviderPreset(entry.providerId)
   const modelRows = listProviderModelRows(entry)
   const providerLabel = preset?.name ?? entry.providerId
   const nameValue = entry.name?.trim() || '可选'
   const baseUrlValue = entry.baseURL?.trim() || '未设置'
   const apiKeyConfigured = entry.apiKey.length > 0
-  const providerOptions = isFree
-    ? PROVIDER_OPTIONS
-    : PROVIDER_OPTIONS.filter(
-        (option) => option.id !== 'instant-free' || !existingProviderIds.includes('instant-free'),
-      )
+  const providerOptions = PROVIDER_OPTIONS.filter(
+    (option) => option.id !== 'instant-free',
+  )
+  const customName = entry.name?.trim()
 
   const handleProviderChange = (value: string) => {
     const providerId = value as AiProviderId
@@ -1541,125 +1546,187 @@ function ProviderSettingsForm({
 
   return (
     <div class="keychain__form-stack">
-      <div class="keychain__form-group">
-        <div class="settings__list">
-          {/* 供应商始终用专用选择弹出菜单（SettingsChoicePopoverMenu） */}
-          <SettingsChoiceField
-            label="供应商"
-            value={entry.providerId}
-            displayValue={providerLabel}
-            options={providerOptions}
-            onChange={(value) => handleProviderChange(value)}
-            wideLayout
-            presentation="list"
-          />
-          {wideLayout ? (
-            <>
-              <SettingsInlineInputRow
-                label="名称"
-                type="text"
-                value={entry.name ?? ''}
-                placeholder="可选"
-                onChange={(name) =>
-                  onChange({ ...entry, name: name || undefined })
-                }
-              />
-              {isCustom && (
-                <SettingsInlineInputRow
-                  label="Base URL"
-                  type="url"
-                  value={entry.baseURL ?? ''}
-                  placeholder="https://api.example.com/v1"
-                  onChange={(baseURL) =>
-                    onChange({ ...entry, baseURL: baseURL || undefined })
-                  }
-                />
-              )}
-              {isFree ? (
+      {isFree ? (
+        <>
+          <div class="keychain__form-group">
+            <div class="settings__list">
+              <div class="settings__row settings__row--static">
+                <span class="settings__row-name">供应商</span>
+                <span class="settings__row-size">{providerLabel}</span>
+              </div>
+              {customName ? (
                 <div class="settings__row settings__row--static">
-                  <span class="settings__row-name">API Key</span>
-                  <span class="settings__row-hint">免费额度，无需密钥</span>
+                  <span class="settings__row-name">名称</span>
+                  <span class="settings__row-size">{customName}</span>
                 </div>
-              ) : (
-                <SettingsInlineInputRow
-                  label="API Key"
-                  type="password"
-                  value={entry.apiKey}
-                  placeholder="sk-..."
-                  onChange={(apiKey) => onChange({ ...entry, apiKey })}
-                />
-              )}
-            </>
-          ) : (
-            <>
-              <SettingsNavRow
-                label="名称"
-                value={nameValue}
-                onClick={() => onOpenFieldEdit('name')}
-              />
-              {isCustom && (
-                <SettingsNavRow
-                  label="Base URL"
-                  value={baseUrlValue}
-                  onClick={() => onOpenFieldEdit('baseURL')}
-                />
-              )}
-              {isFree ? (
-                <div class="settings__row settings__row--static">
-                  <span class="settings__row-name">API Key</span>
-                  <span class="settings__row-hint">免费额度，无需密钥</span>
-                </div>
-              ) : (
-                <SettingsNavRow
-                  label="API Key"
-                  value={apiKeyConfigured ? '已配置' : '未配置'}
-                  secretLength={
-                    apiKeyConfigured ? entry.apiKey.length : undefined
-                  }
-                  onClick={() => onOpenFieldEdit('apiKey')}
-                />
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      <div class="keychain__form-group">
-        <h3 class="keychain__form-group-title">启用的模型</h3>
-        <div class="settings__list">
-          {modelRows.length === 0 ? (
-            <div class="settings__row settings__row--static">
-              <span class="settings__row-name settings__row-hint">
-                尚未添加模型
-              </span>
+              ) : undefined}
+              <div class="settings__row settings__row--static">
+                <span class="settings__row-name">API Key</span>
+                <span class="settings__row-hint">免费额度，无需密钥</span>
+              </div>
             </div>
-          ) : (
-            modelRows.map((row) => (
-              <SettingsNavRow
-                key={row.modelId}
-                label={row.name}
-                value={
-                  row.enabled
-                    ? formatCapabilitiesSummary(row.capabilities) || '已启用'
-                    : '未启用'
-                }
-                onClick={() => onOpenModel(row.modelId)}
+          </div>
+
+          <div class="keychain__form-group">
+            <h3 class="keychain__form-group-title">启用的模型</h3>
+            <div class="settings__list">
+              {modelRows.map((row) => (
+                <div
+                  key={row.modelId}
+                  class="settings__row settings__row--static"
+                >
+                  <span class="settings__row-name">{row.name}</span>
+                  <span class="settings__row-size">
+                    {row.enabled
+                      ? formatCapabilitiesSummary(row.capabilities) || '已启用'
+                      : '未启用'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div class="keychain__form-group">
+            <div class="settings__list">
+              <SettingsChoiceField
+                label="供应商"
+                value={entry.providerId}
+                displayValue={providerLabel}
+                options={providerOptions}
+                onChange={(value) => handleProviderChange(value)}
+                wideLayout
+                presentation="list"
               />
-            ))
-          )}
-          <SettingsNavRow
-            label={isCustom ? '添加模型…' : '添加自定义模型…'}
-            value=""
-            onClick={onAddModel}
-          />
-        </div>
-      </div>
+              {wideLayout ? (
+                <>
+                  <SettingsInlineInputRow
+                    label="名称"
+                    type="text"
+                    value={entry.name ?? ''}
+                    placeholder="可选"
+                    onChange={(name) =>
+                      onChange({ ...entry, name: name || undefined })
+                    }
+                  />
+                  {isCustom && (
+                    <SettingsInlineInputRow
+                      label="Base URL"
+                      type="url"
+                      value={entry.baseURL ?? ''}
+                      placeholder="https://api.example.com/v1"
+                      onChange={(baseURL) =>
+                        onChange({ ...entry, baseURL: baseURL || undefined })
+                      }
+                    />
+                  )}
+                  <SettingsInlineInputRow
+                    label="API Key"
+                    type="password"
+                    value={entry.apiKey}
+                    placeholder={isZen ? '可选：免费模型可留空' : 'sk-...'}
+                    onChange={(apiKey) => onChange({ ...entry, apiKey })}
+                  />
+                  {isZen && (
+                    <div class="settings__row settings__row--static">
+                      <span class="settings__row-hint">
+                        免费模型（标「免费」）无需密钥；填写后解锁全部付费模型。
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <SettingsNavRow
+                    label="名称"
+                    value={nameValue}
+                    onClick={() => onOpenFieldEdit('name')}
+                  />
+                  {isCustom && (
+                    <SettingsNavRow
+                      label="Base URL"
+                      value={baseUrlValue}
+                      onClick={() => onOpenFieldEdit('baseURL')}
+                    />
+                  )}
+                  <SettingsNavRow
+                    label="API Key"
+                    value={
+                      isZen
+                        ? apiKeyConfigured
+                          ? '已配置'
+                          : '可选（免费模型免密钥）'
+                        : apiKeyConfigured
+                          ? '已配置'
+                          : '未配置'
+                    }
+                    secretLength={
+                      apiKeyConfigured ? entry.apiKey.length : undefined
+                    }
+                    onClick={() => onOpenFieldEdit('apiKey')}
+                  />
+                  {isZen && (
+                    <div class="settings__row settings__row--static">
+                      <span class="settings__row-hint">
+                        免费模型（标「免费」）无需密钥；填写后解锁全部付费模型。
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div class="keychain__form-group">
+            <h3 class="keychain__form-group-title">启用的模型</h3>
+            <div class="settings__list">
+              {modelRows.length === 0 ? (
+                <div class="settings__row settings__row--static">
+                  <span class="settings__row-name settings__row-hint">
+                    尚未添加模型
+                  </span>
+                </div>
+              ) : (
+                modelRows.map((row) => (
+                  <SettingsNavRow
+                    key={row.modelId}
+                    label={
+                      row.free ? (
+                        <span class="keychain-model-label">
+                          {row.name}
+                          <span class="ai-model-free-badge">免费</span>
+                        </span>
+                      ) : (
+                        row.name
+                      )
+                    }
+                    value={
+                      row.enabled
+                        ? formatCapabilitiesSummary(row.capabilities) ||
+                          '已启用'
+                        : '未启用'
+                    }
+                    onClick={() => onOpenModel(row.modelId)}
+                  />
+                ))
+              )}
+              <SettingsNavRow
+                label={isCustom ? '添加模型…' : '添加自定义模型…'}
+                value=""
+                onClick={onAddModel}
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       <div class="keychain__form-group">
         <div class="settings__list">
           <SettingsSwitchRow
             label="思考模式"
             checked={entry.thinkingEnabled}
+            disabled={isFree}
             onChange={(thinkingEnabled) =>
               onChange({ ...entry, thinkingEnabled })
             }

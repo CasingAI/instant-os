@@ -3,11 +3,9 @@ import {
   listRecentProxyServerRequests,
   recordProxyServerRequest,
 } from './proxy-server-metrics.ts'
-import { PowError, readBodyBytes, solvePowForBody } from './pow-client.ts'
 import {
   isProxyServerConnected,
   loadProxyServerSettings,
-  PROXY_SERVER_FREE_ORIGIN,
   PROXY_SERVER_PATH_PREFIX,
   PROXY_SERVER_SHARED_ORIGIN,
   normalizeProxyBaseUrl,
@@ -144,36 +142,10 @@ export async function proxiedFetch(
     host = targetUrl
   }
 
-  const origin = getPageWorkerOrigin()
-  // 免费额度网关：一切产生费用的 POST 请求先完成一次 PoW（无状态验证）
-  const isFreeGateway = origin === PROXY_SERVER_FREE_ORIGIN
-  let proxyInit = init
-  if (isFreeGateway && method === 'POST') {
-    let bodyBytes: Uint8Array | undefined
-    try {
-      bodyBytes = await readBodyBytes(init)
-      if (bodyBytes) {
-        const powHeaders = await solvePowForBody(origin, bodyBytes, init?.signal ?? undefined)
-        proxyInit = {
-          ...init,
-          headers: mergeHeaders(init?.headers, powHeaders),
-          body: bodyBytes as BodyInit,
-        }
-      }
-    } catch (error) {
-      if (error instanceof PowError) {
-        throw error
-      }
-      throw new ProxyServerApiError(
-        error instanceof Error ? `PoW 计算失败：${error.message}` : 'PoW 计算失败',
-      )
-    }
-  }
-
   const proxyUrl = buildProxiedUrl(targetUrl)
 
   try {
-    const response = await fetch(proxyUrl, proxyInit)
+    const response = await fetch(proxyUrl, init)
     const downloadBytes = estimateDownloadBytes(response)
     const endedAt = Date.now()
     recordProxyServerRequest({
@@ -208,18 +180,6 @@ export async function proxiedFetch(
     })
     throw error
   }
-}
-
-/** 把 PoW headers 合并进既有 headers（不覆盖既有同名 header） */
-function mergeHeaders(
-  headers: HeadersInit | undefined,
-  extra: Record<string, string>,
-): HeadersInit {
-  const merged = new Headers(headers)
-  for (const [key, value] of Object.entries(extra)) {
-    merged.set(key, value)
-  }
-  return merged
 }
 
 export type ProxyServerProbeResult =
@@ -287,9 +247,6 @@ function originForPreset(
   }
   if (preset === 'shared') {
     return PROXY_SERVER_SHARED_ORIGIN
-  }
-  if (preset === 'instant-free') {
-    return PROXY_SERVER_FREE_ORIGIN
   }
   return normalizeProxyBaseUrl(customProxyBaseUrl) || undefined
 }

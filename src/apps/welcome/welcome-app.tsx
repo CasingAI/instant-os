@@ -4,7 +4,7 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { isInstantFreeProxy } from '../../ai/openai-config.ts'
+import { isActiveProviderInstantFree } from '../../ai/openai-config.ts'
 import {
   openSettingsAccountView,
   openSettingsDateTimeView,
@@ -17,7 +17,7 @@ const APP_ID = 'welcome' as const
 export function WelcomeApp() {
   const { closeWindowsForApp, minimizeWindow, openApp, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const freeTier = isInstantFreeProxy()
+  const freeTier = isActiveProviderInstantFree()
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)

@@ -445,8 +445,8 @@
     0 1px 2px rgba(0, 0, 0, 0.22);
 }
 
-.settings__row--button:hover .settings__row-pane-icon-scale .app-icon-tile__tile,
-.settings__row--button:active .settings__row-pane-icon-scale .app-icon-tile__tile {
+.settings__row--button:hover:not(:disabled) .settings__row-pane-icon-scale .app-icon-tile__tile,
+.settings__row--button:active:not(:disabled) .settings__row-pane-icon-scale .app-icon-tile__tile {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
     0 1px 2px rgba(0, 0, 0, 0.28);
@@ -996,8 +996,8 @@
   white-space: nowrap;
 }
 
-.settings__row--button:hover .settings__row-hint,
-.settings__row--button:active .settings__row-hint {
+.settings__row--button:hover:not(:disabled) .settings__row-hint,
+.settings__row--button:active:not(:disabled) .settings__row-hint {
   color: rgba(255, 255, 255, 0.75);
 }
 
@@ -1142,8 +1142,8 @@
   transform: rotate(90deg);
 }
 
-.settings__row--button:hover .settings__disclosure,
-.settings__row--button:active .settings__disclosure {
+.settings__row--button:hover:not(:disabled) .settings__disclosure,
+.settings__row--button:active:not(:disabled) .settings__disclosure {
   color: rgba(255, 255, 255, 0.88);
 }
 
@@ -1209,26 +1209,34 @@
   color: inherit;
 }
 
-.settings__row--button:hover {
+.settings__row--button:hover:not(:disabled) {
   background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
 }
 
-.settings__row--button:active {
+.settings__row--button:active:not(:disabled) {
   background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
 }
 
-.settings__row--button:hover,
-.settings__row--button:active {
+.settings__row--button:hover:not(:disabled),
+.settings__row--button:active:not(:disabled) {
   color: #fff;
 }
 
-.settings__row--button:hover .settings__row-size,
-.settings__row--button:hover .settings__row-count,
-.settings__row--button:active .settings__row-size,
-.settings__row--button:active .settings__row-count,
-.settings__row--button:hover .settings__secret-mask,
-.settings__row--button:active .settings__secret-mask {
+.settings__row--button:hover:not(:disabled) .settings__row-size,
+.settings__row--button:hover:not(:disabled) .settings__row-count,
+.settings__row--button:active:not(:disabled) .settings__row-size,
+.settings__row--button:active:not(:disabled) .settings__row-count,
+.settings__row--button:hover:not(:disabled) .settings__secret-mask,
+.settings__row--button:active:not(:disabled) .settings__secret-mask {
   color: rgba(255, 255, 255, 0.85);
+}
+
+.settings__row--button:disabled,
+.settings__row--button:disabled:hover,
+.settings__row--button:disabled:active {
+  cursor: default;
+  color: #8e8e93;
+  background: #d8d8d8;
 }
 
 .settings__row--nav {
@@ -1860,24 +1868,13 @@
 }
 
 .settings__row--switch-with-detail {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
   padding-top: 6px;
   padding-bottom: 8px;
-}
-
-.settings__row-switch-main {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  min-height: 28px;
+  row-gap: 4px;
 }
 
 .settings__row-switch-detail {
+  grid-column: 1 / -1;
   margin: 0;
   padding-right: 4px;
   font-size: 12px;
