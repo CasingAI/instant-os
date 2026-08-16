@@ -1,18 +1,9 @@
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
 
-/** 与宿主一致：不做模块热替换，也不整页刷新；需手动刷新。 */
-function suppressHotUpdate(): Plugin {
-  return {
-    name: 'suppress-hot-update',
-    handleHotUpdate() {
-      return []
-    },
-  }
-}
-
+/** 与宿主一致：从源头彻底关闭 HMR（server.hmr: false），不热替换也不整页刷新，需手动刷新。 */
 export default defineConfig({
-  plugins: [preact(), suppressHotUpdate()],
+  plugins: [preact({ prefreshEnabled: false })],
   base: './',
   build: {
     outDir: 'dist',
@@ -21,6 +12,7 @@ export default defineConfig({
   server: {
     port: 6175,
     cors: true,
+    hmr: false,
   },
   preview: {
     port: 6176,

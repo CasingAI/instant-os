@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
 import { bootCrashGuardFirst } from './vite-boot-crash-guard-first.ts'
 import { corsForSandboxedIframeAssets } from './vite-cors-for-sandboxed-iframe-assets.ts'
@@ -7,18 +7,12 @@ import { sourceSnapshot } from './vite-source-snapshot.ts'
 import { wasmGzip } from './vite-wasm-gzip.ts'
 
 /**
- * OS 壳状态复杂，模块热替换易卡死；改文件后也不整页刷新，需手动刷新或菜单「重新启动」。
- * 仅拦截 Vite HMR 推送不够：@preact/preset-vite 默认仍注入 Prefresh 运行时（window.__PREFRESH__），
- * 会在长会话里滞留 VNode/组件闭包导致 dev 内存暴涨，故一并关闭 prefreshEnabled。
+ * OS 壳状态复杂，从源头彻底关闭 HMR：
+ * - server.hmr: false —— 不建立 HMR websocket，import.meta.hot 为 undefined，
+ *   改文件既不热替换也不整页刷新，需手动刷新或菜单「重新启动」。
+ * - prefreshEnabled: false —— 不注入 Prefresh 运行时（window.__PREFRESH__），
+ *   避免长会话里滞留 VNode/组件闭包导致 dev 内存暴涨。
  */
-function suppressHotUpdate(): Plugin {
-  return {
-    name: 'suppress-hot-update',
-    handleHotUpdate() {
-      return []
-    },
-  }
-}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -27,7 +21,6 @@ export default defineConfig({
     corsForSandboxedIframeAssets(),
     bootCrashGuardFirst(),
     sourceSnapshot(),
-    suppressHotUpdate(),
     wasmGzip(),
   ],
   build: {
@@ -48,6 +41,7 @@ export default defineConfig({
   },
   server: {
     port: 6173,
+    hmr: false,
   },
   preview: {
     port: 6174,
