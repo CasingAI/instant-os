@@ -598,3 +598,12 @@
   text-shadow: none;
   box-shadow: none;
 }
+
+/* ── 上下文设置界面的间距 ── */
+.keychain__context-options + .keychain__form-group {
+  margin-top: 22px;
+}
+
+.keychain__context-options .settings__row--check + .settings__row--check {
+  margin-top: 12px;
+}

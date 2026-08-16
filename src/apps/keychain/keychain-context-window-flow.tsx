@@ -114,7 +114,7 @@ export function KeychainContextWindowFlow({
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
-          <div class="settings__list">
+          <div class="settings__list keychain__context-options">
             <SettingsCheckRow
               label="自动"
               checked={mode === 'auto'}
