@@ -14,7 +14,7 @@ export function resolveMergeTargetItem(
   pagerWidth: number,
   metrics: DesktopGridMetrics,
   gridPixelSize: { width: number; height: number },
-  displayOrder: DesktopItemId[],
+  pages: DesktopItemId[][],
   draggingItemId: DesktopItemId,
 ): DesktopItemId | undefined {
   const pagerRect = pagerElement.getBoundingClientRect()
@@ -22,9 +22,7 @@ export function resolveMergeTargetItem(
   const gridLeft = pageOffsetX + (pagerWidth - gridPixelSize.width) / 2
   const gridTop = pagerRect.top + (pagerRect.height - gridPixelSize.height) / 2
 
-  const iconsPerPage = metrics.iconsPerPage
-  const pageStart = pageIndex * iconsPerPage
-  const pageItems = displayOrder.slice(pageStart, pageStart + iconsPerPage)
+  const pageItems = pages[pageIndex] ?? []
 
   for (let slotOnPage = 0; slotOnPage < pageItems.length; slotOnPage += 1) {
     const itemId = pageItems[slotOnPage]

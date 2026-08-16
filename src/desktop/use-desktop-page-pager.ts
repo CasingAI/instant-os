@@ -49,6 +49,7 @@ export function useDesktopPagePager(
   const didSwipeRef = useRef(false)
   const sessionRef = useRef<PagerSession | undefined>(undefined)
   const currentPageRef = useRef(currentPage)
+  const pageCountRef = useRef(pageCount)
   const wheelAccumRef = useRef(0)
   const wheelLockedRef = useRef(false)
   const wheelSeenSettleRef = useRef(false)
@@ -58,6 +59,10 @@ export function useDesktopPagePager(
   useEffect(() => {
     currentPageRef.current = currentPage
   }, [currentPage])
+
+  useEffect(() => {
+    pageCountRef.current = pageCount
+  }, [pageCount])
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, Math.max(0, pageCount - 1)))
@@ -73,13 +78,15 @@ export function useDesktopPagePager(
   }, [animating, currentPage])
 
   const goToPage = useCallback(
-    (page: number) => {
-      const nextPage = Math.max(0, Math.min(page, pageCount - 1))
+    (page: number, allowPendingLastPage = false) => {
+      // 拖拽新建页时，目标索引可能是「即将显示」的最后一页（当前渲染的页数尚未 +1）。
+      const maxPage = pageCountRef.current - 1 + (allowPendingLastPage ? 1 : 0)
+      const nextPage = Math.max(0, Math.min(page, maxPage))
       setCurrentPage(nextPage)
       setDragOffset(0)
       setAnimating(true)
     },
-    [pageCount],
+    [],
   )
 
   useEffect(() => {

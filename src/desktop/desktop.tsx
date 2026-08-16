@@ -11,7 +11,7 @@ import {
   buildGeneratedIconContextMenuItems,
 } from '../os/build-icon-context-menu-items.ts'
 import { AppUninstallConfirmSheet } from '../os/app-uninstall-confirm-sheet.tsx'
-import { findFolderById, moveAppOutOfFolder, reconcileDesktopFolders } from '../os/desktop-folder-operations.ts'
+import { findFolderById, moveAppOutOfFolder, reconcileDesktopFolders, reconcileDesktopPages } from '../os/desktop-folder-operations.ts'
 import {
   isDesktopFolderId,
   type DesktopFolderId,
@@ -21,21 +21,16 @@ import { useGeneratedApps } from '../os/generated-apps-context.tsx'
 import { useDevExtApps } from '../os/dev-ext-apps-context.tsx'
 import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
-import {
-  isPermanentlyPinnedToDock,
-  reconcileDesktopIconOrder,
-} from '../os/launcher-layout-storage.ts'
+import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { isBuiltinAppVisibleOnDesktop } from '../os/launcher-app-visibility.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT, loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import { useOs } from '../os/os-context.tsx'
 import type { AppId, BuiltinAppId, ExtAppId, GeneratedAppId } from '../os/types.ts'
 import {
-  buildPreviewOrder,
+  buildPreviewPages,
   getIconSlotPosition,
-  getPageSlice,
 } from './desktop-icon-layout.ts'
 import {
-  chunkDesktopPages,
   computeDesktopGridMetrics,
   computeDesktopGridPixelSize,
   resolvePointerIconTarget,
@@ -549,19 +544,52 @@ function renderDragGhost(entry: DesktopEntry) {
   )
 }
 
+function findItemInPages(
+  pages: DesktopItemId[][],
+  id: DesktopItemId,
+): { page: number; slot: number } | undefined {
+  for (let page = 0; page < pages.length; page += 1) {
+    const slot = pages[page].indexOf(id)
+    if (slot >= 0) {
+      return { page, slot }
+    }
+  }
+  return undefined
+}
+
+function enforcePageCapacity(
+  pages: DesktopItemId[][],
+  iconsPerPage: number,
+): DesktopItemId[][] {
+  if (iconsPerPage <= 0) {
+    return pages
+  }
+  const next: DesktopItemId[][] = []
+  for (const page of pages) {
+    if (page.length <= iconsPerPage) {
+      next.push(page)
+      continue
+    }
+    for (let start = 0; start < page.length; start += iconsPerPage) {
+      next.push(page.slice(start, start + iconsPerPage))
+    }
+  }
+  return next
+}
+
 export function Desktop() {
   const { windows, activeWindowId, desktopRevealed, toggleDesktopReveal } = useOs()
   const { installedApps, pendingInstalls, pendingUpdateCount } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
   const {
     pinnedDockItemIds,
-    desktopIconOrder,
+    desktopPages,
     desktopFolders,
-    updateDesktopIconOrder,
     syncDesktopLayout,
     mergeDesktopItems: mergeItems,
     moveAppOutOfFolder: moveAppOutOfFolderAction,
     pinToDockAtIndex,
+    updateDesktopPages,
   } = useLauncherLayout()
   const pagerRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
@@ -587,17 +615,19 @@ export function Desktop() {
         pointerY: number
         grabOffsetX: number
         grabOffsetY: number
-        hoverIndex: number
+        hoverPage: number
+        hoverSlot: number
       }
     | undefined
   >(undefined)
-  const [previewOrder, setPreviewOrder] = useState<DesktopItemId[] | undefined>(undefined)
+  const [previewPages, setPreviewPages] = useState<DesktopItemId[][] | undefined>(undefined)
   const [mergeTargetId, setMergeTargetId] = useState<DesktopItemId | undefined>(undefined)
-  const previewOrderRef = useRef<DesktopItemId[] | undefined>(undefined)
+  const previewPagesRef = useRef<DesktopItemId[][] | undefined>(undefined)
   const mergeTargetRef = useRef<DesktopItemId | undefined>(undefined)
   const draggingItemIdRef = useRef<DesktopItemId | undefined>(undefined)
   const lastDragPointerRef = useRef({ x: 0, y: 0 })
   const reorderPlacementPageRef = useRef(0)
+  const newPageActiveRef = useRef(false)
 
   const [, setExperimentalSettingsVersion] = useState(0)
 
@@ -745,44 +775,24 @@ export function Desktop() {
     [appEntryById],
   )
 
-  const orderedItemIds = useMemo(() => {
-    const base = reconcileDesktopIconOrder(desktopIconOrder, persistableVisibleAppIds, desktopFolders)
-    const trailingExtIds = sessionExtAppIds.filter((appId) => !base.includes(appId))
-    return [...base, ...trailingExtIds]
-  }, [desktopIconOrder, desktopFolders, persistableVisibleAppIds, sessionExtAppIds])
-
-  useEffect(() => {
-    if (reorderSession !== undefined) {
-      return
-    }
-
-    const reconciledFolders = reconcileDesktopFolders(desktopFolders, persistableVisibleAppIds)
-    const reconciledOrder = reconcileDesktopIconOrder(
-      desktopIconOrder,
-      persistableVisibleAppIds,
-      reconciledFolders,
+  const layoutPages = useMemo(() => {
+    const base = reconcileDesktopPages(desktopPages, persistableVisibleAppIds, desktopFolders)
+    const trailingExtIds = sessionExtAppIds.filter(
+      (appId) => !base.some((page) => page.includes(appId)),
     )
-
-    const foldersChanged =
-      JSON.stringify(reconciledFolders) !== JSON.stringify(desktopFolders)
-    const orderChanged = reconciledOrder.join('|') !== desktopIconOrder.join('|')
-
-    if (foldersChanged || orderChanged) {
-      syncDesktopLayout(reconciledOrder, reconciledFolders)
+    if (trailingExtIds.length === 0) {
+      return base
     }
-  }, [
-    desktopFolders,
-    desktopIconOrder,
-    reorderSession,
-    syncDesktopLayout,
-    persistableVisibleAppIds,
-  ])
+    const last = [...(base[base.length - 1] ?? [])]
+    last.push(...trailingExtIds)
+    return [...base.slice(0, -1), last]
+  }, [desktopPages, desktopFolders, persistableVisibleAppIds, sessionExtAppIds])
 
-  const displayOrder = previewOrder ?? orderedItemIds
+  const displayPages = previewPages ?? layoutPages
 
   const entryByItemId = useMemo(() => {
     const map = new Map<DesktopItemId, DesktopEntry>()
-    for (const itemId of displayOrder) {
+    for (const itemId of displayPages.flat()) {
       if (isDesktopFolderId(itemId)) {
         const folder = findFolderById(desktopFolders, itemId)
         if (folder) {
@@ -802,7 +812,7 @@ export function Desktop() {
       }
     }
     return map
-  }, [appEntryById, buildPreviewApps, desktopFolders, displayOrder])
+  }, [appEntryById, buildPreviewApps, desktopFolders, displayPages])
 
   const openFolder = openFolderId ? findFolderById(desktopFolders, openFolderId) : undefined
   const openFolderApps = useMemo((): FolderAppEntry[] => {
@@ -829,10 +839,36 @@ export function Desktop() {
     [gridMetrics.cols, gridMetrics.rows],
   )
 
-  const pageCount = useMemo(
-    () => chunkDesktopPages(displayOrder, gridMetrics.iconsPerPage).length,
-    [displayOrder, gridMetrics.iconsPerPage],
-  )
+  const pageCount = Math.max(displayPages.length, 1)
+
+  useEffect(() => {
+    if (reorderSession !== undefined) {
+      return
+    }
+
+    const reconciledFolders = reconcileDesktopFolders(desktopFolders, persistableVisibleAppIds)
+    const reconciledPages = reconcileDesktopPages(
+      desktopPages,
+      persistableVisibleAppIds,
+      reconciledFolders,
+    )
+    const capacityEnforced = enforcePageCapacity(reconciledPages, gridMetrics.iconsPerPage)
+
+    const foldersChanged =
+      JSON.stringify(reconciledFolders) !== JSON.stringify(desktopFolders)
+    const pagesChanged = JSON.stringify(capacityEnforced) !== JSON.stringify(desktopPages)
+
+    if (foldersChanged || pagesChanged) {
+      syncDesktopLayout(capacityEnforced, reconciledFolders)
+    }
+  }, [
+    desktopFolders,
+    desktopPages,
+    gridMetrics.iconsPerPage,
+    reorderSession,
+    syncDesktopLayout,
+    persistableVisibleAppIds,
+  ])
 
   const onDesktopEmptyTap = useCallback(
     (event: PointerEvent) => {
@@ -872,7 +908,7 @@ export function Desktop() {
   const onReorderStart = useCallback(
     (
       itemId: DesktopItemId,
-      globalIndex: number,
+      slotOnPage: number,
       clientX: number,
       clientY: number,
       grabOffsetX: number,
@@ -880,22 +916,24 @@ export function Desktop() {
     ) => {
       cancelPageInteraction()
       reorderPlacementPageRef.current = currentPage
-      previewOrderRef.current = orderedItemIds
+      newPageActiveRef.current = false
+      previewPagesRef.current = layoutPages
       mergeTargetRef.current = undefined
       draggingItemIdRef.current = itemId
       lastDragPointerRef.current = { x: clientX, y: clientY }
       setMergeTargetId(undefined)
-      setPreviewOrder(orderedItemIds)
+      setPreviewPages(layoutPages)
       setReorderSession({
         itemId,
         pointerX: clientX,
         pointerY: clientY,
         grabOffsetX,
         grabOffsetY,
-        hoverIndex: globalIndex,
+        hoverPage: currentPage,
+        hoverSlot: slotOnPage,
       })
     },
-    [cancelPageInteraction, currentPage, orderedItemIds],
+    [cancelPageInteraction, currentPage, layoutPages],
   )
 
   const onReorderMove = useCallback(
@@ -926,18 +964,30 @@ export function Desktop() {
         return
       }
 
-      const { globalIndex: hoverIndex, targetPage } = resolvePointerIconTarget(
+      const activeNewPage = newPageActiveRef.current
+      const { slotOnPage, targetPage, newPage } = resolvePointerIconTarget(
         clientX,
         clientY,
         pager,
         reorderPlacementPageRef.current,
-        pageCount,
+        activeNewPage ? pageCount + 1 : pageCount,
         gridMetrics,
         gridPixelSize,
-        orderedItemIds.length,
+        !activeNewPage,
       )
 
-      if (targetPage !== reorderPlacementPageRef.current) {
+      if (newPage) {
+        if (!newPageActiveRef.current) {
+          newPageActiveRef.current = true
+        }
+        if (reorderPlacementPageRef.current !== targetPage) {
+          reorderPlacementPageRef.current = targetPage
+          goToPage(targetPage, true)
+        }
+      } else if (targetPage !== reorderPlacementPageRef.current) {
+        if (newPageActiveRef.current) {
+          newPageActiveRef.current = false
+        }
         reorderPlacementPageRef.current = targetPage
         goToPage(targetPage)
       }
@@ -949,7 +999,7 @@ export function Desktop() {
 
       lastDragPointerRef.current = { x: clientX, y: clientY }
 
-      const currentOrder = previewOrderRef.current ?? orderedItemIds
+      const currentPages = previewPagesRef.current ?? layoutPages
       const mergeTarget = resolveMergeTargetItem(
         clientX,
         clientY,
@@ -958,39 +1008,40 @@ export function Desktop() {
         pagerSize.width,
         gridMetrics,
         gridPixelSize,
-        currentOrder,
+        currentPages,
         draggingItemId,
       )
 
       mergeTargetRef.current = mergeTarget
       setMergeTargetId(mergeTarget)
 
+      const targetSlot = newPage || targetPage >= pageCount ? 0 : slotOnPage
+
       setReorderSession((session) => {
         if (!session) {
           return session
         }
 
-        const base = previewOrderRef.current ?? orderedItemIds
-        const nextPreview = buildPreviewOrder(base, session.itemId, hoverIndex)
-        previewOrderRef.current = nextPreview
-        setPreviewOrder(nextPreview)
+        const base = previewPagesRef.current ?? layoutPages
+        const nextPreview = buildPreviewPages(
+          base,
+          session.itemId,
+          reorderPlacementPageRef.current,
+          targetSlot,
+        )
+        previewPagesRef.current = nextPreview
+        setPreviewPages(nextPreview)
 
         return {
           ...session,
           pointerX: clientX,
           pointerY: clientY,
-          hoverIndex,
+          hoverPage: reorderPlacementPageRef.current,
+          hoverSlot: targetSlot,
         }
       })
     },
-    [
-      goToPage,
-      gridMetrics,
-      gridPixelSize,
-      orderedItemIds,
-      pageCount,
-      pagerSize.width,
-    ],
+    [goToPage, gridMetrics, gridPixelSize, layoutPages, pageCount, pagerSize.width],
   )
 
   const onReorderEnd = useCallback(() => {
@@ -1004,24 +1055,25 @@ export function Desktop() {
     if (dockTarget.overDock && draggedId) {
       pinToDockAtIndex(draggedId, dockTarget.insertIndex)
     } else if (mergeTarget && draggedId && mergeTarget !== draggedId) {
-      mergeItems(draggedId, mergeTarget, previewOrderRef.current)
+      mergeItems(draggedId, mergeTarget, previewPagesRef.current)
     } else {
-      const finalOrder = previewOrderRef.current
-      if (finalOrder) {
-        updateDesktopIconOrder(finalOrder)
+      const finalPages = previewPagesRef.current
+      if (finalPages) {
+        updateDesktopPages(finalPages)
       }
     }
 
     clearDockDropSession()
-    previewOrderRef.current = undefined
+    previewPagesRef.current = undefined
     mergeTargetRef.current = undefined
     draggingItemIdRef.current = undefined
     setMergeTargetId(undefined)
-    setPreviewOrder(undefined)
+    setPreviewPages(undefined)
     setReorderSession(undefined)
+    newPageActiveRef.current = false
     reorderPlacementPageRef.current = 0
     cancelPageInteraction()
-  }, [cancelPageInteraction, mergeItems, pinToDockAtIndex, updateDesktopIconOrder])
+  }, [cancelPageInteraction, mergeItems, pinToDockAtIndex, updateDesktopPages])
 
   const onDragOutToDesktop = useCallback(
     (
@@ -1038,40 +1090,42 @@ export function Desktop() {
       const nextLayout = moveAppOutOfFolder(
         {
           pinnedDockItemIds,
-          desktopIconOrder: orderedItemIds,
+          desktopPages: layoutPages,
           desktopFolders,
         },
         openFolderId,
         appId,
       )
-      const nextOrder = nextLayout.desktopIconOrder
-      const globalIndex = nextOrder.indexOf(appId)
-      if (globalIndex < 0) {
+      const nextPages = nextLayout.desktopPages
+      const location = findItemInPages(nextPages, appId)
+      if (!location) {
         return
       }
 
       moveAppOutOfFolderAction(openFolderId, appId)
       setOpenFolderId(undefined)
       cancelPageInteraction()
+      newPageActiveRef.current = false
 
-      const targetPage = Math.floor(globalIndex / gridMetrics.iconsPerPage)
+      const targetPage = location.page
       reorderPlacementPageRef.current = targetPage
       if (targetPage !== currentPage) {
         goToPage(targetPage)
       }
 
-      previewOrderRef.current = nextOrder
+      previewPagesRef.current = nextPages
       mergeTargetRef.current = undefined
       draggingItemIdRef.current = appId
       setMergeTargetId(undefined)
-      setPreviewOrder(nextOrder)
+      setPreviewPages(nextPages)
       setReorderSession({
         itemId: appId,
         pointerX: clientX,
         pointerY: clientY,
         grabOffsetX,
         grabOffsetY,
-        hoverIndex: globalIndex,
+        hoverPage: targetPage,
+        hoverSlot: location.slot,
       })
     },
     [
@@ -1079,10 +1133,9 @@ export function Desktop() {
       currentPage,
       desktopFolders,
       goToPage,
-      gridMetrics.iconsPerPage,
+      layoutPages,
       moveAppOutOfFolderAction,
       openFolderId,
-      orderedItemIds,
       pinnedDockItemIds,
     ],
   )
@@ -1162,9 +1215,7 @@ export function Desktop() {
             transform: `translate3d(${translateX}px, 0, 0)`,
           }}
         >
-          {Array.from({ length: pageCount }, (_, pageIndex) => {
-            const pageItemIds = getPageSlice(displayOrder, pageIndex, gridMetrics.iconsPerPage)
-
+          {displayPages.map((pageItemIds, pageIndex) => {
             return (
               <div
                 key={`page-${pageIndex}`}
@@ -1190,7 +1241,6 @@ export function Desktop() {
                       const isMergeTarget =
                         mergeTargetId === itemId && reorderSession?.itemId !== itemId
                       const slotPosition = getIconSlotPosition(slotOnPage, gridMetrics.cols)
-                      const globalIndex = displayOrder.indexOf(itemId)
 
                       return (
                         <div
@@ -1205,7 +1255,7 @@ export function Desktop() {
                             renderDesktopEntry(
                               entry,
                               itemId,
-                              globalIndex,
+                              slotOnPage,
                               isMergeTarget,
                               didSwipeRef,
                               reorderController,
