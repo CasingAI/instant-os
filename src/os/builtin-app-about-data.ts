@@ -325,4 +325,12 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '配置与消息保存在本机；打开「系统设置 → 账户」可管理模型供应商与 API Key。',
     ],
   },
+  'test-ribbon': {
+    version: '测试',
+    paragraphs: ['用于验证图标右上角丝带装饰的测试应用，验证后删除。'],
+  },
+  'test-sleeve': {
+    version: '测试',
+    paragraphs: ['用于验证图标底部套子装饰的测试应用，验证后删除。'],
+  },
 }

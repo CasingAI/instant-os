@@ -2,7 +2,7 @@ import type { ComponentType } from 'preact'
 import type { BuiltinAppAbout } from './builtin-app-about-data.ts'
 import type { TerminalPrivilegeRequest } from '../terminal/terminal-privilege-types.ts'
 
-export type BuiltinAppId = 'browser' | 'chromo' | 'page-devtools' | 'webview' | 'settings' | 'photos' | 'files' | 'file-info' | 'textedit' | 'pages' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'produde' | 'gomoku' | 'books' | 'music' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'services' | 'event-log' | 'keychain' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'packages' | 'archive-utility' | 'space-sniffer' | 'ui-kit' | 'stems' | 'srml-demo' | 'llm-playground'
+export type BuiltinAppId = 'browser' | 'chromo' | 'page-devtools' | 'webview' | 'settings' | 'photos' | 'files' | 'file-info' | 'textedit' | 'pages' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'produde' | 'gomoku' | 'books' | 'music' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'services' | 'event-log' | 'keychain' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'packages' | 'archive-utility' | 'space-sniffer' | 'ui-kit' | 'stems' | 'srml-demo' | 'llm-playground' | 'test-ribbon' | 'test-sleeve'
 
 export type OpenAppOptions = {
   /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
@@ -31,6 +31,23 @@ export function isExtAppId(appId: AppId): appId is ExtAppId {
   return appId.startsWith('ext:')
 }
 
+export type AppIconRibbonConfig = {
+  label: string
+  /** 缎带颜色；缺省使用系统红色调 */
+  color?: string
+}
+export type AppIconSleeveConfig = {
+  label?: string
+  /** 色带颜色；缺省使用半透明深色 */
+  color?: string
+}
+export type AppIconDecorationConfig = {
+  /** 右上角斜拉丝带 */
+  ribbon?: AppIconRibbonConfig
+  /** 底部横跨套子 */
+  sleeve?: AppIconSleeveConfig
+}
+
 export type AppDefinition = {
   id: BuiltinAppId
   name: string
@@ -47,6 +64,8 @@ export type AppDefinition = {
    * 默认不渲染可见窗框；耗时长时可展开为系统进度窗口。
    */
   windowless?: boolean
+  /** 图标装饰（右上角丝带 / 底部套子）；注册表构建时自动包一层，所有渲染点生效。 */
+  iconDecoration?: AppIconDecorationConfig
 }
 
 export type WindowRestoredBounds = {
