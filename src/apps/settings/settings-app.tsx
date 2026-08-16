@@ -39,6 +39,7 @@ import { DockSettingsView } from './dock-settings-view.tsx'
 import { DeveloperSettingsView } from './developer-settings-view.tsx'
 import { ExternalBridgeConsentsView } from './external-bridge-consents-view.tsx'
 import { ProxyServerSettingsView } from './proxy-server-settings-view.tsx'
+import { ResetSettingsView } from './reset-settings-view.tsx'
 import { BackgroundRefreshSettingsView } from './background-refresh-settings-view.tsx'
 import { BackgroundRefreshTaskDetailView } from './background-refresh-task-detail-view.tsx'
 import { NpmSettingsView } from './npm-settings-view.tsx'
@@ -299,6 +300,7 @@ export function SettingsApp() {
   const keepResources3d = showResources3d || view === 'resources-3d-detail'
   const showResources3dDetail = view === 'resources-3d-detail'
   const showNews = view === 'news'
+  const showReset = view === 'reset'
   const showExperimental = view === 'experimental'
   const showExternalBridgeConsent = view === 'external-bridge-consent'
   const activePaneId = paneIdForRoute(route)
@@ -585,6 +587,10 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showExperimental} keep={showExperimental}>
         <DeveloperSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showReset} keep={showReset}>
+        <ResetSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showExternalBridgeConsent} keep={showExternalBridgeConsent}>

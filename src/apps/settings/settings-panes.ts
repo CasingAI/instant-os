@@ -16,6 +16,7 @@ import {
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
   ModelCachePaneIcon,
+  ResetPaneIcon,
   SoundsPaneIcon,
   SpeechPaneIcon,
   StoragePaneIcon,
@@ -47,6 +48,7 @@ export type SettingsPaneId =
   | 'safari'
   | 'model-cache'
   | 'news'
+  | 'reset'
   | 'experimental'
 
 export type SettingsRoute =
@@ -81,9 +83,17 @@ export type SettingsRoute =
   | { view: 'safari-usage' }
   | { view: 'model-cache' }
   | { view: 'news' }
+  | { view: 'reset' }
   | { view: 'experimental' }
 
-export type SettingsPaneGroupId = 'account' | 'storage' | 'appearance' | 'system' | 'network' | 'developer'
+export type SettingsPaneGroupId =
+  | 'general'
+  | 'account'
+  | 'storage'
+  | 'appearance'
+  | 'system'
+  | 'network'
+  | 'developer'
 
 export type SettingsPaneGroupDef = {
   id: SettingsPaneGroupId
@@ -92,6 +102,7 @@ export type SettingsPaneGroupDef = {
 
 /** 一级菜单的分组顺序与标题。 */
 export const SETTINGS_PANE_GROUPS: SettingsPaneGroupDef[] = [
+  { id: 'general', label: '通用' },
   { id: 'storage', label: '存储' },
   { id: 'appearance', label: '外观' },
   { id: 'system', label: '系统' },
@@ -139,6 +150,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
     group: 'system',
   },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' }, group: 'system' },
+  { id: 'reset', label: '还原', Icon: ResetPaneIcon, route: { view: 'reset' }, group: 'general' },
   // 账户
   { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' }, group: 'account' },
   // 网络与内容
@@ -276,6 +288,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'model-cache'
     case 'news':
       return 'news'
+    case 'reset':
+      return 'reset'
     case 'experimental':
       return 'experimental'
   }
@@ -304,6 +318,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'safari-usage':
     case 'model-cache':
     case 'news':
+    case 'reset':
     case 'experimental':
       return false
     default:

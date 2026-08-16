@@ -207,6 +207,33 @@ export function NewsPaneIcon() {
   return <NewsIcon size={PANE_ICON_SIZE} />
 }
 
+export function ResetPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#b0723a" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <path
+          d="M5 7.5 H15 A3.5 3.5 0 1 1 11.5 11"
+          fill="none"
+          stroke="#fff"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          opacity="0.95"
+        />
+        <path
+          d="M5 4.5 V7.5 H8"
+          fill="none"
+          stroke="#fff"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          opacity="0.95"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function WallpaperPaneIcon() {
   return (
     <AppIconTile color="#5a9fd4" size={PANE_ICON_SIZE}>
