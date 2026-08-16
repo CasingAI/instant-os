@@ -13,10 +13,9 @@ export const PROXY_SERVER_SHARED_ORIGIN = 'https://virtual-chromo.r6sg.workers.d
 
 /**
  * Instant 免费额度网关（Instant-demo-api Worker）。
- * 部署后把 wrangler deploy 输出的地址替换到这里。
- * 未部署前为占位地址，探测会失败并在设置页给出提示。
+ * 与虚拟 chrome 共享同一子域模式（r6sg），已部署。
  */
-export const PROXY_SERVER_FREE_ORIGIN = 'https://instant-demo-api.example.workers.dev'
+export const PROXY_SERVER_FREE_ORIGIN = 'https://instant-demo-api.r6sg.workers.dev'
 
 export type ProxyServerPresetId = 'off' | 'shared' | 'custom' | 'instant-free'
 
