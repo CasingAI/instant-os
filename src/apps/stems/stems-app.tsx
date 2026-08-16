@@ -57,6 +57,8 @@ import {
   type LineSource,
 } from './lyrics-analysis.ts'
 import { rescueLine, scoreLineUnits, shouldRescueLine } from './lyrics-line-rescue.ts'
+import { planStretchParams, timeStretchAudio } from './lyrics-time-stretch.ts'
+import { autoSearchLine } from './lyrics-auto-search.ts'
 import { CLEAN_VERSION, cleanLyricsWithLlm, type CleanProgress } from './lyrics-llm-clean.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
@@ -1081,6 +1083,57 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 )
                 return segments.length > 0 ? { segments } : null
               },
+              // 方案 2：放慢自动搜索——保调放慢后 2 算法 × 2 模型重识别，取最优候选
+              autoStretchSearch: async (audioSlice) => {
+                const spanSec = stats[lineIndex]?.spanSec ?? win.endSec - win.startSec
+                const plan = planStretchParams(line.text, spanSec, audioSlice, sampleRate)
+                const result = await autoSearchLine({
+                  lineText: line.text,
+                  plan,
+                  userModel: alignModel,
+                  offsetSec: win.startSec,
+                  currentLine: line,
+                  callbacks: {
+                    stretch: (rate, method) => timeStretchAudio(audioSlice, sampleRate, rate, method),
+                    recognize: async (audio, model) => {
+                      const modelId = model === 'zipformer' ? 'align-zipformer' : 'align-sense-voice'
+                      const { segments } = await enqueueAiTask<
+                        ZipformerProgress | SenseVoiceProgress,
+                        { segments: HypSegment[]; text: string }
+                      >(modelId, { type: 'recognize', audio, sampleRate }, {
+                        route: (msg) => {
+                          if (msg.kind === 'done') {
+                            return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+                          }
+                          if (msg.kind === 'error') {
+                            return { action: 'reject', error: new Error(msg.message) }
+                          }
+                          return { action: 'continue' }
+                        },
+                      })
+                      return segments.length > 0 ? segments : null
+                    },
+                    alignBySegments: (shiftedSegments, text) =>
+                      alignLineByLineTimes(
+                        shiftedSegments,
+                        text,
+                        startMs !== undefined && startMs >= 0
+                          ? startMs
+                          : Math.round(win.startSec * 1000),
+                        times[lineIndex + 1],
+                      ),
+                  },
+                })
+                if (result.best && result.bestCombo && result.best.words && result.best.words.length > 0) {
+                  return {
+                    line: result.best,
+                    segments: result.bestSegments ?? [],
+                    model: result.bestCombo.model,
+                    score: result.bestScore ?? 0,
+                  }
+                }
+                return null
+              },
               forcedAlign: async (audioSlice) => {
                 const { lines: alignedLines } = await enqueueAiTask<
                   ZipformerProgress,
@@ -1144,7 +1197,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               sources[lineIndex] =
                 best.source === 'rescue-recognize' && scoreLineUnits(best.line) < 1
                   ? 'rescue-partial:zipformer'
-                  : best.source
+                  : best.source === 'rescue-slow'
+                    ? scoreLineUnits(best.line) < 1
+                      ? `rescue-partial:${best.model ?? 'zipformer'}`
+                      : `rescue-slow:${best.model ?? 'zipformer'}`
+                    : best.source
               // 补救候选段的识别证据随行记录：追踪图据此展示该行真实识别段
               rescuedSegs[lineIndex] = best.segments ?? null
               rescuedStats[lineIndex] = { score: best.score, baselineScore: best.baselineScore }

@@ -2,8 +2,9 @@
  * 歌词行级备选引擎补救（纯函数 + 编排，供音乐实验室主流程使用）。
  *
  * 默认模型（SenseVoice）整首对齐后，某些行（如 Rap 段）效果差：红词多、
- * 词被挤压。对这些失败行切行窗口音频，依次尝试两个备选方案：
+ * 词被挤压。对这些失败行切行窗口音频，依次尝试备选方案：
  *  - Zipformer recognize 该行窗口 → 行内对齐（「Zipformer 识别这一行」）
+ *  - 放慢自动搜索（可选注入）：保调放慢后 2 算法 × 2 模型组合重识别（主流程注入）
  *  - Zipformer CTC 强制对齐该行窗口（「Zipformer CTC 强制对齐」）
  * 按非标点词非红词比例评分，选最优替换原行。
  *
@@ -15,7 +16,7 @@ import type { HypSegment } from '../align/align-text-dtw.ts'
 import type { AlignedUnit } from '../align/align-types.ts'
 import type { ZipformerAlignUnit } from '../align/zipformer-worker.ts'
 import type { LyricsLine } from '../music/music-lyrics.ts'
-import { buildLineFromUnits, type LineStats } from './lyrics-analysis.ts'
+import { buildLineFromUnits, type AlignModel, type LineStats } from './lyrics-analysis.ts'
 
 /** 非标点词红词比例触发补救的阈值 */
 export const RESCUE_RED_RATIO = 0.5
@@ -44,8 +45,8 @@ export function shouldRescueLine(st: LineStats, line: LyricsLine): boolean {
   return redRatio >= RESCUE_RED_RATIO
 }
 
-/** 补救采用方案：方案1 = Zipformer 识别行窗；方案2 = Zipformer CTC 强制对齐 */
-export type RescueSource = 'rescue-recognize' | 'rescue-ctc'
+/** 补救采用方案：方案1 = Zipformer 识别行窗；方案2 = 放慢自动搜索；方案3 = Zipformer CTC 强制对齐 */
+export type RescueSource = 'rescue-recognize' | 'rescue-slow' | 'rescue-ctc'
 
 /** 选优候选最小结构：有行结果，可回填匹配度（pickBestLine 泛型约束） */
 export type PickBestCandidate = {
@@ -56,8 +57,10 @@ export type PickBestCandidate = {
 /** 补救候选：一行结果 + 其产出方案（供选优后记录行来源） */
 export type RescueCandidate = PickBestCandidate & {
   source: RescueSource
-  /** 方案1（识别）产出的全局轴识别段：供追踪图展示候选的真实识别证据 */
+  /** 方案1/方案2（识别）产出的全局轴识别段：供追踪图展示候选的真实识别证据 */
   segments?: HypSegment[]
+  /** 方案2（放慢搜索）采用的识别模型：source 标注模型后缀用 */
+  model?: AlignModel
 }
 
 /**
@@ -87,7 +90,14 @@ export function pickBestLine<T extends PickBestCandidate>(
 export type RescueLineCallbacks = {
   /** 方案 1：切行窗口识别。返回相对切片起点的识别段；null = 识别失败/无结果 */
   recognize: (slice: Float32Array) => Promise<{ segments: HypSegment[] } | null>
-  /** 方案 2：切行窗口 CTC 强制对齐。返回相对切片起点的单元；null = 失败/无结果 */
+  /** 方案 2：放慢自动搜索（可选；未注入则跳过）。返回全局轴识别段 + 采用模型 + 匹配度；null = 无候选 */
+  autoStretchSearch?: (slice: Float32Array) => Promise<{
+    line: LyricsLine
+    segments: HypSegment[]
+    model: AlignModel
+    score: number
+  } | null>
+  /** 方案 3：切行窗口 CTC 强制对齐。返回相对切片起点的单元；null = 失败/无结果 */
   forcedAlign: (slice: Float32Array) => Promise<ZipformerAlignUnit[] | null>
   /** 识别段 → 行对齐（段已偏移回全局时间轴） */
   alignBySegments: (segments: HypSegment[], lineText: string) => LyricsLine | null
@@ -110,8 +120,10 @@ export type RescueLineParams = {
 export type RescueLineResult = {
   line: LyricsLine | null
   source: RescueSource | null
-  /** 采用方案的识别段（方案1 全局轴；方案2/失败为 undefined），供追踪图展示 */
+  /** 采用方案的识别段（方案1/2 全局轴；方案3/失败为 undefined），供追踪图展示 */
   segments?: HypSegment[]
+  /** 方案2（放慢搜索）采用的识别模型：source 标注模型后缀用 */
+  model?: AlignModel
   /** 采用候选的匹配度（0-1）；未采用为 undefined */
   score?: number
   /** 原行基线匹配度（选优基准；候选必须严格优于它才替换） */
@@ -119,8 +131,8 @@ export type RescueLineResult = {
 }
 
 /**
- * 单行补救编排：方案 1（识别）→ 方案 2（CTC 强制对齐），
- * 两方案结果按匹配度选优；全部失败返回 { line: null, source: null }（调用方保持原行）。
+ * 单行补救编排：方案 1（识别）→ 方案 2（放慢自动搜索，可选）→ 方案 3（CTC 强制对齐），
+ * 各方案结果按匹配度选优；全部失败返回 { line: null, source: null }（调用方保持原行）。
  */
 export async function rescueLine(params: RescueLineParams): Promise<RescueLineResult> {
   const { lineText, slice, startSec, hasLineTime, currentLine, callbacks } = params
@@ -153,7 +165,30 @@ export async function rescueLine(params: RescueLineParams): Promise<RescueLineRe
     }
   }
 
-  // 方案 2：CTC 强制对齐（需要行时间戳定位行窗）
+  // 方案 2：放慢自动搜索（可选注入；主流程注入、手动路径缺省）。返回段已是全局轴。
+  if (callbacks.autoStretchSearch) {
+    const stretched = await callbacks.autoStretchSearch(slice)
+    if (stretched && stretched.line && stretched.line.words && stretched.line.words.length > 0) {
+      if (stretched.score >= 1) {
+        return {
+          line: stretched.line,
+          source: 'rescue-slow',
+          segments: stretched.segments,
+          model: stretched.model,
+          score: 1,
+          baselineScore,
+        }
+      }
+      candidates.push({
+        line: stretched.line,
+        source: 'rescue-slow',
+        segments: stretched.segments,
+        model: stretched.model,
+      })
+    }
+  }
+
+  // 方案 3：CTC 强制对齐（需要行时间戳定位行窗）
   if (hasLineTime) {
     const units = await callbacks.forcedAlign(slice)
     if (units && units.length > 0) {
@@ -175,6 +210,7 @@ export async function rescueLine(params: RescueLineParams): Promise<RescueLineRe
         line: best.line,
         source: best.source,
         segments: best.segments,
+        model: best.model,
         score: best.score,
         baselineScore,
       }

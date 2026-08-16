@@ -376,3 +376,145 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
   assert.equal(result.baselineScore, 0.5, '失败也保留原行基线分供复盘')
   assert.equal(result.score, undefined, '未采用时无候选分')
 }
+
+// —— rescueLine：未注入 autoStretchSearch 时行为不变（兼容回归） ——
+{
+  const result = await rescueLine({
+    lineText: '大家',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    callbacks: {
+      recognize: async () => ({ segments: [{ symbol: '大', start: 0, end: 0.2 }] }),
+      forcedAlign: async () => [
+        { text: '大', start: 0.1, end: 0.2, confident: true },
+        { text: '家', start: 0.2, end: 0.4, confident: true },
+      ],
+      alignBySegments: () => mkLine([{ text: '大' }, { text: '家', failed: true }]),
+    },
+  })
+  assert.ok(result.line)
+  assert.equal(result.source, 'rescue-ctc', '无放慢搜索回调时走原方案 2（CTC）')
+}
+
+// —— rescueLine：放慢搜索 score=1 → 提前停，标记 rescue-slow（不跑 CTC） ——
+{
+  let forcedCalled = false
+  const result = await rescueLine({
+    lineText: '大家',
+    slice: new Float32Array(100),
+    startSec: 10,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大' }, { text: '家', failed: true }]), // 原行 0.5 分
+    callbacks: {
+      // 方案 1 只对上半个词（0.5 分），继续
+      recognize: async () => ({ segments: [{ symbol: '大', start: 0, end: 0.2 }] }),
+      autoStretchSearch: async () => ({
+        line: mkLine([{ text: '大' }, { text: '家' }]),
+        segments: [{ symbol: '大', start: 10, end: 10.2 }],
+        model: 'sense-voice',
+        score: 1,
+      }),
+      forcedAlign: async () => {
+        forcedCalled = true
+        return null
+      },
+      alignBySegments: () => mkLine([{ text: '大' }, { text: '家', failed: true }]),
+    },
+  })
+  assert.ok(result.line)
+  assert.equal(result.source, 'rescue-slow', '放慢搜索满分 → 标记方案 2 放慢')
+  assert.equal(result.model, 'sense-voice', '放慢搜索模型随结果带回')
+  assert.equal(result.segments?.[0].start, 10, '放慢搜索段已是全局轴')
+  assert.equal(forcedCalled, false, '放慢搜索已满分则不再试 CTC')
+}
+
+// —— rescueLine：放慢搜索 score<1 但高于原速候选 → 采用 rescue-slow（带模型） ——
+{
+  const result = await rescueLine({
+    lineText: '大家好',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大' }, { text: '家', failed: true }, { text: '好', failed: true }]), // 0.33
+    callbacks: {
+      // 方案 1 0.5 分
+      recognize: async () => ({ segments: [{ symbol: '大', start: 0, end: 0.2 }] }),
+      autoStretchSearch: async () => ({
+        line: mkLine([{ text: '大' }, { text: '家' }, { text: '好', failed: true }]), // 0.67 分
+        segments: [{ symbol: '大', start: 0, end: 0.2 }],
+        model: 'zipformer',
+        score: 0.67,
+      }),
+      forcedAlign: async () => null,
+      alignBySegments: () => mkLine([{ text: '大' }, { text: '家', failed: true }]),
+    },
+  })
+  assert.ok(result.line)
+  assert.equal(result.source, 'rescue-slow', '放慢搜索高分胜出')
+  assert.equal(result.model, 'zipformer', '采用候选的模型带回')
+}
+
+// —— rescueLine：放慢搜索返回 null、原速/CTC 均失败 → 失败语义不变 ——
+{
+  const result = await rescueLine({
+    lineText: '大家',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    callbacks: {
+      recognize: async () => null,
+      autoStretchSearch: async () => null,
+      forcedAlign: async () => null,
+      alignBySegments: () => null,
+    },
+  })
+  assert.equal(result.line, null, '全部失败返回 null（保持原行）')
+  assert.equal(result.source, null, '全部失败来源为 null')
+}
+
+// —— rescueLine：放慢搜索返回空词行（无 words）→ 视为无候选 ——
+{
+  const result = await rescueLine({
+    lineText: '大家',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大' }, { text: '家', failed: true }]), // 0.5 分
+    callbacks: {
+      recognize: async () => null,
+      autoStretchSearch: async () => ({
+        line: mkLine([]),
+        segments: [],
+        model: 'sense-voice',
+        score: 0,
+      }),
+      forcedAlign: async () => null,
+      alignBySegments: () => null,
+    },
+  })
+  assert.equal(result.line, null, '放慢搜索空行不作为候选')
+}
+
+// —— rescueLine：放慢搜索候选不优于原行 → 保持原行 ——
+{
+  const result = await rescueLine({
+    lineText: '大家好',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大' }, { text: '家', failed: true }]), // 0.5 分
+    callbacks: {
+      recognize: async () => null,
+      autoStretchSearch: async () => ({
+        line: mkLine([{ text: '大' }, { text: '家', failed: true }, { text: '好', failed: true }]), // 0.33
+        segments: [],
+        model: 'zipformer',
+        score: 0.33,
+      }),
+      forcedAlign: async () => null,
+      alignBySegments: () => null,
+    },
+  })
+  assert.equal(result.line, null, '放慢搜索候选不优于原行 → 保持原行')
+}

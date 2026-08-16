@@ -725,13 +725,15 @@ function rescueReviewNote(
   if (scheme === 'rescue-failed') {
     return `原行分 ${fmt(stats.baselineScore)}，候选未优于原行或模型无结果 → 保持原行`
   }
-  if (scheme === 'rescue-recognize' || scheme === 'rescue-ctc' || scheme === 'rescue-partial') {
+  if (scheme === 'rescue-recognize' || scheme === 'rescue-slow' || scheme === 'rescue-ctc' || scheme === 'rescue-partial') {
     const conclusion =
       scheme === 'rescue-partial'
         ? '（部分成功，仍有红词）'
         : scheme === 'rescue-recognize'
           ? '（方案1 识别）'
-          : '（方案2 CTC）'
+          : scheme === 'rescue-slow'
+            ? '（方案2 放慢识别）'
+            : '（方案3 CTC）'
     return `原行分 ${fmt(stats.baselineScore)} → 补救分 ${fmt(stats.score)}${conclusion}`
   }
   return undefined

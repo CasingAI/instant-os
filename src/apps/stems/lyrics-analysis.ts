@@ -55,7 +55,8 @@ export type LineSource =
   | `whole-recognize${ModelSuffix}` // 整首识别 + 文本对齐（模型 = 当时主模型）
   | `whole-ctc${ModelSuffix}` // 整首 Zipformer CTC 强制对齐
   | `rescue-recognize${ModelSuffix}` // 失败行补救·方案1：Zipformer 识别行窗
-  | `rescue-ctc${ModelSuffix}` // 失败行补救·方案2：Zipformer CTC 行窗
+  | `rescue-slow${ModelSuffix}` // 失败行补救·方案2：放慢自动搜索（保调放慢后重识别）
+  | `rescue-ctc${ModelSuffix}` // 失败行补救·方案3：Zipformer CTC 行窗
   | `rescue-partial${ModelSuffix}` // 补救部分成功：候选被采用但仍有红词（内容没全对上）
   | `manual-${ManualActionKey}${ModelSuffix}` // 手动修复动作
   | 'restored' // 载入恢复（旧包无来源记录）
@@ -75,6 +76,7 @@ function splitLineSource(src: LineSource): { scheme: string; model: AlignModel |
     scheme === 'whole-recognize' ||
     scheme === 'whole-ctc' ||
     scheme === 'rescue-recognize' ||
+    scheme === 'rescue-slow' ||
     scheme === 'rescue-ctc' ||
     scheme === 'rescue-partial' ||
     (scheme.startsWith('manual-') &&
@@ -108,11 +110,14 @@ export function lineSourceLabel(src: LineSource | undefined): string {
     case 'rescue-recognize':
       // 补救方案 1 恒为 Zipformer 识别行窗
       return 'Zipformer 识别补救（方案1）'
+    case 'rescue-slow':
+      // 补救方案 2：放慢自动搜索，模型来自后缀
+      return modelName ? `${modelName} 放慢识别补救` : '放慢识别补救'
     case 'rescue-ctc':
-      // 补救方案 2 恒为 Zipformer CTC 行窗
-      return 'Zipformer CTC 补救（方案2）'
+      // 补救方案 3 恒为 Zipformer CTC 行窗
+      return 'Zipformer CTC 补救（方案3）'
     case 'rescue-partial':
-      // 补救部分成功：候选被采用但仍有红词（内容没全对上）
+      // 补救部分成功：候选（方案1 识别 / 方案2 放慢）被采用但仍有红词（内容没全对上）
       return '补救部分成功（仍有红词）'
     default:
       if (scheme.startsWith('manual-')) {
