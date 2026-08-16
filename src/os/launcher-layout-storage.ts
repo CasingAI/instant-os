@@ -1,5 +1,5 @@
 import { APP_REGISTRY } from './app-registry.tsx'
-import { getAppsInFolders, removeAppFromFolders } from './desktop-folder-operations.ts'
+import { reconcileDesktopItemOrder, removeAppFromFolders } from './desktop-folder-operations.ts'
 import type { DesktopFolder, DesktopItemId } from './desktop-folder-types.ts'
 import { isDesktopFolderId } from './desktop-folder-types.ts'
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
@@ -29,13 +29,9 @@ export const DESKTOP_ICON_HEIGHT = 108
 export const DESKTOP_ICON_GAP_X = 24
 export const DESKTOP_ICON_GAP_Y = 28
 
-/** 旧版一维顺序迁移到页数组时使用的每页容量（渲染时会按真实网格校正）。 */
-const MIGRATION_ICONS_PER_PAGE = 24
-
 export type LauncherLayoutState = {
   pinnedDockItemIds: DesktopItemId[]
-  /** 桌面图标布局：每页一个数组，页内为槽位顺序（可含空页，页数不限）。 */
-  desktopPages: DesktopItemId[][]
+  desktopIconOrder: DesktopItemId[]
   desktopFolders: DesktopFolder[]
 }
 
@@ -91,9 +87,17 @@ export function getDefaultDesktopIconOrder(): AppId[] {
 export function getDefaultLauncherLayout(): LauncherLayoutState {
   return {
     pinnedDockItemIds: getDefaultPinnedDockItemIds(),
-    desktopPages: [getDefaultDesktopIconOrder()],
+    desktopIconOrder: [],
     desktopFolders: [],
   }
+}
+
+export function reconcileDesktopIconOrder(
+  storedOrder: DesktopItemId[],
+  visibleAppIds: AppId[],
+  folders: DesktopFolder[] = [],
+): DesktopItemId[] {
+  return reconcileDesktopItemOrder(storedOrder, visibleAppIds, folders)
 }
 
 type LegacyDesktopIconPosition = {
@@ -104,7 +108,6 @@ type LegacyDesktopIconPosition = {
 type LegacyLauncherLayoutState = {
   desktopPositions?: Partial<Record<AppId, LegacyDesktopIconPosition>>
   pinnedDockAppIds?: AppId[]
-  desktopIconOrder?: DesktopItemId[]
 }
 
 function migratePositionsToOrder(
@@ -128,17 +131,6 @@ function migratePositionsToOrder(
   return [...sorted, ...remaining]
 }
 
-function chunkOrderForMigration(order: DesktopItemId[]): DesktopItemId[][] {
-  if (order.length === 0) {
-    return [[]]
-  }
-  const pages: DesktopItemId[][] = []
-  for (let index = 0; index < order.length; index += MIGRATION_ICONS_PER_PAGE) {
-    pages.push(order.slice(index, index + MIGRATION_ICONS_PER_PAGE))
-  }
-  return pages
-}
-
 function readLauncherLayout(): LauncherLayoutState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -154,36 +146,16 @@ function readLauncherLayout(): LauncherLayoutState {
       ? parsed.pinnedDockItemIds.filter((id): id is DesktopItemId => typeof id === 'string')
       : legacyPinnedDockAppIds ?? getDefaultPinnedDockItemIds()
 
-    let desktopPages: DesktopItemId[][]
-    let pagesRepaired = false
-    if (
-      Array.isArray(parsed.desktopPages) &&
-      parsed.desktopPages.every((page) => Array.isArray(page))
-    ) {
-      desktopPages = parsed.desktopPages.map((page) =>
-        page.filter((id): id is DesktopItemId => typeof id === 'string'),
+    let desktopIconOrder: DesktopItemId[] = []
+    if (Array.isArray(parsed.desktopIconOrder)) {
+      desktopIconOrder = parsed.desktopIconOrder.filter(
+        (id): id is DesktopItemId => typeof id === 'string',
       )
-      // 自愈损坏形状：历史 bug 会把布局拆成「每页 ≤1 个图标」的超多页，重新分页。
-      if (
-        desktopPages.length > 1 &&
-        desktopPages.every((page) => page.length <= 1)
-      ) {
-        desktopPages = chunkOrderForMigration(desktopPages.flat())
-        pagesRepaired = true
-      }
-    } else {
-      let desktopIconOrder: DesktopItemId[] = []
-      if (Array.isArray(parsed.desktopIconOrder)) {
-        desktopIconOrder = parsed.desktopIconOrder.filter(
-          (id): id is DesktopItemId => typeof id === 'string',
-        )
-      } else if (parsed.desktopPositions && typeof parsed.desktopPositions === 'object') {
-        desktopIconOrder = migratePositionsToOrder(
-          parsed.desktopPositions,
-          getDefaultDesktopIconOrder(),
-        )
-      }
-      desktopPages = chunkOrderForMigration(desktopIconOrder)
+    } else if (parsed.desktopPositions && typeof parsed.desktopPositions === 'object') {
+      desktopIconOrder = migratePositionsToOrder(
+        parsed.desktopPositions,
+        getDefaultDesktopIconOrder(),
+      )
     }
 
     const desktopFolders = Array.isArray(parsed.desktopFolders)
@@ -197,34 +169,14 @@ function readLauncherLayout(): LauncherLayoutState {
         )
       : []
 
-    // 内置 App 无「隐藏」机制；注册表新增的内置 App 应自动补到桌面末尾，
-    // 否则已保存布局的老用户看不到新 App。
-    const folderApps = getAppsInFolders(desktopFolders)
-    const presentAppIds = new Set(
-      desktopPages.flat().filter((id): id is AppId => !isDesktopFolderId(id)),
-    )
-    const missingDesktopApps = getDefaultDesktopIconOrder().filter(
-      (appId) => !presentAppIds.has(appId) && !folderApps.has(appId),
-    )
-    if (missingDesktopApps.length > 0) {
-      if (desktopPages.length === 0) {
-        desktopPages = [[]]
-      }
-      desktopPages[desktopPages.length - 1].push(...missingDesktopApps)
-    }
-
     const pinnedDockItemIds = reconcilePinnedDockItemIds(storedPinnedDockItemIds, desktopFolders)
-    const state: LauncherLayoutState = {
-      pinnedDockItemIds,
-      desktopPages,
-      desktopFolders,
-    }
+    const state: LauncherLayoutState = { pinnedDockItemIds, desktopIconOrder, desktopFolders }
     const pinsMigrated =
       pinnedDockItemIds.some((itemId, index) => storedPinnedDockItemIds[index] !== itemId) ||
       pinnedDockItemIds.length !== storedPinnedDockItemIds.length ||
       legacyPinnedDockAppIds !== undefined
 
-    if (pinsMigrated || pagesRepaired) {
+    if (pinsMigrated) {
       writeLauncherLayout(state)
     }
 
@@ -311,23 +263,40 @@ export function unpinAppFromDock(state: LauncherLayoutState, appId: AppId): Laun
   return unpinItemFromDock(state, appId)
 }
 
-export function setDesktopPages(state: LauncherLayoutState, pages: DesktopItemId[][]): LauncherLayoutState {
+export function setDesktopIconOrder(state: LauncherLayoutState, order: DesktopItemId[]): LauncherLayoutState {
   return {
     ...state,
-    desktopPages: pages,
+    desktopIconOrder: order,
   }
 }
 
 export function setDesktopLayout(
   state: LauncherLayoutState,
-  pages: DesktopItemId[][],
+  order: DesktopItemId[],
   folders: DesktopFolder[],
 ): LauncherLayoutState {
   return {
     ...state,
-    desktopPages: pages,
+    desktopIconOrder: order,
     desktopFolders: folders,
   }
+}
+
+export function moveDesktopIconInOrder(order: DesktopItemId[], fromIndex: number, toIndex: number): DesktopItemId[] {
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= order.length ||
+    toIndex >= order.length ||
+    fromIndex === toIndex
+  ) {
+    return order
+  }
+
+  const next = [...order]
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  return next
 }
 
 export function removeAppFromLauncherLayout(state: LauncherLayoutState, appId: AppId): LauncherLayoutState {
@@ -336,10 +305,8 @@ export function removeAppFromLauncherLayout(state: LauncherLayoutState, appId: A
 
   return {
     pinnedDockItemIds: state.pinnedDockItemIds.filter((id) => id !== appId),
-    desktopPages: state.desktopPages.map((page) =>
-      page.filter(
-        (id) => id !== appId && (!isDesktopFolderId(id) || folderIds.has(id)),
-      ),
+    desktopIconOrder: state.desktopIconOrder.filter(
+      (id) => id !== appId && (!isDesktopFolderId(id) || folderIds.has(id)),
     ),
     desktopFolders,
   }

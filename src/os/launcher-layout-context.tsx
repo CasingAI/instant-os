@@ -9,8 +9,8 @@ import {
   pinAppToDock,
   pinItemToDockAtIndex,
   saveLauncherLayout,
+  setDesktopIconOrder,
   setDesktopLayout,
-  setDesktopPages,
   subscribeLauncherLayout,
   unpinAppFromDock,
   unpinItemFromDock,
@@ -18,7 +18,7 @@ import {
 
 type LauncherLayoutContextValue = {
   pinnedDockItemIds: DesktopItemId[]
-  desktopPages: DesktopItemId[][]
+  desktopIconOrder: DesktopItemId[]
   desktopFolders: DesktopFolder[]
   isPinnedToDock: (appId: AppId) => boolean
   isItemPinnedToDock: (itemId: DesktopItemId) => boolean
@@ -26,9 +26,9 @@ type LauncherLayoutContextValue = {
   pinToDockAtIndex: (itemId: DesktopItemId, index: number) => void
   unpinFromDock: (appId: AppId) => void
   unpinItemFromDock: (itemId: DesktopItemId) => void
-  updateDesktopPages: (pages: DesktopItemId[][]) => void
-  syncDesktopLayout: (pages: DesktopItemId[][], folders: DesktopFolder[]) => void
-  mergeDesktopItems: (draggedId: DesktopItemId, targetId: DesktopItemId, orderHint?: DesktopItemId[][]) => void
+  updateDesktopIconOrder: (order: DesktopItemId[]) => void
+  syncDesktopLayout: (order: DesktopItemId[], folders: DesktopFolder[]) => void
+  mergeDesktopItems: (draggedId: DesktopItemId, targetId: DesktopItemId, orderHint?: DesktopItemId[]) => void
   renameDesktopFolder: (folderId: DesktopFolderId, name: string) => void
   updateFolderAppOrder: (folderId: DesktopFolderId, appIds: AppId[]) => void
   moveAppOutOfFolder: (folderId: DesktopFolderId, appId: AppId) => void
@@ -85,30 +85,30 @@ export function LauncherLayoutProvider({ children }: { children: ComponentChildr
     [layout, persist],
   )
 
-  const updateDesktopPages = useCallback((pages: DesktopItemId[][]) => {
+  const updateDesktopIconOrder = useCallback((order: DesktopItemId[]) => {
     setLayout((current) => {
-      const next = setDesktopPages(current, pages)
+      const next = setDesktopIconOrder(current, order)
       saveLauncherLayout(next)
       return next
     })
   }, [])
 
-  const syncDesktopLayout = useCallback((pages: DesktopItemId[][], folders: DesktopFolder[]) => {
+  const syncDesktopLayout = useCallback((order: DesktopItemId[], folders: DesktopFolder[]) => {
     setLayout((current) => {
-      const next = setDesktopLayout(current, pages, folders)
+      const next = setDesktopLayout(current, order, folders)
       saveLauncherLayout(next)
       return next
     })
   }, [])
 
   const mergeDesktopItemsAction = useCallback(
-    (draggedId: DesktopItemId, targetId: DesktopItemId, orderHint?: DesktopItemId[][]) => {
+    (draggedId: DesktopItemId, targetId: DesktopItemId, orderHint?: DesktopItemId[]) => {
       setLayout((current) => {
         const result = mergeDesktopItems(current, draggedId, targetId, orderHint)
         if (!result) {
           return current
         }
-        const next = setDesktopLayout(current, result.pages, result.folders)
+        const next = setDesktopLayout(current, result.order, result.folders)
         saveLauncherLayout(next)
         return next
       })
@@ -170,7 +170,7 @@ export function LauncherLayoutProvider({ children }: { children: ComponentChildr
   const value = useMemo(
     (): LauncherLayoutContextValue => ({
       pinnedDockItemIds: layout.pinnedDockItemIds,
-      desktopPages: layout.desktopPages,
+      desktopIconOrder: layout.desktopIconOrder,
       desktopFolders: layout.desktopFolders,
       isPinnedToDock,
       isItemPinnedToDock,
@@ -178,7 +178,7 @@ export function LauncherLayoutProvider({ children }: { children: ComponentChildr
       pinToDockAtIndex,
       unpinFromDock,
       unpinItemFromDock: unpinItemFromDockAction,
-      updateDesktopPages,
+      updateDesktopIconOrder,
       syncDesktopLayout,
       mergeDesktopItems: mergeDesktopItemsAction,
       renameDesktopFolder,
@@ -188,7 +188,7 @@ export function LauncherLayoutProvider({ children }: { children: ComponentChildr
     }),
     [
       layout.pinnedDockItemIds,
-      layout.desktopPages,
+      layout.desktopIconOrder,
       layout.desktopFolders,
       isPinnedToDock,
       isItemPinnedToDock,
@@ -196,12 +196,12 @@ export function LauncherLayoutProvider({ children }: { children: ComponentChildr
       pinToDockAtIndex,
       unpinFromDock,
       unpinItemFromDockAction,
-      updateDesktopPages,
+      updateDesktopIconOrder,
       syncDesktopLayout,
       mergeDesktopItemsAction,
       renameDesktopFolder,
-      updateFolderAppOrder,
       moveAppOutOfFolderAction,
+      updateFolderAppOrder,
       dissolveDesktopFolder,
     ],
   )

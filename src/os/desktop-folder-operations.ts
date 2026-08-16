@@ -46,72 +46,105 @@ export function reconcileDesktopFolders(
     .filter((folder) => folder.appIds.length > 0)
 }
 
-/** 页数组的 reconcile：过滤不可见/被收纳的图标与失效文件夹，并回收末尾空页。 */
-export function reconcileDesktopPages(
-  pages: DesktopItemId[][],
+export function reconcileDesktopItemOrder(
+  storedOrder: DesktopItemId[],
   visibleAppIds: AppId[],
-  folders: DesktopFolder[] = [],
-): DesktopItemId[][] {
-  const visibleSet = new Set(visibleAppIds)
+  folders: DesktopFolder[],
+): DesktopItemId[] {
   const reconciledFolders = reconcileDesktopFolders(folders, visibleAppIds)
-  const folderIdSet = new Set(reconciledFolders.map((folder) => folder.id))
   const appsInFolders = getAppsInFolders(reconciledFolders)
+  const folderIdSet = new Set(reconciledFolders.map((folder) => folder.id))
+  const visibleAppSet = new Set(visibleAppIds)
 
-  const next = pages.map((page) =>
-    page.filter((id) => {
-      if (isDesktopFolderId(id)) {
-        return folderIdSet.has(id)
+  const ordered: DesktopItemId[] = []
+
+  for (const itemId of storedOrder) {
+    if (isDesktopFolderId(itemId)) {
+      if (folderIdSet.has(itemId) && !ordered.includes(itemId)) {
+        ordered.push(itemId)
       }
-      return visibleSet.has(id) && !appsInFolders.has(id)
-    }),
-  )
+      continue
+    }
 
-  while (next.length > 1 && next[next.length - 1].length === 0) {
-    next.pop()
+    if (visibleAppSet.has(itemId) && !appsInFolders.has(itemId) && !ordered.includes(itemId)) {
+      ordered.push(itemId)
+    }
   }
-  return next.length > 0 ? next : [[]]
+
+  for (const folder of reconciledFolders) {
+    if (!ordered.includes(folder.id)) {
+      ordered.push(folder.id)
+    }
+  }
+
+  for (const appId of visibleAppIds) {
+    if (!appsInFolders.has(appId) && !ordered.includes(appId)) {
+      ordered.push(appId)
+    }
+  }
+
+  return ordered
+}
+
+export function moveDesktopItemInOrder(
+  order: DesktopItemId[],
+  fromIndex: number,
+  toIndex: number,
+): DesktopItemId[] {
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= order.length ||
+    toIndex >= order.length ||
+    fromIndex === toIndex
+  ) {
+    return order
+  }
+
+  const next = [...order]
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  return next
 }
 
 type MergeResult = {
-  pages: DesktopItemId[][]
+  order: DesktopItemId[]
   folders: DesktopFolder[]
 }
 
-function findItemLocation(
-  pages: DesktopItemId[][],
-  id: DesktopItemId,
-): { page: number; slot: number } | undefined {
-  for (let page = 0; page < pages.length; page += 1) {
-    const slot = pages[page].indexOf(id)
-    if (slot >= 0) {
-      return { page, slot }
-    }
-  }
-  return undefined
+function insertItemAtTargetPosition(
+  order: DesktopItemId[],
+  insertId: DesktopItemId,
+  targetItemId: DesktopItemId,
+  removeIds: DesktopItemId[],
+): DesktopItemId[] {
+  const removeSet = new Set(removeIds)
+  const targetIndex = order.indexOf(targetItemId)
+  const insertAt =
+    targetIndex >= 0
+      ? order.slice(0, targetIndex).filter((id) => !removeSet.has(id) && id !== insertId).length
+      : order.filter((id) => !removeSet.has(id) && id !== insertId).length
+
+  const next = order.filter((id) => !removeSet.has(id) && id !== insertId)
+  next.splice(insertAt, 0, insertId)
+  return next
 }
 
 export function mergeDesktopItems(
   state: LauncherLayoutState,
   draggedId: DesktopItemId,
   targetId: DesktopItemId,
-  orderHint?: DesktopItemId[][],
+  orderHint?: DesktopItemId[],
 ): MergeResult | undefined {
   if (draggedId === targetId) {
     return undefined
   }
 
   const folders = [...state.desktopFolders]
-  const pages = (orderHint ?? state.desktopPages).map((page) => [...page])
+  let order = [...(orderHint ?? state.desktopIconOrder)]
 
   const draggedIsFolder = isDesktopFolderId(draggedId)
   const targetIsFolder = isDesktopFolderId(targetId)
-
-  const removeId = (id: DesktopItemId) => {
-    const location = findItemLocation(pages, id)
-    if (location) {
-      pages[location.page].splice(location.slot, 1)
-    }
-  }
 
   if (!draggedIsFolder && !targetIsFolder) {
     const draggedApp = draggedId as AppId
@@ -121,14 +154,9 @@ export function mergeDesktopItems(
       name: DEFAULT_FOLDER_NAME,
       appIds: [targetApp, draggedApp],
     }
-    removeId(draggedApp)
-    const targetLocation = findItemLocation(pages, targetApp)
-    if (!targetLocation) {
-      return undefined
-    }
-    pages[targetLocation.page].splice(targetLocation.slot, 1, newFolder.id)
+    order = insertItemAtTargetPosition(order, newFolder.id, targetApp, [draggedApp, targetApp])
     return {
-      pages,
+      order,
       folders: [...folders, newFolder],
     }
   }
@@ -144,8 +172,8 @@ export function mergeDesktopItems(
         ? { ...folder, appIds: [...folder.appIds, draggedApp] }
         : folder,
     )
-    removeId(draggedApp)
-    return { pages, folders: nextFolders }
+    order = order.filter((id) => id !== draggedApp)
+    return { order, folders: nextFolders }
   }
 
   if (draggedIsFolder && !targetIsFolder) {
@@ -159,8 +187,8 @@ export function mergeDesktopItems(
         ? { ...folder, appIds: [...folder.appIds, targetApp] }
         : folder,
     )
-    removeId(targetApp)
-    return { pages, folders: nextFolders }
+    order = order.filter((id) => id !== targetApp)
+    return { order, folders: nextFolders }
   }
 
   if (draggedIsFolder && targetIsFolder) {
@@ -183,8 +211,8 @@ export function mergeDesktopItems(
         folder.id === targetId ? { ...folder, appIds: mergedAppIds } : folder,
       )
 
-    removeId(draggedId)
-    return { pages, folders: nextFolders }
+    order = order.filter((id) => id !== draggedId)
+    return { order, folders: nextFolders }
   }
 
   return undefined
@@ -245,40 +273,37 @@ export function moveAppOutOfFolder(
     return state
   }
 
-  const pages = state.desktopPages.map((page) => [...page])
-  const folderLocation = findItemLocation(pages, folderId)
   const remainingAppIds = folder.appIds.filter((id) => id !== appId)
   let folders = state.desktopFolders
+  let order = [...state.desktopIconOrder]
 
   if (remainingAppIds.length === 0) {
     folders = folders.filter((f) => f.id !== folderId)
-    if (folderLocation) {
-      pages[folderLocation.page].splice(folderLocation.slot, 1)
-      pages[folderLocation.page].push(appId)
-    } else {
-      pages.push([appId])
-    }
+    order = order.filter((id) => id !== folderId)
+    order = [...order, appId]
   } else if (remainingAppIds.length === 1) {
     const lastApp = remainingAppIds[0]
     folders = folders.filter((f) => f.id !== folderId)
-    if (folderLocation) {
-      pages[folderLocation.page].splice(folderLocation.slot, 1, lastApp)
-      pages[folderLocation.page].push(appId)
+    const folderIndex = order.indexOf(folderId)
+    order = order.filter((id) => id !== folderId)
+    if (folderIndex >= 0) {
+      order.splice(folderIndex, 0, lastApp, appId)
     } else {
-      pages.push([appId])
+      order.push(lastApp, appId)
     }
   } else {
     folders = folders.map((f) =>
       f.id === folderId ? { ...f, appIds: remainingAppIds } : f,
     )
-    if (folderLocation) {
-      pages[folderLocation.page].splice(folderLocation.slot + 1, 0, appId)
+    const folderIndex = order.indexOf(folderId)
+    if (folderIndex >= 0) {
+      order.splice(folderIndex + 1, 0, appId)
     } else {
-      pages.push([appId])
+      order.push(appId)
     }
   }
 
-  return { ...state, desktopPages: pages, desktopFolders: folders }
+  return { ...state, desktopIconOrder: order, desktopFolders: folders }
 }
 
 export function dissolveFolder(
@@ -290,16 +315,15 @@ export function dissolveFolder(
     return state
   }
 
-  const pages = state.desktopPages.map((page) => [...page])
-  const folderLocation = findItemLocation(pages, folderId)
-  if (folderLocation) {
-    pages[folderLocation.page].splice(folderLocation.slot, 1, ...folder.appIds)
-  }
+  const folderIndex = state.desktopIconOrder.indexOf(folderId)
+  const order = state.desktopIconOrder.filter((id) => id !== folderId)
+  const insertAt = folderIndex >= 0 ? folderIndex : order.length
+  order.splice(insertAt, 0, ...folder.appIds)
 
   return {
     ...state,
     pinnedDockItemIds: state.pinnedDockItemIds.filter((id) => id !== folderId),
-    desktopPages: pages,
+    desktopIconOrder: order,
     desktopFolders: state.desktopFolders.filter((f) => f.id !== folderId),
   }
 }

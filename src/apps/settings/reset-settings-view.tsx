@@ -3,6 +3,7 @@ import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import { isDesktopFolderId } from '../../os/desktop-folder-types.ts'
 import {
+  getDefaultDesktopIconOrder,
   getDefaultLauncherLayout,
   loadLauncherLayout,
   reconcilePinnedDockItemIds,
@@ -43,7 +44,7 @@ export function ResetSettingsView({ onBack }: ResetSettingsViewProps) {
       return result
     }
 
-    const installedDesktop = collectInstalled(current.desktopPages.flat())
+    const installedDesktop = collectInstalled(current.desktopIconOrder)
     const installedDock = collectInstalled(current.pinnedDockItemIds)
 
     const ok = saveLauncherLayout({
@@ -51,7 +52,7 @@ export function ResetSettingsView({ onBack }: ResetSettingsViewProps) {
         [...defaults.pinnedDockItemIds, ...installedDock],
         [],
       ),
-      desktopPages: [[...defaults.desktopPages[0], ...installedDesktop]],
+      desktopIconOrder: [...getDefaultDesktopIconOrder(), ...installedDesktop],
       desktopFolders: [],
     })
 

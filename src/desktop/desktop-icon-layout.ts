@@ -1,4 +1,5 @@
 import type { DesktopItemId } from '../os/desktop-folder-types.ts'
+import { moveDesktopItemInOrder } from '../os/desktop-folder-operations.ts'
 import {
   DESKTOP_ICON_GAP_X,
   DESKTOP_ICON_GAP_Y,
@@ -23,33 +24,21 @@ export function getIconSlotPosition(slotIndex: number, cols: number): IconSlotPo
   }
 }
 
-/**
- * 拖拽预览：把拖动中的图标从原页移除，插入到目标页的目标槽位。
- * 目标页超过当前页数时视为「新建一页」，图标落在新页第一格。
- */
-export function buildPreviewPages(
-  pages: DesktopItemId[][],
+export function buildPreviewOrder(
+  order: DesktopItemId[],
   draggingItemId: DesktopItemId,
-  targetPage: number,
-  slotOnPage: number,
-): DesktopItemId[][] {
-  const next = pages.map((page) => page.filter((id) => id !== draggingItemId))
-
-  const clampedPage = Math.max(0, targetPage)
-  if (clampedPage >= next.length) {
-    while (next.length < clampedPage) {
-      next.push([])
-    }
-    next.push([draggingItemId])
-  } else {
-    const page = [...next[clampedPage]]
-    const slot = Math.max(0, Math.min(slotOnPage, page.length))
-    page.splice(slot, 0, draggingItemId)
-    next[clampedPage] = page
+  hoverIndex: number,
+): DesktopItemId[] {
+  const fromIndex = order.indexOf(draggingItemId)
+  if (fromIndex < 0) {
+    return order
   }
 
-  while (next.length > 1 && next[next.length - 1].length === 0) {
-    next.pop()
-  }
-  return next
+  const toIndex = Math.max(0, Math.min(hoverIndex, order.length - 1))
+  return moveDesktopItemInOrder(order, fromIndex, toIndex)
+}
+
+export function getPageSlice(order: DesktopItemId[], pageIndex: number, iconsPerPage: number): DesktopItemId[] {
+  const start = pageIndex * iconsPerPage
+  return order.slice(start, start + iconsPerPage)
 }
