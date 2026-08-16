@@ -810,8 +810,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           { type: 'separator' },
           {
             type: 'action',
-            label: '无损压缩（FLAC）',
-            checked: archiveCodec === 'flac',
+            label: `${archiveCodec === 'flac' ? '✓ ' : ''}无损压缩（FLAC）`,
             onClick: () => changeArchiveCodec(archiveCodec === 'flac' ? 'wav' : 'flac'),
           },
           { type: 'separator' },

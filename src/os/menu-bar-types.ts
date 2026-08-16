@@ -4,8 +4,6 @@ export type MenuItemAction = {
   onClick: () => void
   disabled?: boolean
   shortcut?: string
-  /** 勾选标记（如「文件 → 无损压缩（FLAC）」），渲染为菜单项前的小勾 */
-  checked?: boolean
 }
 
 export type MenuItemSeparator = {

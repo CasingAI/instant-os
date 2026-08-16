@@ -225,18 +225,6 @@
   cursor: default;
 }
 
-.menu-bar__dropdown-check {
-  width: 14px;
-  flex: 0 0 14px;
-  font-size: 12px;
-  line-height: 1;
-  text-align: center;
-}
-
-.menu-bar__dropdown-check--empty {
-  opacity: 0;
-}
-
 .menu-bar__dropdown-label {
   flex: 1;
   overflow: hidden;
