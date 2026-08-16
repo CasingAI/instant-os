@@ -57,7 +57,7 @@ import {
   type LineSource,
 } from './lyrics-analysis.ts'
 import { rescueLine, scoreLineUnits, shouldRescueLine } from './lyrics-line-rescue.ts'
-import { planStretchParams, timeStretchAudio } from './lyrics-time-stretch.ts'
+import { planStretchParams, timeStretchAudio, type StretchPlan } from './lyrics-time-stretch.ts'
 import { autoSearchLine } from './lyrics-auto-search.ts'
 import { CLEAN_VERSION, cleanLyricsWithLlm, type CleanProgress } from './lyrics-llm-clean.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
@@ -974,6 +974,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       audio: Float32Array,
       sampleRate: number,
       reqId: number,
+      opts?: { preUnits?: number },
     ): Promise<{
       lrc: string
       failedCount: number
@@ -981,6 +982,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       rescueSegments: (HypSegment[] | null)[]
       rescueStats: ({ score?: number; baselineScore?: number } | null)[]
     }> => {
+      // 整首识别已完成的尝试单元数（alignVocals 传 1）；复用音素重对齐/载入恢复无整首识别 = 0
+      const base = opts?.preUnits ?? 0
       const lines = parseLrc(baseLrc).lines
       if (lines.length === 0) {
         return {
@@ -1013,22 +1016,19 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         }
       }
 
-      let current = baseLrc
-      let done = 0
+      // 预计算每行补救的尝试配额（方案1 识别 1 + 放慢组合 rate<1 时 4 / rate=1 时 2 + 有行时间戳时 CTC 1）
+      // 与拉伸计划，作为总尝试单元数：进度 = 已完成单元/总单元，单调递增不再来回跳
+      const prepped: {
+        lineIndex: number
+        win: { startSec: number; endSec: number }
+        startMs: number | undefined
+        hasLineTime: boolean
+        plan: StretchPlan
+        quota: number
+      }[] = []
+      let totalUnits = base
       let failedCount = 0
-      let improvedCount = 0
-      const rescuedSegs: (HypSegment[] | null)[] = lines.map(() => null)
-      const rescuedStats: ({ score?: number; baselineScore?: number } | null)[] = lines.map(() => null)
       for (const lineIndex of rescueIndexes) {
-        if (alignReqSeqRef.current !== reqId) {
-          return {
-            lrc: current,
-            failedCount,
-            improvedCount,
-            rescueSegments: rescuedSegs,
-            rescueStats: rescuedStats,
-          }
-        }
         const line = lines[lineIndex]
         if (!line) continue
         const startMs = times[lineIndex]
@@ -1043,50 +1043,86 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           continue
         }
         const slice = audio.slice(a, b)
-        done += 1
-        setAlignProgress({ chunk: done, total: rescueIndexes.length })
+        const spanSec = stats[lineIndex]?.spanSec ?? win.endSec - win.startSec
+        const plan = planStretchParams(line.text, spanSec, slice, sampleRate)
+        const hasLineTime = startMs !== undefined && startMs >= 0
+        const quota = 1 + (plan.rate >= 1 ? 2 : 4) + (hasLineTime ? 1 : 0)
+        totalUnits += quota
+        prepped.push({ lineIndex, win, startMs, hasLineTime, plan, quota })
+      }
+      // 配额前缀和：行结束后进度直接跳到该行配额位置（匹配成功的行未用配额被略过 = 快速略过）
+      const prefix: number[] = [base]
+      for (const p of prepped) prefix.push(prefix[prefix.length - 1] + p.quota)
+
+      let current = baseLrc
+      let improvedCount = 0
+      const rescuedSegs: (HypSegment[] | null)[] = lines.map(() => null)
+      const rescuedStats: ({ score?: number; baselineScore?: number } | null)[] = lines.map(() => null)
+      // 已完成尝试单元数：bump 每个模型任务结束（成功/失败）推进一格；行结束补齐到配额位置
+      let completed = base
+      const bump = () => {
+        completed += 1
+        setAlignProgress({ chunk: completed, total: totalUnits })
+      }
+      if (prepped.length > 0) setAlignProgress({ chunk: base + 1, total: totalUnits })
+      for (let pi = 0; pi < prepped.length; pi++) {
+        const { lineIndex, win, startMs, hasLineTime, plan } = prepped[pi]
+        if (alignReqSeqRef.current !== reqId) {
+          return {
+            lrc: current,
+            failedCount,
+            improvedCount,
+            rescueSegments: rescuedSegs,
+            rescueStats: rescuedStats,
+          }
+        }
+        const line = lines[lineIndex]
+        const a = Math.floor(win.startSec * sampleRate) * STEM_CHANNELS
+        const b = Math.min(audio.length, Math.ceil(win.endSec * sampleRate) * STEM_CHANNELS)
+        const slice = audio.slice(a, b)
         const windowLenMs = Math.max(200, Math.round((win.endSec - win.startSec) * 1000))
         try {
           const best = await rescueLine({
             lineText: line.text,
             slice,
             startSec: win.startSec,
-            hasLineTime: startMs !== undefined && startMs >= 0,
+            hasLineTime,
             // 原行作为选优基线：候选不优于原行时保持原行（rescueLine 返回 null）
             currentLine: line,
             callbacks: {
               recognize: async (audioSlice) => {
-                const { segments } = await enqueueAiTask<
-                  ZipformerProgress | SenseVoiceProgress,
-                  { segments: HypSegment[]; text: string }
-                >(
-                  'align-zipformer',
-                  { type: 'recognize', audio: audioSlice, sampleRate },
-                  {
-                    route: (msg) => {
-                      if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
-                        return { action: 'continue' }
-                      }
-                      if (msg.kind === 'progress') {
-                        setAlignProgress({ chunk: done, total: rescueIndexes.length })
-                        return { action: 'continue' }
-                      }
-                      if (msg.kind === 'done') {
-                        return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
-                      }
-                      if (msg.kind === 'error') {
-                        return { action: 'reject', error: new Error(msg.message) }
-                      }
-                      return { action: 'reject', error: new Error('识别服务返回未知消息') }
+                try {
+                  const { segments } = await enqueueAiTask<
+                    ZipformerProgress | SenseVoiceProgress,
+                    { segments: HypSegment[]; text: string }
+                  >(
+                    'align-zipformer',
+                    { type: 'recognize', audio: audioSlice, sampleRate },
+                    {
+                      route: (msg) => {
+                        if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
+                          return { action: 'continue' }
+                        }
+                        if (msg.kind === 'progress') {
+                          return { action: 'continue' }
+                        }
+                        if (msg.kind === 'done') {
+                          return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+                        }
+                        if (msg.kind === 'error') {
+                          return { action: 'reject', error: new Error(msg.message) }
+                        }
+                        return { action: 'reject', error: new Error('识别服务返回未知消息') }
+                      },
                     },
-                  },
-                )
-                return segments.length > 0 ? { segments } : null
+                  )
+                  return segments.length > 0 ? { segments } : null
+                } finally {
+                  bump()
+                }
               },
-              // 方案 2：放慢自动搜索——保调放慢后 2 算法 × 2 模型重识别，取最优候选
+              // 方案 2：放慢自动搜索——保调放慢后 2 算法 × 2 模型重识别，取最优候选（plan 已预计算）
               autoStretchSearch: async (audioSlice) => {
-                const spanSec = stats[lineIndex]?.spanSec ?? win.endSec - win.startSec
-                const plan = planStretchParams(line.text, spanSec, audioSlice, sampleRate)
                 const result = await autoSearchLine({
                   lineText: line.text,
                   plan,
@@ -1096,22 +1132,26 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   callbacks: {
                     stretch: (rate, method) => timeStretchAudio(audioSlice, sampleRate, rate, method),
                     recognize: async (audio, model) => {
-                      const modelId = model === 'zipformer' ? 'align-zipformer' : 'align-sense-voice'
-                      const { segments } = await enqueueAiTask<
-                        ZipformerProgress | SenseVoiceProgress,
-                        { segments: HypSegment[]; text: string }
-                      >(modelId, { type: 'recognize', audio, sampleRate }, {
-                        route: (msg) => {
-                          if (msg.kind === 'done') {
-                            return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
-                          }
-                          if (msg.kind === 'error') {
-                            return { action: 'reject', error: new Error(msg.message) }
-                          }
-                          return { action: 'continue' }
-                        },
-                      })
-                      return segments.length > 0 ? segments : null
+                      try {
+                        const modelId = model === 'zipformer' ? 'align-zipformer' : 'align-sense-voice'
+                        const { segments } = await enqueueAiTask<
+                          ZipformerProgress | SenseVoiceProgress,
+                          { segments: HypSegment[]; text: string }
+                        >(modelId, { type: 'recognize', audio, sampleRate }, {
+                          route: (msg) => {
+                            if (msg.kind === 'done') {
+                              return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+                            }
+                            if (msg.kind === 'error') {
+                              return { action: 'reject', error: new Error(msg.message) }
+                            }
+                            return { action: 'continue' }
+                          },
+                        })
+                        return segments.length > 0 ? segments : null
+                      } finally {
+                        bump()
+                      }
                     },
                     alignBySegments: (shiftedSegments, text) =>
                       alignLineByLineTimes(
@@ -1135,39 +1175,42 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 return null
               },
               forcedAlign: async (audioSlice) => {
-                const { lines: alignedLines } = await enqueueAiTask<
-                  ZipformerProgress,
-                  { lines: ZipformerAlignLine[] }
-                >(
-                  'align-zipformer',
-                  {
-                    type: 'align',
-                    audio: audioSlice,
-                    sampleRate,
-                    lyricsLines: [line.text],
-                    lineTimesMs: [0, windowLenMs],
-                  },
-                  {
-                    route: (msg) => {
-                      if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
-                        return { action: 'continue' }
-                      }
-                      if (msg.kind === 'progress') {
-                        setAlignProgress({ chunk: done, total: rescueIndexes.length })
-                        return { action: 'continue' }
-                      }
-                      if (msg.kind === 'align-done') {
-                        return { action: 'resolve', value: { lines: msg.lines } }
-                      }
-                      if (msg.kind === 'error') {
-                        return { action: 'reject', error: new Error(msg.message) }
-                      }
-                      return { action: 'reject', error: new Error('对齐服务返回未知消息') }
+                try {
+                  const { lines: alignedLines } = await enqueueAiTask<
+                    ZipformerProgress,
+                    { lines: ZipformerAlignLine[] }
+                  >(
+                    'align-zipformer',
+                    {
+                      type: 'align',
+                      audio: audioSlice,
+                      sampleRate,
+                      lyricsLines: [line.text],
+                      lineTimesMs: [0, windowLenMs],
                     },
-                  },
-                )
-                const units = alignedLines[0]?.units ?? []
-                return units.length > 0 ? units : null
+                    {
+                      route: (msg) => {
+                        if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
+                          return { action: 'continue' }
+                        }
+                        if (msg.kind === 'progress') {
+                          return { action: 'continue' }
+                        }
+                        if (msg.kind === 'align-done') {
+                          return { action: 'resolve', value: { lines: msg.lines } }
+                        }
+                        if (msg.kind === 'error') {
+                          return { action: 'reject', error: new Error(msg.message) }
+                        }
+                        return { action: 'reject', error: new Error('对齐服务返回未知消息') }
+                      },
+                    },
+                  )
+                  const units = alignedLines[0]?.units ?? []
+                  return units.length > 0 ? units : null
+                } finally {
+                  bump()
+                }
               },
               alignBySegments: (shiftedSegments, lineText) =>
                 alignLineByLineTimes(
@@ -1180,6 +1223,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 ),
             },
           })
+          // 行内全部尝试结束：进度补齐到该行配额位置（未用配额 = 匹配成功的行被快速略过）
+          completed = prefix[pi + 1]
+          setAlignProgress({ chunk: completed, total: totalUnits })
           if (alignReqSeqRef.current !== reqId) {
             return {
               lrc: current,
@@ -1486,7 +1532,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         // 失败行自动补救收尾：SenseVoice 与 Zipformer 识别路径共用（Zipformer 整首 CTC 路径
         // 已提前 return，走到这里必然是识别路径）。行窗备选（识别 / CTC）与整首主路径不同，
         // 对红词多/被挤压的行可再救一次；失败行标 rescue-failed 并提示可手动修复
-        const rescued = await runRescuePass(lrc, audio, sampleRate, reqId)
+        const rescued = await runRescuePass(lrc, audio, sampleRate, reqId, { preUnits: 1 })
         if (alignReqSeqRef.current !== reqId) return false
         if (rescued.lrc !== lrc) {
           alignedLrcRef.current = rescued.lrc
