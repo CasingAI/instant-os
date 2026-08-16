@@ -37,13 +37,9 @@ const DEBUG_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
 const DEBUG_DEFAULT_MODEL = 'grok-4.5'
 
 /**
- * Debug 模式（dev 构建 + ?debug=1）下 env 优先于本机钥匙串；
- * 普通模式保持「本机钥匙串 > env」的既有优先级。
+ * 优先级：overrides > 本机钥匙串 > env（Debug env 仅在钥匙串为空时经
+ * seedDebugEnvAccountIfEmpty 播种，或作为兜底读取）。
  */
-function pickDebug<T>(envValue: T | undefined, storedValue: T | undefined): T | undefined {
-  return isDebugMode() ? (envValue ?? storedValue) : (storedValue ?? envValue)
-}
-
 export { notifyOpenAiConfigChange, subscribeOpenAiConfig }
 
 function readEnvConfig(): Partial<OpenAiConfig> {
@@ -94,12 +90,15 @@ export function mergeOpenAiConfig(
   const stored = readStoredConfig(capability)
   const env = readEnvConfig()
 
-  const apiKey = overrides?.apiKey ?? pickDebug(env.apiKey, stored?.apiKey)
-  const baseURL = overrides?.baseURL ?? pickDebug(env.baseURL, stored?.baseURL)
+  const apiKey = overrides?.apiKey ?? stored?.apiKey ?? env.apiKey
+  const baseURL = overrides?.baseURL ?? stored?.baseURL ?? env.baseURL
   const defaultModel =
-    overrides?.defaultModel ?? pickDebug(env.defaultModel, stored?.defaultModel) ?? DEFAULT_MODEL
+    overrides?.defaultModel ??
+    stored?.defaultModel ??
+    env.defaultModel ??
+    DEFAULT_MODEL
   const providerId =
-    overrides?.providerId ?? pickDebug(env.providerId, stored?.providerId) ?? 'deepseek'
+    overrides?.providerId ?? stored?.providerId ?? env.providerId ?? 'deepseek'
   const thinkingEnabled =
     overrides?.thinkingEnabled ??
     stored?.thinkingEnabled ??

@@ -12,6 +12,7 @@ import {
 } from './os/apply-process-isolation-capability.ts'
 import { DebugModeWarningDialog } from './os/debug-mode-warning-dialog.tsx'
 import { requestDebugModeConfirm } from './os/debug-mode-confirm-store.ts'
+import { seedDebugEnvAccountIfEmpty } from './os/debug-env-seed.ts'
 import { parseDebugLaunchParams, stripDebugLaunchParams } from './os/debug-launch.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from './os/experimental-settings-storage.ts'
 import { osOpenApp } from './os/os-open-app-bridge.ts'
@@ -61,6 +62,8 @@ export function App() {
         return
       }
       if (confirmed) {
+        // 钥匙串为空时用 Debug env 播种，使钥匙串界面与实际生效配置一致
+        seedDebugEnvAccountIfEmpty()
         setDebugConfirmed(true)
       } else {
         location.replace(stripDebugLaunchParams(location.href))

@@ -60,7 +60,7 @@ export function DebugModeWarningDialog() {
           <span class="debug-mode-warning-modal__badge-mark">!</span>
         </div>
         <p class="debug-mode-warning-modal__intent">
-          当前以 Debug 模式进入系统，将绕过初始化流程，直接进入桌面。
+          当前处于调试模式，系统处于非受控状态，仅用于开发测试。
         </p>
         {command ? (
           <>
@@ -76,7 +76,7 @@ export function DebugModeWarningDialog() {
           </>
         ) : (
           <p class="debug-mode-warning-modal__hint">
-            Debug 模式下将启用预置的测试配置（VITE_DEBUG_OPENAI_*），且每次启动都会出现此警告。
+            本次启动将使用调试预设配置，请确认后进入。
           </p>
         )}
       </WindowModal>
