@@ -9,7 +9,6 @@ import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
 import { filesOpenStreamWrite, filesReadBlobRange, filesReadText } from '../files/files-api.ts'
 import {
-  buildWaveformPyramid,
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
   mixStems,
@@ -75,6 +74,11 @@ import type {
   StemsArchiveWorkerRequest,
   StemsArchiveWorkerResponse,
 } from './stems-archive-worker.ts'
+import StemsAlignWorker from './stems-align-worker.ts?worker'
+import type {
+  StemsAlignWorkerRequest,
+  StemsAlignWorkerResponse,
+} from './stems-align-worker.ts'
 import type { TempoInfo } from './stems-tempo.ts'
 import './stems.css'
 
@@ -230,6 +234,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const loadArchiveSeqRef = useRef(0)
   /** 分轨压缩包解码 worker（懒创建、复用、卸载时 terminate） */
   const archiveWorkerRef = useRef<Worker | null>(null)
+  /** 歌词对齐/峰值计算 worker（懒创建、复用、卸载时 terminate；纯函数计算不加载模型） */
+  const alignWorkerRef = useRef<Worker | null>(null)
   /** 会话内解码缓存（仅保留最新一首，控制内存）：二次打开同一首歌跳过 Worker 解码 */
   const decodeCacheRef = useRef<{
     path: string
@@ -337,6 +343,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const rescueStatsRef = useRef<({ score?: number; baselineScore?: number } | null)[] | null>(
     null,
   )
+  /** 已跑过自动补救的对齐结果快照：载入时 alignedLrc 与之相同则跳过补救
+   * （歌词不变不重复跑补救）；随包持久化为 manifest.rescueAttemptedLrc */
+  const rescueAttemptedRef = useRef<string | null>(null)
+  /** 载入存档第一段发起的快速重对齐（Worker 内）：第二段解码完成后 await 它
+   *  再决定补救/退回识别，避免首段对齐未结束就重复触发识别 */
+  const loadAlignPromiseRef = useRef<Promise<void> | null>(null)
   /** 歌词抽屉试听：开 = 只播 vocals 轨（模型实际听到的）；关 = 全轨混音 */
   const [analysisPreviewVocalsOnly, setAnalysisPreviewVocalsOnly] = useState(false)
   /** 编辑草稿的来源名（文件/剪贴板导入时设置；保存时随歌词应用） */
@@ -495,6 +507,45 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     return bands
   }, [karaokeLines])
 
+  /** 歌词标签布局：leftPct/topPx 依赖 view 与 lyricTags，预计算避免每次渲染重算全量样式。
+   *  非全曲视图下按可见窗口裁剪，只渲染窗口内的词（含边界余量，防贴边闪现）。 */
+  const lyricTagLayouts = useMemo(() => {
+    const span = LYRICS_TRACK_H - LYRICS_TAG_H - LYRICS_TRACK_PAD * 2
+    const fullView = viewLen >= duration
+    const marginSec = fullView ? 0 : Math.max(0.5, viewLen * 0.05)
+    const lo = view.start - marginSec
+    const hi = view.start + viewLen + marginSec
+    const out: {
+      tag: LyricTag
+      index: number
+      leftPct: number
+      topPx: number
+    }[] = []
+    for (let index = 0; index < lyricTags.length; index++) {
+      const tag = lyricTags[index]
+      // 可见窗口裁剪：窗口外的词不渲染（全曲视图渲染全部）
+      if (!fullView && (tag.timeSec < lo || tag.timeSec > hi)) continue
+      const leftPct = viewLen > 0 ? ((tag.timeSec - view.start) / viewLen) * 100 : 0
+      // 行内阶梯：同一行的词从高到低垂直堆叠。阶梯整体在轨道内垂直居中，
+      // step 按 (轨道高 - 标签高 - 上下边距)/(词数-1) 自适应，
+      // 保证最后一个词也落在轨道内、不会溢出被裁。
+      const step =
+        tag.wordIndex >= 0 && tag.wordCount > 1
+          ? Math.min(9, span / (tag.wordCount - 1))
+          : 0
+      const firstTop =
+        tag.wordIndex >= 0
+          ? LYRICS_TRACK_PAD + (span - (tag.wordCount - 1) * step) / 2
+          : (LYRICS_TRACK_H - LYRICS_TAG_H) / 2
+      const topPx =
+        tag.wordIndex >= 0
+          ? firstTop + tag.wordIndex * step
+          : (LYRICS_TRACK_H - LYRICS_TAG_H) / 2
+      out.push({ tag, index, leftPct, topPx })
+    }
+    return out
+  }, [lyricTags, view.start, viewLen, duration])
+
   /** 悬停的歌词行（色带 hover 高亮 + 气泡联动 + popover 原文）；null = 无悬停 */
   const [hoveredLine, setHoveredLine] = useState<number | null>(null)
   /** 行原文 popover 的 DOM 引用（fixed，坐标在 mousemove 里直写，避免高频重渲染） */
@@ -571,6 +622,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const ctx = audioContextRef.current
       const buffers = new Map<StemId, AudioBuffer>()
       const target = peaks ?? new Map<StemId, WaveformPyramid>()
+      // 旧版 peaks.bin 只存 min/max 无 rms：收集后统一在 Worker 里从 PCM 重建带 rms 的金字塔，
+      // 避免主线程整曲重扫（长歌每轨百万级采样点，是打开历史包卡顿的来源之一）
+      const rebuildQueue: { stemId: StemId; data: Float32Array }[] = []
       for (const stem of stems) {
         const data = stem.data
         const frames = Math.floor(data.length / STEM_CHANNELS)
@@ -595,7 +649,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           // 保证长窗口的响度包络显示与新建金字塔行为一致
           const existing = target.get(stem.stemId)
           if (existing && !existing.rms) {
-            target.set(stem.stemId, buildWaveformPyramid(data, rate))
+            rebuildQueue.push({ stemId: stem.stemId, data })
           }
         } else {
           // 合并遍历：填 buffer 同时聚合金字塔桶值
@@ -642,6 +696,17 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       }
       buffersRef.current = buffers
       peaksRef.current = target
+      // 无 rms 的旧包峰值表在 Worker 里补建（PCM transferable，主线程不参与整曲重扫）
+      for (const { stemId, data } of rebuildQueue) {
+        void buildPeaksInWorker(data, rate, alignWorkerRef)
+          .then((pyramid) => {
+            const current = peaksRef.current
+            if (current) current.set(stemId, pyramid)
+          })
+          .catch((cause) => {
+            console.warn('峰值金字塔补建失败', cause)
+          })
+      }
     },
     [],
   )
@@ -684,6 +749,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             alignedLrc: alignedLrcRef.current || undefined,
             lineSources: lineSourcesRef.current.length > 0 ? lineSourcesRef.current : undefined,
             phonemes: phonemesRef.current ?? undefined,
+            rescueAttemptedLrc: rescueAttemptedRef.current ?? undefined,
             sink: {
               write: (chunk) => writer.write(chunk),
               close: () => writer.close(),
@@ -857,6 +923,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     // 补救候选段随对齐结果一起失效（歌词/音频已变，旧证据不适用）
     rescueSegmentsRef.current = null
     rescueStatsRef.current = null
+    // 补救快照一并失效：歌词已变，旧快照不能用来跳过对新歌词的补救
+    rescueAttemptedRef.current = null
     setAlignRestoredFrom(false)
     setLyricsHint(hint)
   }, [])
@@ -1113,12 +1181,26 @@ export function StemsApp({ windowId }: { windowId?: string }) {
    * 复用已缓存的音素段把歌词快速对齐（纯函数文本对齐，秒级）：
    * 换歌词后不必重跑 Zipformer 识别，直接用旧识别段对齐新歌词。
    * 无音素段或对齐不出结果时返回 false（调用方回退到重新识别）。
+   * opts.skipRescue：只做文本对齐不跑补救收尾（载入存档第一段调用时 vocals 尚未解码，
+   * 补救统一由解码完成后的收尾 pass 执行，避免重复/空数据补救）。
    */
   const realignFromPhonemes = useCallback(
-    async (lyricsText: string): Promise<boolean> => {
+    async (lyricsText: string, opts?: { skipRescue?: boolean }): Promise<boolean> => {
       const phonemes = phonemesRef.current
       if (!phonemes || phonemes.length === 0) return false
-      const lrc = alignSegmentsToLrc(phonemes, lyricsText, lyricsLineTimesRef.current ?? undefined)
+      // 整首 DTW 对齐放进 Worker：主线程不跑百万格 DP 矩阵（打开历史包/换歌词时的卡死主因）
+      let lrc = ''
+      try {
+        lrc = await alignSegmentsInWorker(
+          phonemes,
+          lyricsText,
+          lyricsLineTimesRef.current ?? null,
+          alignWorkerRef,
+        )
+      } catch (cause) {
+        console.warn('后台文本对齐失败，回退主线程', cause)
+        lrc = alignSegmentsToLrc(phonemes, lyricsText, lyricsLineTimesRef.current ?? undefined)
+      }
       if (!lrc) return false
       alignedLrcRef.current = lrc
       setAlignedLrc(lrc)
@@ -1130,6 +1212,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setLineSources(sources)
       setAlignRestoredFrom(false)
       setLyricsHint(null)
+      if (opts?.skipRescue) return true
       // 复用音素段同样走补救收尾 pass：红词多/被挤压的行切窗用 Zipformer 识别/CTC 兜底
       const vocals = tracksRef.current?.find((t) => t.audio.stemId === 'vocals')?.audio.data
       if (vocals && vocals.length > 0) {
@@ -1145,6 +1228,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             alignedLrcRef.current = rescued.lrc
             setAlignedLrc(rescued.lrc)
           }
+          // 补救快照更新为最终结果并随包落盘：换歌词后重新对齐并补救过，
+          // 下次载入同一份结果不再重复补救
+          rescueAttemptedRef.current = rescued.lrc
           setLyricsHint(formatRescueSummary(rescued.improvedCount, rescued.failedCount))
           const tracksNow = tracksRef.current
           if (tracksNow) void saveCurrentStems(tracksNow.map((t) => t.audio))
@@ -1347,6 +1433,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           alignedLrcRef.current = rescued.lrc
           setAlignedLrc(rescued.lrc)
         }
+        // 补救快照更新为最终结果：后续 saveCurrentStems 时随包落盘，
+        // 下次载入同一份结果不再重复补救
+        rescueAttemptedRef.current = rescued.lrc
         setAlignError(formatRescueSummary(rescued.improvedCount, rescued.failedCount))
         return true
       } catch (cause) {
@@ -1591,6 +1680,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const archiveNode = await resolveNodeByAbsolutePath(archivePath)
       if (!archiveNode || archiveNode.kind !== 'file') return false
       setLoadingArchive(true)
+      loadAlignPromiseRef.current = null
+      // 补救快照随文件重置（正常恢复分支会按 manifest 重新设置）
+      rescueAttemptedRef.current = null
       try {
         const archiveSize = archiveNode.byteSize
         const readRange = async (offset: number, length: number): Promise<Uint8Array> => {
@@ -1624,6 +1716,68 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         )
         setPlaying(false)
         setCurrentTime(0)
+        // —— 歌词数据恢复（纯文本，不依赖解码）：与波形占位同帧完成，歌词轨不再等解码结束 ——
+        // 包内原始歌词兜底：同目录 .lrc 缺失时恢复（手动粘贴歌词也能重开回来），
+        // 让「对齐歌词」保持可用、编辑模态显示原文
+        if (!lyricsRef.current.trim() && manifest.lyrics?.trim()) {
+          lyricsRef.current = manifest.lyrics
+          setLyrics(manifest.lyrics)
+          setLyricsSourceName(manifest.lyricsSourceName || '来自分轨包')
+        }
+        // 普通歌词的原始 .lrc 文本（含行时间戳）随包恢复
+        if (manifest.lyricsLrc) lyricsLrcRef.current = manifest.lyricsLrc
+        // 恢复 .lrc 行时间戳：对齐依赖行窗口主导；缺失时重新对齐退化为
+        // 全局文本对齐，识别断层段（如副歌和声）的词会被插值压到前一锚点附近堆叠。
+        // 会话内已由同名 .lrc 自动载入建立的 lineTimes 不覆盖。
+        if (lyricsLineTimesRef.current === null && manifest.lyricsLrc && lyricsRef.current.trim()) {
+          lyricsLineTimesRef.current = mapLrcLineTimes(manifest.lyricsLrc, lyricsRef.current.split('\n'))
+        }
+        // 音素段（人声轨识别结果）随包恢复：换歌词时复用，跳过重新识别
+        if (manifest.phonemes) phonemesRef.current = manifest.phonemes
+        // 歌词对齐结果随包恢复；旧坏结果（歌词时间戳未剥离）跳过并提示重新对齐
+        if (manifest.alignedLrc && !looksLikeBrokenLrc(manifest.alignedLrc)) {
+          const restoredLrc = manifest.alignedLrc
+          alignedLrcRef.current = restoredLrc
+          setAlignedLrc(restoredLrc)
+          // 行来源：新包有记录则恢复；旧包无记录时全部标「载入恢复」
+          const lineCount = parseLrc(restoredLrc).lines.length
+          const restoredSources: LineSource[] =
+            manifest.lineSources && manifest.lineSources.length === lineCount
+              ? manifest.lineSources
+              : new Array<LineSource>(lineCount).fill('restored')
+          lineSourcesRef.current = restoredSources
+          setLineSources(restoredSources)
+          // 补救快照恢复：本次打开已补救过同一份 alignedLrc → 跳过自动补救收尾；
+          // 无快照（老包/新对齐）→ 解码完成后跑一次并落盘
+          rescueAttemptedRef.current = manifest.rescueAttemptedLrc ?? null
+          // 包内无补救候选段记录：清空后由解码完成后补救收尾 pass 重跑填充
+          rescueSegmentsRef.current = null
+          rescueStatsRef.current = null
+          setAlignRestoredFrom(true)
+          setLyricsHint(null)
+        } else if (manifest.alignedLrc) {
+          clearAlignedResult('检测到旧版损坏的对齐结果，已跳过恢复；可点击「对齐歌词」重新对齐')
+        } else if (lyricsRef.current.trim()) {
+          // 包内无有效歌词结果但歌词已就绪：优先复用音素段快速重对齐（秒级，纯文本），
+          // 无音素段时退回重跑识别（等 vocals 解码后触发）。setTimeout 让出主线程
+          // 确保波形占位/歌词占位先渲染；skipRescue：补救收尾统一由下面解码完成后的
+          // 收尾 pass 执行（此时 vocals 已就绪）。promise 在首段对齐完成后 resolve，
+          // 第二段解码结束后 await 它，避免首段对齐尚未结束就重复触发识别
+          loadAlignPromiseRef.current = new Promise<void>((resolve) => {
+            setTimeout(() => {
+              // 期间换歌/重新分轨 → 丢弃（refs 可能已被新文件覆盖，重算无意义）
+              if (loadArchiveSeqRef.current !== seq) {
+                resolve()
+                return
+              }
+              void realignFromPhonemes(lyricsRef.current, { skipRescue: true })
+                .then((ok) => {
+                  if (ok) setAlignRestoredFrom(true)
+                })
+                .finally(() => resolve())
+            }, 0)
+          })
+        }
         // —— 第二段：后台逐轨范围读 + Worker 单轨解码（会话内缓存命中则跳过）→ 填播放缓冲 → 替换真实数据 ——
         void (async () => {
           try {
@@ -1679,45 +1833,28 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               const drums = stems.find((s) => s.stemId === 'drums')
               if (drums) void detectTempoAsync(drums.data, manifest.sampleRate)
             }
-            // 包内原始歌词兜底：同目录 .lrc 缺失时恢复（手动粘贴歌词也能重开回来），
-            // 让「对齐歌词」保持可用、编辑模态显示原文
-            if (!lyricsRef.current.trim() && manifest.lyrics?.trim()) {
-              lyricsRef.current = manifest.lyrics
-              setLyrics(manifest.lyrics)
-              setLyricsSourceName(manifest.lyricsSourceName || '来自分轨包')
+            // 歌词文本/行时间/音素/对齐结果已在第一段随波形占位恢复；
+            // 此处只做依赖 vocals 解码的收尾：
+            // 1) 有对齐结果（恢复或第一段文本对齐）→ 对红行跑自动补救收尾（vocals 已解码）
+            // 2) 无对齐结果但第一段发起了快速重对齐（无 alignedLrc 且有歌词）→
+            //    首段对齐失败（无音素段）时退回重跑识别
+            // 等待第一段发起的快速重对齐结束（若有），避免首段对齐未完就重复触发识别
+            if (loadAlignPromiseRef.current) {
+              await loadAlignPromiseRef.current
             }
-            // 普通歌词的原始 .lrc 文本（含行时间戳）随包恢复
-            if (manifest.lyricsLrc) lyricsLrcRef.current = manifest.lyricsLrc
-            // 恢复 .lrc 行时间戳：对齐依赖行窗口主导；缺失时重新对齐退化为
-            // 全局文本对齐，识别断层段（如副歌和声）的词会被插值压到前一锚点附近堆叠。
-            // 会话内已由同名 .lrc 自动载入建立的 lineTimes 不覆盖。
-            if (lyricsLineTimesRef.current === null && manifest.lyricsLrc && lyricsRef.current.trim()) {
-              lyricsLineTimesRef.current = mapLrcLineTimes(manifest.lyricsLrc, lyricsRef.current.split('\n'))
-            }
-            // 音素段（人声轨识别结果）随包恢复：换歌词时复用，跳过重新识别
-            if (manifest.phonemes) phonemesRef.current = manifest.phonemes
-            // 歌词对齐结果随包恢复；旧坏结果（歌词时间戳未剥离）跳过并提示重新对齐
-            if (manifest.alignedLrc && !looksLikeBrokenLrc(manifest.alignedLrc)) {
-              const restoredLrc = manifest.alignedLrc
-              alignedLrcRef.current = restoredLrc
-              setAlignedLrc(restoredLrc)
-              // 行来源：新包有记录则恢复；旧包无记录时全部标「载入恢复」
-              const lineCount = parseLrc(restoredLrc).lines.length
-              const restoredSources: LineSource[] =
-                manifest.lineSources && manifest.lineSources.length === lineCount
-                  ? manifest.lineSources
-                  : new Array<LineSource>(lineCount).fill('restored')
-              lineSourcesRef.current = restoredSources
-              setLineSources(restoredSources)
-              // 包内无补救候选段记录：清空后由下面补救收尾 pass 重跑填充
-              rescueSegmentsRef.current = null
-              rescueStatsRef.current = null
-              setAlignRestoredFrom(true)
-              setLyricsHint(null)
-              // 载入恢复后对红行做自动补救收尾（vocals 已解码）：旧包红行自动救回，
-              // 失败行标 rescue-failed；新结果随包落盘，来源徽章可看出每行采用方案
+            const restoredLrc = alignedLrcRef.current
+            if (restoredLrc) {
               const vocals = stems.find((s) => s.stemId === 'vocals')
               if (vocals && vocals.data.length > 0) {
+                // 已补救过同一份 alignedLrc：跳过自动补救（歌词未变不重复尝试）。
+                // 若仍有未救回的红行（rescue-failed），给静态提示以便用户手动处理
+                if (rescueAttemptedRef.current === restoredLrc) {
+                  const failedCount = lineSourcesRef.current.filter((s) => s === 'rescue-failed').length
+                  if (failedCount > 0) {
+                    setLyricsHint(`有 ${failedCount} 行补救失败，可在歌词分析抽屉手动修复`)
+                  }
+                  return
+                }
                 void (async () => {
                   const reqId = (alignReqSeqRef.current += 1)
                   setAlignBusy(true)
@@ -1732,7 +1869,15 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                       reqId,
                     )
                     if (alignReqSeqRef.current !== reqId) return
-                    if (rescued.lrc !== restoredLrc || rescued.failedCount > 0) {
+                    // 补救快照标记最终 lrc：无论成功/部分/全败都落盘，
+                    // 保证歌词不变时下次打开不再重复跑补救
+                    const hadSnapshot = rescueAttemptedRef.current !== null
+                    rescueAttemptedRef.current = rescued.lrc
+                    if (
+                      rescued.lrc !== restoredLrc ||
+                      rescued.failedCount > 0 ||
+                      !hadSnapshot
+                    ) {
                       alignedLrcRef.current = rescued.lrc
                       setAlignedLrc(rescued.lrc)
                       void saveCurrentStems(stems)
@@ -1747,17 +1892,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   }
                 })()
               }
-            } else if (manifest.alignedLrc) {
-              clearAlignedResult('检测到旧版损坏的对齐结果，已跳过恢复；可点击「对齐歌词」重新对齐')
-            } else if (lyricsRef.current.trim()) {
-              // 包内无有效歌词结果但歌词已就绪：优先复用音素段快速重对齐（秒级），
-              // 无音素段时退回重跑识别（vocals 已解码）
-              if (!(await realignFromPhonemes(lyricsRef.current))) {
-                const vocals = stems.find((s) => s.stemId === 'vocals')
-                if (vocals) void alignVocals(vocals.data, manifest.sampleRate)
-              } else {
-                setAlignRestoredFrom(true)
-              }
+            } else if (loadAlignPromiseRef.current && lyricsRef.current.trim()) {
+              // 首段快速重对齐未产出结果（无音素段/对齐为空）：退回重跑识别（vocals 已解码）。
+              // 仅第一段发起过快速对齐时触发；损坏 alignedLrc 分支只提示不自动识别
+              const vocals = stems.find((s) => s.stemId === 'vocals')
+              if (vocals) void alignVocals(vocals.data, manifest.sampleRate)
             }
           } catch (cause) {
             console.warn('后台解码分轨失败', cause)
@@ -2273,6 +2412,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       lineSourcesRef.current = sources
       setLineSources(sources)
       setAlignRestoredFrom(false)
+      // 手动修复视为已处理：快照更新为新 lrc，避免下次打开自动补救覆盖用户修正
+      rescueAttemptedRef.current = patched
       const tracksNow = tracksRef.current
       if (tracksNow) void saveCurrentStems(tracksNow.map((t) => t.audio))
     },
@@ -2600,6 +2741,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       separateAbortRef.current?.abort()
       tempoWorkerRef.current?.terminate()
       archiveWorkerRef.current?.terminate()
+      alignWorkerRef.current?.terminate()
       void audioContextRef.current?.close()
     },
     [stopPlayback],
@@ -3029,24 +3171,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                         />
                       )
                     })}
-                    {lyricTags.map((tag, index) => {
-                      const leftPct = viewLen > 0 ? ((tag.timeSec - view.start) / viewLen) * 100 : 0
-                      // 行内阶梯：同一行的词从高到低垂直堆叠。阶梯整体在轨道内垂直居中，
-                      // step 按 (轨道高 - 标签高 - 上下边距)/(词数-1) 自适应，
-                      // 保证最后一个词也落在轨道内、不会溢出被裁。
-                      const span = LYRICS_TRACK_H - LYRICS_TAG_H - LYRICS_TRACK_PAD * 2
-                      const step =
-                        tag.wordIndex >= 0 && tag.wordCount > 1
-                          ? Math.min(9, span / (tag.wordCount - 1))
-                          : 0
-                      const firstTop =
-                        tag.wordIndex >= 0
-                          ? LYRICS_TRACK_PAD + (span - (tag.wordCount - 1) * step) / 2
-                          : (LYRICS_TRACK_H - LYRICS_TAG_H) / 2
-                      const topPx =
-                        tag.wordIndex >= 0
-                          ? firstTop + tag.wordIndex * step
-                          : (LYRICS_TRACK_H - LYRICS_TAG_H) / 2
+                    {lyricTagLayouts.map(({ tag, index, leftPct, topPx }) => {
                       return (
                         <span
                           key={`${tag.lineIndex}:${tag.wordIndex}:${index}`}
@@ -3462,6 +3587,72 @@ function encodeTrackInWorker(
     const bytes = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
     worker.postMessage(
       { type: 'encode-flac', stemId: 'track', data: bytes, sampleRate } satisfies StemsArchiveWorkerRequest,
+      [bytes],
+    )
+  })
+}
+
+/** 在 Worker 里跑整首歌词 DTW 文本对齐（phonemes + 歌词 → 增强 LRC），避免主线程百万格 DP 卡死。 */
+function alignSegmentsInWorker(
+  phonemes: HypSegment[],
+  lyricsText: string,
+  lineTimes: (number | undefined)[] | null,
+  workerRef: { current: Worker | null },
+): Promise<string> {
+  const worker = workerRef.current ?? new StemsAlignWorker()
+  workerRef.current = worker
+  return new Promise<string>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<StemsAlignWorkerResponse>): void => {
+      const msg = event.data
+      if (msg.type === 'align-done') {
+        worker.removeEventListener('message', onMessage)
+        resolve(msg.lrc)
+        return
+      }
+      if (msg.type === 'error') {
+        worker.removeEventListener('message', onMessage)
+        reject(new Error(msg.message))
+        return
+      }
+    }
+    worker.addEventListener('message', onMessage)
+    const request: StemsAlignWorkerRequest = {
+      type: 'align-text',
+      phonemes,
+      lyricsText,
+      lineTimes: lineTimes ?? undefined,
+    }
+    worker.postMessage(request)
+  })
+}
+
+/** 在 Worker 里重建整轨峰值金字塔（旧包 peaks 无 rms 时从 PCM 补建），PCM 用 Transferable 传。 */
+function buildPeaksInWorker(
+  data: Float32Array,
+  sampleRate: number,
+  workerRef: { current: Worker | null },
+): Promise<WaveformPyramid> {
+  const worker = workerRef.current ?? new StemsAlignWorker()
+  workerRef.current = worker
+  return new Promise<WaveformPyramid>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<StemsAlignWorkerResponse>): void => {
+      const msg = event.data
+      if (msg.type === 'peaks-done') {
+        worker.removeEventListener('message', onMessage)
+        resolve(msg.pyramid)
+        return
+      }
+      if (msg.type === 'error') {
+        worker.removeEventListener('message', onMessage)
+        reject(new Error(msg.message))
+        return
+      }
+    }
+    worker.addEventListener('message', onMessage)
+    // 复制切片再 transfer，避免 detach 主线程 PCM（与 encodeTrackInWorker 同理）
+    const bytes = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+    worker.postMessage(
+      { type: 'build-peaks', data: bytes, sampleRate } satisfies StemsAlignWorkerRequest,
       [bytes],
     )
   })

@@ -87,6 +87,9 @@ export type StemsManifest = {
   lineSources?: LineSource[]
   /** 人声轨音素识别结果（可选；供换歌词时复用，跳过重新识别） */
   phonemes?: PhonemeSegment[]
+  /** 已跑过自动补救的对齐结果快照（可选）：载入时 alignedLrc 与之相同则跳过补救，
+   *  避免每次打开历史包都重跑一次补救（歌词不变不重复尝试） */
+  rescueAttemptedLrc?: string
 }
 
 /** 校验 tempo 字段形状；不合法返回 undefined（按缺失处理）。 */
@@ -170,6 +173,8 @@ export function buildStemsManifest(meta: {
   alignedLrc?: string
   lineSources?: LineSource[]
   phonemes?: PhonemeSegment[]
+  /** 已跑过自动补救的对齐结果快照（可选；供载入时跳过重复补救） */
+  rescueAttemptedLrc?: string
 }): StemsManifest {
   const codec: StemAudioCodec = meta.codec ?? 'wav'
   const manifest: StemsManifest = {
@@ -191,6 +196,7 @@ export function buildStemsManifest(meta: {
   if (meta.alignedLrc) manifest.alignedLrc = meta.alignedLrc
   if (meta.lineSources?.length) manifest.lineSources = meta.lineSources
   if (meta.phonemes?.length) manifest.phonemes = meta.phonemes
+  if (meta.rescueAttemptedLrc) manifest.rescueAttemptedLrc = meta.rescueAttemptedLrc
   return manifest
 }
 
@@ -254,6 +260,10 @@ export function parseStemsManifest(json: string): StemsManifest | null {
     // alignedLrc 非字符串（老包无此字段）时按缺失处理，不整体拒绝
     if (raw.alignedLrc !== undefined && typeof raw.alignedLrc !== 'string') {
       delete manifest.alignedLrc
+    }
+    // rescueAttemptedLrc 非字符串（老包无此字段）时按缺失处理，不整体拒绝
+    if (raw.rescueAttemptedLrc !== undefined && typeof raw.rescueAttemptedLrc !== 'string') {
+      delete manifest.rescueAttemptedLrc
     }
     // lineSources 非字符串数组 / 含非法值（老包无此字段）时按缺失处理，不整体拒绝
     if (raw.lineSources !== undefined) {
@@ -453,6 +463,8 @@ export type SaveStemsOptions = {
   lineSources?: LineSource[]
   /** 人声轨音素识别结果（可选；供换歌词复用，跳过重新识别） */
   phonemes?: PhonemeSegment[]
+  /** 已跑过自动补救的对齐结果快照（可选；随包保存供载入跳过重复补救） */
+  rescueAttemptedLrc?: string
   /** 完成进度（已存轨数 / 总轨数） */
   onProgress?: (saved: number, total: number) => void
 }
@@ -480,6 +492,7 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     alignedLrc,
     lineSources,
     phonemes,
+    rescueAttemptedLrc,
     onProgress,
   } = options
   const manifest = buildStemsManifest({
@@ -496,6 +509,7 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     alignedLrc,
     lineSources,
     phonemes,
+    rescueAttemptedLrc,
   })
 
   const zipOutput: Uint8Array[] = []
