@@ -4,6 +4,7 @@ import preact from '@preact/preset-vite'
 import { bootCrashGuardFirst } from './vite-boot-crash-guard-first.ts'
 import { corsForSandboxedIframeAssets } from './vite-cors-for-sandboxed-iframe-assets.ts'
 import { sourceSnapshot } from './vite-source-snapshot.ts'
+import { wasmGzip } from './vite-wasm-gzip.ts'
 
 /**
  * OS 壳状态复杂，模块热替换易卡死；改文件后也不整页刷新，需手动刷新或菜单「重新启动」。
@@ -27,6 +28,7 @@ export default defineConfig({
     bootCrashGuardFirst(),
     sourceSnapshot(),
     suppressHotUpdate(),
+    wasmGzip(),
   ],
   build: {
     rollupOptions: {

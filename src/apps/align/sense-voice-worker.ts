@@ -16,8 +16,8 @@
  * 被 ai-inference-service 统一调度（换模型自动卸载旧 worker）。
  */
 
-import * as ort from 'onnxruntime-web'
 import { fetchModelWithCache, SENSE_VOICE_MODEL_URL } from '../../os/model-cache.ts'
+import { ort, setupOrtWasm } from '../../os/ort-wasm-loader.ts'
 import {
   resampleToMono16k,
   PHONEME_TARGET_SAMPLE_RATE,
@@ -26,17 +26,6 @@ import { computeSenseVoiceFeatures } from './sense-voice-feats.ts'
 import { decodeSenseVoiceBpe, type SenseVoiceSegment } from './sense-voice-bpe.ts'
 import { greedyDecode } from './align-greedy.ts'
 import { sliceAudioOverlapped } from './align-chunking.ts'
-
-// 复用 onnxruntime-web 的 wasm 路径配置（音乐实验室分轨 worker 同款）。
-import ortWasmSimdThreadedJsepMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.mjs?url'
-import ortWasmSimdThreadedJsepWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.wasm?url'
-
-ort.env.wasm.wasmPaths = {
-  mjs: ortWasmSimdThreadedJsepMjsUrl,
-  wasm: ortWasmSimdThreadedJsepWasmUrl,
-}
-
-ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8)
 
 export type SenseVoiceProvider = 'webgpu' | 'wasm'
 
@@ -150,6 +139,7 @@ async function loadSession(): Promise<{ session: ort.InferenceSession; provider:
 
   postProgress({ kind: 'model-loading' })
 
+  await setupOrtWasm()
   const response = await fetchModelWithCache(SENSE_VOICE_MODEL_URL)
   const arrayBuffer = await response.arrayBuffer()
 

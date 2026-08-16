@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
-import * as ort from 'onnxruntime-web'
 import { fetchModelWithCache, DEMUCS_MODEL_URL } from '../../os/model-cache.ts'
+import { ort, setupOrtWasm } from '../../os/ort-wasm-loader.ts'
 import {
   deinterleaveStereo,
   resampleInterleaved,
@@ -11,20 +11,6 @@ import {
   STEM_WINDOW,
 } from './stems-separator.ts'
 import type { StemEngineProvider, StemProgress, StemRequest } from './stems-types.ts'
-
-// 用 ?url 让 vite 把 onnxruntime-web 的 wasm/glue 作为静态资源打包，
-// 而不是放 public 目录（public 里的 .mjs 不能从源码 import）。
-// 对象形式 wasmPaths 告诉 onnxruntime-web 分别去哪里加载 jsep 模块与 wasm 二进制。
-import ortWasmSimdThreadedJsepMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.mjs?url'
-import ortWasmSimdThreadedJsepWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.wasm?url'
-
-ort.env.wasm.wasmPaths = {
-  mjs: ortWasmSimdThreadedJsepMjsUrl,
-  wasm: ortWasmSimdThreadedJsepWasmUrl,
-}
-
-// WASM 回退时 onnxruntime-web 默认只有 1 个线程（慢到不可用），按机器核数放开。
-ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8)
 
 let session: ort.InferenceSession | undefined
 let sessionProvider: StemEngineProvider = 'wasm'
@@ -36,6 +22,7 @@ function postProgress(progress: StemProgress): void {
 async function loadSession(): Promise<{ session: ort.InferenceSession; provider: StemEngineProvider }> {
   if (session) return { session, provider: sessionProvider }
   postProgress({ kind: 'model-loading' })
+  await setupOrtWasm()
   const response = await fetchModelWithCache(DEMUCS_MODEL_URL)
   const arrayBuffer = await response.arrayBuffer()
   // 显式区分执行后端：onnxruntime 的多 provider 列表不会告知最终用了哪个，

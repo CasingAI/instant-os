@@ -17,13 +17,13 @@
  * 被 ai-inference-service 统一调度（换模型自动卸载旧 worker）。
  */
 
-import * as ort from 'onnxruntime-web'
 import {
   fetchModelWithCache,
   ZIPFORMER_EN_MODEL_URL,
   ZIPFORMER_EN_TOKENS_URL,
   ZIPFORMER_MODEL_URL,
 } from '../../os/model-cache.ts'
+import { ort, setupOrtWasm } from '../../os/ort-wasm-loader.ts'
 import {
   resampleToMono16k,
   PHONEME_TARGET_SAMPLE_RATE,
@@ -34,17 +34,6 @@ import { decodeByteBpe } from './bbpe-decode.ts'
 import { buildVocab, encodeLyricsLine } from './lyrics-bpe-encode.ts'
 import { ctcForcedAlignLine, type CtcAlignResult } from './ctc-forced-align.ts'
 import type { EncodedLine } from './lyrics-bpe-encode.ts'
-
-// 复用 onnxruntime-web 的 wasm 路径配置（音乐实验室分轨 worker 同款）。
-import ortWasmSimdThreadedJsepMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.mjs?url'
-import ortWasmSimdThreadedJsepWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.wasm?url'
-
-ort.env.wasm.wasmPaths = {
-  mjs: ortWasmSimdThreadedJsepMjsUrl,
-  wasm: ortWasmSimdThreadedJsepWasmUrl,
-}
-
-ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8)
 
 export type ZipformerProvider = 'webgpu' | 'wasm'
 
@@ -147,6 +136,7 @@ async function loadSessionByUrl(modelUrl: string): Promise<{ session: ort.Infere
 
   postProgress({ kind: 'model-loading' })
 
+  await setupOrtWasm()
   const response = await fetchModelWithCache(modelUrl)
   const arrayBuffer = await response.arrayBuffer()
 

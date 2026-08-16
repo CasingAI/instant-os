@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
-import * as ort from 'onnxruntime-web'
 import { fetchModelWithCache, MDX_MODEL_URL } from '../../os/model-cache.ts'
+import { ort, setupOrtWasm } from '../../os/ort-wasm-loader.ts'
 import { resampleInterleaved } from './stems-separator.ts'
 import {
   mixMinus,
@@ -10,17 +10,6 @@ import {
   MDX_TARGET_SAMPLE_RATE,
 } from './mdx-vocal.ts'
 import type { StemEngineProvider } from './stems-types.ts'
-
-// 用 ?url 让 vite 把 onnxruntime-web 的 wasm/glue 作为静态资源打包（与 stems-worker 一致）。
-import ortWasmSimdThreadedJsepMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.mjs?url'
-import ortWasmSimdThreadedJsepWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.wasm?url'
-
-ort.env.wasm.wasmPaths = {
-  mjs: ortWasmSimdThreadedJsepMjsUrl,
-  wasm: ortWasmSimdThreadedJsepWasmUrl,
-}
-
-ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8)
 
 /** 主线程 → Worker：人声增强分离请求。 */
 export type MdxVocalRequest = {
@@ -55,6 +44,7 @@ function postProgress(progress: MdxVocalProgress): void {
 async function loadSession(): Promise<{ session: ort.InferenceSession; provider: StemEngineProvider }> {
   if (session) return { session, provider: sessionProvider }
   postProgress({ kind: 'model-loading' })
+  await setupOrtWasm()
   const response = await fetchModelWithCache(MDX_MODEL_URL)
   const arrayBuffer = await response.arrayBuffer()
   const gpuAvailable = typeof navigator !== 'undefined' && 'gpu' in navigator
