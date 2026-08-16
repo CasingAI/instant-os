@@ -47,23 +47,29 @@ export function shouldRescueLine(st: LineStats, line: LyricsLine): boolean {
 /** 补救采用方案：方案1 = Zipformer 识别行窗；方案2 = Zipformer CTC 强制对齐 */
 export type RescueSource = 'rescue-recognize' | 'rescue-ctc'
 
-/** 补救候选：一行结果 + 其产出方案（供选优后记录行来源） */
-export type RescueCandidate = {
+/** 选优候选最小结构：有行结果，可回填匹配度（pickBestLine 泛型约束） */
+export type PickBestCandidate = {
   line: LyricsLine
-  source: RescueSource
-  /** 方案1（识别）产出的全局轴识别段：供追踪图展示候选的真实识别证据 */
-  segments?: HypSegment[]
-  /** 候选匹配度（0-1，pickBestLine 选优时回填）：供复盘留痕 */
   score?: number
 }
 
+/** 补救候选：一行结果 + 其产出方案（供选优后记录行来源） */
+export type RescueCandidate = PickBestCandidate & {
+  source: RescueSource
+  /** 方案1（识别）产出的全局轴识别段：供追踪图展示候选的真实识别证据 */
+  segments?: HypSegment[]
+}
+
 /**
- * 候选行中选匹配度最高者（同分取先出现的，即方案 1 优先）。
+ * 候选行中选匹配度最高者（同分取先出现的，即先执行的组合优先）。
  * baselineScore = 原行匹配度：候选必须严格优于原行才胜出，否则返回 null（保持原行）。
  * 避免「补救」把还不错的行换成全红候选（原实现 bestScore 初始 -1，任何有词候选都会被选中）。
  */
-export function pickBestLine(candidates: RescueCandidate[], baselineScore = 0): RescueCandidate | null {
-  let best: RescueCandidate | null = null
+export function pickBestLine<T extends PickBestCandidate>(
+  candidates: T[],
+  baselineScore = 0,
+): T | null {
+  let best: T | null = null
   let bestScore = -1
   for (const candidate of candidates) {
     if (!candidate.line || !candidate.line.words || candidate.line.words.length === 0) continue

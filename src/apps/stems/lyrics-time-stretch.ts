@@ -16,6 +16,8 @@
  * 纯函数、无浏览器依赖，可 node --experimental-strip-types 直接单测。
  */
 
+import { isPunctuationOnly } from '../align/align-lrc.ts'
+
 export type StretchMethod = 'wsola' | 'phase-vocoder'
 
 /** 放慢速率的允许范围（rate < 1 为放慢；1 = 恒等，用于对照与测试）。 */
@@ -312,4 +314,106 @@ function phaseVocoderMono(x: Float32Array, rate: number): Float32Array {
     out[i] = av > 1e-3 ? buf[i] / av : 0
   }
   return out
+}
+
+// —— 自主放慢方案推荐（先分析当前行窗口，再决定怎么放慢） ——
+
+/** 目标语速（字/秒）：ASR 训练分布内偏快的值，快嘴行放慢到接近它再识别。 */
+export const STRETCH_TARGET_SPEECH_RATE = 5
+/** 归一化谱通量阈值：高于它视为瞬态密集（爆破/摩擦音多），WSOLA 优先。 */
+export const STRETCH_FLUX_THRESHOLD = 0.05
+/** 过零率阈值：高于它视为清辅音密集，WSOLA 优先。 */
+export const STRETCH_ZCR_THRESHOLD = 0.1
+
+/** 自主放慢方案：由 planStretchParams 对当前行窗口分析得出。 */
+export type StretchPlan = {
+  /** 目标放慢速率（1 = 原速不拉伸，直接识别） */
+  rate: number
+  /** 算法推荐排序：首位为最可能保真语音的算法 */
+  methods: [StretchMethod, StretchMethod]
+}
+
+/**
+ * 分析行文本/行时长 + 行窗口音频，自主确定最优放慢速率与算法排序。
+ *  - rate：当前语速（去标点字数 / 行时长）与目标语速之比反推，钳到合法范围；
+ *    语速正常（≤ 目标）时为 1，即不拉伸直接识别。
+ *  - methods：用 mono left 的短时谱通量 + 过零率估计瞬态密度；
+ *    瞬态密集（快嘴的爆破/摩擦音）WSOLA 优先，长音旋律主导时 PV 优先。
+ */
+export function planStretchParams(
+  lineText: string,
+  spanSec: number,
+  slice: Float32Array,
+  sampleRate: number,
+): StretchPlan {
+  const contentChars = [...lineText].filter((c) => !isPunctuationOnly(c)).length
+  const speechRate = spanSec > 0 && contentChars > 0 ? contentChars / spanSec : 0
+  const rate = clampStretchRate(speechRate > 0 ? STRETCH_TARGET_SPEECH_RATE / speechRate : 1)
+  const methods = pickStretchMethods(slice, sampleRate)
+  return { rate, methods }
+}
+
+/** 根据瞬态密度排序算法：返回 [优先, 次选]；样本太少时默认 WSOLA 优先。 */
+function pickStretchMethods(
+  slice: Float32Array,
+  sampleRate: number,
+): [StretchMethod, StretchMethod] {
+  const frames = Math.floor(slice.length / 2)
+  if (frames < 512) return ['wsola', 'phase-vocoder']
+  const left = new Float32Array(frames)
+  for (let i = 0; i < frames; i++) left[i] = slice[i * 2]
+  const { flux, zcr } = transientFeatures(left, sampleRate)
+  const wsolaFirst = flux >= STRETCH_FLUX_THRESHOLD || zcr >= STRETCH_ZCR_THRESHOLD
+  return wsolaFirst ? ['wsola', 'phase-vocoder'] : ['phase-vocoder', 'wsola']
+}
+
+/**
+ * 瞬态特征（仅左声道）：归一化谱通量（相邻帧幅度谱正变化 / 帧能量）与过零率。
+ * 行窗口量级全部帧跑一遍开销可忽略；帧长按采样率选 2 的幂（FFT 要求）。
+ */
+function transientFeatures(x: Float32Array, sampleRate: number): { flux: number; zcr: number } {
+  const n = sampleRate >= 32000 ? 512 : 256
+  const hop = n >> 1
+  const half = n >> 1
+  const win = hannWindow(n)
+  const re = new Float64Array(n)
+  const im = new Float64Array(n)
+  const mag = new Float64Array(half + 1)
+  const prevMag = new Float64Array(half + 1)
+  let hasPrev = false
+  let fluxAcc = 0
+  let fluxCount = 0
+  let zcAcc = 0
+  let zcFrames = 0
+  for (let pos = 0; pos + n <= x.length; pos += hop) {
+    let signChanges = 0
+    for (let i = 1; i < n; i++) {
+      if ((x[pos + i] >= 0) !== (x[pos + i - 1] >= 0)) signChanges += 1
+    }
+    zcAcc += signChanges / n
+    zcFrames += 1
+
+    for (let k = 0; k < n; k++) {
+      re[k] = x[pos + k] * win[k]
+      im[k] = 0
+    }
+    fft(re, im)
+    for (let k = 0; k <= half; k++) mag[k] = Math.hypot(re[k], im[k])
+    if (hasPrev) {
+      let flux = 0
+      let energy = 0
+      for (let k = 0; k <= half; k++) {
+        if (mag[k] > prevMag[k]) flux += mag[k] - prevMag[k]
+        energy += mag[k]
+      }
+      fluxAcc += flux / (energy + 1e-12)
+      fluxCount += 1
+    }
+    prevMag.set(mag)
+    hasPrev = true
+  }
+  return {
+    flux: fluxCount > 0 ? fluxAcc / fluxCount : 0,
+    zcr: zcFrames > 0 ? zcAcc / zcFrames : 0,
+  }
 }

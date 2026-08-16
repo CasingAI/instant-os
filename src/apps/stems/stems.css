@@ -2045,6 +2045,11 @@
   margin-top: 8px;
 }
 
+/* 放慢重识别区的双按钮（自动 + 手动）：窄抽屉里允许换行 */
+.stems__analysis-actions--wrap {
+  flex-wrap: wrap;
+}
+
 .stems__analysis-hint {
   font-size: 11px;
   color: var(--stems-ink-muted);

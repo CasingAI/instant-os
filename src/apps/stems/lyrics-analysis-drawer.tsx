@@ -21,8 +21,10 @@ import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
 import type { ZipformerAlignLine, ZipformerProgress } from '../align/zipformer-worker.ts'
 import type { LyricsLine, LyricsWord } from '../music/music-lyrics.ts'
-import { clampStretchRate, timeStretchAudio, type StretchMethod } from './lyrics-time-stretch.ts'
+import { clampStretchRate, planStretchParams, timeStretchAudio, type StretchMethod } from './lyrics-time-stretch.ts'
+import { autoSearchLine } from './lyrics-auto-search.ts'
 import {
+  ALIGN_MODEL_LABELS,
   alignLineByLineTimes,
   alignLineFree,
   alignLineWithoutParens,
@@ -122,6 +124,8 @@ type PreviewState = {
   line: LyricsLine | null
   note: string
   trace: TraceChart | null
+  /** 自动放慢重识别采用组合的模型（applyPreview 的 source 标注用） */
+  adoptedModel?: AlignModel
 }
 
 export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
@@ -602,6 +606,103 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     }
   }, [vocalsAudio, sampleRate, focusLine, focusWindow, karaokeLines, lineTimes, stretchRate, stretchMethod, stretchModel])
 
+  // —— 异步动作：自动放慢重识别（自主定速 + 全组合搜索） ——
+  // 先分析行窗口定出唯一最优速率与算法排序（planStretchParams），再按
+  // 「推荐算法 × 用户所选模型优先」最多 4 个组合（2 算法 × 2 模型）串行重试；
+  // score=1 提前停，全部不优于原行则保持原行（与自动补救的 rescue-failed 语义一致）。
+  const handleAutoRecognize = useCallback(async () => {
+    if (!vocalsAudio || sampleRate <= 0 || focusLine === null || focusWindow === null) return
+    const lineText = karaokeLines[focusLine]?.text
+    if (!lineText) return
+    const a = Math.floor(focusWindow.startSec * sampleRate) * STEM_CHANNELS
+    const b = Math.min(vocalsAudio.length, Math.ceil(focusWindow.endSec * sampleRate) * STEM_CHANNELS)
+    if (a >= b) {
+      setAsyncError('行窗口切片为空，无法识别')
+      return
+    }
+    const slice = vocalsAudio.slice(a, b)
+    // 语速用真实行区间（不含窗口 padding）；无行区间时退回窗口时长
+    const spanSec = focusRowSpan
+      ? focusRowSpan.endSec - focusRowSpan.startSec
+      : focusWindow.endSec - focusWindow.startSec
+    const plan = planStretchParams(lineText, spanSec, slice, sampleRate)
+    const seq = ++asyncSeqRef.current
+    setAsyncBusy('auto-slow-recognize')
+    setAsyncError(null)
+    setAsyncProgress(null)
+    setAsyncText(null)
+    setAppliedKey(null)
+    setPreview(null)
+    try {
+      const startMs = lineTimes[focusLine] ?? Math.round(focusWindow.startSec * 1000)
+      const result = await autoSearchLine({
+        lineText,
+        plan,
+        userModel: stretchModel,
+        offsetSec: focusWindow.startSec,
+        currentLine: focusLineObj ?? null,
+        callbacks: {
+          stretch: (rate, method) => timeStretchAudio(slice, sampleRate, rate, method),
+          recognize: async (audio, model) => {
+            const modelId = model === 'zipformer' ? 'align-zipformer' : 'align-sense-voice'
+            const { segments } = await enqueueAiTask<
+              ZipformerProgress | SenseVoiceProgress,
+              { segments: HypSegment[]; text: string }
+            >(modelId, { type: 'recognize', audio, sampleRate }, {
+              route: (msg) => {
+                if (msg.kind === 'done') {
+                  return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+                }
+                if (msg.kind === 'error') {
+                  return { action: 'reject', error: new Error(msg.message) }
+                }
+                return { action: 'continue' }
+              },
+            })
+            return segments.length > 0 ? segments : null
+          },
+          alignBySegments: (segments, text) =>
+            alignLineByLineTimes(segments, text, startMs, lineTimes[focusLine + 1]),
+        },
+        onAttempt: (index, total) => setAsyncProgress({ chunk: index, total }),
+      })
+      if (seq !== asyncSeqRef.current) return
+      if (result.best && result.best.words && result.best.words.length > 0 && result.bestCombo) {
+        const combo = result.bestCombo
+        const trace = buildLineMappedTrace(
+          result.bestSegments ?? [],
+          lineText,
+          startMs / 1000,
+          (lineTimes[focusLine + 1] ?? startMs) / 1000,
+          focusWindow,
+        )
+        const chars = [...lineText].filter((c) => !isPunctuationOnly(c)).length
+        const speechRate = spanSec > 0 ? chars / spanSec : 0
+        const methodName = combo.method === 'wsola' ? 'WSOLA' : 'Phase Vocoder'
+        const stretchDesc =
+          combo.rate < 1
+            ? `${methodName} 放慢 ${Math.round(combo.rate * 100)}%`
+            : '原速（语速正常，不拉伸）'
+        setPreview({
+          key: 'auto-slow-recognize',
+          line: result.best,
+          adoptedModel: combo.model,
+          note: `自动方案：语速 ${speechRate.toFixed(1)} 字/秒 → ${stretchDesc} + ${ALIGN_MODEL_LABELS[combo.model]}，评分 ${(result.bestScore ?? 0).toFixed(2)}（共尝试 ${result.attempted} 个组合）`,
+          trace,
+        })
+      } else {
+        setAsyncError(
+          `自动搜索 ${result.attempted} 个组合均未优于原行（原行分 ${result.baselineScore?.toFixed(2) ?? '--'}），保持原行`,
+        )
+      }
+    } catch (cause) {
+      if (seq !== asyncSeqRef.current) return
+      setAsyncError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      if (seq === asyncSeqRef.current) setAsyncBusy(null)
+    }
+  }, [vocalsAudio, sampleRate, focusLine, focusLineObj, focusWindow, focusRowSpan, karaokeLines, lineTimes, stretchModel])
+
   // 试听整行（当前行）
   const playWholeLine = useCallback(() => {
     if (!focusLineObj) return
@@ -711,13 +812,15 @@ function rescueReviewNote(
 
   const applyPreview = useCallback(() => {
     if (preview?.line?.words && preview.line.words.length > 0 && focusLine !== null) {
-      // rerun-line 跟随当前主模型；slow-recognize 带所选实验模型；其余动作恒为 Zipformer
+      // rerun-line 跟随当前主模型；slow-recognize/auto-slow-recognize 带各自模型；其余动作恒为 Zipformer
       const source: LineSource =
         preview.key === 'rerun-line'
           ? `manual-rerun-line:${alignModel}`
           : preview.key === 'slow-recognize'
             ? `manual-slow-recognize:${stretchModel}`
-            : `manual-${preview.key}`
+            : preview.key === 'auto-slow-recognize'
+              ? `manual-auto-slow-recognize:${preview.adoptedModel ?? stretchModel}`
+              : `manual-${preview.key}`
       onApplyLine(focusLine, preview.line.words, source)
       setAppliedKey(preview.key)
     }
@@ -889,9 +992,19 @@ function rescueReviewNote(
                 />
               </div>
             </div>
-            <div class="stems__analysis-actions">
+            <div class="stems__analysis-actions stems__analysis-actions--wrap">
               <IosButton
                 tone="primary"
+                disabled={busy || !vocalsAudio || focusLineObj === undefined}
+                onClick={() => void handleAutoRecognize()}
+              >
+                {asyncBusy === 'auto-slow-recognize'
+                  ? asyncProgress
+                    ? `组合 ${asyncProgress.chunk}/${asyncProgress.total}`
+                    : '搜索中…'
+                  : '自动放慢并重识别'}
+              </IosButton>
+              <IosButton
                 disabled={busy || !vocalsAudio || focusLineObj === undefined}
                 onClick={() => void handleSlowRecognize()}
               >
@@ -899,11 +1012,11 @@ function rescueReviewNote(
                   ? asyncProgress
                     ? `${Math.round((asyncProgress.chunk / asyncProgress.total) * 100)}%`
                     : '处理中…'
-                  : '放慢并重识别'}
+                  : '手动放慢并重识别'}
               </IosButton>
             </div>
             <p class="stems__analysis-stretch-hint">
-              先保调放慢（音高不变）再识别：快嘴语速超出模型训练分布，放慢后拉回分布内；时间戳自动映射回原轴。放慢只用于识别，试听仍是原速。
+              自动：分析语速与瞬态特征自动选定速度，按 2 算法 × 2 模型最多试 4 个组合，评分最优才应用，全不优则保持原行；手动：用下方参数单次重试。放慢只用于识别，试听仍是原速。
             </p>
           </section>
 
