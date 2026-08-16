@@ -1,5 +1,6 @@
 import { accountSettingsToOpenAiConfig, loadAccountSettings } from '../os/account-settings-storage.ts'
 import { isDebugMode } from '../os/debug-launch.ts'
+import { loadProxyServerSettings } from '../os/proxy-server-settings-storage.ts'
 import {
   getDefaultThinkingEnabled,
   providerRequiresProxy,
@@ -83,14 +84,22 @@ export function readOpenAiConfigFromEnv(): OpenAiConfig {
   return config
 }
 
+/** 是否启用「Instant 免费额度」网关（经 PoW 代理，无需真实 key） */
+export function isInstantFreeProxy(): boolean {
+  return loadProxyServerSettings().preset === 'instant-free'
+}
+
 export function mergeOpenAiConfig(
   overrides?: Partial<OpenAiConfig>,
   capability: AiModelCapability = 'text',
 ): OpenAiConfig {
   const stored = readStoredConfig(capability)
   const env = readEnvConfig()
+  const freeTier = isInstantFreeProxy()
 
-  const apiKey = overrides?.apiKey ?? stored?.apiKey ?? env.apiKey
+  const apiKey = freeTier
+    ? 'instant-free'
+    : (overrides?.apiKey ?? stored?.apiKey ?? env.apiKey)
   const baseURL = overrides?.baseURL ?? stored?.baseURL ?? env.baseURL
   const defaultModel =
     overrides?.defaultModel ??
@@ -103,9 +112,11 @@ export function mergeOpenAiConfig(
     overrides?.thinkingEnabled ??
     stored?.thinkingEnabled ??
     getDefaultThinkingEnabled(providerId)
-  const useProxy = providerRequiresProxy(providerId)
+  const useProxy = freeTier
     ? true
-    : (overrides?.useProxy ?? stored?.useProxy ?? false)
+    : providerRequiresProxy(providerId)
+      ? true
+      : (overrides?.useProxy ?? stored?.useProxy ?? false)
   const thinkingEffort = overrides?.thinkingEffort
 
   if (!apiKey) {
@@ -126,6 +137,10 @@ export function mergeOpenAiConfig(
 }
 
 export function hasOpenAiApiKey(): boolean {
+  if (isInstantFreeProxy()) {
+    // 免费额度网关不需要用户自带 key
+    return true
+  }
   if (isDebugMode()) {
     // Debug 模式：Debug env 或普通 env 有 key 即视为已配置（无需初始化向导）
     return Boolean(
@@ -145,6 +160,10 @@ export function hasOpenAiApiKey(): boolean {
 }
 
 export function readDefaultModelId(capability: AiModelCapability = 'text'): string {
+  if (isInstantFreeProxy()) {
+    // 免费额度网关仅放行白名单便宜模型
+    return DEFAULT_MODEL
+  }
   if (isDebugMode()) {
     return import.meta.env.VITE_DEBUG_OPENAI_MODEL?.trim() || DEBUG_DEFAULT_MODEL
   }

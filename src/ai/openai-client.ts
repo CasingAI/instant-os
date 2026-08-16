@@ -1,6 +1,10 @@
 import OpenAI from 'openai'
 import type { AiModelCapability } from './ai-providers.ts'
-import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
+import {
+  isInstantFreeProxy,
+  mergeOpenAiConfig,
+  type OpenAiConfig,
+} from './openai-config.ts'
 import {
   isProxyServerConnected,
   PROXY_SERVER_NOT_CONFIGURED_MESSAGE,
@@ -17,7 +21,7 @@ export function clearOpenAiClientCache(): void {
 }
 
 function configCacheKey(config: OpenAiConfig): string {
-  return `${config.apiKey}|${config.baseURL ?? ''}|${config.defaultModel}|${config.providerId}|${config.thinkingEnabled}|${config.useProxy ?? false}`
+  return `${config.apiKey}|${config.baseURL ?? ''}|${config.defaultModel}|${config.providerId}|${config.thinkingEnabled}|${config.useProxy ?? false}|${isInstantFreeProxy()}`
 }
 
 /**

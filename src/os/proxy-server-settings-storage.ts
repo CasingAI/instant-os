@@ -11,7 +11,14 @@ export const PROXY_SERVER_PATH_PREFIX = '/-----'
 /** Instant 共享 virtual-chromo Worker（仅在用户显式选择「Instant 共享」时使用） */
 export const PROXY_SERVER_SHARED_ORIGIN = 'https://virtual-chromo.r6sg.workers.dev'
 
-export type ProxyServerPresetId = 'off' | 'shared' | 'custom'
+/**
+ * Instant 免费额度网关（Instant-demo-api Worker）。
+ * 部署后把 wrangler deploy 输出的地址替换到这里。
+ * 未部署前为占位地址，探测会失败并在设置页给出提示。
+ */
+export const PROXY_SERVER_FREE_ORIGIN = 'https://instant-demo-api.example.workers.dev'
+
+export type ProxyServerPresetId = 'off' | 'shared' | 'custom' | 'instant-free'
 
 export type ProxyServerSettings = {
   version: 2
@@ -26,6 +33,7 @@ export const PROXY_SERVER_PRESET_OPTIONS = [
   { id: 'off', label: '关闭' },
   { id: 'shared', label: 'Instant 共享' },
   { id: 'custom', label: '自定义' },
+  { id: 'instant-free', label: 'Instant 免费额度' },
 ] as const
 
 export const PROXY_SERVER_SETTINGS_CHANGED_EVENT = 'instant-os:proxy-server-settings-changed'
@@ -65,6 +73,9 @@ function resolveStoredProxyBaseUrl(settings: ProxyServerSettings): string | unde
   }
   if (settings.preset === 'shared') {
     return PROXY_SERVER_SHARED_ORIGIN
+  }
+  if (settings.preset === 'instant-free') {
+    return PROXY_SERVER_FREE_ORIGIN
   }
   return normalizeProxyBaseUrl(settings.customProxyBaseUrl) || undefined
 }
@@ -132,14 +143,18 @@ function normalizeProxyServerSettings(raw: unknown): ProxyServerSettings {
     record.version === 2 ||
     presetRaw === 'off' ||
     presetRaw === 'shared' ||
-    presetRaw === 'custom'
+    presetRaw === 'custom' ||
+    presetRaw === 'instant-free'
 
   if (!hasV2Shape) {
     return migrateV1(record)
   }
 
   const preset: ProxyServerPresetId =
-    presetRaw === 'shared' || presetRaw === 'custom' || presetRaw === 'off'
+    presetRaw === 'shared' ||
+    presetRaw === 'custom' ||
+    presetRaw === 'off' ||
+    presetRaw === 'instant-free'
       ? presetRaw
       : 'off'
   const customProxyBaseUrl =
@@ -151,9 +166,11 @@ function normalizeProxyServerSettings(raw: unknown): ProxyServerSettings {
   const origin =
     preset === 'shared'
       ? PROXY_SERVER_SHARED_ORIGIN
-      : preset === 'custom'
-        ? customProxyBaseUrl
-        : ''
+      : preset === 'instant-free'
+        ? PROXY_SERVER_FREE_ORIGIN
+        : preset === 'custom'
+          ? customProxyBaseUrl
+          : ''
   const connected = record.connected === true && origin.length > 0
 
   return {
