@@ -48,6 +48,8 @@ export type TraceChartLayer = {
 /** 一张时间连线图 */
 export type TraceChart = {
   windowSec: { startSec: number; endSec: number }
+  /** 行区间（可选）：LRC 行时间戳定义的演唱区间，图上画绿色底 */
+  lineSec?: { startSec: number; endSec: number }
   hypBlocks: TraceHypBlock[]
   layers: TraceChartLayer[]
   /** 识别段层标签（默认「模型听到的」；补救候选段时标注来源） */
@@ -64,7 +66,8 @@ export function wordsToTraceWords(
     let endSec: number
     let endFallback = false
     if (next) {
-      endSec = next.timeMs / 1000
+      // 下一词时间早于当前词（乱序历史数据/极端对齐）时，end 至少 = start + 0.02，防倒挂
+      endSec = Math.max(next.timeMs / 1000, w.timeMs / 1000 + 0.02)
     } else {
       // 末词无真实 end：显示兜底（+0.4s，可能被行尾钳制），标注为非识别边界
       endSec = w.timeMs / 1000 + 0.4
@@ -214,6 +217,7 @@ export function buildFocusTrace(
     rescueSegments && rescueSegments.length > 0 ? rescueSegments : (phonemes ?? [])
   const row = traceAlignRow(evidence, refLine, lineStartSec, lineEndSec)
   const chart = traceRowToChart(row, windowSec)
+  chart.lineSec = { startSec: lineStartSec, endSec: lineEndSec }
   if (rescueSegments && rescueSegments.length > 0) chart.hypLabel = '补救识别（行窗）'
 
   if (currentWords && currentWords.length > 0) {
@@ -244,7 +248,9 @@ export function buildLineMappedTrace(
 ): TraceChart {
   const refLine = buildLyricsSkeleton(lineText)[0]
   const row = traceAlignRow(segments, refLine, lineStartSec, lineEndSec)
-  return traceRowToChart(row, windowSec)
+  const chart = traceRowToChart(row, windowSec)
+  chart.lineSec = { startSec: lineStartSec, endSec: lineEndSec }
+  return chart
 }
 
 /** 无行时间戳动作（free / paren）：全局追踪，无行窗映射层。 */
@@ -347,9 +353,12 @@ export function formatChartDump(chart: TraceChart): string {
   const firstLyric = chart.layers[0]?.words ?? []
   const lines = [
     `图窗口 ${stamp(chart.windowSec.startSec)}–${stamp(chart.windowSec.endSec)}`,
-    '',
-    `${chart.hypLabel ?? '模型听到的'}（${chart.hypBlocks.length} 块）`,
   ]
+  if (chart.lineSec) {
+    lines.push(`行区间 ${stamp(chart.lineSec.startSec)}–${stamp(chart.lineSec.endSec)}`)
+  }
+  lines.push('')
+  lines.push(`${chart.hypLabel ?? '模型听到的'}（${chart.hypBlocks.length} 块）`)
   if (chart.hypBlocks.length === 0) lines.push('  （没有识别段）')
   else for (const h of chart.hypBlocks) lines.push(formatHypLine(h, firstLyric))
   for (const layer of chart.layers) {

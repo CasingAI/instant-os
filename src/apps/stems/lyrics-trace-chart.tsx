@@ -211,6 +211,18 @@ export function LyricsTraceChart({
     bandRight - bandLeft > 4 &&
     (view.startSec < chart.windowSec.startSec - 0.02 || view.endSec > chart.windowSec.endSec + 0.02)
 
+  const lineBand = chart.lineSec
+    ? {
+        left: Math.max(0, (chart.lineSec.startSec - view.startSec) * pxPerSec),
+        right: Math.min(plotW, (chart.lineSec.endSec - view.startSec) * pxPerSec),
+      }
+    : undefined
+  const showLineBand =
+    lineBand !== undefined &&
+    lineBand.right - lineBand.left > 4 &&
+    chart.lineSec !== undefined &&
+    (view.startSec < chart.lineSec.startSec - 0.02 || view.endSec > chart.lineSec.endSec + 0.02)
+
   return (
     <div class="stems__trace" ref={ref}>
       <div class="stems__trace-inner" style={{ width: `${Math.max(width, innerW)}px` }}>
@@ -227,6 +239,16 @@ export function LyricsTraceChart({
                 width: `${Math.max(0, bandRight - bandLeft)}px`,
               }}
               title="这一行的切片窗口"
+            />
+          )}
+          {showLineBand && lineBand && (
+            <div
+              class="stems__trace-band--line"
+              style={{
+                left: `${TRACE_LABEL_W + lineBand.left}px`,
+                width: `${Math.max(0, lineBand.right - lineBand.left)}px`,
+              }}
+              title="这一行的时间区间"
             />
           )}
 

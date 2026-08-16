@@ -154,6 +154,9 @@ export type KnownAnchor = {
   failed?: boolean
 }
 
+/** 插值词最小宽度（秒）：锚点间隙不足时仍保此宽度，不产生 end < start 的倒挂区间 */
+const MIN_INTERP_WORD_SEC = 0.02
+
 /** 插值用行区间边界：无前/后锚点时铺到该时间（而非被 ±窗口的跨行块拉远） */
 export type InterpEdge = {
   /** 行首时间（秒）：最前未匹配词的左界 */
@@ -216,28 +219,40 @@ export function interpolateUnits(
     // 边界收敛到最近锚点，插值永不越过锚点
     let leftT = prevIdx >= 0 ? result[prevIdx].end : (edge?.leftSec ?? totalStart)
     let rightT = nextIdx >= 0 ? result[nextIdx].start : (edge?.rightSec ?? totalEnd)
-    if (prevIdx < 0 && nextIdx >= 0) leftT = Math.min(leftT, rightT - 0.05)
-    if (prevIdx >= 0 && nextIdx < 0) rightT = Math.max(rightT, leftT + 0.05)
+    if (prevIdx < 0 && nextIdx >= 0) leftT = Math.min(leftT, rightT - MIN_INTERP_WORD_SEC)
+    if (prevIdx >= 0 && nextIdx < 0) rightT = Math.max(rightT, leftT + MIN_INTERP_WORD_SEC)
     const gapUnits = (nextIdx >= 0 ? nextIdx : result.length) - (prevIdx >= 0 ? prevIdx : -1) - 1
     const offsetInGap = u - (prevIdx >= 0 ? prevIdx : -1) - 1
-    const span = Math.max(0.05, rightT - leftT)
-    const slot = span / Math.max(1, gapUnits)
+    // 每个插值词至少保留最小宽度（UI 可见；锚点间隙不足时词与锚点重叠、
+    // 时间不可靠 → 仍标红），end = start + slot 恒大于 start，绝不产生倒挂区间。
+    const slot = Math.max(MIN_INTERP_WORD_SEC, (rightT - leftT) / Math.max(1, gapUnits))
     result[u].start = leftT + offsetInGap * slot
     result[u].end = result[u].start + slot
-    // 插值词 end 不越过右锚点（相邻插值词的 0.05s 下限可能把区间撑过锚点）
-    if (nextIdx >= 0) result[u].end = Math.min(result[u].end, rightT)
+    // 锚点间隙不足时：end 收紧到右锚点 start，start 相应回退保最小宽度（不越过右锚点）
+    if (nextIdx >= 0 && result[u].end > rightT) {
+      result[u].end = rightT
+      if (result[u].start >= result[u].end) result[u].start = result[u].end - MIN_INTERP_WORD_SEC
+    }
     // 无任何声学证据的时间戳（纯插值兜底）→ 标红
     result[u].failed = true
   }
 
-  // 保证单调：后单元起点不得早于前单元终点；锚点钉死，不被前面的插值词推动
+  // 保证单调：后单元起点不得早于前单元终点；锚点钉死，不被前面的插值词推动。
+  // 插值词的 start 上限 = 右锚点 start - MIN（不越过右锚点，即使前词 end 更大也不推过去）
   for (let u = 1; u < result.length; u++) {
     if (anchored[u] === 1) continue
+    let rightCap = Infinity
+    for (let n = u + 1; n < result.length; n++) {
+      if (anchored[n] === 1) {
+        rightCap = result[n].start - MIN_INTERP_WORD_SEC
+        break
+      }
+    }
     if (result[u].start < result[u - 1].end) {
-      result[u].start = result[u - 1].end
+      result[u].start = Math.min(result[u - 1].end, rightCap)
     }
     if (result[u].end <= result[u].start) {
-      result[u].end = result[u].start + 0.05
+      result[u].end = result[u].start + MIN_INTERP_WORD_SEC
     }
   }
 

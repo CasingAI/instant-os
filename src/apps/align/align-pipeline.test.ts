@@ -7,6 +7,9 @@ import { alignSegmentsToLrc } from './align-pipeline.ts'
 import { looksLikeBrokenLrc } from './align-lrc.ts'
 import { stripLrcMarkup } from './pinyin-g2p.ts'
 import type { HypSegment } from './align-text-dtw.ts'
+import { interpolateUnits, type KnownAnchor } from './align-dtw.ts'
+import { wordsToTraceWords } from '../stems/lyrics-trace.ts'
+import type { LyricsWord } from '../music/music-lyrics.ts'
 
 const segs = (symbols: [string, number, number][]): HypSegment[] =>
   symbols.map(([symbol, start, end]) => ({ symbol, start, end }))
@@ -616,6 +619,73 @@ function testRealFusedSplits(): void {
   }
 }
 
+// —— 21. interpolateUnits 锚点紧贴：间隙为 0 时插值词不倒挂、词序单调 ——
+// 真实数据：in 块分裂 end = each 锚点 start = 01:00.00（间隙 0），Harry/Potter/fucking
+// 三个插值词夹在其中。旧代码 span 强制 0.05 撑开 + end 截断导致 start > end 倒挂、
+// 插值词越过右锚点。修复后每个词 start < end、词序单调、不越过右锚点。
+function testInterpTightAnchorsNoInversion(): void {
+  // 锚点 A end=10.0 / 锚点 B start=10.0（间隙 0），中间 3 个插值词
+  const units = ['a', 'x', 'y', 'z', 'b'].map((text) => ({ text, phones: [] as string[] }))
+  const known: KnownAnchor[] = [
+    { unitIndex: 0, start: 9.8, end: 10.0 },
+    { unitIndex: 4, start: 10.0, end: 10.2 },
+  ]
+  const out = interpolateUnits(units, known, [], { leftSec: 9.8, rightSec: 10.2 })
+  assert.ok(out[0].start === 9.8 && out[0].end === 10.0, `锚点 a 保留：${out[0].start}-${out[0].end}`)
+  assert.ok(out[4].start === 10.0 && out[4].end === 10.2, `锚点 b 保留：${out[4].start}-${out[4].end}`)
+  for (const u of [1, 2, 3]) {
+    assert.ok(out[u].start < out[u].end, `插值词 ${u} start<end：${out[u].start}-${out[u].end}`)
+    assert.ok(out[u].end <= 10.2, `插值词 ${u} 不越过右锚点：end=${out[u].end}`)
+  }
+  assert.ok(out[1].start <= out[2].start && out[2].start <= out[3].start, '词序单调递增')
+}
+
+// —— 22. 真实片段：行 #17 简化场景，锚点紧贴的插值词不倒挂、锚点不被覆盖 ——
+function testRealTightAnchorLineNoInversion(): void {
+  // 简化自真实行 #17：CHACEND→in(块分裂)、HROTERUK→Potter、OTERL→other；
+  // each 夹在 Potter.end 与 other.start 之间（间隙 0 的插值词）
+  const segments = segs([
+    ['CHACEND', 59.46, 60.0],
+    ['HROTERUK', 60.0, 60.72],
+    ['OTERL', 61.08, 61.5],
+  ])
+  // 用与行 #17 相同的歌词结构：Harry/Potter/fucking 为插值词，each/other 为锚点
+  const lyrics = 'Harry Potter fucking each other'
+  const lrc = alignSegmentsToLrc(segments, lyrics, [59910, 61120])
+  const line = lrc.split('\n').find((l) => l.startsWith('['))
+  assert.ok(line !== undefined, `应有对齐行：${lrc}`)
+  const flags = lineWordFlags(line)
+  assert.ok(flags.length >= 4, `应有足够词：${lrc}`)
+  for (let i = 0; i < flags.length; i++) {
+    const cur = flags[i]
+    const next = flags[i + 1]
+    // 每个词区间不倒挂
+    if (next) {
+      assert.ok(cur.timeSec <= next.timeSec, `词序单调：${cur.text}@${cur.timeSec} ≤ ${next.text}@${next.timeSec}`)
+    }
+  }
+  // each 与 other 锚点时间不被插值词覆盖：other 应命中 OTERL 段时间
+  const other = flags.find((f) => f.text.trim().replace(/[^\p{L}\p{N}]+$/u, '') === 'other')
+  assert.ok(other !== undefined && !other.failed, `other 应命中锚点：${lrc}`)
+}
+
+// —— 23. wordsToTraceWords 乱序输入：start > end 的输入防倒挂 ——
+// 主界面词时间乱序（fucking 10.10 后跟 each 10.00）时，显示层 end 至少 = start + 0.02，
+// 不画倒挂区间。
+function testWordsToTraceWordsNoInversion(): void {
+  const words: LyricsWord[] = [
+    { timeMs: 10100, text: 'fucking' },
+    { timeMs: 10000, text: 'each' },
+    { timeMs: 10050, text: 'other' },
+  ]
+  const out = wordsToTraceWords(words)
+  assert.equal(out[0].text, 'fucking')
+  assert.ok(out[0].startSec === 10.1, `fucking start=10.10：${out[0].startSec}`)
+  assert.ok(out[0].endSec >= 10.1 + 0.02, `fucking end 至少 start+0.02：${out[0].endSec}`)
+  assert.ok(out[0].endSec >= out[0].startSec, 'fucking 不倒挂')
+  assert.ok(out[1].endSec >= out[1].startSec, 'each 不倒挂')
+}
+
 async function runAll(): Promise<void> {
   testCleanLyrics()
   testStripTimestampLyrics()
@@ -643,6 +713,9 @@ async function runAll(): Promise<void> {
   testRealPuttingMergeAndCrossLineGuard()
   testRealWevePrefix()
   testRealFusedSplits()
+  testInterpTightAnchorsNoInversion()
+  testRealTightAnchorLineNoInversion()
+  testWordsToTraceWordsNoInversion()
   console.log('align-pipeline: 全部通过')
 }
 

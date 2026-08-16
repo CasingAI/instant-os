@@ -1595,6 +1595,14 @@
   pointer-events: none;
 }
 
+.stems__trace-band--line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(80, 220, 120, 0.16);
+  pointer-events: none;
+}
+
 .stems__trace-row {
   position: absolute;
   left: 0;
