@@ -1963,8 +1963,7 @@ export function providerRequiresProxy(providerId: AiProviderId | undefined): boo
   return (
     isArkPlanProvider(providerId) ||
     isOpencodeGoProvider(providerId) ||
-    isOpencodeZenProvider(providerId) ||
-    isInstantFreeProvider(providerId)
+    isOpencodeZenProvider(providerId)
   )
 }
 
