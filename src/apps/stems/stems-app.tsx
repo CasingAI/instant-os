@@ -93,6 +93,8 @@ type StemTrackState = {
 const WAVEFORM_BUCKETS = 200
 /** 波形横向缩放下可见窗口的最短时长（秒） */
 const MIN_VIEW_SEC = 0.5
+/** 歌词对齐/峰值计算 Worker 的任务请求序号：响应按 requestId 路由回各自 Promise */
+let stemsAlignReqSeq = 0
 
 /** 波形显示：峰值 / RMS 响度包络的缩放自适应混合。
  * 每可见桶覆盖时间（毫秒）≤ MIN_MS 时纯峰值（放大看细节保留瞬态），
@@ -3601,16 +3603,19 @@ function alignSegmentsInWorker(
 ): Promise<string> {
   const worker = workerRef.current ?? new StemsAlignWorker()
   workerRef.current = worker
+  // 每个请求独立标识：多个任务共享同一 worker，响应必须按 requestId 路由回各自 Promise，
+  // 否则先返回的消息会被所有 listener 误认领（多轨峰值重建时会把同一份金字塔写给所有轨）
+  const requestId = (stemsAlignReqSeq += 1)
   return new Promise<string>((resolve, reject) => {
     const onMessage = (event: MessageEvent<StemsAlignWorkerResponse>): void => {
       const msg = event.data
+      if (msg.requestId !== requestId) return
+      worker.removeEventListener('message', onMessage)
       if (msg.type === 'align-done') {
-        worker.removeEventListener('message', onMessage)
         resolve(msg.lrc)
         return
       }
       if (msg.type === 'error') {
-        worker.removeEventListener('message', onMessage)
         reject(new Error(msg.message))
         return
       }
@@ -3618,6 +3623,7 @@ function alignSegmentsInWorker(
     worker.addEventListener('message', onMessage)
     const request: StemsAlignWorkerRequest = {
       type: 'align-text',
+      requestId,
       phonemes,
       lyricsText,
       lineTimes: lineTimes ?? undefined,
@@ -3634,16 +3640,17 @@ function buildPeaksInWorker(
 ): Promise<WaveformPyramid> {
   const worker = workerRef.current ?? new StemsAlignWorker()
   workerRef.current = worker
+  const requestId = (stemsAlignReqSeq += 1)
   return new Promise<WaveformPyramid>((resolve, reject) => {
     const onMessage = (event: MessageEvent<StemsAlignWorkerResponse>): void => {
       const msg = event.data
+      if (msg.requestId !== requestId) return
+      worker.removeEventListener('message', onMessage)
       if (msg.type === 'peaks-done') {
-        worker.removeEventListener('message', onMessage)
         resolve(msg.pyramid)
         return
       }
       if (msg.type === 'error') {
-        worker.removeEventListener('message', onMessage)
         reject(new Error(msg.message))
         return
       }
@@ -3652,7 +3659,7 @@ function buildPeaksInWorker(
     // 复制切片再 transfer，避免 detach 主线程 PCM（与 encodeTrackInWorker 同理）
     const bytes = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
     worker.postMessage(
-      { type: 'build-peaks', data: bytes, sampleRate } satisfies StemsAlignWorkerRequest,
+      { type: 'build-peaks', requestId, data: bytes, sampleRate } satisfies StemsAlignWorkerRequest,
       [bytes],
     )
   })
