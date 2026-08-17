@@ -93,6 +93,7 @@ export type SettingsPaneGroupId =
   | 'appearance'
   | 'system'
   | 'network'
+  | 'cloud'
   | 'developer'
 
 export type SettingsPaneGroupDef = {
@@ -108,6 +109,7 @@ export const SETTINGS_PANE_GROUPS: SettingsPaneGroupDef[] = [
   { id: 'system', label: '系统' },
   { id: 'account', label: '账户' },
   { id: 'network', label: '网络与内容' },
+  { id: 'cloud', label: '云服务' },
   { id: 'developer', label: '开发者' },
 ]
 
@@ -163,7 +165,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   },
   { id: 'model-cache', label: '模型缓存', Icon: ModelCachePaneIcon, route: { view: 'model-cache' }, group: 'storage' },
   { id: 'news', label: '新闻', Icon: NewsPaneIcon, route: { view: 'news' }, group: 'network' },
-  { id: 'proxy-server', label: '代理服务器', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' }, group: 'network' },
+  { id: 'proxy-server', label: '云服务', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' }, group: 'cloud' },
   {
     id: 'background-refresh',
     label: '背景刷新',

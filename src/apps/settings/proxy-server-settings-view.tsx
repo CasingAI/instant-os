@@ -219,7 +219,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
       <div class="settings" ref={hostRef} data-settings-subpage>
         <SettingsChoicePickerView
           title="服务器"
-          backLabel="代理服务器"
+          backLabel="云服务"
           options={PROXY_SERVER_PRESET_OPTIONS}
           value={preset}
           onChange={handlePresetChange}
@@ -238,7 +238,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
-          <h2 class="settings__section-title">代理服务器</h2>
+          <h2 class="settings__section-title">云服务</h2>
           <p class="settings__section-subtitle">
             Chromo / WebView 与 AI、GitHub 等共用同一 virtual-chromo Worker。选择服务器后立即生效。
           </p>

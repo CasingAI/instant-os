@@ -77,7 +77,7 @@ const PERF_CATEGORIES: { id: FixedPerfCategory; label: string }[] = [
   { id: 'ai', label: 'AI 输出' },
   { id: 'fps', label: '帧率' },
   { id: 'memory', label: '内存' },
-  { id: 'proxy-server', label: '代理服务器' },
+  { id: 'proxy-server', label: '云服务' },
 ]
 
 function isDiskCategory(category: PerfCategory): category is DiskPerfCategory {

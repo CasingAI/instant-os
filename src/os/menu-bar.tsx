@@ -1,6 +1,6 @@
 import { memo } from 'preact/compat'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { BatteryIcon, EthernetIcon, ForwardIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
+import { BatteryIcon, CloudServiceIcon, ForwardIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../ui/adaptive-action-menu.tsx'
 import { isNarrowWorkArea } from '../window/window-snap.ts'
 import { useAboutApp } from './about-app-context.tsx'
@@ -9,7 +9,7 @@ import { getThisDeviceAbout } from './builtin-app-about.ts'
 import { useMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
 import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
-import { BatteryStatusPanel, ProxyServerStatusPanel } from './menu-bar-status-panels.tsx'
+import { BatteryStatusPanel, CloudServiceStatusPanel } from './menu-bar-status-panels.tsx'
 import { MenuBarVolumeIcon, MenuBarVolumePanel } from './menu-bar-volume-panel.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
@@ -33,6 +33,15 @@ import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.ts
 import { useDeviceBattery } from './use-device-battery.ts'
 import { useProxyServerConnection } from './use-proxy-server-connection.ts'
 import { openSettingsProxyServerView } from './proxy-server-settings-storage.ts'
+import {
+  getActiveCloudNetworkRequests,
+  subscribeCloudNetworkRequests,
+} from './cloud-network-store.ts'
+import {
+  getPowProgress,
+  subscribePowProgress,
+  type PowProgressState,
+} from './pow-progress-store.ts'
 import type { AppId, BuiltinAppId } from './types.ts'
 import { isGeneratedAppId } from './types.ts'
 import './menu-bar.css'
@@ -41,7 +50,7 @@ import './notification-center.css'
 
 const APPLE_MENU_LABEL = '__apple__'
 const MORE_MENU_LABEL = '__more__'
-const STATUS_PROXY_SERVER_LABEL = '__status_proxy_server__'
+const STATUS_CLOUD_SERVICE_LABEL = '__status_cloud_service__'
 const STATUS_BATTERY_LABEL = '__status_battery__'
 const STATUS_VOLUME_LABEL = '__status_volume__'
 const MENU_GAP_PX = 2
@@ -342,7 +351,7 @@ type MenuBarRightSectionProps = {
   activeNotificationCount: number
   onSelectWindow: (windowId: string) => void
   onOpenTaskManager: () => void
-  onOpenProxyServerSettings: () => void
+  onOpenCloudServiceSettings: () => void
 }
 
 function MenuBarRightSection({
@@ -354,12 +363,16 @@ function MenuBarRightSection({
   activeNotificationCount,
   onSelectWindow,
   onOpenTaskManager,
-  onOpenProxyServerSettings,
+  onOpenCloudServiceSettings,
 }: MenuBarRightSectionProps) {
   const battery = useDeviceBattery()
   const proxyServer = useProxyServerConnection()
   const now = useOsNowDate()
   const [volumeState, setVolumeState] = useState(() => getSystemVolumeState())
+  const [powProgress, setPowProgress] = useState<PowProgressState>(() => getPowProgress())
+  const [activeNetworkRequests, setActiveNetworkRequests] = useState(() =>
+    getActiveCloudNetworkRequests(),
+  )
   const { calendar, weekday, time } = formatOsDateTime(now, isOsUsing24HourTime())
 
   useEffect(() => {
@@ -367,7 +380,17 @@ function MenuBarRightSection({
   }, [])
 
   useEffect(() => {
-    if (!proxyServer.connected && openMenuLabel === STATUS_PROXY_SERVER_LABEL) {
+    return subscribePowProgress(setPowProgress)
+  }, [])
+
+  useEffect(() => {
+    return subscribeCloudNetworkRequests((state) => setActiveNetworkRequests(state.activeRequests))
+  }, [])
+
+  const cloudWorking = powProgress.active || activeNetworkRequests > 0
+
+  useEffect(() => {
+    if (!proxyServer.connected && openMenuLabel === STATUS_CLOUD_SERVICE_LABEL) {
       onCloseMenu()
     }
   }, [proxyServer.connected, openMenuLabel, onCloseMenu])
@@ -378,22 +401,28 @@ function MenuBarRightSection({
         <div class="menu-bar__menu">
           <button
             type="button"
-            class={`menu-bar__status-trigger${openMenuLabel === STATUS_PROXY_SERVER_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+            class={`menu-bar__status-trigger${openMenuLabel === STATUS_CLOUD_SERVICE_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
             aria-haspopup="dialog"
-            aria-expanded={openMenuLabel === STATUS_PROXY_SERVER_LABEL}
+            aria-expanded={openMenuLabel === STATUS_CLOUD_SERVICE_LABEL}
             aria-label={
-              proxyServer.proxyHost
-                ? `代理服务器已连接，${proxyServer.proxyHost}`
-                : '代理服务器已连接'
+              cloudWorking
+                ? powProgress.active
+                  ? '云服务：正在计算 AI Challenge…'
+                  : '云服务：网络请求中…'
+                : proxyServer.proxyHost
+                  ? `云服务已连接，${proxyServer.proxyHost}`
+                  : '云服务已连接'
             }
-            onClick={() => onToggleMenu(STATUS_PROXY_SERVER_LABEL)}
+            onClick={() => onToggleMenu(STATUS_CLOUD_SERVICE_LABEL)}
           >
-            <EthernetIcon />
+            <CloudServiceIcon active={cloudWorking} />
           </button>
-          {openMenuLabel === STATUS_PROXY_SERVER_LABEL && (
-            <ProxyServerStatusPanel
+          {openMenuLabel === STATUS_CLOUD_SERVICE_LABEL && (
+            <CloudServiceStatusPanel
               connection={proxyServer}
-              onOpenProxyServerSettings={onOpenProxyServerSettings}
+              powProgress={powProgress}
+              activeNetworkRequests={activeNetworkRequests}
+              onOpenCloudServiceSettings={onOpenCloudServiceSettings}
               onOpenTaskManager={onOpenTaskManager}
             />
           )}
@@ -749,7 +778,7 @@ export function MenuBar() {
     closeMenu()
   }, [closeMenu, openApp])
 
-  const handleOpenProxyServerSettings = useCallback(() => {
+  const handleOpenCloudServiceSettings = useCallback(() => {
     openApp('settings')
     openSettingsProxyServerView()
     closeMenu()
@@ -854,7 +883,7 @@ export function MenuBar() {
         activeNotificationCount={activeNotificationCount}
         onSelectWindow={handleSelectWindow}
         onOpenTaskManager={handleOpenTaskManager}
-        onOpenProxyServerSettings={handleOpenProxyServerSettings}
+        onOpenCloudServiceSettings={handleOpenCloudServiceSettings}
       />
     </header>
   )

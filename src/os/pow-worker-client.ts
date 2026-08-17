@@ -37,6 +37,7 @@ export async function solvePowParallel(
   difficulty: number,
   maxNonce: number,
   signal?: AbortSignal,
+  onProgress?: (tried: number) => void,
 ): Promise<import('./pow-parallel.ts').ParallelPowResult> {
   if (workerDisabled) {
     throw new Error('PoW worker 不可用')
@@ -64,6 +65,7 @@ export async function solvePowParallel(
       maxNonce,
       workers,
       signal,
+      onProgress,
     )
   } finally {
     // settle 时核心已 terminate；这里兜底确保 worker 一定被回收

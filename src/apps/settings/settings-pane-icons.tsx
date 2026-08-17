@@ -325,17 +325,13 @@ export function ProxyServerPaneIcon() {
   return (
     <AppIconTile color="#3d7ea6" size={PANE_ICON_SIZE}>
       <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
-        <rect x="4" y="3" width="14" height="10" rx="1.5" fill="#fff" opacity="0.95" />
-        <rect x="6" y="5" width="10" height="6" rx="0.6" fill="#3d7ea6" opacity="0.35" />
-        <rect x="9.5" y="13" width="3" height="2" fill="#fff" opacity="0.9" />
-        <rect x="6" y="15" width="10" height="2" rx="0.8" fill="#fff" opacity="0.85" />
         <path
-          d="M7 18.5 H15"
-          stroke="#fff"
-          stroke-width="1.4"
-          stroke-linecap="round"
-          opacity="0.7"
+          d="M7 16.5 C6 16.2 4.8 15 4.6 13.4 C4.4 11.7 5.4 10.2 6.9 9.7 C7.1 7.9 8.7 6.5 10.7 6.5 C12.1 6.5 13.3 7.2 14 8.3 C14.9 7.7 16.1 7.6 17.1 8.1 C18.6 8.8 19.3 10.5 18.8 12 C18.5 13 17.8 13.7 16.9 13.9 L16.9 16.5 Z"
+          fill="#fff"
+          opacity="0.95"
         />
+        <rect x="9" y="17" width="4" height="1.8" rx="0.9" fill="#fff" opacity="0.8" />
+        <path d="M6.5 19 H15.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
       </svg>
     </AppIconTile>
   )

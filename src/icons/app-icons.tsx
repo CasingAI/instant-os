@@ -591,37 +591,37 @@ export function SignalIcon() {
   )
 }
 
-/** 菜单栏代理服务器状态图标（显示器造型，语义为代理通道而非整机网卡） */
-export function EthernetIcon() {
+/** 菜单栏云服务状态图标（云朵造型，语义为云服务通道；可切换工作态） */
+type CloudServiceIconProps = {
+  /** 是否处于工作中（网络请求 / PoW 计算） */
+  active?: boolean
+}
+
+export function CloudServiceIcon({ active = false }: CloudServiceIconProps = {}) {
   return (
     <svg
       width="16"
       height="12"
       viewBox="0 0 16 12"
-      class="ethernet-icon"
+      class={`ethernet-icon${active ? ' ethernet-icon--active' : ''}`}
       role="img"
-      aria-label="代理服务器"
+      aria-label="云服务"
     >
-      <rect
-        x="2.5"
-        y="0.5"
-        width="11"
-        height="7.5"
-        rx="1.2"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1"
-      />
-      <rect x="4.5" y="2" width="7" height="4" rx="0.4" fill="currentColor" opacity="0.35" />
       <path
-        d="M7 8.5 V9.5 H9 V8.5"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+        d="M4.6 9.4 C2.6 9.4 1 7.9 1 6 c0 -1.6 1.1 -3 2.7 -3.3 C4 1.7 5.4 1 6.8 1 c1.6 0 3 0.9 3.7 2.2 C11 2.7 11.6 2.4 12.3 2.4 c1.5 0 2.7 1.2 2.7 2.7 c0 1.5 -1.2 2.7 -2.7 2.7 H4.6 Z"
+        fill="currentColor"
+        opacity="0.9"
       />
-      <rect x="4" y="9.5" width="8" height="1.8" rx="0.6" fill="currentColor" />
+      {/* 工作中：云朵中心叠加旋转射线 */}
+      {active && (
+        <g class="ethernet-icon__rays" stroke="currentColor" stroke-width="1.1" stroke-linecap="round">
+          <circle cx="8" cy="6" r="1.1" fill="none" />
+          <line x1="8" y1="2.2" x2="8" y2="3.2" />
+          <line x1="8" y1="8.8" x2="8" y2="9.8" />
+          <line x1="4.5" y1="6" x2="5.5" y2="6" />
+          <line x1="10.5" y1="6" x2="11.5" y2="6" />
+        </g>
+      )}
     </svg>
   )
 }

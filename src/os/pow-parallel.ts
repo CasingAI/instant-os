@@ -26,6 +26,7 @@ export type PowWorkerRequest = {
 export type PowWorkerResponse =
   | { type: 'found'; nonce: number; hash: string }
   | { type: 'done' }
+  | { type: 'progress'; tried: number }
 
 /**
  * 并行求解：把 workers（已创建）按 stride 切分 nonce 空间，取最先命中者。
@@ -44,6 +45,7 @@ export async function solvePowParallel(
   maxNonce: number,
   workers: Worker[],
   signal?: AbortSignal,
+  onProgress?: (tried: number) => void,
 ): Promise<ParallelPowResult> {
   const count = workers.length
   if (count === 0) {
@@ -74,6 +76,8 @@ export async function solvePowParallel(
   return await new Promise<ParallelPowResult>((resolve, reject) => {
     let settled = false
     let doneCount = 0
+    // 各 worker 已完成的迭代次数；stride 切分互不重叠，求和即精确的已尝试 nonce 数
+    const workerIters = new Array<number>(count).fill(0)
 
     const settle = (fn: () => void) => {
       if (settled) return
@@ -97,6 +101,14 @@ export async function solvePowParallel(
           doneCount += 1
           if (doneCount === count) {
             settle(() => reject(new Error('not-found')))
+          }
+        } else if (response.type === 'progress') {
+          if (onProgress) {
+            // tried = 尚未开始搜索的下一个 nonce；已完成迭代 = (tried - 1 - offset) / stride + 1
+            const iters = Math.floor((response.tried - 1 - index) / count) + 1
+            workerIters[index] = Math.max(workerIters[index], iters)
+            const totalTried = workerIters.reduce((acc, n) => acc + n, 0)
+            onProgress(Math.min(totalTried, request.maxNonce))
           }
         }
       }

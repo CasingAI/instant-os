@@ -17,6 +17,7 @@ import {
   ProxyServerApiError,
 } from '../os/proxy-server-api.ts'
 import { PowError, readBodyBytes, solvePowForBody } from '../os/pow-client.ts'
+import { withActiveCloudNetworkRequest } from '../os/cloud-network-store.ts'
 
 let cachedClient: OpenAI | undefined
 let cachedConfigKey: string | undefined
@@ -90,7 +91,8 @@ function createFreeGatewayFetch(): typeof fetch {
           )
         }
       }
-      return fetch(url, { ...init, headers })
+      // 把经免费网关发起的实际请求计入「云服务工作中」
+      return withActiveCloudNetworkRequest(() => fetch(url, { ...init, headers }))
     })()
   }
 }

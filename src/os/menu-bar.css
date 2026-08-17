@@ -95,6 +95,23 @@
   fill: #fff;
 }
 
+/* 云服务菜单栏图标：工作中态叠加旋转射线 */
+.ethernet-icon {
+  display: block;
+  transition: transform 0.18s ease;
+}
+
+.ethernet-icon__rays {
+  transform-origin: 8px 6px;
+  animation: ethernet-icon-rays 1s linear infinite;
+}
+
+@keyframes ethernet-icon-rays {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .menu-bar__menu--brand {
   margin-right: 2px;
 }

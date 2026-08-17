@@ -13,7 +13,7 @@ function workerOrigin(origin?: string): string {
   const resolved = (origin ?? getPageWorkerOrigin() ?? '').replace(/\/$/, '')
   if (!resolved) {
     throw new Error(
-      '未配置代理服务器，无法加载 vConsole（请先在「系统设置 → 代理服务器」中填写 Worker 根 URL）',
+      '未配置云服务，无法加载 vConsole（请先在「系统设置 → 云服务」中填写 Worker 根 URL）',
     )
   }
   return resolved

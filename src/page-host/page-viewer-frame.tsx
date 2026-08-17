@@ -456,7 +456,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
               message: PROXY_SERVER_NOT_CONFIGURED_MESSAGE,
             }}
             onRetry={() => openSettingsProxyServerView()}
-            actionLabel="打开代理服务器设置"
+            actionLabel="打开云服务设置"
             showOmniboxHint={false}
           />
         </div>

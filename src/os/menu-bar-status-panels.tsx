@@ -13,8 +13,9 @@ import {
 } from './use-proxy-server-connection.ts'
 import {
   formatProxyServerBytesPerSec,
-  formatProxyServerDataBytes,
 } from './proxy-server-metrics.ts'
+import { Progress } from '../ui/progress.tsx'
+import type { PowProgressState } from './pow-progress-store.ts'
 import { useOs } from './os-context.tsx'
 import type { AppId, WindowState } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
@@ -177,33 +178,40 @@ export function DateTimePanel({ now }: DateTimePanelProps) {
   )
 }
 
-type ProxyServerStatusPanelProps = {
+type CloudServiceStatusPanelProps = {
   connection: ProxyServerConnectionState
-  onOpenProxyServerSettings: () => void
+  powProgress: PowProgressState
+  activeNetworkRequests: number
+  onOpenCloudServiceSettings: () => void
   onOpenTaskManager: () => void
 }
 
-export function ProxyServerStatusPanel({
+export function CloudServiceStatusPanel({
   connection,
-  onOpenProxyServerSettings,
+  powProgress,
+  activeNetworkRequests,
+  onOpenCloudServiceSettings,
   onOpenTaskManager,
-}: ProxyServerStatusPanelProps) {
+}: CloudServiceStatusPanelProps) {
   const { connected, proxyHost, throughput, recentRequests } = connection
   const speedLabel = formatProxyServerMenuSpeed(throughput)
+  const powActive = powProgress.active
+  const networkActive = activeNetworkRequests > 0
 
   return (
-    <MenuBarPopover align="right" label="代理服务器" flushBottom>
-      <p class="menu-bar__popover-heading">代理服务器</p>
-      <div class="menu-bar__popover-row">
-        <span class="menu-bar__popover-row-label">状态</span>
-        <span class="menu-bar__popover-row-value">{connected ? '已连接' : '未连接'}</span>
+    <MenuBarPopover align="right" label="云服务" flushBottom>
+      <p class="menu-bar__popover-heading">云服务</p>
+
+      {/* 状态区块 */}
+      <div class="cloud-panel__status">
+        <span class="cloud-panel__status-dot" aria-hidden="true" />
+        <span class="cloud-panel__status-text">
+          {connected ? '已连接' : '未连接'}
+          {proxyHost ? ` · ${proxyHost}` : ''}
+        </span>
       </div>
-      {proxyHost && (
-        <div class="menu-bar__popover-row">
-          <span class="menu-bar__popover-row-label">主机</span>
-          <span class="menu-bar__popover-row-value">{proxyHost}</span>
-        </div>
-      )}
+
+      {/* 速度区块 */}
       <div class="menu-bar__popover-row">
         <span class="menu-bar__popover-row-label">速度</span>
         <span class="menu-bar__popover-row-value">{speedLabel}</span>
@@ -221,24 +229,59 @@ export function ProxyServerStatusPanel({
         </span>
       </div>
 
+      {/* 进行中区块 */}
+      {(powActive || networkActive) && (
+        <>
+          <div class="menu-bar__popover-separator" />
+          <p class="menu-bar__popover-heading">进行中</p>
+          {networkActive && (
+            <div class="cloud-panel__net">
+              <span class="cloud-panel__net-spinner" aria-hidden="true" />
+              <span>网络请求中…</span>
+            </div>
+          )}
+          {powActive && (
+            <div class="cloud-panel__pow">
+              <div class="cloud-panel__pow-label">
+                <span>免费 AI Challenge</span>
+                <span class="cloud-panel__pow-count">
+                  {Math.round(powProgress.tried).toLocaleString()} /{' '}
+                  {powProgress.total.toLocaleString()} 次
+                </span>
+              </div>
+              <Progress
+                percent={powProgress.percent}
+                status="active"
+                size="small"
+                showInfo={false}
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 最近请求概览 */}
       <div class="menu-bar__popover-separator" />
       <p class="menu-bar__popover-heading">最近请求</p>
       {recentRequests.length === 0 ? (
         <p class="menu-bar__popover-empty">暂无请求</p>
       ) : (
-        recentRequests.map((request) => (
-          <div key={request.id} class="menu-bar__popover-row">
-            <span class="menu-bar__popover-row-label">{request.host}</span>
-            <span class="menu-bar__popover-row-value">
-              {request.status ?? '失败'} · {request.durationMs} ms ·{' '}
-              {formatProxyServerDataBytes(request.downloadBytes)}
-            </span>
-          </div>
-        ))
+        <div class="cloud-panel__requests">
+          {recentRequests.map((request) => (
+            <div key={request.id} class="cloud-panel__request">
+              <span class="cloud-panel__request-host" title={request.host}>
+                {request.host}
+              </span>
+              <span class="cloud-panel__request-meta">
+                {request.status ?? '失败'} · {request.durationMs} ms
+              </span>
+            </div>
+          ))}
+        </div>
       )}
 
-      <button type="button" class="menu-bar__popover-more" onClick={onOpenProxyServerSettings}>
-        代理服务器设置…
+      <button type="button" class="menu-bar__popover-more" onClick={onOpenCloudServiceSettings}>
+        云服务设置…
       </button>
       <button type="button" class="menu-bar__popover-more" onClick={onOpenTaskManager}>
         打开性能监视器

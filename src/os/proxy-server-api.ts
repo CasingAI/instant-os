@@ -3,6 +3,7 @@ import {
   listRecentProxyServerRequests,
   recordProxyServerRequest,
 } from './proxy-server-metrics.ts'
+import { withActiveCloudNetworkRequest } from './cloud-network-store.ts'
 import {
   isProxyServerConnected,
   loadProxyServerSettings,
@@ -21,7 +22,7 @@ export type { ProxyServerSettings } from './proxy-server-settings-storage.ts'
 const PROBE_TARGET_URL = 'https://www.cloudflare.com/cdn-cgi/trace'
 
 export const PROXY_SERVER_NOT_CONFIGURED_MESSAGE =
-  '未配置代理服务器，请先在「系统设置 → 代理服务器」中选择 Instant 共享或填写自定义 Worker'
+  '未配置云服务，请先在「系统设置 → 云服务」中选择 Instant 共享或填写自定义 Worker'
 
 export class ProxyServerApiError extends Error {
   constructor(message: string) {
@@ -145,7 +146,7 @@ export async function proxiedFetch(
   const proxyUrl = buildProxiedUrl(targetUrl)
 
   try {
-    const response = await fetch(proxyUrl, init)
+    const response = await withActiveCloudNetworkRequest(() => fetch(proxyUrl, init))
     const downloadBytes = estimateDownloadBytes(response)
     const endedAt = Date.now()
     recordProxyServerRequest({

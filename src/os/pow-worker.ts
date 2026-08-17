@@ -25,6 +25,7 @@ export type PowWorkerRequest = {
 export type PowWorkerResponse =
   | { type: 'found'; nonce: number; hash: string }
   | { type: 'done' }
+  | { type: 'progress'; tried: number }
 
 /** hex 输出前导零 bit 数（与服务端一致） */
 function leadingZeroBits(hex: string): number {
@@ -93,11 +94,18 @@ self.onmessage = (event: MessageEvent<PowWorkerRequest>) => {
   const request = event.data
   if (request.type !== 'solve') return
   void (async () => {
+    let sinceLastReport = 0
     for (let nonce = request.offset; nonce < request.maxNonce; nonce += request.stride) {
       const hash = await pbkdf2Sha256Hex(`${request.baseInput}${nonce}`, request.iters)
       if (leadingZeroBits(hash) >= request.difficulty) {
         post({ type: 'found', nonce, hash })
         return
+      }
+      // 定期回传已尝试进度（每 256 次一次，避免消息风暴）
+      sinceLastReport += 1
+      if (sinceLastReport >= 256) {
+        sinceLastReport = 0
+        post({ type: 'progress', tried: nonce + 1 })
       }
     }
     post({ type: 'done' })

@@ -1,5 +1,14 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
+import {
+  beginPowProgress,
+  endPowProgress,
+  reportPowProgress,
+} from './pow-progress-store.ts'
+
+export type { PowProgressState } from './pow-progress-store.ts'
+
+export { getPowProgress, subscribePowProgress } from './pow-progress-store.ts'
 
 /**
  * 免费额度网关 PoW 客户端：与服务端 Instant-demo-api 协议一致（PBKDF2 v3）。
@@ -149,6 +158,10 @@ async function solveSequential(
       throw new PowError('Proof-of-Work 已取消', 'pow_aborted')
     }
     const hash = await pbkdf2Sha256Hex(input(nonce), iters)
+    // 每 512 次上报一次，避免频繁驱动 UI
+    if (nonce % 512 === 0) {
+      reportPowProgress(nonce + 1, MAX_NONCE)
+    }
     if (leadingZeroBits(hash) >= difficulty) {
       return nonce
     }
@@ -169,7 +182,14 @@ async function solveParallel(
 ): Promise<number> {
   try {
     const { solvePowParallel } = await import('./pow-worker-client.ts')
-    const result = await solvePowParallel(baseInput, iters, difficulty, MAX_NONCE, signal)
+    const result = await solvePowParallel(
+      baseInput,
+      iters,
+      difficulty,
+      MAX_NONCE,
+      signal,
+      (tried) => reportPowProgress(tried, MAX_NONCE),
+    )
     return result.nonce
   } catch (error) {
     if (error instanceof PowError) {
@@ -195,26 +215,31 @@ export async function solvePowForBody(
   body: Uint8Array,
   signal?: AbortSignal,
 ): Promise<Record<string, string>> {
-  const bodyHash = bytesToHex(sha256(body))
-  const challenge = await fetchPowChallenge(origin, body, signal)
-  const { difficulty, iters } = challenge
-  const baseInput = `${challenge.challenge}.${bodyHash}.`
+  beginPowProgress(MAX_NONCE)
+  try {
+    const bodyHash = bytesToHex(sha256(body))
+    const challenge = await fetchPowChallenge(origin, body, signal)
+    const { difficulty, iters } = challenge
+    const baseInput = `${challenge.challenge}.${bodyHash}.`
 
-  const nonce =
-    solverConfig.mode === 'parallel'
-      ? await solveParallel(baseInput, difficulty, iters, signal)
-      : await solveSequential(
-          (nonce) => `${baseInput}${nonce}`,
-          difficulty,
-          iters,
-          signal,
-        )
+    const nonce =
+      solverConfig.mode === 'parallel'
+        ? await solveParallel(baseInput, difficulty, iters, signal)
+        : await solveSequential(
+            (nonce) => `${baseInput}${nonce}`,
+            difficulty,
+            iters,
+            signal,
+          )
 
-  return {
-    'X-Pow-Version': POW_VERSION,
-    'X-Pow-Challenge': challenge.challenge,
-    'X-Pow-Nonce': String(nonce),
-    'X-Pow-Body-Hash': bodyHash,
+    return {
+      'X-Pow-Version': POW_VERSION,
+      'X-Pow-Challenge': challenge.challenge,
+      'X-Pow-Nonce': String(nonce),
+      'X-Pow-Body-Hash': bodyHash,
+    }
+  } finally {
+    endPowProgress()
   }
 }
 
