@@ -30,6 +30,23 @@ const POW_VERSION = '2'
 
 let cachedChallenge: PowChallenge | undefined
 
+export type PowSolverMode = 'sequential' | 'parallel'
+
+export type PowSolverConfig = {
+  /** 求解模式；默认 parallel（Web Worker 并行，失败自动降级串行） */
+  mode: PowSolverMode
+}
+
+let solverConfig: PowSolverConfig = { mode: 'parallel' }
+
+export function setPowSolverConfig(config: PowSolverConfig): void {
+  solverConfig = config
+}
+
+export function getPowSolverConfig(): PowSolverConfig {
+  return solverConfig
+}
+
 export function clearPowChallengeCache(): void {
   cachedChallenge = undefined
 }
@@ -116,6 +133,57 @@ async function pbkdf2Sha256Hex(input: string, iters: number): Promise<string> {
 }
 
 /**
+ * 串行求解：逐 nonce 试错（并行失败时的保底路径）。
+ */
+async function solveSequential(
+  input: (nonce: number) => string,
+  difficulty: number,
+  iters: number,
+  signal?: AbortSignal,
+): Promise<number> {
+  for (let nonce = 0; nonce < MAX_NONCE; nonce++) {
+    if (signal?.aborted) {
+      throw new PowError('Proof-of-Work 已取消', 'pow_aborted')
+    }
+    const hash = await pbkdf2Sha256Hex(input(nonce), iters)
+    if (leadingZeroBits(hash) >= difficulty) {
+      return nonce
+    }
+  }
+  throw new PowError('Proof-of-Work 未能在限次内求解，请重试', 'pow_failed')
+}
+
+/**
+ * 并行求解（Web Worker）。worker 模块含 `?worker` 静态导入，
+ * 只能被浏览器加载，因此这里惰性动态 import；node 单测仅执行串行路径。
+ * worker 不可用时由客户端置 workerDisabled，此后本进程内永久降级串行。
+ */
+async function solveParallel(
+  baseInput: string,
+  difficulty: number,
+  iters: number,
+  signal?: AbortSignal,
+): Promise<number> {
+  try {
+    const { solvePowParallel } = await import('./pow-worker-client.ts')
+    const result = await solvePowParallel(baseInput, iters, difficulty, MAX_NONCE, signal)
+    return result.nonce
+  } catch (error) {
+    if (error instanceof PowError) {
+      throw error
+    }
+    if (error instanceof Error && error.message === 'not-found') {
+      throw new PowError('Proof-of-Work 未能在限次内求解，请重试', 'pow_failed')
+    }
+    if (signal?.aborted) {
+      throw new PowError('Proof-of-Work 已取消', 'pow_aborted')
+    }
+    // worker 创建失败 / 运行错误 → 本次降级串行重试；workerDisabled 已由客户端置位
+    return solveSequential((nonce) => `${baseInput}${nonce}`, difficulty, iters, signal)
+  }
+}
+
+/**
  * 为请求体求解 PoW 并返回需要附加的 X-Pow-* headers。
  * bodyHash 绑定请求体，防止一个 nonce 重放到其他请求。
  */
@@ -127,23 +195,24 @@ export async function solvePowForBody(
   const bodyHash = bytesToHex(sha256(body))
   const challenge = await fetchPowChallenge(origin, signal)
   const { difficulty, iters } = challenge
-  const input = (nonce: number) => `${challenge.challenge}.${bodyHash}.${nonce}`
+  const baseInput = `${challenge.challenge}.${bodyHash}.`
 
-  for (let nonce = 0; nonce < MAX_NONCE; nonce++) {
-    if (signal?.aborted) {
-      throw new PowError('Proof-of-Work 已取消', 'pow_aborted')
-    }
-    const hash = await pbkdf2Sha256Hex(input(nonce), iters)
-    if (leadingZeroBits(hash) >= difficulty) {
-      return {
-        'X-Pow-Version': POW_VERSION,
-        'X-Pow-Challenge': challenge.challenge,
-        'X-Pow-Nonce': String(nonce),
-        'X-Pow-Body-Hash': bodyHash,
-      }
-    }
+  const nonce =
+    solverConfig.mode === 'parallel'
+      ? await solveParallel(baseInput, difficulty, iters, signal)
+      : await solveSequential(
+          (nonce) => `${baseInput}${nonce}`,
+          difficulty,
+          iters,
+          signal,
+        )
+
+  return {
+    'X-Pow-Version': POW_VERSION,
+    'X-Pow-Challenge': challenge.challenge,
+    'X-Pow-Nonce': String(nonce),
+    'X-Pow-Body-Hash': bodyHash,
   }
-  throw new PowError('Proof-of-Work 未能在限次内求解，请重试', 'pow_failed')
 }
 
 /**

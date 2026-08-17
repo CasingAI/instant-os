@@ -25,6 +25,7 @@
     "test:stems-tempo": "node --experimental-strip-types src/apps/stems/stems-tempo.test.ts",
     "test:archive": "node --experimental-strip-types src/archive/archive-codec.test.ts",
     "test:model-tokenizer": "node --experimental-strip-types src/ai/model-tokenizer.test.ts",
+    "test:pow": "node --experimental-strip-types src/os/pow-client.test.ts && node --experimental-strip-types src/os/pow-parallel.test.ts",
     "test:files-tmp": "node --experimental-strip-types src/apps/files/files-tmp.test.ts",
     "test:quickjs-tmp-perms": "node --experimental-strip-types src/quickjs/quickjs-tmp-perms.test.ts",
     "test:vscode-ai-spill": "node --experimental-strip-types src/apps/vscode/vscode-ai-output-spill.test.ts",
