@@ -1,24 +1,17 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
-import { argon2id } from 'hash-wasm'
 
 /**
- * 免费额度网关 PoW 客户端：与服务端 Instant-demo-api 协议一致。
- * 每次 AI 请求独立完成一次 Argon2id 工作量证明，网关无状态验证。
+ * 免费额度网关 PoW 客户端：与服务端 Instant-demo-api 协议一致（PBKDF2 v2）。
+ * 每次 AI 请求独立完成一次 PBKDF2-HMAC-SHA-256 工作量证明，网关无状态验证。
  */
 
-export type PowArgonParams = {
-  m: number
-  t: number
-  p: number
-}
-
 export type PowChallenge = {
-  version: 1
+  version: 2
   challenge: string
   expiresAt: number
   difficulty: number
-  argon: PowArgonParams
+  iters: number
 }
 
 export class PowError extends Error {
@@ -31,9 +24,9 @@ export class PowError extends Error {
   }
 }
 
-const POW_SALT = 'instant-pow-v1'
+const POW_SALT = 'instant-pow-v2'
 const MAX_NONCE = 1_000_000
-const POW_VERSION = '1'
+const POW_VERSION = '2'
 
 let cachedChallenge: PowChallenge | undefined
 
@@ -60,10 +53,7 @@ export async function fetchPowChallenge(
     !data.challenge ||
     typeof data.difficulty !== 'number' ||
     typeof data.expiresAt !== 'number' ||
-    !data.argon ||
-    typeof data.argon.m !== 'number' ||
-    typeof data.argon.t !== 'number' ||
-    typeof data.argon.p !== 'number'
+    typeof data.iters !== 'number'
   ) {
     throw new PowError('免费额度网关返回了异常的 challenge 数据', 'pow_challenge_failed')
   }
@@ -103,6 +93,28 @@ export function leadingZeroBits(hex: string): number {
   return bits
 }
 
+/** PBKDF2-HMAC-SHA-256 十六进制输出（与服务端同盐、同算法） */
+async function pbkdf2Sha256Hex(input: string, iters: number): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(input),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits'],
+  )
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: new TextEncoder().encode(POW_SALT),
+      iterations: iters,
+      hash: 'SHA-256',
+    },
+    key,
+    256,
+  )
+  return bytesToHex(new Uint8Array(bits))
+}
+
 /**
  * 为请求体求解 PoW 并返回需要附加的 X-Pow-* headers。
  * bodyHash 绑定请求体，防止一个 nonce 重放到其他请求。
@@ -114,22 +126,14 @@ export async function solvePowForBody(
 ): Promise<Record<string, string>> {
   const bodyHash = bytesToHex(sha256(body))
   const challenge = await fetchPowChallenge(origin, signal)
-  const { difficulty, argon } = challenge
+  const { difficulty, iters } = challenge
   const input = (nonce: number) => `${challenge.challenge}.${bodyHash}.${nonce}`
 
   for (let nonce = 0; nonce < MAX_NONCE; nonce++) {
     if (signal?.aborted) {
       throw new PowError('Proof-of-Work 已取消', 'pow_aborted')
     }
-    const hash = await argon2id({
-      password: input(nonce),
-      salt: POW_SALT,
-      iterations: argon.t,
-      memorySize: argon.m,
-      parallelism: argon.p,
-      hashLength: 32,
-      outputType: 'hex',
-    })
+    const hash = await pbkdf2Sha256Hex(input(nonce), iters)
     if (leadingZeroBits(hash) >= difficulty) {
       return {
         'X-Pow-Version': POW_VERSION,
