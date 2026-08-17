@@ -21,7 +21,7 @@ function leafItemSignature(item: MenuItemLeaf): string | [string, boolean, strin
 
 function menuItemSignature(
   item: MenuItem,
-): string | [string, boolean, string, boolean] | [string, 'submenu', unknown[]] {
+): string | [string, boolean, string] | [string, 'submenu', unknown[]] {
   if (item.type === 'submenu') {
     return [item.label, 'submenu', item.items.map(leafItemSignature)]
   }
