@@ -8,6 +8,8 @@ import {
   getAllGeneratedAppDataBytes,
   getGeneratedAppDataBytes,
 } from '../../os/generated-app-data-storage.ts'
+import { isAppDataMigrated } from '../files/files-app-data-migration.ts'
+import { getAppDataBytesByApp } from '../files/files-app-data-quota.ts'
 import {
   DEVICE_CAPACITY_BYTES,
   DEVICE_STORAGE_KEYS,
@@ -79,6 +81,10 @@ function splitGeneratedAppSize(app: GeneratedAppRecord): {
 }
 
 function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
+  // 旧 localStorage 文档数据已导出到 /dev/apps/{appId}/Data 时，改由 dataBytes 记账，避免重复计数
+  if (isAppDataMigrated(appId)) {
+    return 0
+  }
   if (appId === 'browser') {
     return getBrowserSystemStorageBytes()
   }
@@ -212,6 +218,8 @@ export function getStorageSummary(
     folderIconSnapshotsBytes: number
     modelVisionBytes: number
     filesBytes: number
+    /** 按应用记账的 /dev/apps/{appId}/Data 字节 */
+    appDataBytesByApp: Record<string, number>
   },
 ) {
   const entries = buildManagedAppList(installedApps)
@@ -250,7 +258,7 @@ export function getStorageSummary(
     if (entry.id === 'files') {
       return { ...entry, dataBytes: filesBytes }
     }
-    return entry
+    return { ...entry, dataBytes: dataStorage.appDataBytesByApp[entry.id] ?? 0 }
   })
 
   return {
@@ -287,6 +295,7 @@ export async function loadDataStorageBreakdown(): Promise<{
   folderIconSnapshotsBytes: number
   modelVisionBytes: number
   filesBytes: number
+  appDataBytesByApp: Record<string, number>
 }> {
   const [
     coreDataBytes,
@@ -299,6 +308,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     modelVisionBytes,
     devFillBytes,
     filesBytes,
+    appDataBytesByApp,
   ] = await Promise.all([
     getTotalDataStorageBytes(),
     getSafariPageCacheBytes(),
@@ -310,6 +320,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     getModelVisionResultsBytes(),
     getDevDataStorageFillBytes(),
     getFilesTotalBytes(),
+    getAppDataBytesByApp(),
   ])
   return {
     totalBytes: coreDataBytes + filesBytes,
@@ -322,6 +333,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     folderIconSnapshotsBytes,
     modelVisionBytes,
     filesBytes,
+    appDataBytesByApp,
   }
 }
 

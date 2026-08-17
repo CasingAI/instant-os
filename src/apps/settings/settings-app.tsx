@@ -114,6 +114,7 @@ export function SettingsApp() {
     folderIconSnapshotsBytes: 0,
     modelVisionBytes: 0,
     filesBytes: 0,
+    appDataBytesByApp: {} as Record<string, number>,
   })
   const { installedApps, storageRevision } = useGeneratedApps()
   const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
