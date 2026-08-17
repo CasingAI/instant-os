@@ -9,6 +9,7 @@ import {
 import { DATA_CAPACITY_BYTES } from '../os/device-data-storage.ts'
 import { formatStorageSize } from '../os/format-storage-size.ts'
 import { loadInstalledApps } from '../os/generated-apps-storage.ts'
+import { hydrateInstalledAppsFromFiles } from '../os/generated-apps-store.ts'
 import {
   getStorageSummary,
   loadDataStorageBreakdown,
@@ -350,6 +351,7 @@ export async function getStorageUsageSnapshot(): Promise<{
   }>
   note: string
 }> {
+  await hydrateInstalledAppsFromFiles()
   const installedApps = loadInstalledApps()
   const dataStorage = await loadDataStorageBreakdown()
   const summary = getStorageSummary(installedApps, dataStorage)

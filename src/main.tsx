@@ -14,6 +14,7 @@ import { blockBrowserZoom } from './os/block-browser-zoom.ts'
 import { blockDocumentOverscroll } from './os/block-document-overscroll.ts'
 import { patchSystemVolumeBus } from './os/audio-bus.ts'
 import { preloadSystemSounds, unlockSystemSounds } from './os/system-sounds.ts'
+import { hydrateInstalledAppsFromFiles } from './os/generated-apps-store.ts'
 import { App } from './app.tsx'
 
 // 早于任何音频模块初始化：让全部 Web Audio 发声源自动经过系统主音量
@@ -33,11 +34,14 @@ if (!appRoot) {
   reportCrash('boot.missing-root', '找不到 #app 挂载节点')
 } else {
   void ensureAppleColorEmojiFonts()
-    .then(() => {
+    .then(async () => {
       if (crashTestMode === 'font') {
         reportCrash('instant_crash.font', new Error('[instant_crash] 模拟字体初始化后崩溃（font）'))
         return
       }
+
+      // 先 hydrate 生成应用本体（含一次性迁移），保证程序坞 / 应用目录拿到完整应用列表
+      await hydrateInstalledAppsFromFiles().catch(() => undefined)
 
       initializeDockAppearance()
 

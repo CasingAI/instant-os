@@ -7,6 +7,8 @@ export const GENERATED_APP_DATA_KEY_PREFIX = 'instant-os-generated-app-data:'
 
 export const DEVICE_STORAGE_KEYS = {
   generatedApps: 'instant-os-generated-apps',
+  /** 生成应用本体索引：已迁到 Contents 的 appId 列表（轻量） */
+  generatedAppsIndex: 'instant-os-generated-apps-index',
   listingDetails: 'instant-os-listing-details',
   listingReviews: 'instant-os-listing-reviews',
   storeListings: 'instant-os-store-listings',

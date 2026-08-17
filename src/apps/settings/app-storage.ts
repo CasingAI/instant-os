@@ -10,6 +10,11 @@ import {
 } from '../../os/generated-app-data-storage.ts'
 import { isAppDataMigrated } from '../files/files-app-data-migration.ts'
 import { getAppDataBytesByApp } from '../files/files-app-data-quota.ts'
+import { getInstalledAppsStorageBytes } from '../../os/generated-apps-storage.ts'
+import {
+  getLegacyGeneratedAppBytes,
+  isGeneratedAppBundleStored,
+} from '../../os/generated-apps-store.ts'
 import {
   DEVICE_CAPACITY_BYTES,
   DEVICE_STORAGE_KEYS,
@@ -69,13 +74,16 @@ function splitGeneratedAppSize(app: GeneratedAppRecord): {
   documentsBytes: number
   versionHistoryBytes: number
 } {
-  const versionHistoryBytes = normalizeVersionSnapshots(app).reduce(
-    (total, snapshot) => total + new TextEncoder().encode(snapshot.html).length,
-    0,
-  )
+  const versionHistoryBytes = isGeneratedAppBundleStored(app.id)
+    ? 0
+    : normalizeVersionSnapshots(app).reduce(
+        (total, snapshot) => total + new TextEncoder().encode(snapshot.html).length,
+        0,
+      )
   const htmlBytes = new TextEncoder().encode(app.html).length
   const { html: _html, versions: _versions, ...metadata } = app
-  const appSizeBytes = getSerializedByteSize(metadata) + htmlBytes
+  // 本体已迁到 /Applications/*/Contents 文件时，appSize/版本历史统一走 dataBytes（Contents+Data 文件字节），避免与文件分类双计
+  const appSizeBytes = isGeneratedAppBundleStored(app.id) ? 0 : getSerializedByteSize(metadata) + htmlBytes
   // 旧 localStorage 文档数据已导出到 Data 时改由 dataBytes 记账，避免重复计数
   const documentsBytes = isAppDataMigrated(app.id) ? 0 : getGeneratedAppDataBytes(app.id)
   return { appSizeBytes, documentsBytes, versionHistoryBytes }
@@ -225,7 +233,7 @@ export function getStorageSummary(
 ) {
   const entries = buildManagedAppList(installedApps)
   const appsBytes =
-    getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.generatedApps) + getAllGeneratedAppDataBytes()
+    getInstalledAppsStorageBytes() + getLegacyGeneratedAppBytes() + getAllGeneratedAppDataBytes()
   const mailDataBytes = getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.mail)
   const newsDataBytes = getNewsStorageBytes()
   const booksIndexBytes = getBooksStorageBytes()
