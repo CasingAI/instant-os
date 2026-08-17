@@ -1,4 +1,4 @@
-import { sanitizeFilesPathSegment } from '../apps/files/files-path.ts'
+import { appBundleDirName } from '../apps/files/files-app-id.ts'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import {
   BUILTIN_APP_CATALOG_ORDER,
@@ -13,9 +13,9 @@ export type AppCatalogEntry = {
   id: AppId
   kind: AppCatalogKind
   name: string
-  /** 例如 `邮件.app` */
+  /** 包目录名（含 `.app`），由 appId 派生，例如 `weather.app` / `gen_xxx.app` */
   bundleName: string
-  /** `/Applications` 卷内相对路径，例如 `邮件.app` */
+  /** `/Applications` 卷内相对路径，例如 `weather.app` */
   bundlePath: string
   version?: string
   description?: string
@@ -49,33 +49,13 @@ export function getCachedAppCatalogEntryByBundlePath(bundlePath: string): AppCat
   return cachedByBundlePath.get(root)
 }
 
-function makeBundleName(name: string, id: AppId, usedNames: Set<string>): string {
-  const stem = sanitizeFilesPathSegment(name.trim() || '未命名')
-  let candidate = `${stem}${APP_BUNDLE_SUFFIX}`
-  if (!usedNames.has(candidate)) {
-    usedNames.add(candidate)
-    return candidate
-  }
-
-  const suffix = id.includes(':') ? id.split(':')[1]!.slice(0, 8) : id
-  candidate = `${stem} (${suffix})${APP_BUNDLE_SUFFIX}`
-  let n = 2
-  while (usedNames.has(candidate)) {
-    candidate = `${stem} (${suffix}-${n})${APP_BUNDLE_SUFFIX}`
-    n += 1
-  }
-  usedNames.add(candidate)
-  return candidate
-}
-
 async function buildAppCatalogEntries(): Promise<AppCatalogEntry[]> {
-  const usedNames = new Set<string>()
   const entries: AppCatalogEntry[] = []
 
   for (const appId of BUILTIN_APP_CATALOG_ORDER) {
     const name = BUILTIN_APP_DISPLAY_NAMES[appId]
     const about = BUILTIN_APP_ABOUT[appId]
-    const bundleName = makeBundleName(name, appId, usedNames)
+    const bundleName = appBundleDirName(appId)
     entries.push({
       id: appId,
       kind: 'builtin',
@@ -90,7 +70,7 @@ async function buildAppCatalogEntries(): Promise<AppCatalogEntry[]> {
   }
 
   for (const app of loadInstalledApps()) {
-    const bundleName = makeBundleName(app.name, app.id, usedNames)
+    const bundleName = appBundleDirName(app.id)
     entries.push({
       id: app.id as GeneratedAppId,
       kind: 'generated',

@@ -83,6 +83,7 @@ import {
   type FilesNameDisplayMode,
 } from './files-name-display.ts'
 import {
+  applicationsBundleDisplayName,
   isApplicationsBundleRootNode,
   parseApplicationsDirPath,
 } from './files-location-applications.ts'
@@ -1673,7 +1674,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     }
     const folders = pathNodes.map((node, index) => ({
       key: node.id,
-      label: node.name,
+      label: applicationsBundleDisplayName(node),
       folderId: node.id,
       current: index === pathNodes.length - 1,
     }))
@@ -3667,7 +3668,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                           </span>
                           <span class="files__list-main">
                             <span class="files__list-name">
-                              {formatFilesDisplayName(node.name, nameDisplayMode)}
+                              {formatFilesDisplayName(
+                                applicationsBundleDisplayName(node),
+                                nameDisplayMode,
+                              )}
                             </span>
                             <span class="files__list-date files__list-date--inline">
                               {formatListTimestamp(node, metaResolvedIds)}
@@ -3686,7 +3690,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                             <FilesNodeIcon node={node} size="grid" />
                           </span>
                           <span class="files__item-name">
-                            {formatFilesDisplayName(node.name, nameDisplayMode)}
+                            {formatFilesDisplayName(
+                            applicationsBundleDisplayName(node),
+                            nameDisplayMode,
+                          )}
                           </span>
                         </>
                       )}

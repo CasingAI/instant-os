@@ -4,6 +4,7 @@ import {
   readSourceFile,
 } from '../../ai/source-snapshot-store.ts'
 import {
+  getCachedAppCatalogEntryByBundlePath,
   listAppCatalogEntries,
   resolveAppCatalogEntryByBundlePath,
   type AppCatalogEntry,
@@ -18,6 +19,7 @@ import {
   readBlobText,
 } from './files-storage.ts'
 import { FILES_TEXT_MIME, type FilesNode } from './files-types.ts'
+import { APP_BUNDLE_SUFFIX } from './files-app-id.ts'
 
 const LOCATION_ID = 'applications' as const
 const EPOCH = 0
@@ -309,6 +311,18 @@ export function isApplicationsBundleRootNode(node: FilesNode): boolean {
   const path = parseApplicationsDirPath(node.id)
   if (!path) return false
   return path.endsWith('.app') && !path.includes('/')
+}
+
+/**
+ * 文件管理器的显示名：包根节点用清单显示名（如「天气.app」），
+ * 其余节点直接用 ID 原始名（终端 / AI / 复制路径仍见 `weather.app`）。
+ * 同步实现：依赖已加载的 catalog 内存缓存；未命中时退化为节点名。
+ */
+export function applicationsBundleDisplayName(node: FilesNode): string {
+  if (!isApplicationsBundleRootNode(node)) return node.name
+  const bundlePath = parseApplicationsDirPath(node.id)
+  const entry = bundlePath ? getCachedAppCatalogEntryByBundlePath(bundlePath) : undefined
+  return entry ? `${entry.name}${APP_BUNDLE_SUFFIX}` : node.name
 }
 
 export async function getApplicationsNode(id: string): Promise<FilesNode | undefined> {
