@@ -11,15 +11,14 @@ import {
 } from '../../os/app-catalog.ts'
 import {
   APP_DATA_DIR_NAME,
-  appDataRootPath,
 } from './files-app-data-root.ts'
+import { APP_BUNDLE_SUFFIX } from './files-app-id.ts'
 import {
   listChildNodes,
   readBlobBytes,
   readBlobText,
 } from './files-storage.ts'
 import { FILES_TEXT_MIME, type FilesNode } from './files-types.ts'
-import { APP_BUNDLE_SUFFIX } from './files-app-id.ts'
 
 const LOCATION_ID = 'applications' as const
 const EPOCH = 0
@@ -27,7 +26,7 @@ const READONLY_ATTRIBUTES = { readable: true, writable: false } as const
 const CONTENTS_DIR = 'Contents'
 const MANIFEST_FILE = 'instant-os.manifest.json'
 
-// ---- App Data 只读投影（/Applications/{bundle}.app/Data ↔ /dev/apps/{appId}/Data） ----
+// ---- App Data 真身（/Applications/{bundle}.app/Data ↔ applications 卷 IndexedDB 真实节点） ----
 
 /** 相对 Data 根的子路径（'' 表示 Data 根本身；非 Data 子树返回 undefined） */
 function appDataRelativePath(bundlePath: string, fullPath: string): string | undefined {
@@ -38,23 +37,15 @@ function appDataRelativePath(bundlePath: string, fullPath: string): string | und
   return fullPath.slice(prefix.length)
 }
 
-/** dev 卷内 Data 子树的路径段（以 dev 卷根为基准） */
-function appDataDevSegments(entry: AppCatalogEntry, relativePath: string): string[] {
-  return [
-    ...appDataRootPath(entry.id).split('/').filter(Boolean),
-    ...(relativePath ? relativePath.split('/') : []),
-  ]
-}
-
-/** 按路径段逐层解析 dev 卷节点（Data 子树浅，无需走 VFS 缓存路径） */
-async function resolveDevNodeBySegments(
+/** 按路径段逐层解析 applications 卷里的 Data 真身节点（真实 IndexedDB 节点） */
+async function resolveDataRealNode(
   segments: readonly string[],
 ): Promise<FilesNode | undefined> {
   let parentId: string | undefined
   for (let index = 0; index < segments.length; index += 1) {
     const name = segments[index]
     if (!name) return undefined
-    const children = await listChildNodes('dev', parentId)
+    const children = await listChildNodes(LOCATION_ID, parentId)
     const hit = children.find((child) => child.name === name)
     if (!hit) return undefined
     if (index === segments.length - 1) return hit
@@ -64,7 +55,7 @@ async function resolveDevNodeBySegments(
   return undefined
 }
 
-/** 把 dev 卷节点重映射为 applications 卷合成 id 的只读节点 */
+/** 把 applications 卷真实节点重映射为 applications 卷合成 id 的只读节点 */
 function toApplicationsNode(node: FilesNode, applicationsPath: string): FilesNode {
   const parent = parentDirPath(applicationsPath)
   return {
@@ -79,6 +70,15 @@ function toApplicationsNode(node: FilesNode, applicationsPath: string): FilesNod
     updatedAt: node.updatedAt,
     attributes: READONLY_ATTRIBUTES,
   }
+}
+
+/** Data 真身路径段（以 applications 卷根为基准）：`{bundlePath}/Data/{relative}` */
+function dataRealSegments(bundlePath: string, relativePath: string): string[] {
+  return [
+    ...bundlePath.split('/').filter(Boolean),
+    APP_DATA_DIR_NAME,
+    ...(relativePath ? relativePath.split('/') : []),
+  ]
 }
 
 function dirId(path: string): string {
@@ -224,9 +224,11 @@ async function isKnownApplicationsPath(path: string): Promise<boolean> {
 
   const dataRelative = appDataRelativePath(entry.bundlePath, path)
   if (dataRelative !== undefined) {
-    // Data 根恒展示（未写入时为空目录）；子树按 dev 卷真实存在性判定
+    // Data 根恒展示（未写入时为空目录）；子树按 applications 卷真实存在性判定
     if (dataRelative === '') return true
-    return (await resolveDevNodeBySegments(appDataDevSegments(entry, dataRelative))) !== undefined
+    return (
+      (await resolveDataRealNode(dataRealSegments(entry.bundlePath, dataRelative))) !== undefined
+    )
   }
 
   if (entry.kind === 'builtin') {
@@ -333,8 +335,8 @@ export async function getApplicationsNode(id: string): Promise<FilesNode | undef
       const dataRelative = appDataRelativePath(entry.bundlePath, dirPath)
       if (dataRelative !== undefined) {
         if (dataRelative === '') return makeDirNode(dirPath)
-        const devNode = await resolveDevNodeBySegments(appDataDevSegments(entry, dataRelative))
-        if (devNode && devNode.kind === 'folder') return toApplicationsNode(devNode, dirPath)
+        const realNode = await resolveDataRealNode(dataRealSegments(entry.bundlePath, dataRelative))
+        if (realNode && realNode.kind === 'folder') return toApplicationsNode(realNode, dirPath)
         return undefined
       }
     }
@@ -354,8 +356,8 @@ export async function getApplicationsNode(id: string): Promise<FilesNode | undef
 
   const dataRelative = appDataRelativePath(entry.bundlePath, filePath)
   if (dataRelative !== undefined && dataRelative !== '') {
-    const devNode = await resolveDevNodeBySegments(appDataDevSegments(entry, dataRelative))
-    if (devNode && devNode.kind === 'file') return toApplicationsNode(devNode, filePath)
+    const realNode = await resolveDataRealNode(dataRealSegments(entry.bundlePath, dataRelative))
+    if (realNode && realNode.kind === 'file') return toApplicationsNode(realNode, filePath)
     return undefined
   }
 
@@ -398,9 +400,9 @@ export async function listApplicationsDirectory(folderId: string | undefined): P
 
   const dataRelative = appDataRelativePath(entry.bundlePath, prefix)
   if (dataRelative !== undefined) {
-    const devNode = await resolveDevNodeBySegments(appDataDevSegments(entry, dataRelative))
-    if (!devNode || devNode.kind !== 'folder') return []
-    const children = await listChildNodes('dev', devNode.id)
+    const realNode = await resolveDataRealNode(dataRealSegments(entry.bundlePath, dataRelative))
+    if (!realNode || realNode.kind !== 'folder') return []
+    const children = await listChildNodes(LOCATION_ID, realNode.id)
     return children.map((child) => toApplicationsNode(child, `${prefix}/${child.name}`))
   }
 
@@ -447,10 +449,10 @@ export async function readApplicationsText(id: string): Promise<{ node: FilesNod
 
   const dataRelative = appDataRelativePath(entry.bundlePath, filePath)
   if (dataRelative !== undefined && dataRelative !== '') {
-    const devNode = await resolveDevNodeBySegments(appDataDevSegments(entry, dataRelative))
-    if (!devNode || devNode.kind !== 'file') throw new Error('文件不存在')
-    const text = await readBlobText(devNode.id)
-    return { node: toApplicationsNode(devNode, filePath), text }
+    const realNode = await resolveDataRealNode(dataRealSegments(entry.bundlePath, dataRelative))
+    if (!realNode || realNode.kind !== 'file') throw new Error('文件不存在')
+    const text = await readBlobText(realNode.id)
+    return { node: toApplicationsNode(realNode, filePath), text }
   }
 
   const contentsFile = await readContentsSourceFile(entry, filePath)
@@ -472,13 +474,13 @@ export async function readApplicationsBlob(id: string): Promise<{ node: FilesNod
   if (entry) {
     const dataRelative = appDataRelativePath(entry.bundlePath, filePath)
     if (dataRelative !== undefined && dataRelative !== '') {
-      const devNode = await resolveDevNodeBySegments(appDataDevSegments(entry, dataRelative))
-      if (!devNode || devNode.kind !== 'file') throw new Error('文件不存在')
-      const bytes = await readBlobBytes(devNode.id)
-      const mime = devNode.mimeType ?? FILES_TEXT_MIME
+      const realNode = await resolveDataRealNode(dataRealSegments(entry.bundlePath, dataRelative))
+      if (!realNode || realNode.kind !== 'file') throw new Error('文件不存在')
+      const bytes = await readBlobBytes(realNode.id)
+      const mime = realNode.mimeType ?? FILES_TEXT_MIME
       if (bytes !== undefined) {
         return {
-          node: toApplicationsNode(devNode, filePath),
+          node: toApplicationsNode(realNode, filePath),
           blob: new Blob([new Uint8Array(bytes) as BlobPart], { type: mime }),
         }
       }

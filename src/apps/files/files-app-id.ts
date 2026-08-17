@@ -30,3 +30,9 @@ export function appDataDirNameToAppId(dirName: string): string {
 export function appBundleDirName(appId: string): string {
   return `${appDataDirName(appId)}${APP_BUNDLE_SUFFIX}`
 }
+
+/** 应用包目录名 → appId（`appBundleDirName` 的逆变换）。非包名输入原样返回。 */
+export function appBundleDirNameToAppId(bundleDirName: string): string {
+  if (!bundleDirName.endsWith(APP_BUNDLE_SUFFIX)) return bundleDirName
+  return appDataDirNameToAppId(bundleDirName.slice(0, -APP_BUNDLE_SUFFIX.length))
+}

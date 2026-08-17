@@ -76,12 +76,13 @@ function splitGeneratedAppSize(app: GeneratedAppRecord): {
   const htmlBytes = new TextEncoder().encode(app.html).length
   const { html: _html, versions: _versions, ...metadata } = app
   const appSizeBytes = getSerializedByteSize(metadata) + htmlBytes
-  const documentsBytes = getGeneratedAppDataBytes(app.id)
+  // 旧 localStorage 文档数据已导出到 Data 时改由 dataBytes 记账，避免重复计数
+  const documentsBytes = isAppDataMigrated(app.id) ? 0 : getGeneratedAppDataBytes(app.id)
   return { appSizeBytes, documentsBytes, versionHistoryBytes }
 }
 
 function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
-  // 旧 localStorage 文档数据已导出到 /dev/apps/{appId}/Data 时，改由 dataBytes 记账，避免重复计数
+  // 旧 localStorage 文档数据已导出到 Data（applications 卷真身）时，改由 dataBytes 记账，避免重复计数
   if (isAppDataMigrated(appId)) {
     return 0
   }
@@ -218,7 +219,7 @@ export function getStorageSummary(
     folderIconSnapshotsBytes: number
     modelVisionBytes: number
     filesBytes: number
-    /** 按应用记账的 /dev/apps/{appId}/Data 字节 */
+    /** 按应用记账的 /Applications/{id}.app/Data 字节 */
     appDataBytesByApp: Record<string, number>
   },
 ) {
@@ -240,6 +241,13 @@ export function getStorageSummary(
     modelVisionBytes,
     filesBytes,
   } = dataStorage
+  const appDataTotal = Object.values(dataStorage.appDataBytesByApp).reduce(
+    (total, bytes) => total + bytes,
+    0,
+  )
+  // 「文件」分类展示值扣除应用数据合计：应用数据已单列在各应用行，避免同一块字节出现两次。
+  // 总量条 dataUsedBytes 仍是真实占用，不做假减法。
+  const filesBytesExcludingAppData = Math.max(0, filesBytes - appDataTotal)
   const otherBytes = getOtherStorageBytes()
   const usedBytes = getTotalLocalStorageBytes()
   const availableBytes = Math.max(0, DEVICE_CAPACITY_BYTES - usedBytes)
@@ -256,7 +264,7 @@ export function getStorageSummary(
       return { ...entry, dataBytes: modelVisionBytes }
     }
     if (entry.id === 'files') {
-      return { ...entry, dataBytes: filesBytes }
+      return { ...entry, dataBytes: filesBytesExcludingAppData }
     }
     return { ...entry, dataBytes: dataStorage.appDataBytesByApp[entry.id] ?? 0 }
   })
@@ -280,7 +288,7 @@ export function getStorageSummary(
     vscodeAiChatBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
-    filesBytes,
+    filesBytes: filesBytesExcludingAppData,
     systemBytes: usedBytes,
   }
 }

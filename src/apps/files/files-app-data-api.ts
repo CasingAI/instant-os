@@ -1,18 +1,16 @@
 /**
- * 应用内部数据 API：读写各自独立数据目录 /dev/apps/{appId}/Data。
- * 文件管理器 / 终端按节点属性访问（/Applications 投影只读）；
- * 应用写入统一走本模块（自动建目录 + 独立配额预检）。
+ * 应用内部数据 API：读写各自独立数据目录 /Applications/{appBundleDirName(appId)}/Data。
+ * Data 是 applications 卷 IndexedDB 里的真实文件；文件管理器 / 终端按只读浏览，
+ * 应用写入统一走本模块（系统层直写 applications 卷，自动建目录）。
  */
-import { appDataRootPath, ensureAppDataRoot } from './files-app-data-root.ts'
-import { assertAppDataCapacity } from './files-app-data-quota.ts'
-import { estimateTextBytes } from './files-storage.ts'
+import { appDataRootPath } from './files-app-data-root.ts'
+import { writeAppDataSystemFile } from './files-app-data-system.ts'
 import type { FilesNode } from './files-types.ts'
 import {
   listDirectory,
   readFileBlob,
   readTextFile,
   resolveNodeByAbsolutePath,
-  upsertFilesBatch,
 } from './files-vfs.ts'
 
 /** Data 根 + 相对子路径（相对路径中的 `/` 即层级分隔） */
@@ -54,20 +52,7 @@ export async function writeAppDataText(
   relativePath: string,
   text: string,
 ): Promise<void> {
-  await ensureAppDataRoot(appId)
-  await assertAppDataCapacity(estimateTextBytes(text))
-  await upsertFilesBatch([{ path: joinAppDataPath(appId, relativePath), text }])
-}
-
-/** 写入应用数据二进制文件（自动建目录；父目录自动补齐） */
-export async function writeAppDataBytes(
-  appId: string,
-  relativePath: string,
-  bytes: ArrayBuffer,
-): Promise<void> {
-  await ensureAppDataRoot(appId)
-  await assertAppDataCapacity(bytes.byteLength)
-  await upsertFilesBatch([{ path: joinAppDataPath(appId, relativePath), bytes }])
+  await writeAppDataSystemFile({ appId, relativePath, text })
 }
 
 /** 列出应用数据目录下的直接子项（不存在时返回空数组） */
