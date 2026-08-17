@@ -2,16 +2,18 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 
 /**
- * 免费额度网关 PoW 客户端：与服务端 Instant-demo-api 协议一致（PBKDF2 v2）。
- * 每次 AI 请求独立完成一次 PBKDF2-HMAC-SHA-256 工作量证明，网关无状态验证。
+ * 免费额度网关 PoW 客户端：与服务端 Instant-demo-api 协议一致（PBKDF2 v3）。
+ * 每次 AI 请求都先 POST 完整请求体到 `/pow/challenge`，服务端据此签发与
+ * bodyHash 绑定的 challenge，随后客户端用同一请求体请求 completion 并被校验。
  */
 
 export type PowChallenge = {
-  version: 2
+  version: 3
   challenge: string
   expiresAt: number
   difficulty: number
   iters: number
+  bodyHash: string
 }
 
 export class PowError extends Error {
@@ -24,11 +26,9 @@ export class PowError extends Error {
   }
 }
 
-const POW_SALT = 'instant-pow-v2'
+const POW_SALT = 'instant-pow-v3'
 const MAX_NONCE = 1_000_000
-const POW_VERSION = '2'
-
-let cachedChallenge: PowChallenge | undefined
+const POW_VERSION = '3'
 
 export type PowSolverMode = 'sequential' | 'parallel'
 
@@ -47,18 +47,22 @@ export function getPowSolverConfig(): PowSolverConfig {
   return solverConfig
 }
 
-export function clearPowChallengeCache(): void {
-  cachedChallenge = undefined
-}
-
+/**
+ * 请求一次与该请求体绑定的 challenge：POST 完整 body 到 `/pow/challenge`，
+ * 服务端以其 SHA-256 签发 challenge，保证一个 challenge 只能用于一个请求。
+ * 每次调用都是一次独立获取，不做全局缓存。
+ */
 export async function fetchPowChallenge(
   origin: string,
+  body: Uint8Array,
   signal?: AbortSignal,
 ): Promise<PowChallenge> {
-  if (cachedChallenge && cachedChallenge.expiresAt * 1000 > Date.now()) {
-    return cachedChallenge
-  }
-  const response = await fetch(`${origin}/pow/challenge`, { signal })
+  const response = await fetch(`${origin}/pow/challenge`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: new Blob([body as unknown as BlobPart]),
+    signal,
+  })
   if (!response.ok) {
     throw new PowError(
       `免费额度网关 challenge 获取失败（HTTP ${response.status}），请检查网关是否已部署`,
@@ -74,8 +78,7 @@ export async function fetchPowChallenge(
   ) {
     throw new PowError('免费额度网关返回了异常的 challenge 数据', 'pow_challenge_failed')
   }
-  cachedChallenge = data as PowChallenge
-  return cachedChallenge
+  return data as PowChallenge
 }
 
 /** hex 输出前导零 bit 数（与服务端一致） */
@@ -193,7 +196,7 @@ export async function solvePowForBody(
   signal?: AbortSignal,
 ): Promise<Record<string, string>> {
   const bodyHash = bytesToHex(sha256(body))
-  const challenge = await fetchPowChallenge(origin, signal)
+  const challenge = await fetchPowChallenge(origin, body, signal)
   const { difficulty, iters } = challenge
   const baseInput = `${challenge.challenge}.${bodyHash}.`
 

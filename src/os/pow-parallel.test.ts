@@ -13,7 +13,7 @@ import {
 } from './pow-parallel.ts'
 import { leadingZeroBits } from './pow-client.ts'
 
-const POW_SALT = 'instant-pow-v2'
+const POW_SALT = 'instant-pow-v3'
 const TEST_ITERS = 64
 const TEST_DIFFICULTY = 8
 const MAX_NONCE = 1_000_000
@@ -125,7 +125,7 @@ function makeWorkers(count: number): MockPowWorker[] {
   return Array.from({ length: count }, () => new MockPowWorker())
 }
 
-const BASE_INPUT = 'v2.2000000000.8.64.sig.abcdef1234567890'
+const BASE_INPUT = 'v3.2000000000.8.64.sig.abcdef1234567890'
 
 {
   // 并行求解：返回的 nonce 满足难度，且确实属于某个 worker 的 stride 子集

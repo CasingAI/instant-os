@@ -7,7 +7,7 @@
  * 本文件仅被浏览器加载（vite `?worker` 静态导入），不参与 node 单测。
  */
 
-const POW_SALT = 'instant-pow-v2'
+const POW_SALT = 'instant-pow-v3'
 
 export type PowWorkerRequest = {
   type: 'solve'
