@@ -1731,22 +1731,26 @@ function ProviderSettingsForm({
               onChange({ ...entry, thinkingEnabled })
             }
           />
-          <SettingsSwitchRow
-            label="使用代理服务器访问"
-            checked={
-              providerRequiresProxy(entry.providerId) ? true : entry.useProxy
-            }
-            disabled={providerRequiresProxy(entry.providerId)}
-            detail={
-              providerRequiresProxy(entry.providerId)
-                ? '该供应商需经代理服务器访问，无法关闭。'
-                : undefined
-            }
-            onChange={(useProxy) => {
-              if (providerRequiresProxy(entry.providerId)) return
-              onChange({ ...entry, useProxy })
-            }}
-          />
+          {!isFree && (
+            <SettingsSwitchRow
+              label="使用代理服务器访问"
+              checked={
+                providerRequiresProxy(entry.providerId)
+                  ? true
+                  : entry.useProxy
+              }
+              disabled={providerRequiresProxy(entry.providerId)}
+              detail={
+                providerRequiresProxy(entry.providerId)
+                  ? '该供应商需经代理服务器访问，无法关闭。'
+                  : undefined
+              }
+              onChange={(useProxy) => {
+                if (providerRequiresProxy(entry.providerId)) return
+                onChange({ ...entry, useProxy })
+              }}
+            />
+          )}
         </div>
       </div>
     </div>
