@@ -760,7 +760,7 @@ export function KeychainApp() {
     if (isInstantFreeProvider(provider.providerId)) {
       await modal.confirm({
         title: '无法删除',
-        message: '「Instant 免费额度」是内置供应商，不可删除。',
+        message: '「Instant 共享AI」是内置供应商，不可删除。',
         confirmLabel: '知道了',
       })
       return
@@ -1562,7 +1562,7 @@ function ProviderSettingsForm({
               ) : undefined}
               <div class="settings__row settings__row--static">
                 <span class="settings__row-name">API Key</span>
-                <span class="settings__row-hint">免费额度，无需密钥</span>
+                <span class="settings__row-hint">无需密钥</span>
               </div>
             </div>
           </div>

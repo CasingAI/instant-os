@@ -1260,14 +1260,14 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
   },
   {
     id: 'instant-free',
-    name: 'Instant 免费额度',
-    // 经 PoW 网关转发到 OpenCode Go；POST 前客户端完成 Proof-of-Work，网关用自己的 key 转发。
+    name: 'Instant 共享AI',
+    // 直连网关的 OpenAI 兼容端点；POST 前客户端完成 Proof-of-Work，网关用自己的 key 转发。
     // auto 为网关对外暴露的多候选模型名：按 routes 顺序转发，首选失败自动降级。
     baseURL: INSTANT_FREE_PROVIDER_BASE_URL,
     models: [
       {
         id: 'auto',
-        name: 'Auto 自动优选',
+        name: 'Auto',
         capabilities: CAP_TEXT,
         contextWindow: CW_128K,
       },

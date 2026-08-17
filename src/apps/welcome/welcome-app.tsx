@@ -96,7 +96,7 @@ export function WelcomeApp() {
         <section class="welcome-app__section">
           <h2 class="welcome-app__section-title">AI 免费额度</h2>
           <p class="welcome-app__free-note">
-            当前已启用 Instant 免费额度通道，无需 API Key 即可使用 AI。免费额度有并发与用量上限，适用于日常体验；需要更高额度时可在「配置 AI 账户」中接入自己的 Key。
+            当前已启用 Instant 共享AI通道，无需 API Key 即可使用 AI。免费额度有并发与用量上限，适用于日常体验；需要更高额度时可在「配置 AI 账户」中接入自己的 Key。
           </p>
         </section>
       )}

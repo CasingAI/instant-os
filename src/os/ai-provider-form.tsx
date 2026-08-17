@@ -322,7 +322,7 @@ export function AiProviderForm({
       {isInstantFreeProvider(entry.providerId) ? (
         <div class={fieldClass}>
           <span class={labelClass}>API Key</span>
-          <span class="settings__row-hint">免费额度，无需密钥</span>
+          <span class="settings__row-hint">无需密钥</span>
         </div>
       ) : isOpencodeZenProvider(entry.providerId) ? (
         wideLayout ? (
