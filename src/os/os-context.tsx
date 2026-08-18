@@ -23,6 +23,7 @@ import { startBackgroundRefreshService } from './background-refresh-service.ts'
 import { startSystemServices } from './system-services.ts'
 import { isMultiWindowApp } from './app-multi-window.ts'
 import { isWindowlessApp } from './app-windowless.ts'
+import { resolveSingleWindowForApp } from './single-window.ts'
 import { registerOsOpenApp } from './os-open-app-bridge.ts'
 import { enqueueTerminalPendingAction } from '../terminal/terminal-pending-actions.ts'
 import { WEBVIEW_OFFSCREEN_VIEWPORT } from '../apps/webview/webview-constants.ts'
@@ -614,24 +615,13 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     let resolvedActiveId: string | undefined
 
     setWindows((current) => {
-      const live = current.filter((window) => !window.closing)
-      const existing = live.find((window) => window.appId === appId && !window.minimized)
+      // 生成应用强制单窗口：重复打开聚焦既有窗口（含最小化后恢复）
+      const existing = resolveSingleWindowForApp(current, appId)
       if (existing) {
         resolvedActiveId = existing.id
         const nextZ = bumpZIndex()
         return current.map((window) =>
           window.id === existing.id
-            ? { ...window, zIndex: nextZ, minimized: false, title }
-            : window,
-        )
-      }
-
-      const minimized = live.find((window) => window.appId === appId && window.minimized)
-      if (minimized) {
-        resolvedActiveId = minimized.id
-        const nextZ = bumpZIndex()
-        return current.map((window) =>
-          window.id === minimized.id
             ? { ...window, zIndex: nextZ, minimized: false, title }
             : window,
         )

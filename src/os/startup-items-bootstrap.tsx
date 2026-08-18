@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'preact/hooks'
-import { runAppDataMigrationOnce } from '../apps/files/files-app-data-migration.ts'
 import { createTerminalInstantShellHost } from '../terminal/instant-shell/create-terminal-instant-shell-host.ts'
 import { useDevExtApps } from './dev-ext-apps-context.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
@@ -55,9 +54,7 @@ export function StartupItemsBootstrap() {
   toggleMaximizeRef.current = toggleMaximize
 
   useEffect(() => {
-    // 应用数据目录迁移（幂等；失败项下次启动重试）
-    void runAppDataMigrationOnce().catch(() => undefined)
-
+    // 应用数据迁移已并入启动流程（main.tsx：localStorage → 注册表）
     const host = createTerminalInstantShellHost({
       getWindows: () => windowsRef.current,
       openApp: (appId, options) => {

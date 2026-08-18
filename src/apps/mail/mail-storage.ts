@@ -1,12 +1,6 @@
+import { createRegistryStore } from '../../os/registry-store.ts'
 import { osNowMs } from '../../os/os-clock.ts'
-import {
-  DEVICE_STORAGE_KEYS,
-  getLocalStorageKeyBytes,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
 import type { MailAddress, MailMessage, MailStore, MailThread } from './types.ts'
-
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.mail
 
 export const USER_ADDRESS: MailAddress = {
   name: '我',
@@ -21,45 +15,104 @@ function emptyStore(): MailStore {
   }
 }
 
-function loadStore(): MailStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    const parsed = JSON.parse(raw) as MailStore
-    if (!Array.isArray(parsed.threads)) {
-      return emptyStore()
-    }
-    return {
-      initialized: Boolean(parsed.initialized),
-      userAddress: parsed.userAddress ?? USER_ADDRESS,
-      threads: parsed.threads,
-    }
-  } catch {
-    return emptyStore()
+function normalizeUserAddress(value: unknown): MailAddress {
+  if (typeof value !== 'object' || value === undefined) {
+    return USER_ADDRESS
   }
+  const address = value as Record<string, unknown>
+  if (typeof address.name !== 'string' || typeof address.email !== 'string') {
+    return USER_ADDRESS
+  }
+  return { name: address.name, email: address.email }
 }
 
-function saveStore(store: MailStore): boolean {
-  return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
+function normalizeThreads(value: unknown): MailThread[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter(isThreadLike)
 }
 
-export function readMailStore(): MailStore {
-  return loadStore()
+function isThreadLike(value: unknown): value is MailThread {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
+  }
+  const thread = value as Record<string, unknown>
+  return (
+    typeof thread.id === 'string' &&
+    typeof thread.subject === 'string' &&
+    Array.isArray(thread.messages) &&
+    typeof thread.lastMessageAt === 'number' &&
+    typeof thread.unread === 'boolean'
+  )
 }
 
-export function writeMailStore(store: MailStore): boolean {
-  return saveStore(store)
+const registryStore = createRegistryStore<MailStore>({
+  appId: 'mail',
+  defaultValue: emptyStore,
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'initialized',
+      read: (store) => store.initialized,
+      write: (value, draft) => ({ ...draft, initialized: value }),
+      serialize: (value) => String(value),
+      deserialize: (raw) => raw === 'true',
+    },
+    {
+      key: 'userAddress',
+      read: (store) => store.userAddress,
+      write: (value, draft) => ({ ...draft, userAddress: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return USER_ADDRESS
+        }
+        try {
+          return normalizeUserAddress(JSON.parse(raw))
+        } catch {
+          return USER_ADDRESS
+        }
+      },
+    },
+    {
+      key: 'threads',
+      read: (store) => store.threads,
+      write: (value, draft) => ({ ...draft, threads: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return []
+        }
+        try {
+          return normalizeThreads(JSON.parse(raw))
+        } catch {
+          return []
+        }
+      },
+    },
+  ],
+})
+
+export function subscribeMailStore(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-export function markStoreInitialized(threads: MailThread[]): MailStore {
+export async function readMailStore(): Promise<MailStore> {
+  return registryStore.read()
+}
+
+export async function writeMailStore(store: MailStore): Promise<void> {
+  await registryStore.write(store)
+}
+
+export async function markStoreInitialized(threads: MailThread[]): Promise<MailStore> {
   const store: MailStore = {
     initialized: true,
     userAddress: USER_ADDRESS,
     threads,
   }
-  saveStore(store)
+  await writeMailStore(store)
   return store
 }
 
@@ -71,11 +124,11 @@ export function createThreadId(): string {
   return `thread-${osNowMs()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-export function appendMessageToThread(
+export async function appendMessageToThread(
   store: MailStore,
   threadId: string,
   message: MailMessage,
-): MailStore {
+): Promise<MailStore> {
   const threads = store.threads.map((thread) => {
     if (thread.id !== threadId) {
       return thread
@@ -88,40 +141,40 @@ export function appendMessageToThread(
     }
   })
   const next = { ...store, threads }
-  saveStore(next)
+  await writeMailStore(next)
   return next
 }
 
-export function addThread(store: MailStore, thread: MailThread): MailStore {
+export async function addThread(store: MailStore, thread: MailThread): Promise<MailStore> {
   const next = {
     ...store,
     threads: [thread, ...store.threads],
   }
-  saveStore(next)
+  await writeMailStore(next)
   return next
 }
 
-export function markThreadRead(store: MailStore, threadId: string): MailStore {
+export async function markThreadRead(store: MailStore, threadId: string): Promise<MailStore> {
   const threads = store.threads.map((thread) =>
     thread.id === threadId ? { ...thread, unread: false } : thread,
   )
   const next = { ...store, threads }
-  saveStore(next)
+  await writeMailStore(next)
   return next
 }
 
-export function deleteThread(store: MailStore, threadId: string): MailStore {
+export async function deleteThread(store: MailStore, threadId: string): Promise<MailStore> {
   const threads = store.threads.filter((thread) => thread.id !== threadId)
   const next = { ...store, threads }
-  saveStore(next)
+  await writeMailStore(next)
   return next
 }
 
-export function deleteMessageFromThread(
+export async function deleteMessageFromThread(
   store: MailStore,
   threadId: string,
   messageId: string,
-): MailStore {
+): Promise<MailStore> {
   const threads = store.threads.flatMap((thread) => {
     if (thread.id !== threadId) {
       return [thread]
@@ -143,7 +196,7 @@ export function deleteMessageFromThread(
   })
 
   const next = { ...store, threads }
-  saveStore(next)
+  await writeMailStore(next)
   return next
 }
 
@@ -167,8 +220,4 @@ export function getOtherParty(store: MailStore, thread: MailThread): MailAddress
     }
   }
   return undefined
-}
-
-export function getMailStorageBytes(): number {
-  return getLocalStorageKeyBytes(STORAGE_KEY)
 }

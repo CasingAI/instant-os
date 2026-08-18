@@ -5,52 +5,155 @@ import {
 } from '../../os/calendar-instant.ts'
 import { formatChineseDynastySuffixForEditionDate } from '../../os/chinese-dynasty-label.ts'
 import { osNowMs } from '../../os/os-clock.ts'
-import {
-  DEVICE_STORAGE_KEYS,
-  getLocalStorageKeyBytes,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
+import { createRegistryStore } from '../../os/registry-store.ts'
 import type { NewsArticle, NewsComment, NewsCommentThread, NewsStore } from './news-types.ts'
-
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.news
 
 function emptyStore(): NewsStore {
   return { articles: [], commentThreads: {} }
 }
 
-function loadStore(): NewsStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
+function normalizeArticles(value: unknown): NewsArticle[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter(isArticleLike)
+}
+
+function isArticleLike(value: unknown): value is NewsArticle {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
+  }
+  const article = value as Record<string, unknown>
+  return (
+    typeof article.id === 'string' &&
+    typeof article.editionDate === 'string' &&
+    typeof article.title === 'string' &&
+    typeof article.category === 'string' &&
+    typeof article.lead === 'string' &&
+    typeof article.body === 'string'
+  )
+}
+
+function normalizeCommentThreads(value: unknown): NewsStore['commentThreads'] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {}
+  }
+  const commentThreads: NewsStore['commentThreads'] = {}
+  for (const [articleId, thread] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = normalizeThread(thread)
+    if (normalized) {
+      commentThreads[articleId] = normalized
     }
-    const parsed = JSON.parse(raw) as NewsStore
-    if (!Array.isArray(parsed.articles)) {
-      return emptyStore()
+  }
+  return migrateCommentThreads({ articles: [], commentThreads }).commentThreads
+}
+
+function isThreadLike(value: unknown): value is NewsCommentThread {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
+  }
+  const thread = value as Record<string, unknown>
+  return (
+    typeof thread.articleId === 'string' &&
+    typeof thread.generatedAt === 'number' &&
+    Array.isArray(thread.comments) &&
+    typeof thread.userReactions === 'object' &&
+    thread.userReactions !== null
+  )
+}
+
+function normalizeThread(value: unknown): NewsCommentThread | undefined {
+  if (!isThreadLike(value)) {
+    return undefined
+  }
+  const thread = value as Record<string, unknown>
+  const userReactions: NewsCommentThread['userReactions'] = {}
+  if (thread.userReactions && typeof thread.userReactions === 'object') {
+    for (const [commentId, reaction] of Object.entries(
+      thread.userReactions as Record<string, unknown>,
+    )) {
+      if (reaction === 'like' || reaction === 'dislike') {
+        userReactions[commentId] = reaction
+      }
     }
-    return migrateCommentThreads({
-      articles: parsed.articles,
-      commentThreads: parsed.commentThreads ?? {},
-    })
-  } catch {
-    return emptyStore()
+  }
+  return {
+    articleId: thread.articleId as string,
+    generatedAt: thread.generatedAt as number,
+    comments: (thread.comments as unknown[]).filter(isCommentLike),
+    userReactions,
+    reportedIds: Array.isArray(thread.reportedIds) ? (thread.reportedIds as string[]) : [],
+    userReportCount:
+      typeof thread.userReportCount === 'number' ? thread.userReportCount : undefined,
   }
 }
 
-function saveStore(store: NewsStore): boolean {
-  const ok = writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
-  if (ok && typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('instant-os:news-store-changed'))
+function isCommentLike(value: unknown): value is NewsComment {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
   }
-  return ok
+  const comment = value as Record<string, unknown>
+  return (
+    typeof comment.id === 'string' &&
+    typeof comment.author === 'string' &&
+    typeof comment.body === 'string' &&
+    typeof comment.createdAt === 'number' &&
+    typeof comment.likes === 'number' &&
+    typeof comment.dislikes === 'number'
+  )
 }
 
-export function readNewsStore(): NewsStore {
-  return loadStore()
+const registryStore = createRegistryStore<NewsStore>({
+  appId: 'news',
+  defaultValue: emptyStore,
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'articles',
+      read: (store) => store.articles,
+      write: (value, draft) => ({ ...draft, articles: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return []
+        }
+        try {
+          return normalizeArticles(JSON.parse(raw))
+        } catch {
+          return []
+        }
+      },
+    },
+    {
+      key: 'commentThreads',
+      read: (store) => store.commentThreads,
+      write: (value, draft) => ({ ...draft, commentThreads: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return {}
+        }
+        try {
+          return normalizeCommentThreads(JSON.parse(raw))
+        } catch {
+          return {}
+        }
+      },
+    },
+  ],
+  changedEventName: 'instant-os:news-store-changed',
+})
+
+export function subscribeNewsStore(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-export function writeNewsStore(store: NewsStore): boolean {
-  return saveStore(store)
+export async function readNewsStore(): Promise<NewsStore> {
+  return registryStore.read()
+}
+
+export async function writeNewsStore(store: NewsStore): Promise<void> {
+  await registryStore.write(store)
 }
 
 export function createArticleId(): string {
@@ -87,12 +190,12 @@ export function getArticlesForDate(store: NewsStore, editionDate: string): NewsA
     })
 }
 
-export function assignArticleListPositions(
+export async function assignArticleListPositions(
   store: NewsStore,
   editionDate: string,
   newArticleIdsInOrder: string[],
   baselineArticleIds: string[],
-): NewsStore {
+): Promise<NewsStore> {
   if (newArticleIdsInOrder.length === 0) {
     return store
   }
@@ -122,7 +225,7 @@ export function assignArticleListPositions(
     }),
     commentThreads: store.commentThreads,
   }
-  saveStore(next)
+  await writeNewsStore(next)
   return next
 }
 
@@ -131,26 +234,26 @@ export function getAllEditionDates(store: NewsStore): string[] {
   return Array.from(set).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
 }
 
-export function addArticles(store: NewsStore, articles: NewsArticle[]): NewsStore {
+export async function addArticles(store: NewsStore, articles: NewsArticle[]): Promise<NewsStore> {
   const next: NewsStore = {
     articles: [...store.articles, ...articles],
     commentThreads: store.commentThreads,
   }
-  saveStore(next)
+  await writeNewsStore(next)
   return next
 }
 
-export function deleteArticle(store: NewsStore, articleId: string): NewsStore {
+export async function deleteArticle(store: NewsStore, articleId: string): Promise<NewsStore> {
   const { [articleId]: _removed, ...remainingThreads } = store.commentThreads
   const next: NewsStore = {
     articles: store.articles.filter((a) => a.id !== articleId),
     commentThreads: remainingThreads,
   }
-  saveStore(next)
+  await writeNewsStore(next)
   return next
 }
 
-export function deleteArticlesForDate(store: NewsStore, editionDate: string): NewsStore {
+export async function deleteArticlesForDate(store: NewsStore, editionDate: string): Promise<NewsStore> {
   const removedIds = new Set(
     store.articles.filter((a) => a.editionDate === editionDate).map((a) => a.id),
   )
@@ -164,15 +267,8 @@ export function deleteArticlesForDate(store: NewsStore, editionDate: string): Ne
     articles: store.articles.filter((a) => a.editionDate !== editionDate),
     commentThreads,
   }
-  saveStore(next)
+  await writeNewsStore(next)
   return next
-}
-
-export function getNewsStorageBytes(): number {
-  return (
-    getLocalStorageKeyBytes(STORAGE_KEY) +
-    getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.newsTokenUsage)
-  )
 }
 
 export function getCommentThread(
@@ -182,10 +278,10 @@ export function getCommentThread(
   return store.commentThreads[articleId]
 }
 
-export function saveCommentThread(
+export async function saveCommentThread(
   store: NewsStore,
   thread: NewsCommentThread,
-): NewsStore {
+): Promise<NewsStore> {
   const next: NewsStore = {
     ...store,
     commentThreads: {
@@ -193,26 +289,26 @@ export function saveCommentThread(
       [thread.articleId]: thread,
     },
   }
-  saveStore(next)
+  await writeNewsStore(next)
   return next
 }
 
-export function deleteCommentThread(store: NewsStore, articleId: string): NewsStore {
+export async function deleteCommentThread(store: NewsStore, articleId: string): Promise<NewsStore> {
   const { [articleId]: _removed, ...remainingThreads } = store.commentThreads
   const next: NewsStore = {
     ...store,
     commentThreads: remainingThreads,
   }
-  saveStore(next)
+  await writeNewsStore(next)
   return next
 }
 
-export function clearAllCommentThreads(store: NewsStore): NewsStore {
+export async function clearAllCommentThreads(store: NewsStore): Promise<NewsStore> {
   const next: NewsStore = {
     ...store,
     commentThreads: {},
   }
-  saveStore(next)
+  await writeNewsStore(next)
   return next
 }
 
@@ -256,7 +352,6 @@ function migrateCommentThreads(store: NewsStore): NewsStore {
   if (!changed) {
     return store
   }
-  saveStore({ ...store, commentThreads })
   return { ...store, commentThreads }
 }
 
@@ -295,12 +390,12 @@ export function getCommentCountForArticle(store: NewsStore, articleId: string): 
   return store.commentThreads[articleId]?.comments.length ?? 0
 }
 
-export function setUserReaction(
+export async function setUserReaction(
   store: NewsStore,
   articleId: string,
   commentId: string,
   reaction: 'like' | 'dislike' | undefined,
-): NewsStore {
+): Promise<NewsStore> {
   const thread = store.commentThreads[articleId]
   if (!thread) {
     return store
@@ -344,11 +439,11 @@ export function setUserReaction(
   })
 }
 
-export function removeCommentFromThread(
+export async function removeCommentFromThread(
   store: NewsStore,
   articleId: string,
   commentId: string,
-): NewsStore {
+): Promise<NewsStore> {
   const thread = store.commentThreads[articleId]
   if (!thread) {
     return store
@@ -383,12 +478,12 @@ export function removeCommentFromThread(
   })
 }
 
-export function updateCommentInThread(
+export async function updateCommentInThread(
   store: NewsStore,
   articleId: string,
   commentId: string,
   patch: Partial<Pick<NewsComment, 'likes' | 'dislikes'>>,
-): NewsStore {
+): Promise<NewsStore> {
   const thread = store.commentThreads[articleId]
   if (!thread) {
     return store
@@ -404,11 +499,11 @@ export function updateCommentInThread(
   })
 }
 
-export function appendComments(
+export async function appendComments(
   store: NewsStore,
   articleId: string,
   newComments: NewsComment[],
-): NewsStore {
+): Promise<NewsStore> {
   const existing = store.commentThreads[articleId]
   if (!existing) {
     return saveCommentThread(store, {

@@ -1,9 +1,5 @@
 import { osNowMs } from '../../os/os-clock.ts'
-import {
-  DEVICE_STORAGE_KEYS,
-  getLocalStorageKeyBytes,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
+import { createRegistryStore } from '../../os/registry-store.ts'
 import { getBooksContentBytes } from '../../os/device-data-storage.ts'
 import { deleteBookChapters } from './books-data-storage.ts'
 import { isBookGenerationActive } from './books-generation.ts'
@@ -15,37 +11,137 @@ import type {
   ReadingProgress,
 } from './books-types.ts'
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.books
-
 function emptyStore(): BooksIndexStore {
   return { library: [], catalog: [], readingProgress: {} }
 }
 
-function loadStore(): BooksIndexStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    const parsed = JSON.parse(raw) as BooksIndexStore
-    return {
-      library: Array.isArray(parsed.library) ? parsed.library : [],
-      catalog: Array.isArray(parsed.catalog) ? parsed.catalog : [],
-      catalogGeneratedAt: parsed.catalogGeneratedAt,
-      readingProgress: parsed.readingProgress ?? {},
-    }
-  } catch {
-    return emptyStore()
+function normalizeLibrary(value: unknown): BookRecordMeta[] {
+  if (!Array.isArray(value)) {
+    return []
   }
+  return value.filter(isBookMetaLike)
 }
 
-function saveStore(store: BooksIndexStore): boolean {
-  const ok = writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
-  if (ok && typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('instant-os:books-store-changed'))
+function isBookMetaLike(value: unknown): value is BookRecordMeta {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
   }
-  return ok
+  const book = value as Record<string, unknown>
+  return (
+    typeof book.id === 'string' &&
+    typeof book.slug === 'string' &&
+    typeof book.title === 'string' &&
+    typeof book.author === 'string' &&
+    (book.status === 'generating' || book.status === 'complete' || book.status === 'failed') &&
+    typeof book.addedAt === 'number'
+  )
 }
+
+function normalizeCatalog(value: unknown): BookListing[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter(isListingLike)
+}
+
+function isListingLike(value: unknown): value is BookListing {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
+  }
+  const listing = value as Record<string, unknown>
+  return (
+    typeof listing.slug === 'string' &&
+    typeof listing.title === 'string' &&
+    typeof listing.author === 'string' &&
+    typeof listing.synopsis === 'string'
+  )
+}
+
+function normalizeReadingProgress(value: unknown): Record<string, ReadingProgress> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {}
+  }
+  const progress: Record<string, ReadingProgress> = {}
+  for (const [bookId, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry !== 'object' || entry === undefined) {
+      continue
+    }
+    const record = entry as Record<string, unknown>
+    if (typeof record.chapterId !== 'string') {
+      continue
+    }
+    progress[bookId] = {
+      chapterId: record.chapterId,
+      scrollTop: typeof record.scrollTop === 'number' ? record.scrollTop : undefined,
+    }
+  }
+  return progress
+}
+
+const registryStore = createRegistryStore<BooksIndexStore>({
+  appId: 'books',
+  defaultValue: emptyStore,
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'library',
+      read: (store) => store.library,
+      write: (value, draft) => ({ ...draft, library: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return []
+        }
+        try {
+          return normalizeLibrary(JSON.parse(raw))
+        } catch {
+          return []
+        }
+      },
+    },
+    {
+      key: 'catalog',
+      read: (store) => store.catalog,
+      write: (value, draft) => ({ ...draft, catalog: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return []
+        }
+        try {
+          return normalizeCatalog(JSON.parse(raw))
+        } catch {
+          return []
+        }
+      },
+    },
+    {
+      key: 'catalogGeneratedAt',
+      read: (store) => store.catalogGeneratedAt,
+      write: (value, draft) => ({ ...draft, catalogGeneratedAt: value }),
+      serialize: (value) => (value === undefined ? '' : String(value)),
+      deserialize: (raw) => (raw ? Number(raw) : undefined),
+    },
+    {
+      key: 'readingProgress',
+      read: (store) => store.readingProgress,
+      write: (value, draft) => ({ ...draft, readingProgress: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return {}
+        }
+        try {
+          return normalizeReadingProgress(JSON.parse(raw))
+        } catch {
+          return {}
+        }
+      },
+    },
+  ],
+  finalize: reconcileInterruptedBookGenerations,
+  changedEventName: 'instant-os:books-store-changed',
+})
 
 export function reconcileInterruptedBookGenerations(store: BooksIndexStore): BooksIndexStore {
   let changed = false
@@ -59,21 +155,16 @@ export function reconcileInterruptedBookGenerations(store: BooksIndexStore): Boo
   return changed ? { ...store, library } : store
 }
 
-export function readBooksStore(): BooksIndexStore {
-  const store = loadStore()
-  const reconciled = reconcileInterruptedBookGenerations(store)
-  if (reconciled !== store) {
-    saveStore(reconciled)
-  }
-  return reconciled
+export function subscribeBooksStore(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-export function writeBooksStore(store: BooksIndexStore): boolean {
-  return saveStore(store)
+export async function readBooksStore(): Promise<BooksIndexStore> {
+  return registryStore.read()
 }
 
-export function getBooksStorageBytes(): number {
-  return getLocalStorageKeyBytes(STORAGE_KEY)
+export async function writeBooksStore(store: BooksIndexStore): Promise<void> {
+  await registryStore.write(store)
 }
 
 export async function getBooksDataBytes(): Promise<number> {

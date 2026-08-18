@@ -58,6 +58,7 @@ import {
   deriveSessionTitle,
   readProdudeStore,
   removeSession,
+  subscribeProdudeStore,
   upsertSession,
   writeProdudeStore,
 } from './produde-storage.ts'
@@ -112,7 +113,7 @@ export function ProdudeApp() {
   const textModels = useVscodeAiTextModels()
   const capabilityTags = useVscodeAiCapabilityTags()
 
-  const [store, setStore] = useState<ProdudeStore>(() => readProdudeStore())
+  const [store, setStore] = useState<ProdudeStore | undefined>(undefined)
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -143,39 +144,47 @@ export function ProdudeApp() {
   )
   const turnChangeSessionsRef = useRef<{ current: TerminalChangeSet[] }>({ current: [] })
 
-  const activeSession = useMemo(
-    () => store.sessions.find((session) => session.id === store.activeSessionId),
-    [store.activeSessionId, store.sessions],
-  )
+  const activeSession = useMemo(() => {
+    if (!store) {
+      return undefined
+    }
+    return store.sessions.find((session) => session.id === store.activeSessionId)
+  }, [store])
 
   const workspaceFolder =
     activeSession?.workspaceFolder?.trim() || PRODUDE_DEFAULT_WORKSPACE
 
-  const persistStore = useCallback((next: ProdudeStore) => {
-    writeProdudeStore(next)
+  const persistStore = useCallback(async (next: ProdudeStore) => {
+    await writeProdudeStore(next)
     setStore(next)
   }, [])
 
   const patchActiveSession = useCallback(
-    (patch: Partial<ProdudeSession>) => {
+    async (patch: Partial<ProdudeSession>) => {
+      if (!store) {
+        return undefined
+      }
       if (!activeSession) {
         const session = createSession(patch)
-        persistStore({
+        await persistStore({
           sessions: [session, ...store.sessions],
           activeSessionId: session.id,
         })
         return session
       }
       const nextSession = { ...activeSession, ...patch, updatedAt: osNowMs() }
-      persistStore(upsertSession(store, nextSession))
+      await persistStore(upsertSession(store, nextSession))
       return nextSession
     },
     [activeSession, persistStore, store],
   )
 
   const selectSession = useCallback(
-    (sessionId: string) => {
-      persistStore({ ...store, activeSessionId: sessionId })
+    async (sessionId: string) => {
+      if (!store) {
+        return
+      }
+      await persistStore({ ...store, activeSessionId: sessionId })
       setLiveProgress(null)
       liveProgressRef.current = null
       setAttachments([])
@@ -185,13 +194,16 @@ export function ProdudeApp() {
     [persistStore, store],
   )
 
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback(async () => {
+    if (!store) {
+      return
+    }
     const session = createSession({
       workspaceFolder: activeSession?.workspaceFolder ?? PRODUDE_DEFAULT_WORKSPACE,
       modelSource: activeSession?.modelSource ?? 'text',
       modelKey: activeSession?.modelKey,
     })
-    persistStore({
+    await persistStore({
       sessions: [session, ...store.sessions],
       activeSessionId: session.id,
     })
@@ -200,11 +212,14 @@ export function ProdudeApp() {
     liveProgressRef.current = null
     setAttachments([])
     setAttachError(undefined)
-  }, [activeSession, persistStore, store.sessions])
+  }, [activeSession, persistStore, store?.sessions])
 
   const handleDeleteSession = useCallback(
-    (sessionId: string) => {
-      persistStore(removeSession(store, sessionId))
+    async (sessionId: string) => {
+      if (!store) {
+        return
+      }
+      await persistStore(removeSession(store, sessionId))
       setLiveProgress(null)
       liveProgressRef.current = null
     },
@@ -234,7 +249,7 @@ export function ProdudeApp() {
       selectionMode: 'folder',
     })
     if (!path) return
-    patchActiveSession({ workspaceFolder: path })
+    await patchActiveSession({ workspaceFolder: path })
   }, [patchActiveSession, showSystemOpenDialog])
 
   const resolvedModelKey = useMemo(
@@ -265,13 +280,13 @@ export function ProdudeApp() {
   )
 
   const handleModelPickerChange = useCallback(
-    (encoded: string) => {
+    async (encoded: string) => {
       const decoded = decodeVscodeModelPickerValue(encoded)
       if (decoded.source === 'text' || decoded.source === 'text-secondary') {
-        patchActiveSession({ modelSource: decoded.source, modelKey: undefined })
+        await patchActiveSession({ modelSource: decoded.source, modelKey: undefined })
         return
       }
-      patchActiveSession({
+      await patchActiveSession({
         modelSource: 'custom',
         modelKey: decoded.modelKey,
       })
@@ -296,11 +311,12 @@ export function ProdudeApp() {
     async (rawText: string) => {
       const text = rawText.trim()
       if ((!text && attachments.length === 0) || streaming) return
+      if (!store) return
 
       let session = activeSession
       if (!session) {
         session = createSession()
-        persistStore({
+        await persistStore({
           sessions: [session, ...store.sessions],
           activeSessionId: session.id,
         })
@@ -314,7 +330,7 @@ export function ProdudeApp() {
         })
         const pending = createMessage('user', text || '（附件）')
         const finalMessages = [...session.messages, pending, errorMessage]
-        persistStore(
+        await persistStore(
           upsertSession(
             { ...store, activeSessionId: session.id },
             {
@@ -343,7 +359,7 @@ export function ProdudeApp() {
         title: deriveSessionTitle(pendingMessages),
         updatedAt: osNowMs(),
       }
-      persistStore(upsertSession(store, { ...pendingSession, id: session.id }))
+      await persistStore(upsertSession(store, { ...pendingSession, id: session.id }))
       setStreaming(true)
       streamingRef.current = true
       // 用户主动发送：强制贴底并恢复跟滚
@@ -431,7 +447,7 @@ export function ProdudeApp() {
           title: deriveSessionTitle(finalMessages),
           updatedAt: osNowMs(),
         }
-        persistStore(
+        await persistStore(
           upsertSession({ ...store, activeSessionId: session.id }, finalSession),
         )
       } catch (err) {
@@ -448,7 +464,7 @@ export function ProdudeApp() {
               investigation,
             })
             const finalMessages = [...pendingMessages, assistantMessage]
-            persistStore(
+            await persistStore(
               upsertSession(
                 { ...store, activeSessionId: session.id },
                 {
@@ -465,7 +481,7 @@ export function ProdudeApp() {
             isError: true,
           })
           const finalMessages = [...pendingMessages, errorMessage]
-          persistStore(
+          await persistStore(
             upsertSession(
               { ...store, activeSessionId: session.id },
               {
@@ -498,6 +514,23 @@ export function ProdudeApp() {
   useEffect(() => {
     setAppWindowTitle('produde', 'ProDude')
   }, [setAppWindowTitle])
+
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      readProdudeStore().then((next) => {
+        if (alive) {
+          setStore(next)
+        }
+      })
+    }
+    load()
+    const unsubscribe = subscribeProdudeStore(load)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     stickToBottomRef.current = true
@@ -658,6 +691,15 @@ export function ProdudeApp() {
   ])
 
   useAppMenuBar('produde', menuBar)
+
+  if (!store) {
+    return (
+      <div class="produde-app produde-app--loading" role="status" aria-live="polite">
+        <div class="produde-app__loading-spinner" aria-hidden="true" />
+        <p>正在加载</p>
+      </div>
+    )
+  }
 
   const showWelcome = !activeSession || activeSession.messages.length === 0
   const canSend =

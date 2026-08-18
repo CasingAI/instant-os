@@ -50,12 +50,15 @@ import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
 import { Resources3dDetailView } from './resources-3d-detail-view.tsx'
 import { NewsManagementView } from './news-management-view.tsx'
+import { LegacyStorageCleanupView } from './legacy-storage-cleanup-view.tsx'
+import { RegistryManagerPane } from './registry-manager-pane.tsx'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import {
   getNewsCommentStats,
-  getNewsStorageBytes,
   readNewsStore,
+  type NewsCommentStats,
 } from '../news/news-storage.ts'
+import type { NewsStore } from '../news/news-types.ts'
 import { loadNewsTokenUsage } from '../news/news-token-usage.ts'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { SettingsKeepLayer } from './settings-keep-layer.tsx'
@@ -115,6 +118,7 @@ export function SettingsApp() {
     modelVisionBytes: 0,
     filesBytes: 0,
     appDataBytesByApp: {} as Record<string, number>,
+    registryBytesByApp: {} as Record<string, number>,
   })
   const { installedApps, storageRevision } = useGeneratedApps()
   const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
@@ -292,6 +296,7 @@ export function SettingsApp() {
     view === 'app-detail' ||
     view === 'apps-storage' ||
     view === 'other-storage' ||
+    view === 'legacy-storage' ||
     view === 'event-log-storage' ||
     view === 'files-storage'
   const showAppsStorage = view === 'apps-storage'
@@ -330,6 +335,8 @@ export function SettingsApp() {
   const showReset = view === 'reset'
   const showExperimental = view === 'experimental'
   const showExternalBridgeConsent = view === 'external-bridge-consent'
+  const showRegistryManager = view === 'registry-manager'
+  const showLegacyStorage = view === 'legacy-storage'
   const activePaneId = paneIdForRoute(route)
   const nestedRoute = isNestedSettingsRoute(route)
 
@@ -436,9 +443,14 @@ export function SettingsApp() {
           onSelectApp={(appId) => setRoute({ view: 'app-detail', appId, from: 'usage' })}
           onOpenAppsStorage={() => setRoute({ view: 'apps-storage' })}
           onOpenOtherStorage={() => setRoute({ view: 'other-storage' })}
+          onOpenLegacyStorage={() => setRoute({ view: 'legacy-storage' })}
           onOpenEventLogStorage={() => setRoute({ view: 'event-log-storage' })}
           onOpenFilesStorage={() => setRoute({ view: 'files-storage' })}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showLegacyStorage} keep={showLegacyStorage}>
+        <LegacyStorageCleanupView onBack={() => setRoute({ view: 'usage' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showAppsStorage} keep={showAppsStorage}>
@@ -612,6 +624,10 @@ export function SettingsApp() {
         />
       </SettingsKeepLayer>
 
+      <SettingsKeepLayer show={showRegistryManager} keep={showRegistryManager}>
+        <RegistryManagerPane onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
       <SettingsKeepLayer show={showExperimental} keep={showExperimental}>
         <DeveloperSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
@@ -648,6 +664,7 @@ type UsageViewProps = {
   onSelectApp: (appId: BuiltinAppId | GeneratedAppId) => void
   onOpenAppsStorage: () => void
   onOpenOtherStorage: () => void
+  onOpenLegacyStorage: () => void
   onOpenEventLogStorage: () => void
   onOpenFilesStorage: () => void
 }
@@ -720,11 +737,24 @@ function UsageView({
   onSelectApp,
   onOpenAppsStorage,
   onOpenOtherStorage,
+  onOpenLegacyStorage,
   onOpenEventLogStorage,
   onOpenFilesStorage,
 }: UsageViewProps) {
-  const newsCommentStats = useMemo(() => getNewsCommentStats(readNewsStore()), [])
+  const [newsCommentStats, setNewsCommentStats] = useState<NewsCommentStats | undefined>(undefined)
   const newsTokenUsage = useMemo(() => loadNewsTokenUsage(), [])
+
+  useEffect(() => {
+    let alive = true
+    readNewsStore().then((store) => {
+      if (alive) {
+        setNewsCommentStats(getNewsCommentStats(store))
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const systemAttributedBytes =
     summary.appsBytes +
@@ -830,7 +860,15 @@ function UsageView({
                     onClick={onOpenAppsStorage}
                   />
                   <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
-                  <StorageCategoryRow label="新闻" bytes={summary.newsDataBytes} hint={`${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`} />
+                  <StorageCategoryRow
+                    label="新闻"
+                    bytes={summary.newsDataBytes}
+                    hint={
+                      newsCommentStats
+                        ? `${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`
+                        : undefined
+                    }
+                  />
                   <StorageCategoryRow label="图书索引" bytes={summary.booksIndexBytes} />
                   <StorageCategoryRow
                     label="网页浏览器（历史/书签等）"
@@ -842,6 +880,12 @@ function UsageView({
                     bytes={summary.otherBytes}
                     hint="未归类的 localStorage 键"
                     onClick={onOpenOtherStorage}
+                  />
+                  <StorageCategoryRow
+                    label="应用数据旧键"
+                    bytes={summary.legacyAppDataBytes}
+                    hint="已迁移应用残留的 localStorage 旧键"
+                    onClick={onOpenLegacyStorage}
                   />
                 </div>
               </div>
@@ -1068,9 +1112,25 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
     app.appSizeBytes + app.documentsBytes + app.dataBytes + app.versionHistoryBytes
   const versionCount = isGeneratedAppId(app.id) ? getAppVersionCount(generatedAppIdToSlug(app.id)) : 0
   const archivedVersionCount = Math.max(0, versionCount - 1)
-  const newsStore = app.id === 'news' ? readNewsStore() : undefined
-  const newsCommentStats = newsStore ? getNewsCommentStats(newsStore) : undefined
+  const [newsStore, setNewsStore] = useState<NewsStore | undefined>(undefined)
+  const [newsCommentStats, setNewsCommentStats] = useState<NewsCommentStats | undefined>(undefined)
   const newsTokenUsage = app.id === 'news' ? loadNewsTokenUsage() : undefined
+
+  useEffect(() => {
+    if (app.id !== 'news') {
+      return
+    }
+    let alive = true
+    readNewsStore().then((store) => {
+      if (alive) {
+        setNewsStore(store)
+        setNewsCommentStats(getNewsCommentStats(store))
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [app.id])
 
   const handleDelete = () => {
     if (!isGeneratedAppId(app.id)) {
@@ -1221,8 +1281,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
               管理新闻存档与评论区
             </button>
             <p class="settings__hint">
-              含报道、评论、点赞/举报记录及 AI 用量统计（当前占用{' '}
-              {formatStorageSize(getNewsStorageBytes())}）。
+              含报道、评论、点赞/举报记录及 AI 用量统计。
             </p>
           </div>
         )}

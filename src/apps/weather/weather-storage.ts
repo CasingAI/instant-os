@@ -1,12 +1,82 @@
-import {
-  DEVICE_STORAGE_KEYS,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
+import { createRegistryStore } from '../../os/registry-store.ts'
 import type { NotificationWeather } from '../../os/notification-center-widget-types.ts'
 import { saveNotificationCenterWidgetsCache } from '../../os/notification-center-widgets-storage.ts'
-import type { WeatherDetail, WeatherStore } from './weather-types.ts'
+import type { WeatherCityEntry, WeatherDetail, WeatherStore } from './weather-types.ts'
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.weather
+const registryStore = createRegistryStore<WeatherStore>({
+  appId: 'weather',
+  defaultValue: emptyStore,
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'myLocationCityId',
+      read: (store) => store.myLocationCityId,
+      write: (value, draft) => ({ ...draft, myLocationCityId: value }),
+      serialize: (value) => value ?? '',
+      deserialize: (raw) => (raw ? raw : undefined),
+    },
+    {
+      key: 'defaultDisplay',
+      read: (store) => store.defaultDisplay,
+      write: (value, draft) => ({ ...draft, defaultDisplay: value }),
+      serialize: (value) => value,
+      deserialize: (raw) => (raw ? raw : 'my-location'),
+    },
+    {
+      key: 'cities',
+      read: (store) => store.cities,
+      write: (value, draft) => ({ ...draft, cities: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return []
+        }
+        try {
+          return normalizeCityEntries(JSON.parse(raw) as unknown)
+        } catch {
+          return []
+        }
+      },
+    },
+    {
+      key: 'activeCityId',
+      read: (store) => store.activeCityId,
+      write: (value, draft) => ({ ...draft, activeCityId: value }),
+      serialize: (value) => value ?? '',
+      deserialize: (raw) => (raw ? raw : undefined),
+    },
+  ],
+  finalize: normalizeCrossFieldInvariants,
+  changedEventName: 'instant-os:weather-store-changed',
+})
+
+function normalizeCrossFieldInvariants(store: WeatherStore): WeatherStore {
+  const validMyLocationId =
+    store.myLocationCityId && store.cities.some((city) => city.id === store.myLocationCityId)
+      ? store.myLocationCityId
+      : undefined
+
+  let resolvedDefaultDisplay: WeatherStore['defaultDisplay'] = store.defaultDisplay
+  if (
+    resolvedDefaultDisplay !== 'my-location' &&
+    resolvedDefaultDisplay &&
+    !store.cities.some((city) => city.id === resolvedDefaultDisplay)
+  ) {
+    resolvedDefaultDisplay = 'my-location'
+  }
+
+  const validActiveCityId =
+    store.activeCityId && store.cities.some((city) => city.id === store.activeCityId)
+      ? store.activeCityId
+      : validMyLocationId ?? store.cities[0]?.id
+
+  return {
+    myLocationCityId: validMyLocationId,
+    defaultDisplay: resolvedDefaultDisplay,
+    cities: store.cities,
+    activeCityId: validActiveCityId,
+  }
+}
 
 function emptyStore(): WeatherStore {
   return {
@@ -30,92 +100,44 @@ function normalizeWeatherDetail(raw: unknown): WeatherDetail | undefined {
   return raw as WeatherDetail
 }
 
-function normalizeStore(raw: unknown): WeatherStore {
-  if (!raw || typeof raw !== 'object') {
-    return emptyStore()
+function normalizeCityEntries(raw: unknown): WeatherCityEntry[] {
+  if (!Array.isArray(raw)) {
+    return []
   }
-
-  const record = raw as Record<string, unknown>
-  const cities = Array.isArray(record.cities)
-    ? record.cities
-        .map((item): WeatherStore['cities'][number] | undefined => {
-          if (!item || typeof item !== 'object') {
-            return undefined
-          }
-          const city = item as Record<string, unknown>
-          if (typeof city.id !== 'string' || typeof city.name !== 'string') {
-            return undefined
-          }
-          return {
-            id: city.id,
-            name: city.name,
-            region: typeof city.region === 'string' ? city.region : undefined,
-            weather: normalizeWeatherDetail(city.weather),
-          }
-        })
-        .filter((item): item is WeatherStore['cities'][number] => item !== undefined)
-    : []
-
-  const myLocationCityId =
-    typeof record.myLocationCityId === 'string' ? record.myLocationCityId : undefined
-  const activeCityId = typeof record.activeCityId === 'string' ? record.activeCityId : undefined
-
-  const validMyLocationId =
-    myLocationCityId && cities.some((city) => city.id === myLocationCityId)
-      ? myLocationCityId
-      : undefined
-
-  let resolvedDefaultDisplay: WeatherStore['defaultDisplay'] =
-    record.defaultDisplay === 'my-location' || typeof record.defaultDisplay === 'string'
-      ? (record.defaultDisplay as WeatherStore['defaultDisplay'])
-      : 'my-location'
-
-  if (
-    resolvedDefaultDisplay !== 'my-location' &&
-    !cities.some((city) => city.id === resolvedDefaultDisplay)
-  ) {
-    resolvedDefaultDisplay = 'my-location'
-  }
-
-  const validActiveCityId =
-    activeCityId && cities.some((city) => city.id === activeCityId)
-      ? activeCityId
-      : validMyLocationId ?? cities[0]?.id
-
-  return {
-    myLocationCityId: validMyLocationId,
-    defaultDisplay: resolvedDefaultDisplay,
-    cities,
-    activeCityId: validActiveCityId,
-  }
+  return raw
+    .map((item): WeatherCityEntry | undefined => {
+      if (!item || typeof item !== 'object') {
+        return undefined
+      }
+      const city = item as Record<string, unknown>
+      if (typeof city.id !== 'string' || typeof city.name !== 'string') {
+        return undefined
+      }
+      return {
+        id: city.id,
+        name: city.name,
+        region: typeof city.region === 'string' ? city.region : undefined,
+        weather: normalizeWeatherDetail(city.weather),
+      }
+    })
+    .filter((item): item is WeatherCityEntry => item !== undefined)
 }
 
-function loadStore(): WeatherStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    return normalizeStore(JSON.parse(raw))
-  } catch {
-    return emptyStore()
-  }
+export function subscribeWeatherStore(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-function saveStore(store: WeatherStore): boolean {
-  const ok = writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
-  if (ok && typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('instant-os:weather-store-changed'))
-  }
-  return ok
+export async function readWeatherStore(): Promise<WeatherStore> {
+  return registryStore.read()
 }
 
-export function readWeatherStore(): WeatherStore {
-  return loadStore()
+export async function writeWeatherStore(store: WeatherStore): Promise<void> {
+  await registryStore.write(store)
 }
 
-export function writeWeatherStore(store: WeatherStore): boolean {
-  return saveStore(store)
+/** 内存缓存同步兜底读（未 hydrate 返回 undefined）；常规路径用 readWeatherStore */
+export function readWeatherStoreSync(): WeatherStore | undefined {
+  return registryStore.readSync()
 }
 
 export function createCityId(name: string): string {
@@ -182,7 +204,7 @@ export function getWidgetDisplayWeather(store: WeatherStore): NotificationWeathe
   return toNotificationWeather(city.weather)
 }
 
-export function syncWidgetWeatherFromStore(store: WeatherStore = readWeatherStore()): void {
+export function syncWidgetWeatherFromStore(store: WeatherStore): void {
   const weather = getWidgetDisplayWeather(store)
   if (!weather) {
     return
@@ -229,8 +251,10 @@ export function upsertCityWeather(
   }
 }
 
-export function ensureMyLocationFromNotification(weather: NotificationWeather): WeatherStore {
-  const store = readWeatherStore()
+export async function ensureMyLocationFromNotification(
+  weather: NotificationWeather,
+): Promise<WeatherStore> {
+  const store = await readWeatherStore()
 
   if (store.myLocationCityId) {
     return store
@@ -245,19 +269,19 @@ export function ensureMyLocationFromNotification(weather: NotificationWeather): 
     weather: existing?.weather?.hourly.length ? existing.weather : detail,
     asMyLocation: true,
   })
-  writeWeatherStore(next)
+  await writeWeatherStore(next)
   syncWidgetWeatherFromStore(next)
   return next
 }
 
-export function bootstrapWeatherStoreFromWidgetCache(
+export async function bootstrapWeatherStoreFromWidgetCache(
   weather: NotificationWeather | undefined,
-): WeatherStore {
-  let store = readWeatherStore()
+): Promise<WeatherStore> {
+  let store = await readWeatherStore()
   if (store.cities.length > 0) {
     if (!store.activeCityId && store.cities[0]) {
       store = { ...store, activeCityId: store.cities[0].id }
-      writeWeatherStore(store)
+      await writeWeatherStore(store)
     }
     return store
   }
@@ -271,31 +295,33 @@ export function bootstrapWeatherStoreFromWidgetCache(
     weather: compactNotificationToDetail(weather),
     asMyLocation: true,
   })
-  writeWeatherStore(store)
+  await writeWeatherStore(store)
   syncWidgetWeatherFromStore(store)
   return store
 }
 
-export function setActiveCity(cityId: string): WeatherStore {
-  const store = { ...readWeatherStore(), activeCityId: cityId }
-  writeWeatherStore(store)
+export async function setActiveCity(cityId: string): Promise<WeatherStore> {
+  const store = { ...(await readWeatherStore()), activeCityId: cityId }
+  await writeWeatherStore(store)
   return store
 }
 
-export function setDefaultDisplay(defaultDisplay: WeatherStore['defaultDisplay']): WeatherStore {
-  const store = { ...readWeatherStore(), defaultDisplay }
-  writeWeatherStore(store)
+export async function setDefaultDisplay(
+  defaultDisplay: WeatherStore['defaultDisplay'],
+): Promise<WeatherStore> {
+  const store = { ...(await readWeatherStore()), defaultDisplay }
+  await writeWeatherStore(store)
   syncWidgetWeatherFromStore(store)
   return store
 }
 
-export function updateCityWeather(cityId: string, weather: WeatherDetail): WeatherStore {
-  const store = readWeatherStore()
+export async function updateCityWeather(cityId: string, weather: WeatherDetail): Promise<WeatherStore> {
+  const store = await readWeatherStore()
   const cities = store.cities.map((city) =>
     city.id === cityId ? { ...city, weather, name: weather.city } : city,
   )
   const next = { ...store, cities }
-  writeWeatherStore(next)
+  await writeWeatherStore(next)
 
   const widgetCity = getWidgetDisplayCity(next)
   if (widgetCity?.id === cityId) {
@@ -305,8 +331,8 @@ export function updateCityWeather(cityId: string, weather: WeatherDetail): Weath
   return next
 }
 
-export function removeCity(cityId: string): WeatherStore {
-  const store = readWeatherStore()
+export async function removeCity(cityId: string): Promise<WeatherStore> {
+  const store = await readWeatherStore()
   if (store.myLocationCityId === cityId) {
     return store
   }
@@ -323,7 +349,7 @@ export function removeCity(cityId: string): WeatherStore {
   }
 
   const next = { ...store, cities, defaultDisplay, activeCityId }
-  writeWeatherStore(next)
+  await writeWeatherStore(next)
   syncWidgetWeatherFromStore(next)
   return next
 }

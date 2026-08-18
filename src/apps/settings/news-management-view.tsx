@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { formatTokenCount } from '../browser/format-token-count.ts'
@@ -12,9 +12,8 @@ import {
   getArticlesForDate,
   getCommentCountForArticle,
   getNewsCommentStats,
-  getNewsStorageBytes,
   readNewsStore,
-  writeNewsStore,
+  subscribeNewsStore,
 } from '../news/news-storage.ts'
 import { clearNewsTokenUsage, loadNewsTokenUsage } from '../news/news-token-usage.ts'
 import type { NewsArticle, NewsStore } from '../news/news-types.ts'
@@ -26,24 +25,26 @@ type NewsManagementViewProps = {
 }
 
 export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewProps) {
-  const [store, setStore] = useState<NewsStore>(() => readNewsStore())
+  const [store, setStore] = useState<NewsStore | undefined>(undefined)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [tokenUsage, setTokenUsage] = useState(() => loadNewsTokenUsage())
 
-  const dates = useMemo(() => getAllEditionDates(store), [store])
-  const commentStats = useMemo(() => getNewsCommentStats(store), [store])
-  const storageBytes = useMemo(() => getNewsStorageBytes(), [store, tokenUsage])
-
   useEffect(() => {
-    const onChanged = () => {
-      const next = readNewsStore()
-      setStore(next)
-      setTokenUsage(loadNewsTokenUsage())
-      onDataChange?.()
+    let alive = true
+    const load = () => {
+      readNewsStore().then((next) => {
+        if (alive) {
+          setStore(next)
+          setTokenUsage(loadNewsTokenUsage())
+          onDataChange?.()
+        }
+      })
     }
-    window.addEventListener('instant-os:news-store-changed', onChanged)
+    load()
+    const unsubscribe = subscribeNewsStore(load)
     return () => {
-      window.removeEventListener('instant-os:news-store-changed', onChanged)
+      alive = false
+      unsubscribe()
     }
   }, [onDataChange])
 
@@ -59,9 +60,11 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
     })
   }
 
-  const handleDeleteDay = (date: string) => {
-    const next = deleteArticlesForDate(store, date)
-    writeNewsStore(next)
+  const handleDeleteDay = async (date: string) => {
+    if (!store) {
+      return
+    }
+    const next = await deleteArticlesForDate(store, date)
     setStore(next)
     setExpanded((prev) => {
       const n = new Set(prev)
@@ -71,9 +74,11 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
     onDataChange?.()
   }
 
-  const handleDeleteArticle = (date: string, article: NewsArticle) => {
-    const next = deleteArticle(store, article.id)
-    writeNewsStore(next)
+  const handleDeleteArticle = async (date: string, article: NewsArticle) => {
+    if (!store) {
+      return
+    }
+    const next = await deleteArticle(store, article.id)
     setStore(next)
     onDataChange?.()
     const remaining = getArticlesForDate(next, date)
@@ -86,16 +91,20 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
     }
   }
 
-  const handleDeleteComments = (articleId: string) => {
-    const next = deleteCommentThread(store, articleId)
-    writeNewsStore(next)
+  const handleDeleteComments = async (articleId: string) => {
+    if (!store) {
+      return
+    }
+    const next = await deleteCommentThread(store, articleId)
     setStore(next)
     onDataChange?.()
   }
 
-  const handleClearAllComments = () => {
-    const next = clearAllCommentThreads(store)
-    writeNewsStore(next)
+  const handleClearAllComments = async () => {
+    if (!store) {
+      return
+    }
+    const next = await clearAllCommentThreads(store)
     setStore(next)
     onDataChange?.()
   }
@@ -105,6 +114,23 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
     setTokenUsage(loadNewsTokenUsage())
     onDataChange?.()
   }
+
+  if (!store) {
+    return (
+      <div class="settings">
+        <div class="settings__nav">
+          <IosNavBackButton label="显示全部" onClick={onBack} />
+        </div>
+        <div class="settings__content settings__content--compact">
+          <div class="settings__box settings__empty">正在加载…</div>
+        </div>
+      </div>
+    )
+  }
+
+  const dates = getAllEditionDates(store)
+  const commentStats = getNewsCommentStats(store)
+  const storageBytes = new TextEncoder().encode(JSON.stringify(store)).length
 
   return (
     <div class="settings">
@@ -191,7 +217,7 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
 
           {commentStats.threadCount > 0 && (
             <div class="news-mgmt__toolbar">
-              <button type="button" class="settings__btn settings__btn--danger" onClick={handleClearAllComments}>
+              <button type="button" class="settings__btn settings__btn--danger" onClick={() => void handleClearAllComments()}>
                 清除全部评论区
               </button>
               <p class="news-mgmt__toolbar-note">删除所有报道下的评论数据，报道正文保留。</p>
@@ -227,7 +253,7 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
                         <button
                           type="button"
                           class="settings__btn settings__btn--small"
-                          onClick={() => handleDeleteDay(date)}
+                          onClick={() => void handleDeleteDay(date)}
                         >
                           删除整日
                         </button>
@@ -251,7 +277,7 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
                                     <button
                                       type="button"
                                       class="settings__btn settings__btn--small"
-                                      onClick={() => handleDeleteComments(art.id)}
+                                      onClick={() => void handleDeleteComments(art.id)}
                                     >
                                       清评论
                                     </button>
@@ -259,7 +285,7 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
                                   <button
                                     type="button"
                                     class="settings__btn settings__btn--small settings__btn--danger"
-                                    onClick={() => handleDeleteArticle(date, art)}
+                                    onClick={() => void handleDeleteArticle(date, art)}
                                   >
                                     删除
                                   </button>

@@ -1,12 +1,52 @@
 import { osNowMs } from '../../os/os-clock.ts'
-import {
-  DEVICE_STORAGE_KEYS,
-  getLocalStorageKeyBytes,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
+import { createRegistryStore } from '../../os/registry-store.ts'
 import type { CatGptMessage, CatGptSession, CatGptStore } from './catgpt-types.ts'
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.catgpt
+const registryStore = createRegistryStore<CatGptStore>({
+  appId: 'catgpt',
+  defaultValue: emptyStore,
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'sessions',
+      read: (store) => store.sessions,
+      write: (value, draft) => ({ ...draft, sessions: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return []
+        }
+        try {
+          const parsed = JSON.parse(raw) as unknown
+          return Array.isArray(parsed) ? parsed.filter(isSessionLike).map(normalizeSession) : []
+        } catch {
+          return []
+        }
+      },
+    },
+    {
+      key: 'activeSessionId',
+      read: (store) => store.activeSessionId,
+      write: (value, draft) => ({ ...draft, activeSessionId: value }),
+      serialize: (value) => value ?? '',
+      deserialize: (raw) => (raw ? raw : undefined),
+    },
+  ],
+})
+
+function isSessionLike(value: unknown): value is CatGptSession {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
+  }
+  const session = value as Record<string, unknown>
+  return (
+    typeof session.id === 'string' &&
+    typeof session.title === 'string' &&
+    Array.isArray(session.messages) &&
+    typeof session.createdAt === 'number' &&
+    typeof session.updatedAt === 'number'
+  )
+}
 
 const SESSION_EMOJIS = [
   '🐱',
@@ -46,46 +86,20 @@ function normalizeSession(session: CatGptSession): CatGptSession {
   }
 }
 
-function normalizeStore(store: CatGptStore): CatGptStore {
-  return {
-    ...store,
-    sessions: store.sessions.map(normalizeSession),
-  }
-}
-
 function emptyStore(): CatGptStore {
   return { sessions: [] }
 }
 
-function loadStore(): CatGptStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    const parsed = JSON.parse(raw) as CatGptStore
-    if (!Array.isArray(parsed.sessions)) {
-      return emptyStore()
-    }
-    return normalizeStore({
-      sessions: parsed.sessions,
-      activeSessionId: parsed.activeSessionId,
-    })
-  } catch {
-    return emptyStore()
-  }
+export function subscribeCatGptStore(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-export function readCatGptStore(): CatGptStore {
-  return loadStore()
+export async function readCatGptStore(): Promise<CatGptStore> {
+  return registryStore.read()
 }
 
-export function writeCatGptStore(store: CatGptStore): boolean {
-  return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
-}
-
-export function getCatGptStorageBytes(): number {
-  return getLocalStorageKeyBytes(STORAGE_KEY)
+export async function writeCatGptStore(store: CatGptStore): Promise<void> {
+  await registryStore.write(store)
 }
 
 export function createSessionId(): string {

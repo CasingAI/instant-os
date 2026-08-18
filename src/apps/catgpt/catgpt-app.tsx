@@ -16,6 +16,7 @@ import {
   deriveSessionTitle,
   readCatGptStore,
   removeSession,
+  subscribeCatGptStore,
   upsertSession,
   writeCatGptStore,
 } from './catgpt-storage.ts'
@@ -43,7 +44,7 @@ function formatCatGptError(err: unknown): string {
 export function CatGptApp() {
   const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const [store, setStore] = useState<CatGptStore>(() => readCatGptStore())
+  const [store, setStore] = useState<CatGptStore | undefined>(undefined)
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -52,37 +53,46 @@ export function CatGptApp() {
   const chatEndRef = useRef<HTMLDivElement | null>(null)
 
   const activeSession = useMemo(
-    () => store.sessions.find((session) => session.id === store.activeSessionId),
-    [store.activeSessionId, store.sessions],
+    () => (store ? store.sessions.find((session) => session.id === store.activeSessionId) : undefined),
+    [store],
   )
 
-  const persistStore = useCallback((next: CatGptStore) => {
-    writeCatGptStore(next)
+  const persistStore = useCallback(async (next: CatGptStore) => {
+    await writeCatGptStore(next)
     setStore(next)
   }, [])
 
   const selectSession = useCallback(
-    (sessionId: string) => {
-      persistStore({ ...store, activeSessionId: sessionId })
+    async (sessionId: string) => {
+      if (!store) {
+        return
+      }
+      await persistStore({ ...store, activeSessionId: sessionId })
       setStreamingText('')
       setSidebarOpen(false)
     },
     [persistStore, store],
   )
 
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback(async () => {
+    if (!store) {
+      return
+    }
     const session = createSession()
-    persistStore({
+    await persistStore({
       sessions: [session, ...store.sessions],
       activeSessionId: session.id,
     })
     setDraft('')
     setStreamingText('')
-  }, [persistStore, store.sessions])
+  }, [persistStore, store])
 
   const handleDeleteSession = useCallback(
-    (sessionId: string) => {
-      persistStore(removeSession(store, sessionId))
+    async (sessionId: string) => {
+      if (!store) {
+        return
+      }
+      await persistStore(removeSession(store, sessionId))
       setStreamingText('')
     },
     [persistStore, store],
@@ -95,7 +105,7 @@ export function CatGptApp() {
   const sendMessage = useCallback(
     async (rawText: string) => {
       const text = rawText.trim()
-      if (!text || streaming) {
+      if (!text || streaming || !store) {
         return
       }
 
@@ -104,7 +114,7 @@ export function CatGptApp() {
       let session = activeSession
       if (!session) {
         session = createSession()
-        persistStore({
+        await persistStore({
           sessions: [session, ...store.sessions],
           activeSessionId: session.id,
         })
@@ -119,7 +129,7 @@ export function CatGptApp() {
         updatedAt: osNowMs(),
       }
 
-      persistStore(upsertSession(store, { ...pendingSession, id: session.id }))
+      await persistStore(upsertSession(store, { ...pendingSession, id: session.id }))
       setStreaming(true)
       setStreamingText('')
 
@@ -138,7 +148,7 @@ export function CatGptApp() {
           updatedAt: osNowMs(),
         }
 
-        persistStore(
+        await persistStore(
           upsertSession(
             { ...store, activeSessionId: session.id },
             finalSession,
@@ -154,7 +164,7 @@ export function CatGptApp() {
           updatedAt: osNowMs(),
         }
 
-        persistStore(
+        await persistStore(
           upsertSession(
             { ...store, activeSessionId: session.id },
             finalSession,
@@ -186,6 +196,23 @@ export function CatGptApp() {
   useEffect(() => {
     setAppWindowTitle('catgpt', 'CatGPT')
   }, [setAppWindowTitle])
+
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      readCatGptStore().then((next) => {
+        if (alive) {
+          setStore(next)
+        }
+      })
+    }
+    load()
+    const unsubscribe = subscribeCatGptStore(load)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     scrollToBottom()
@@ -237,6 +264,15 @@ export function CatGptApp() {
   }, [closeWindowsForApp, contentWidth, handleNewChat, minimizeWindow, showBuiltinAbout, windows])
 
   useAppMenuBar('catgpt', menuBar)
+
+  if (store === undefined) {
+    return (
+      <div class="catgpt-app catgpt-app--loading" role="status" aria-live="polite">
+        <div class="catgpt-app__loading-spinner" aria-hidden="true" />
+        <p>正在加载</p>
+      </div>
+    )
+  }
 
   const showWelcome = !activeSession || activeSession.messages.length === 0
 

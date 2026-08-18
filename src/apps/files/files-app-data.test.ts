@@ -3,8 +3,8 @@
  * 运行：node --experimental-strip-types src/apps/files/files-app-data.test.ts
  *
  * 覆盖：ID 与 gen_ 目录段往返；写入后按 /Applications/{id}.app/Data 可列、可读；
- * 卷根不重复列出真实包；用户写路径被拒、系统层 API 可写；空键不进入已迁移集合；
- * 记账键为原始 appId。
+ * 卷根不重复列出真实包；用户写路径被拒、系统层 API 可写；记账键为原始 appId。
+ * （旧 localStorage → 注册表迁移的测试移到了 src/os/app-registry-migration.test.ts）
  */
 import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
@@ -12,7 +12,6 @@ import { zipSync } from 'fflate'
 import { writeAppDataText } from './files-app-data-api.ts'
 import { appDataDirName, appDataDirNameToAppId, appBundleDirName } from './files-app-id.ts'
 import { getAppDataBytesByApp } from './files-app-data-quota.ts'
-import { isAppDataMigrated, runAppDataMigrationOnce } from './files-app-data-migration.ts'
 import { resetFilesDbForTests } from './files-storage.ts'
 import {
   invalidateFilesVfsPathCaches,
@@ -21,7 +20,6 @@ import {
   resolveNodeByAbsolutePath,
   upsertFilesBatch,
 } from './files-vfs.ts'
-import { DEVICE_STORAGE_KEYS } from '../../os/device-storage.ts'
 
 const APP_DATA_REL = 'weather.app/Data/weather.json'
 
@@ -30,21 +28,6 @@ function stubSourceSnapshotFetch(): void {
   const emptyZip = zipSync({})
   ;(globalThis as Record<string, unknown>).fetch = async () =>
     new Response(new Blob([emptyZip]), { status: 200 })
-}
-
-function installLocalStorageStub(): Map<string, string> {
-  const map = new Map<string, string>()
-  ;(globalThis as Record<string, unknown>).localStorage = {
-    getItem: (key: string) => map.get(key) ?? null,
-    setItem: (key: string, value: string) => void map.set(key, String(value)),
-    removeItem: (key: string) => void map.delete(key),
-    clear: () => map.clear(),
-    key: (index: number) => [...map.keys()][index] ?? null,
-    get length() {
-      return map.size
-    },
-  }
-  return map
 }
 
 async function resetState(): Promise<void> {
@@ -104,24 +87,6 @@ async function testUserWriteRejectedButSystemWriteWorks(): Promise<void> {
   await writeAppDataText('weather', 'weather.json', 'ok')
   const { text } = await readTextFile(`/Applications/${APP_DATA_REL}`)
   assert.equal(text, 'ok')
-}
-
-async function testEmptyKeyNotMarkedMigrated(): Promise<void> {
-  await resetState()
-  const store = installLocalStorageStub()
-  // 有数据的 weather 应导出并标记
-  store.set(DEVICE_STORAGE_KEYS.weather, '{"cached":1}')
-  // 空键（如 calendar）不进入已迁移集合
-  const result = await runAppDataMigrationOnce()
-  assert.ok(result.migrated.includes('weather'))
-  assert.ok(!result.skipped.includes('weather') || result.skipped.length >= 0)
-  assert.equal(isAppDataMigrated('weather'), true)
-  assert.equal(isAppDataMigrated('calendar'), false)
-
-  const file = await resolveNodeByAbsolutePath('/Applications/weather.app/Data/weather.json')
-  assert.ok(file, '迁移后文件应存在')
-  const { text } = await readTextFile(`/Applications/${APP_DATA_REL}`)
-  assert.equal(text, '{"cached":1}')
 }
 
 async function testQuotaKeysAreRawAppId(): Promise<void> {

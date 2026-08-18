@@ -41,7 +41,12 @@ import { GomokuModelName } from './gomoku-model-name.tsx'
 import { GomokuMatchIntro } from './gomoku-match-intro.tsx'
 import { GomokuWinCelebration } from './gomoku-win-celebration.tsx'
 import { GomokuWinLineHighlight } from './gomoku-win-line-highlight.tsx'
-import { loadGomokuGameMode, saveGomokuGameMode, type GomokuGameMode } from './gomoku-storage.ts'
+import {
+  loadGomokuGameMode,
+  saveGomokuGameMode,
+  subscribeGomokuGameMode,
+  type GomokuGameMode,
+} from './gomoku-storage.ts'
 import { playInvalidSound, playPlaceSound, playUndoSound, playWinSound } from './gomoku-sounds.ts'
 import './gomoku.css'
 
@@ -231,7 +236,7 @@ export function GomokuApp() {
   const { closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const opponentFriendlyName = useDefaultAiModelFriendlyName()
-  const [gameMode, setGameMode] = useState<GomokuGameMode>(() => loadGomokuGameMode())
+  const [gameMode, setGameMode] = useState<GomokuGameMode>('pve')
   const [game, setGame] = useState<GameState>(createInitialState)
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>('idle')
   const [aiThinking, setAiThinking] = useState(false)
@@ -242,6 +247,23 @@ export function GomokuApp() {
   const [drawCelebrationDismissed, setDrawCelebrationDismissed] = useState(false)
   const [mobileInfoOpen, setMobileInfoOpen] = useState(false)
   const aiTurnRef = useRef(0)
+
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      loadGomokuGameMode().then((mode) => {
+        if (alive) {
+          setGameMode(mode)
+        }
+      })
+    }
+    load()
+    const unsubscribe = subscribeGomokuGameMode(load)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [])
 
   const lastMove = game.moves.at(-1)
   const aiConfigured = hasOpenAiApiKey()
@@ -260,9 +282,9 @@ export function GomokuApp() {
     setDrawCelebrationDismissed(false)
   }, [])
 
-  const selectGameMode = useCallback((mode: GomokuGameMode) => {
+  const selectGameMode = useCallback(async (mode: GomokuGameMode) => {
     if (mode === gameMode) return
-    saveGomokuGameMode(mode)
+    await saveGomokuGameMode(mode)
     setGameMode(mode)
     setAiThinking(false)
     setAiThinkingLabel('default')
@@ -323,17 +345,17 @@ export function GomokuApp() {
           {
             type: 'action',
             label: `${menuCheckPrefix(gameMode === 'pvp')}人类对战人类`,
-            onClick: () => selectGameMode('pvp'),
+            onClick: () => void selectGameMode('pvp'),
           },
           {
             type: 'action',
             label: `${menuCheckPrefix(gameMode === 'pve')}人类对战 AI`,
-            onClick: () => selectGameMode('pve'),
+            onClick: () => void selectGameMode('pve'),
           },
           {
             type: 'action',
             label: `${menuCheckPrefix(gameMode === 'aivai')}AI 对战 AI`,
-            onClick: () => selectGameMode('aivai'),
+            onClick: () => void selectGameMode('aivai'),
           },
         ],
       },

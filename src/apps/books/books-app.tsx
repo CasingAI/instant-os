@@ -24,6 +24,7 @@ import {
   removeBookFromLibrary,
   replaceCatalog,
   resetFailedBookForGeneration,
+  subscribeBooksStore,
   updateBookInLibrary,
   upsertCatalog,
   writeBooksStore,
@@ -38,7 +39,7 @@ export function BooksApp() {
   const { showBuiltinAbout } = useAboutApp()
   const storeVisitedRef = useRef(false)
 
-  const [store, setStore] = useState<BooksIndexStore>(() => readBooksStore())
+  const [store, setStore] = useState<BooksIndexStore | undefined>(undefined)
   const [screen, setScreen] = useState<BooksScreen>('shelf')
   const [detailSlug, setDetailSlug] = useState<string | undefined>()
   const [detailListings, setDetailListings] = useState<BookListing[]>([])
@@ -50,18 +51,18 @@ export function BooksApp() {
   const [shelfEditing, setShelfEditing] = useState(false)
   const [deleteConfirmBookId, setDeleteConfirmBookId] = useState<string | undefined>()
 
-  const persistStore = useCallback((next: BooksIndexStore) => {
-    writeBooksStore(next)
+  const persistStore = useCallback(async (next: BooksIndexStore) => {
+    await writeBooksStore(next)
     setStore(next)
   }, [])
 
   const librarySlugs = useMemo(
-    () => new Set(store.library.map((book) => book.slug)),
-    [store.library],
+    () => new Set((store?.library ?? []).map((book) => book.slug)),
+    [store],
   )
 
   const detailListing = useMemo(() => {
-    if (!detailSlug) {
+    if (!detailSlug || !store) {
       return undefined
     }
     return (
@@ -72,7 +73,7 @@ export function BooksApp() {
   }, [detailSlug, detailListings, store])
 
   const readerBook = useMemo(
-    () => (readerBookId ? findLibraryBookById(store, readerBookId) : undefined),
+    () => (readerBookId && store ? findLibraryBookById(store, readerBookId) : undefined),
     [readerBookId, store],
   )
 
@@ -81,20 +82,34 @@ export function BooksApp() {
   }, [setAppWindowTitle])
 
   useEffect(() => {
-    const onStoreChanged = () => setStore(readBooksStore())
-    window.addEventListener('instant-os:books-store-changed', onStoreChanged)
-    return () => window.removeEventListener('instant-os:books-store-changed', onStoreChanged)
+    let alive = true
+    const load = () => {
+      void readBooksStore().then((next) => {
+        if (alive) {
+          setStore(next)
+        }
+      })
+    }
+    load()
+    const unsubscribe = subscribeBooksStore(load)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
   }, [])
 
   const refreshCatalog = useCallback(async (replace = false) => {
     setCatalogLoading(true)
-    const listings: typeof store.catalog = []
+    const listings: BookListing[] = []
     try {
       await generateStoreCatalogStreaming((listing) => {
         listings.push(listing)
         setStore((current) => {
+          if (!current) {
+            return current
+          }
           const next = replace ? replaceCatalog(current, listings) : upsertCatalog(current, [listing])
-          writeBooksStore(next)
+          void writeBooksStore(next)
           return next
         })
       })
@@ -108,8 +123,11 @@ export function BooksApp() {
     try {
       await generateStoreCatalogForCategoryStreaming(category, (listing) => {
         setStore((current) => {
+          if (!current) {
+            return current
+          }
           const next = upsertCatalog(current, [listing])
-          writeBooksStore(next)
+          void writeBooksStore(next)
           return next
         })
       })
@@ -120,11 +138,11 @@ export function BooksApp() {
 
   const openStore = useCallback(() => {
     setScreen('store')
-    if (!storeVisitedRef.current && store.catalog.length === 0 && !catalogLoading) {
+    if (!storeVisitedRef.current && (store?.catalog.length ?? 0) === 0 && !catalogLoading) {
       storeVisitedRef.current = true
       void refreshCatalog(true)
     }
-  }, [catalogLoading, refreshCatalog, store.catalog.length])
+  }, [catalogLoading, refreshCatalog, store])
 
   useEffect(() => {
     if (screen !== 'shelf') {
@@ -133,13 +151,13 @@ export function BooksApp() {
   }, [screen])
 
   useEffect(() => {
-    if (store.library.length === 0) {
+    if ((store?.library.length ?? 0) === 0) {
       setShelfEditing(false)
     }
-  }, [store.library.length])
+  }, [store?.library.length])
 
   const deleteConfirmBook = useMemo(
-    () => (deleteConfirmBookId ? findLibraryBookById(store, deleteConfirmBookId) : undefined),
+    () => (deleteConfirmBookId && store ? findLibraryBookById(store, deleteConfirmBookId) : undefined),
     [deleteConfirmBookId, store],
   )
 
@@ -148,23 +166,23 @@ export function BooksApp() {
   }, [])
 
   const confirmRemoveBook = useCallback(async () => {
-    if (!deleteConfirmBookId) {
+    if (!deleteConfirmBookId || !store) {
       return
     }
     cancelBookGeneration(deleteConfirmBookId)
     const next = await removeBookFromLibrary(store, deleteConfirmBookId)
-    persistStore(next)
+    await persistStore(next)
     setDeleteConfirmBookId(undefined)
   }, [deleteConfirmBookId, persistStore, store])
 
   const openStoreListing = useCallback(
     (slug: string, sourceListings?: BookListing[], returnScreen: BooksScreen = 'store') => {
-      setDetailListings(sourceListings ?? store.catalog)
+      setDetailListings(sourceListings ?? store?.catalog ?? [])
       setDetailReturnScreen(returnScreen)
       setDetailSlug(slug)
       setScreen('store-detail')
     },
-    [store.catalog],
+    [store],
   )
 
   const openSearch = useCallback(() => {
@@ -179,7 +197,7 @@ export function BooksApp() {
   const handleAddToShelf = useCallback(
     async (listing: NonNullable<typeof detailListing>, detail: BookDetail) => {
       setAddingSlug(listing.slug)
-      let nextStore = readBooksStore()
+      let nextStore = await readBooksStore()
       const existing = findLibraryBook(nextStore, listing.slug)
       let book = existing
 
@@ -201,16 +219,18 @@ export function BooksApp() {
       nextStore = updateBookInLibrary(nextStore, book.id, {
         chapterCount: detail.chapterOutline.length,
       })
-      writeBooksStore(nextStore)
+      await writeBooksStore(nextStore)
       setStore(nextStore)
 
       try {
-        await generateBookChaptersStreaming(book.id, listing, detail, () => {
-          setStore(readBooksStore())
+        await generateBookChaptersStreaming(book.id, listing, detail, async () => {
+          const next = await readBooksStore()
+          setStore(next)
         })
       } finally {
         setAddingSlug(undefined)
-        setStore(readBooksStore())
+        const next = await readBooksStore()
+        setStore(next)
       }
     },
     [],
@@ -243,6 +263,19 @@ export function BooksApp() {
   }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
 
   useAppMenuBar('books', menuBar)
+
+  if (store === undefined) {
+    return (
+      <div class="books">
+        <div class="books__main">
+          <div class="books-store__loading" role="status" aria-live="polite">
+            <div class="books-store__spinner" aria-hidden="true" />
+            <p>正在加载</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (screen === 'reader' && readerBook) {
     return (

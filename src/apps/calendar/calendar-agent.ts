@@ -426,7 +426,7 @@ export async function generateMonthMarkers(
     markers,
   }
   if (options?.persist !== false) {
-    saveMonthDigest(digest)
+    await saveMonthDigest(digest)
   }
   return digest
 }

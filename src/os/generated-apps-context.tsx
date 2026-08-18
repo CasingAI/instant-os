@@ -33,7 +33,7 @@ import type { AppCapabilityTag } from '../apps/appstore/app-capability-tags.ts'
 import { DeviceStorageFullError } from './device-storage.ts'
 import {
   clearGeneratedAppData,
-  saveGeneratedAppData,
+  saveGeneratedAppDataAsync,
 } from './generated-app-data-storage.ts'
 import type { GeneratedAppDataStore } from './generated-app-data-storage.ts'
 import { loadInstalledApps, saveInstalledApps } from './generated-apps-storage.ts'
@@ -823,10 +823,12 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         if (!ok) setListingsError('数据空间已满（4 GB 上限），无法发布应用。')
       })
 
-      if (!saveGeneratedAppData(input.appId, input.appData)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
-        return undefined
-      }
+      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（5 MB 配额）
+      void saveGeneratedAppDataAsync(input.appId, input.appData).then((failures) => {
+        if (failures.length > 0) {
+          setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
+        }
+      })
 
       setInstalledApps(nextApps)
 
@@ -900,10 +902,12 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         if (!ok) setListingsError('数据空间已满（4 GB 上限），无法同步应用。')
       })
 
-      if (!saveGeneratedAppData(input.appId, input.appData)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
-        return false
-      }
+      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（5 MB 配额）
+      void saveGeneratedAppDataAsync(input.appId, input.appData).then((failures) => {
+        if (failures.length > 0) {
+          setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
+        }
+      })
 
       setInstalledApps(nextApps)
       setStorageRevision((revision) => revision + 1)

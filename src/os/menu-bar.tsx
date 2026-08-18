@@ -345,7 +345,6 @@ const MenuDropdownMemo = memo(MenuDropdown)
 type MenuBarRightSectionProps = {
   openMenuLabel: string | undefined
   onToggleMenu: (label: string) => void
-  onCloseMenu: () => void
   notificationCenterOpen: boolean
   onToggleNotificationCenter: () => void
   activeNotificationCount: number
@@ -357,7 +356,6 @@ type MenuBarRightSectionProps = {
 function MenuBarRightSection({
   openMenuLabel,
   onToggleMenu,
-  onCloseMenu,
   notificationCenterOpen,
   onToggleNotificationCenter,
   activeNotificationCount,
@@ -389,15 +387,9 @@ function MenuBarRightSection({
 
   const cloudWorking = powProgress.active || activeNetworkRequests > 0
 
-  useEffect(() => {
-    if (!proxyServer.connected && openMenuLabel === STATUS_CLOUD_SERVICE_LABEL) {
-      onCloseMenu()
-    }
-  }, [proxyServer.connected, openMenuLabel, onCloseMenu])
-
   return (
     <div class="menu-bar__right">
-      {proxyServer.connected && (
+      {(proxyServer.connected || cloudWorking) && (
         <div class="menu-bar__menu">
           <button
             type="button"
@@ -409,9 +401,11 @@ function MenuBarRightSection({
                 ? powProgress.active
                   ? '云服务：正在计算 AI Challenge…'
                   : '云服务：网络请求中…'
-                : proxyServer.proxyHost
-                  ? `云服务已连接，${proxyServer.proxyHost}`
-                  : '云服务已连接'
+                : proxyServer.connected
+                  ? proxyServer.proxyHost
+                    ? `云服务已连接，${proxyServer.proxyHost}`
+                    : '云服务已连接'
+                  : '云服务未连接'
             }
             onClick={() => onToggleMenu(STATUS_CLOUD_SERVICE_LABEL)}
           >
@@ -877,7 +871,6 @@ export function MenuBar() {
       <MenuBarRightSection
         openMenuLabel={openMenuLabel}
         onToggleMenu={toggleMenu}
-        onCloseMenu={closeMenu}
         notificationCenterOpen={notificationCenterOpen}
         onToggleNotificationCenter={togglePanel}
         activeNotificationCount={activeNotificationCount}

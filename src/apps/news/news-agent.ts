@@ -334,7 +334,7 @@ export async function generateArticlesForDateStreaming(
   onArticle: (article: NewsArticle) => void,
   options: GenerateArticlesStreamingOptions = {},
 ): Promise<NewsArticle[]> {
-  const store = readNewsStore()
+  const store = await readNewsStore()
   const nearbyContext = buildNearbyTitlesContext(store, targetDate, 10)
   const mode = editionTemporalMode(targetDate)
   const systemPrompt = generatePromptForMode(mode)

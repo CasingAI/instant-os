@@ -10,7 +10,7 @@ import { injectGeneratedAppErrorBridge } from './inject-generated-app-error-brid
 import { injectGeneratedAppFilesBridge } from './inject-generated-app-files-bridge.ts'
 import { injectGeneratedAppTerminalBridge } from './inject-generated-app-terminal-bridge.ts'
 import { injectIframeLayoutNotify } from './inject-iframe-layout-notify.ts'
-import { injectGeneratedAppStorageBridge } from './inject-generated-app-storage-bridge.ts'
+import { injectGeneratedAppStorageBridge, type GeneratedAppStorageQuota } from './inject-generated-app-storage-bridge.ts'
 
 export type PrepareGeneratedAppRuntimeHtmlOptions = {
   debug?: boolean
@@ -21,6 +21,8 @@ export type PrepareGeneratedAppRuntimeHtmlOptions = {
   enableFiles?: boolean
   /** 已授予 terminal 能力时强制注入 Terminal 桥 */
   enableTerminal?: boolean
+  /** 存储桥配额预检信息（宿主从注册表内存缓存读取） */
+  storageQuota?: GeneratedAppStorageQuota
 }
 
 export function prepareGeneratedAppRuntimeHtml(
@@ -36,7 +38,7 @@ export function prepareGeneratedAppRuntimeHtml(
   const processIsolated = options.processIsolated === true
   const hostOrigin = processIsolated ? getHostAssetOrigin() : undefined
 
-  let prepared = injectGeneratedAppStorageBridge(html, appId, initialData)
+  let prepared = injectGeneratedAppStorageBridge(html, appId, initialData, options.storageQuota)
   prepared = injectIframeLayoutNotify(prepared)
 
   if (hostOrigin) {

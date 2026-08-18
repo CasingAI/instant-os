@@ -15,6 +15,7 @@ import { blockDocumentOverscroll } from './os/block-document-overscroll.ts'
 import { patchSystemVolumeBus } from './os/audio-bus.ts'
 import { preloadSystemSounds, unlockSystemSounds } from './os/system-sounds.ts'
 import { hydrateInstalledAppsFromFiles } from './os/generated-apps-store.ts'
+import { runAppRegistryMigration } from './os/app-registry-migration.ts'
 import { App } from './app.tsx'
 
 // 早于任何音频模块初始化：让全部 Web Audio 发声源自动经过系统主音量
@@ -42,6 +43,8 @@ if (!appRoot) {
 
       // 先 hydrate 生成应用本体（含一次性迁移），保证程序坞 / 应用目录拿到完整应用列表
       await hydrateInstalledAppsFromFiles().catch(() => undefined)
+      // 再迁移应用数据 localStorage → 注册表（幂等），保证任何应用打开前迁移已完成
+      await runAppRegistryMigration().catch(() => undefined)
 
       initializeDockAppearance()
 

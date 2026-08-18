@@ -1,13 +1,55 @@
 import { osNowMs } from '../../os/os-clock.ts'
-import {
-  DEVICE_STORAGE_KEYS,
-  getLocalStorageKeyBytes,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
+import { createRegistryStore } from '../../os/registry-store.ts'
 import type { ProdudeMessage, ProdudeSession, ProdudeStore } from './produde-types.ts'
 import { PRODUDE_DEFAULT_WORKSPACE } from './produde-types.ts'
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.produde
+const registryStore = createRegistryStore<ProdudeStore>({
+  appId: 'produde',
+  defaultValue: emptyStore,
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'sessions',
+      read: (store) => store.sessions,
+      write: (value, draft) => ({ ...draft, sessions: value }),
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        if (!raw) {
+          return []
+        }
+        try {
+          const parsed = JSON.parse(raw) as unknown
+          return Array.isArray(parsed)
+            ? parsed.filter(isSessionLike).map(normalizeSession)
+            : []
+        } catch {
+          return []
+        }
+      },
+    },
+    {
+      key: 'activeSessionId',
+      read: (store) => store.activeSessionId,
+      write: (value, draft) => ({ ...draft, activeSessionId: value }),
+      serialize: (value) => value ?? '',
+      deserialize: (raw) => (raw ? raw : undefined),
+    },
+  ],
+})
+
+function isSessionLike(value: unknown): value is ProdudeSession {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
+  }
+  const session = value as Record<string, unknown>
+  return (
+    typeof session.id === 'string' &&
+    typeof session.title === 'string' &&
+    Array.isArray(session.messages) &&
+    typeof session.createdAt === 'number' &&
+    typeof session.updatedAt === 'number'
+  )
+}
 
 const SESSION_EMOJIS = [
   '🛠️',
@@ -52,46 +94,20 @@ function normalizeSession(session: ProdudeSession): ProdudeSession {
   }
 }
 
-function normalizeStore(store: ProdudeStore): ProdudeStore {
-  return {
-    ...store,
-    sessions: store.sessions.map(normalizeSession),
-  }
-}
-
 function emptyStore(): ProdudeStore {
   return { sessions: [] }
 }
 
-function loadStore(): ProdudeStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    const parsed = JSON.parse(raw) as ProdudeStore
-    if (!Array.isArray(parsed.sessions)) {
-      return emptyStore()
-    }
-    return normalizeStore({
-      sessions: parsed.sessions,
-      activeSessionId: parsed.activeSessionId,
-    })
-  } catch {
-    return emptyStore()
-  }
+export function subscribeProdudeStore(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-export function readProdudeStore(): ProdudeStore {
-  return loadStore()
+export async function readProdudeStore(): Promise<ProdudeStore> {
+  return registryStore.read()
 }
 
-export function writeProdudeStore(store: ProdudeStore): boolean {
-  return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
-}
-
-export function getProdudeStorageBytes(): number {
-  return getLocalStorageKeyBytes(STORAGE_KEY)
+export async function writeProdudeStore(store: ProdudeStore): Promise<void> {
+  await registryStore.write(store)
 }
 
 export function createSessionId(): string {

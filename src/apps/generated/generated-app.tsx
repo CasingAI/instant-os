@@ -11,8 +11,11 @@ import {
 import {
   isGeneratedAppStorageMessage,
   loadGeneratedAppData,
-  saveGeneratedAppData,
+  saveGeneratedAppDataAsync,
 } from '../../os/generated-app-data-storage.ts'
+import { GENERATED_APP_STORAGE_ERROR_MESSAGE_TYPE } from '../../os/generated-app-data-storage.ts'
+import { getRegistryUsedBytesSync, hydrateAppRegistry } from '../../os/app-registry.ts'
+import { APP_REGISTRY_QUOTA_BYTES } from '../../os/app-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -55,6 +58,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   const [runtimeErrorDetailsOpen, setRuntimeErrorDetailsOpen] = useState(false)
   const suppressRuntimeErrorAlertRef = useRef(false)
   const [processIsolated, setProcessIsolated] = useState(() => isGeneratedAppProcessIsolationActive())
+  const [registryHydrated, setRegistryHydrated] = useState(false)
   const {
     registerHeartbeat,
     unregisterHeartbeat,
@@ -89,10 +93,29 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     return () => observer.disconnect()
   }, [])
 
+  useEffect(() => {
+    let alive = true
+    hydrateAppRegistry(appId)
+      .then(() => {
+        if (alive) {
+          setRegistryHydrated(true)
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          // hydrate 失败按空数据渲染，后续写入仍会走注册表（失败再回传 iframe）
+          setRegistryHydrated(true)
+        }
+      })
+    return () => {
+      alive = false
+    }
+  }, [appId])
+
   const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}-${processIsolated ? 'iso' : 'std'}`
 
   const preparedHtml = useMemo(() => {
-    if (!app) {
+    if (!app || !registryHydrated) {
       return undefined
     }
 
@@ -101,9 +124,13 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
       processIsolated,
       enableFiles: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES),
       enableTerminal: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL),
+      storageQuota: {
+        usedBytes: getRegistryUsedBytesSync(appId),
+        limitBytes: APP_REGISTRY_QUOTA_BYTES,
+      },
     })
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, appId, windowId)
-  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, windowId])
+  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, registryHydrated, windowId])
 
   const handleIframeReady = useCallback(() => {
     setHeartbeatContentWindow(windowId, iframeRef.current?.contentWindow ?? undefined)
@@ -206,7 +233,32 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
         return
       }
 
-      saveGeneratedAppData(appId, event.data.data)
+      void saveGeneratedAppDataAsync(appId, event.data.data).then((failures) => {
+        if (failures.length === 0) {
+          return
+        }
+        const quotaFailed = failures.some(
+          (failure) => failure.error.name === 'RegistryQuotaExceededError',
+        )
+        const previousSnapshot: Record<string, string | undefined> = {}
+        for (const failure of failures) {
+          previousSnapshot[failure.key] = failure.previous
+        }
+        try {
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: GENERATED_APP_STORAGE_ERROR_MESSAGE_TYPE,
+              appId,
+              error: quotaFailed ? 'quota-exceeded' : 'unknown',
+              failedKeys: failures.map((failure) => failure.key),
+              previousSnapshot,
+            },
+            '*',
+          )
+        } catch {
+          // iframe 已卸载时忽略回传失败
+        }
+      })
     }
 
     window.addEventListener('message', onMessage)

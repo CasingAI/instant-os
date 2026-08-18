@@ -26,6 +26,7 @@ import {
   isFromUser,
   markThreadRead,
   readMailStore,
+  subscribeMailStore,
   threadHasUserMessage,
   writeMailStore,
 } from './mail-storage.ts'
@@ -76,7 +77,7 @@ export function MailApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const { hostRef, narrowLayout } = useAppNarrowLayout()
-  const [store, setStore] = useState<MailStore>(() => readMailStore())
+  const [store, setStore] = useState<MailStore | undefined>(undefined)
   const [mailbox, setMailbox] = useState<MailMailbox>('inbox')
   const [selectedThreadId, setSelectedThreadId] = useState<string | undefined>()
   const [stackedDetailOpen, setStackedDetailOpen] = useState(false)
@@ -86,9 +87,9 @@ export function MailApp() {
   const [replyingThreadIds, setReplyingThreadIds] = useState<Set<string>>(() => new Set())
   const [pendingDelete, setPendingDelete] = useState<MailDeleteConfirmTarget | undefined>()
 
-  const threads = useMemo(() => filterThreads(store, mailbox), [store, mailbox])
+  const threads = useMemo(() => (store ? filterThreads(store, mailbox) : []), [store, mailbox])
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId)
-  const unreadCount = useMemo(() => countUnreadInbox(store), [store])
+  const unreadCount = useMemo(() => (store ? countUnreadInbox(store) : 0), [store])
 
   useEffect(() => {
     setAppWindowTitle('mail', '邮件')
@@ -100,14 +101,18 @@ export function MailApp() {
     }
   }, [narrowLayout])
 
-  const updateStore = useCallback((next: MailStore) => {
-    writeMailStore(next)
+  const updateStore = useCallback(async (next: MailStore) => {
+    await writeMailStore(next)
     setStore(next)
   }, [])
 
   const handleDeleteThread = useCallback(
-    (threadId: string) => {
-      updateStore(deleteThread(store, threadId))
+    async (threadId: string) => {
+      if (!store) {
+        return
+      }
+      const next = await deleteThread(store, threadId)
+      await updateStore(next)
       if (selectedThreadId === threadId) {
         setSelectedThreadId(undefined)
         setReplyDraft('')
@@ -117,9 +122,12 @@ export function MailApp() {
   )
 
   const handleDeleteMessage = useCallback(
-    (threadId: string, messageId: string) => {
-      const next = deleteMessageFromThread(store, threadId, messageId)
-      updateStore(next)
+    async (threadId: string, messageId: string) => {
+      if (!store) {
+        return
+      }
+      const next = await deleteMessageFromThread(store, threadId, messageId)
+      await updateStore(next)
       if (!next.threads.some((thread) => thread.id === threadId)) {
         setSelectedThreadId(undefined)
         setReplyDraft('')
@@ -128,15 +136,15 @@ export function MailApp() {
     [store, updateStore],
   )
 
-  const handleConfirmDelete = useCallback(() => {
+  const handleConfirmDelete = useCallback(async () => {
     if (!pendingDelete) {
       return
     }
 
     if (pendingDelete.kind === 'thread') {
-      handleDeleteThread(pendingDelete.threadId)
+      await handleDeleteThread(pendingDelete.threadId)
     } else {
-      handleDeleteMessage(pendingDelete.threadId, pendingDelete.messageId)
+      await handleDeleteMessage(pendingDelete.threadId, pendingDelete.messageId)
     }
 
     setPendingDelete(undefined)
@@ -208,28 +216,28 @@ export function MailApp() {
   }, [threads, selectedThreadId])
 
   useEffect(() => {
-    if (store.initialized) {
-      return
+    let alive = true
+    const load = () => {
+      ensureMailStoreInitialized().then((next) => {
+        if (alive) {
+          setStore(next)
+        }
+      })
     }
-
-    let cancelled = false
-    void ensureMailStoreInitialized().then((next) => {
-      if (!cancelled) {
-        setStore(next)
-      }
-    })
-
+    load()
+    const unsubscribe = subscribeMailStore(load)
     return () => {
-      cancelled = true
+      alive = false
+      unsubscribe()
     }
-  }, [store.initialized])
+  }, [])
 
   const queueAiReply = useCallback(
     async (threadId: string, contact: MailAddress) => {
       setReplyingThreadIds((prev) => new Set(prev).add(threadId))
 
       try {
-        const current = readMailStore()
+        const current = await readMailStore()
         const thread = current.threads.find((item) => item.id === threadId)
         if (!thread) {
           return
@@ -241,13 +249,13 @@ export function MailApp() {
           contact,
         })
 
-        const latest = readMailStore()
+        const latest = await readMailStore()
         const stillExists = latest.threads.some((item) => item.id === threadId)
         if (!stillExists) {
           return
         }
 
-        const next = appendMessageToThread(latest, threadId, reply)
+        const next = await appendMessageToThread(latest, threadId, reply)
         setStore(next)
       } catch {
         // 静默失败，用户仍可继续写信
@@ -268,20 +276,21 @@ export function MailApp() {
     setReplyDraft('')
   }, [])
 
-  const handleSelectThread = (threadId: string) => {
+  const handleSelectThread = async (threadId: string) => {
+    if (!store) {
+      return
+    }
     setSelectedThreadId(threadId)
     if (narrowLayout) {
       setStackedDetailOpen(true)
     }
     setReplyDraft('')
-    const next = markThreadRead(store, threadId)
-    if (next !== store) {
-      setStore(next)
-    }
+    const next = await markThreadRead(store, threadId)
+    setStore(next)
   }
 
   const handleSendReply = async () => {
-    if (!selectedThread || !replyDraft.trim() || sending) {
+    if (!store || !selectedThread || !replyDraft.trim() || sending) {
       return
     }
 
@@ -304,8 +313,8 @@ export function MailApp() {
     setSending(true)
     const threadId = selectedThread.id
     const contact = userMessage.to[0]
-    const next = appendMessageToThread(store, threadId, userMessage)
-    updateStore(next)
+    const next = await appendMessageToThread(store, threadId, userMessage)
+    await updateStore(next)
     setReplyDraft('')
     setSending(false)
 
@@ -313,6 +322,10 @@ export function MailApp() {
   }
 
   const handleComposeSend = async (payload: { to: string; subject: string; body: string }) => {
+    if (!store) {
+      return
+    }
+
     const recipient = parseMailAddressInput(payload.to)
     if (!recipient) {
       return
@@ -336,8 +349,8 @@ export function MailApp() {
       unread: false,
     }
 
-    const next = addThread(store, thread)
-    updateStore(next)
+    const next = await addThread(store, thread)
+    await updateStore(next)
     setComposeOpen(false)
     setMailbox('sent')
     setSelectedThreadId(thread.id)
@@ -356,8 +369,8 @@ export function MailApp() {
         recipient,
       })
 
-      const latest = readMailStore()
-      const updated = appendMessageToThread(latest, thread.id, reply)
+      const latest = await readMailStore()
+      const updated = await appendMessageToThread(latest, thread.id, reply)
       setStore(updated)
       setMailbox('inbox')
     } catch {
@@ -369,6 +382,17 @@ export function MailApp() {
         return next
       })
     }
+  }
+
+  if (store === undefined) {
+    return (
+      <div ref={hostRef} class="mail">
+        <div class="mail__loading" role="status" aria-live="polite">
+          <div class="mail__loading-spinner" aria-hidden="true" />
+          <p>正在加载</p>
+        </div>
+      </div>
+    )
   }
 
   return (

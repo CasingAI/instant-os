@@ -380,3 +380,16 @@ export function NpmPaneIcon() {
     </AppIconTile>
   )
 }
+
+export function RegistryPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#5b6d7f" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <ellipse cx="11" cy="5" rx="7" ry="2.8" fill="#fff" opacity="0.95" />
+        <path d="M4 5 V17 C4 18.6 7.1 19.8 11 19.8 C14.9 19.8 18 18.6 18 17 V5" fill="none" stroke="#fff" stroke-width="1.5" opacity="0.8" />
+        <path d="M4 11 C4 12.6 7.1 13.8 11 13.8 C14.9 13.8 18 12.6 18 11" fill="none" stroke="#fff" stroke-width="1.3" opacity="0.6" />
+      </svg>
+    </AppIconTile>
+  )
+}

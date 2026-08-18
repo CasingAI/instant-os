@@ -4,10 +4,14 @@ import type { MailStore } from './types.ts'
 
 let initPromise: Promise<MailStore> | undefined
 
-export function ensureMailStoreInitialized(): Promise<MailStore> {
-  const current = readMailStore()
+export async function ensureMailStoreInitialized(): Promise<MailStore> {
+  if (initPromise) {
+    return initPromise
+  }
+
+  const current = await readMailStore()
   if (current.initialized) {
-    return Promise.resolve(current)
+    return current
   }
 
   if (initPromise) {
@@ -16,8 +20,7 @@ export function ensureMailStoreInitialized(): Promise<MailStore> {
 
   initPromise = (async () => {
     const seeds = seedInitialThreads()
-    markStoreInitialized(seeds)
-    return readMailStore()
+    return markStoreInitialized(seeds)
   })().finally(() => {
     initPromise = undefined
   })

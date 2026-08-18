@@ -84,12 +84,14 @@ export function BooksReader({ book, store, onStoreChange, onBack }: BooksReaderP
       return
     }
 
+    const chapterId = currentChapter.id
+
     let cancelled = false
     setLoading(true)
     setError(undefined)
     closeReadAloud()
 
-    void loadChapterBody(book.id, currentChapter.id).then((text) => {
+    void loadChapterBody(book.id, chapterId).then((text) => {
       if (cancelled) {
         return
       }
@@ -102,14 +104,18 @@ export function BooksReader({ book, store, onStoreChange, onBack }: BooksReaderP
       setLoading(false)
     })
 
-    const nextStore = setReadingProgress(readBooksStore(), book.id, { chapterId: currentChapter.id })
-    writeBooksStore(nextStore)
-    onStoreChange(nextStore)
+    const persistProgress = async () => {
+      const current = await readBooksStore()
+      const nextStore = setReadingProgress(current, book.id, { chapterId })
+      await writeBooksStore(nextStore)
+      onStoreChange(nextStore)
+    }
+    void persistProgress()
 
     return () => {
       cancelled = true
     }
-  }, [book.id, currentChapter?.id, closeReadAloud])
+  }, [book.id, currentChapter?.id, closeReadAloud, onStoreChange])
 
   const goPrev = () => {
     if (chapterIndex > 0) {

@@ -33,6 +33,30 @@
   overflow: hidden;
 }
 
+.produde-app--loading {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--cg-ink-muted);
+}
+
+.produde-app__loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--cg-border);
+  border-top-color: var(--cg-accent);
+  border-radius: 50%;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  animation: produde-app-spin 0.8s linear infinite;
+}
+
+@keyframes produde-app-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 
 .produde-app__sidebar {
   flex-shrink: 0;

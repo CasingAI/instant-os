@@ -2,13 +2,8 @@ import type { ComponentType } from 'preact'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import type { GeneratedAppRecord } from '../appstore/types.ts'
-import { loadInternalProjects } from '../icode/icode-storage.ts'
+import { loadInternalProjectsSync } from '../icode/icode-storage.ts'
 import { normalizeVersionSnapshots } from '../appstore/generated-app-versions.ts'
-import {
-  getAllGeneratedAppDataBytes,
-  getGeneratedAppDataBytes,
-} from '../../os/generated-app-data-storage.ts'
-import { isAppDataMigrated } from '../files/files-app-data-migration.ts'
 import { getAppDataBytesByApp } from '../files/files-app-data-quota.ts'
 import { getInstalledAppsStorageBytes } from '../../os/generated-apps-storage.ts'
 import {
@@ -32,14 +27,12 @@ import {
   getSafariPageCacheBytes,
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
+import { createGlobalRegistry } from '../../os/app-registry.ts'
+import { listMigratedLegacyStorageKeys } from '../../os/app-registry-migration.ts'
 import { getFilesTotalBytes } from '../files/files-storage.ts'
 import { getAiTokenUsageBytes } from '../../ai/ai-token-usage-storage.ts'
 import { getAiEventLogBytes } from '../../ai/ai-event-log-storage.ts'
 import { getVscodeAiChatBytes } from '../vscode/vscode-ai-chat-storage.ts'
-import { getNewsStorageBytes } from '../news/news-storage.ts'
-import { getCatGptStorageBytes } from '../catgpt/catgpt-storage.ts'
-import { getProdudeStorageBytes } from '../produde/produde-storage.ts'
-import { getBooksStorageBytes } from '../books/books-storage.ts'
 import { getBrowserSystemStorageBytes } from '../browser/browser-system-storage.ts'
 
 export type ManagedAppKind = 'builtin' | 'generated'
@@ -69,7 +62,29 @@ function getSerializedByteSize(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length
 }
 
-function splitGeneratedAppSize(app: GeneratedAppRecord): {
+/** 已迁移到注册表的内置应用：文档数据按注册表字节记账 */
+const REGISTRY_MIGRATED_BUILTINS = new Set<BuiltinAppId>([
+  'weather',
+  'calendar',
+  'stocks',
+  'gomoku',
+  'mail',
+  'news',
+  'catgpt',
+  'produde',
+  'books',
+  'icode',
+])
+
+/** 已注册表化应用的 localStorage 残留旧键（AI 用量等按应用记账的键） */
+const REGISTRY_MIGRATED_EXTRA_KEYS: Partial<Record<BuiltinAppId, string[]>> = {
+  news: [DEVICE_STORAGE_KEYS.newsTokenUsage],
+}
+
+function splitGeneratedAppSize(
+  app: GeneratedAppRecord,
+  registryBytesByApp: Record<string, number>,
+): {
   appSizeBytes: number
   documentsBytes: number
   versionHistoryBytes: number
@@ -82,53 +97,24 @@ function splitGeneratedAppSize(app: GeneratedAppRecord): {
       )
   const htmlBytes = new TextEncoder().encode(app.html).length
   const { html: _html, versions: _versions, ...metadata } = app
-  // 本体已迁到 /Applications/*/Contents 文件时，appSize/版本历史统一走 dataBytes（Contents+Data 文件字节），避免与文件分类双计
+  // 本体已迁到 /Applications/*/Contents 文件时，appSize/版本历史统一走 dataBytes（Contents 文件字节），避免与文件分类双计
   const appSizeBytes = isGeneratedAppBundleStored(app.id) ? 0 : getSerializedByteSize(metadata) + htmlBytes
-  // 旧 localStorage 文档数据已导出到 Data 时改由 dataBytes 记账，避免重复计数
-  const documentsBytes = isAppDataMigrated(app.id) ? 0 : getGeneratedAppDataBytes(app.id)
+  // 生成应用文档数据现全部存放在注册表命名空间（gen:{id}）
+  const documentsBytes = registryBytesByApp[app.id] ?? 0
   return { appSizeBytes, documentsBytes, versionHistoryBytes }
 }
 
-function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
-  // 旧 localStorage 文档数据已导出到 Data（applications 卷真身）时，改由 dataBytes 记账，避免重复计数
-  if (isAppDataMigrated(appId)) {
-    return 0
+function getBuiltinDocumentsBytes(
+  appId: BuiltinAppId,
+  registryBytesByApp: Record<string, number>,
+): number {  // 已注册表化的内置应用：文档数据按注册表字节记账（+ 少量残留 localStorage 旧键）
+  if (REGISTRY_MIGRATED_BUILTINS.has(appId)) {
+    const registryBytes = registryBytesByApp[appId] ?? 0
+    const extraBytes = sumLocalStorageKeys(REGISTRY_MIGRATED_EXTRA_KEYS[appId] ?? [])
+    return registryBytes + extraBytes
   }
   if (appId === 'browser') {
     return getBrowserSystemStorageBytes()
-  }
-  if (appId === 'mail') {
-    return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.mail)
-  }
-  if (appId === 'news') {
-    return getNewsStorageBytes()
-  }
-  if (appId === 'catgpt') {
-    return getCatGptStorageBytes()
-  }
-  if (appId === 'produde') {
-    return getProdudeStorageBytes()
-  }
-  if (appId === 'books') {
-    return getBooksStorageBytes()
-  }
-  if (appId === 'weather') {
-    return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.weather)
-  }
-  if (appId === 'calendar') {
-    return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.calendar)
-  }
-  if (appId === 'stocks') {
-    return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.stocks)
-  }
-  if (appId === 'gomoku') {
-    return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.gomoku)
-  }
-  if (appId === 'icode') {
-    return sumLocalStorageKeys([
-      DEVICE_STORAGE_KEYS.icodeInternalProjects,
-      DEVICE_STORAGE_KEYS.icodeProjects,
-    ])
   }
   if (appId === 'vscode') {
     return sumLocalStorageKeys([
@@ -168,9 +154,12 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
   return 0
 }
 
-export function buildManagedAppList(installedApps: GeneratedAppRecord[]): ManagedAppEntry[] {
+export function buildManagedAppList(
+  installedApps: GeneratedAppRecord[],
+  registryBytesByApp: Record<string, number>,
+): ManagedAppEntry[] {
   const icodeProjectIds = new Set(
-    loadInternalProjects()
+    loadInternalProjectsSync()
       .map((project) => project.linkedAppId)
       .filter((appId): appId is GeneratedAppId => appId !== undefined),
   )
@@ -181,14 +170,17 @@ export function buildManagedAppList(installedApps: GeneratedAppRecord[]): Manage
     name: app.name,
     Icon: app.icon,
     appSizeBytes: 0,
-    documentsBytes: getBuiltinDocumentsBytes(app.id),
+    documentsBytes: getBuiltinDocumentsBytes(app.id, registryBytesByApp),
     dataBytes: 0,
     versionHistoryBytes: 0,
     removable: false,
   }))
 
   const generated: ManagedAppEntry[] = installedApps.map((app) => {
-    const { appSizeBytes, documentsBytes, versionHistoryBytes } = splitGeneratedAppSize(app)
+    const { appSizeBytes, documentsBytes, versionHistoryBytes } = splitGeneratedAppSize(
+      app,
+      registryBytesByApp,
+    )
     return {
       id: app.id,
       kind: 'generated',
@@ -215,6 +207,14 @@ export function buildManagedAppList(installedApps: GeneratedAppRecord[]): Manage
 }
 
 
+/** 已迁移应用残留在 localStorage 的旧键字节合计（设置页「应用数据旧键」分类） */
+function getLegacyMigratedStorageBytes(): number {
+  return listMigratedLegacyStorageKeys().reduce(
+    (total, item) => total + getLocalStorageKeyBytes(item.storageKey),
+    0,
+  )
+}
+
 export function getStorageSummary(
   installedApps: GeneratedAppRecord[],
   dataStorage: {
@@ -227,16 +227,20 @@ export function getStorageSummary(
     folderIconSnapshotsBytes: number
     modelVisionBytes: number
     filesBytes: number
-    /** 按应用记账的 /Applications/{id}.app/Data 字节 */
+    /** 按应用记账的 /Applications/{id}.app/Data+Contents 文件字节 */
     appDataBytesByApp: Record<string, number>
+    /** 按应用记账的注册表字节（App Registry 命名空间） */
+    registryBytesByApp: Record<string, number>
   },
 ) {
-  const entries = buildManagedAppList(installedApps)
+  const { registryBytesByApp } = dataStorage
+  const entries = buildManagedAppList(installedApps, registryBytesByApp)
+  const generatedRegistryBytes = Object.entries(registryBytesByApp).reduce(
+    (total, [appId, bytes]) => (appId.startsWith('gen:') ? total + bytes : total),
+    0,
+  )
   const appsBytes =
-    getInstalledAppsStorageBytes() + getLegacyGeneratedAppBytes() + getAllGeneratedAppDataBytes()
-  const mailDataBytes = getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.mail)
-  const newsDataBytes = getNewsStorageBytes()
-  const booksIndexBytes = getBooksStorageBytes()
+    getInstalledAppsStorageBytes() + getLegacyGeneratedAppBytes() + generatedRegistryBytes
   const browserSystemBytes = getBrowserSystemStorageBytes()
   const {
     totalBytes: dataUsedBytes,
@@ -249,6 +253,15 @@ export function getStorageSummary(
     modelVisionBytes,
     filesBytes,
   } = dataStorage
+  const appDocumentsBytes = (appId: BuiltinAppId): number => {
+    const registryBytes = registryBytesByApp[appId] ?? 0
+    const extra = REGISTRY_MIGRATED_EXTRA_KEYS[appId] ?? []
+    return registryBytes + sumLocalStorageKeys(extra)
+  }
+  const mailDataBytes = appDocumentsBytes('mail')
+  const newsDataBytes = appDocumentsBytes('news')
+  const booksIndexBytes = appDocumentsBytes('books')
+  const legacyAppDataBytes = getLegacyMigratedStorageBytes()
   const appDataTotal = Object.values(dataStorage.appDataBytesByApp).reduce(
     (total, bytes) => total + bytes,
     0,
@@ -297,6 +310,7 @@ export function getStorageSummary(
     folderIconSnapshotsBytes,
     modelVisionBytes,
     filesBytes: filesBytesExcludingAppData,
+    legacyAppDataBytes,
     systemBytes: usedBytes,
   }
 }
@@ -312,6 +326,7 @@ export async function loadDataStorageBreakdown(): Promise<{
   modelVisionBytes: number
   filesBytes: number
   appDataBytesByApp: Record<string, number>
+  registryBytesByApp: Record<string, number>
 }> {
   const [
     coreDataBytes,
@@ -325,6 +340,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     devFillBytes,
     filesBytes,
     appDataBytesByApp,
+    registryBytesByApp,
   ] = await Promise.all([
     getTotalDataStorageBytes(),
     getSafariPageCacheBytes(),
@@ -337,6 +353,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     getDevDataStorageFillBytes(),
     getFilesTotalBytes(),
     getAppDataBytesByApp(),
+    createGlobalRegistry().bytesByApp(),
   ])
   return {
     totalBytes: coreDataBytes + filesBytes,
@@ -350,6 +367,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     modelVisionBytes,
     filesBytes,
     appDataBytesByApp,
+    registryBytesByApp,
   }
 }
 

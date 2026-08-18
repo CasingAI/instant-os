@@ -9,7 +9,6 @@ import {
   bootstrapWeatherStoreFromWidgetCache,
   ensureMyLocationFromNotification,
   getWidgetDisplayWeather,
-  readWeatherStore,
 } from '../apps/weather/weather-storage.ts'
 import { generateFakeStockSnapshot, generateFakeWeather } from './generate-notification-widgets.ts'
 import {
@@ -27,8 +26,8 @@ const initialCache = loadNotificationCenterWidgetsCache()
 let weatherCache = initialCache.weather
 let stocksCache = initialCache.stocks
 
-function resolveWeatherFromStore(): NotificationWeather | undefined {
-  const store = bootstrapWeatherStoreFromWidgetCache(weatherCache)
+async function resolveWeatherFromStore(): Promise<NotificationWeather | undefined> {
+  const store = await bootstrapWeatherStoreFromWidgetCache(weatherCache)
   return getWidgetDisplayWeather(store)
 }
 
@@ -37,8 +36,9 @@ function applyWeatherDisplay(weather: NotificationWeather): void {
   saveNotificationCenterWidgetsCache({ weather })
 }
 
-function resolveStocksFromStore(): NotificationStockSnapshot | undefined {
-  return getWidgetDisplaySnapshot(readStocksStore())
+async function resolveStocksFromStore(): Promise<NotificationStockSnapshot | undefined> {
+  const store = await readStocksStore()
+  return getWidgetDisplaySnapshot(store)
 }
 
 function applyStocksDisplay(stocks: NotificationStockSnapshot): void {
@@ -56,19 +56,15 @@ type WidgetCache = {
 }
 
 export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
-  const [weather, setWeather] = useState<NotificationWeather | undefined>(() =>
-    resolveWeatherFromStore() ?? weatherCache,
-  )
-  const [stocks, setStocks] = useState<NotificationStockSnapshot | undefined>(
-    () => resolveStocksFromStore() ?? stocksCache,
-  )
+  const [weather, setWeather] = useState<NotificationWeather | undefined>(() => weatherCache)
+  const [stocks, setStocks] = useState<NotificationStockSnapshot | undefined>(() => stocksCache)
   const [weatherState, setWeatherState] = useState<WidgetLoadState>('idle')
   const [stocksState, setStocksState] = useState<WidgetLoadState>('idle')
   const [weatherError, setWeatherError] = useState<string | undefined>(undefined)
   const [stocksError, setStocksError] = useState<string | undefined>(undefined)
 
-  const syncWeatherFromStore = useCallback(() => {
-    const next = resolveWeatherFromStore()
+  const syncWeatherFromStore = useCallback(async () => {
+    const next = await resolveWeatherFromStore()
     if (next) {
       applyWeatherDisplay(next)
       setWeather(next)
@@ -77,8 +73,8 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
     }
   }, [])
 
-  const syncStocksFromStore = useCallback(() => {
-    const next = resolveStocksFromStore()
+  const syncStocksFromStore = useCallback(async () => {
+    const next = await resolveStocksFromStore()
     if (next) {
       applyStocksDisplay(next)
       setStocks(next)
@@ -88,7 +84,7 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
   }, [])
 
   useEffect(() => {
-    const onWeatherChanged = () => syncWeatherFromStore()
+    const onWeatherChanged = () => void syncWeatherFromStore()
     window.addEventListener('instant-os:weather-widget-changed', onWeatherChanged)
     window.addEventListener('instant-os:weather-store-changed', onWeatherChanged)
     return () => {
@@ -98,7 +94,7 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
   }, [syncWeatherFromStore])
 
   useEffect(() => {
-    const onStocksChanged = () => syncStocksFromStore()
+    const onStocksChanged = () => void syncStocksFromStore()
     window.addEventListener('instant-os:stocks-widget-changed', onStocksChanged)
     window.addEventListener('instant-os:stocks-store-changed', onStocksChanged)
     return () => {
@@ -108,7 +104,7 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
   }, [syncStocksFromStore])
 
   const loadWeatherIfNeeded = useCallback(async () => {
-    const fromStore = resolveWeatherFromStore()
+    const fromStore = await resolveWeatherFromStore()
     if (fromStore) {
       applyWeatherDisplay(fromStore)
       setWeather(fromStore)
@@ -117,8 +113,8 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
     }
 
     if (weatherCache) {
-      ensureMyLocationFromNotification(weatherCache)
-      const synced = getWidgetDisplayWeather(readWeatherStore()) ?? weatherCache
+      await ensureMyLocationFromNotification(weatherCache)
+      const synced = (await resolveWeatherFromStore()) ?? weatherCache
       applyWeatherDisplay(synced)
       setWeather(synced)
       setWeatherState('idle')
@@ -130,8 +126,8 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
 
     try {
       const data = await generateFakeWeather()
-      ensureMyLocationFromNotification(data)
-      const synced = getWidgetDisplayWeather(readWeatherStore()) ?? data
+      await ensureMyLocationFromNotification(data)
+      const synced = (await resolveWeatherFromStore()) ?? data
       applyWeatherDisplay(synced)
       setWeather(synced)
       setWeatherState('idle')
@@ -145,8 +141,8 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
   }, [])
 
   const loadStocksIfNeeded = useCallback(async () => {
-    bootstrapStocksStoreFromWidgetCache(stocksCache)
-    const fromStore = resolveStocksFromStore()
+    await bootstrapStocksStoreFromWidgetCache(stocksCache)
+    const fromStore = await resolveStocksFromStore()
     if (fromStore) {
       applyStocksDisplay(fromStore)
       setStocks(fromStore)
@@ -155,8 +151,8 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
     }
 
     if (stocksCache) {
-      ensureDefaultWatchFromNotification(stocksCache)
-      const synced = getWidgetDisplaySnapshot(readStocksStore()) ?? stocksCache
+      await ensureDefaultWatchFromNotification(stocksCache)
+      const synced = (await resolveStocksFromStore()) ?? stocksCache
       applyStocksDisplay(synced)
       setStocks(synced)
       setStocksState('idle')
@@ -168,8 +164,8 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
 
     try {
       const data = await generateFakeStockSnapshot()
-      ensureDefaultWatchFromNotification(data)
-      const synced = getWidgetDisplaySnapshot(readStocksStore()) ?? data
+      await ensureDefaultWatchFromNotification(data)
+      const synced = (await resolveStocksFromStore()) ?? data
       applyStocksDisplay(synced)
       setStocks(synced)
       setStocksState('idle')

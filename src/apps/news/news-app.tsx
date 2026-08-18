@@ -25,6 +25,7 @@ import {
   formatEditionDateDetailLabel,
   getArticlesForDate,
   readNewsStore,
+  subscribeNewsStore,
 } from './news-storage.ts'
 import { NewsCommentsSection } from './news-comments-section.tsx'
 import {
@@ -123,7 +124,7 @@ export function NewsApp() {
   const { showBuiltinAbout } = useAboutApp()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
 
-  const [store, setStore] = useState<NewsStore>(() => readNewsStore())
+  const [store, setStore] = useState<NewsStore | undefined>(undefined)
   const [editionDate, setEditionDate] = useState<string>(() => getTodayEditionDate())
   const [selectedId, setSelectedId] = useState<string | undefined>()
   const [stackedReaderOpen, setStackedReaderOpen] = useState(false)
@@ -139,7 +140,10 @@ export function NewsApp() {
   const generateLockRef = useRef(false)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
 
-  const articlesForDay = useMemo(() => getArticlesForDate(store, editionDate), [store, editionDate])
+  const articlesForDay = useMemo(
+    () => (store ? getArticlesForDate(store, editionDate) : []),
+    [store, editionDate],
+  )
 
   const streamingArticles = useMemo(() => {
     if (!isGenerating) return []
@@ -218,12 +222,19 @@ export function NewsApp() {
 
   // 响应来自系统设置的删除等外部变更，立即同步本地状态
   useEffect(() => {
-    const onChanged = () => {
-      setStore(readNewsStore())
+    let alive = true
+    const load = () => {
+      readNewsStore().then((next) => {
+        if (alive) {
+          setStore(next)
+        }
+      })
     }
-    window.addEventListener('instant-os:news-store-changed', onChanged)
+    load()
+    const unsubscribe = subscribeNewsStore(load)
     return () => {
-      window.removeEventListener('instant-os:news-store-changed', onChanged)
+      alive = false
+      unsubscribe()
     }
   }, [])
 
@@ -260,16 +271,19 @@ export function NewsApp() {
       generateLockRef.current = true
       setGenerationFailed(false)
       setReasoningText('')
-      const baseline = getArticlesForDate(readNewsStore(), targetDate).map((article) => article.id)
+      const baseline = getArticlesForDate(await readNewsStore(), targetDate).map(
+        (article) => article.id,
+      )
       setBaselineArticleIds(baseline)
       setStreamingArticleIds([])
       setIsGenerating(true)
       const newArticleIdsInOrder: string[] = []
       try {
-        let fresh = readNewsStore()
+        let fresh = await readNewsStore()
         const seenTitles = new Set(
           getArticlesForDate(fresh, targetDate).map((article) => article.title),
         )
+        let writeChain: Promise<void> = Promise.resolve()
 
         await generateArticlesForDateStreaming(
           targetDate,
@@ -278,11 +292,14 @@ export function NewsApp() {
               return
             }
             seenTitles.add(article.title)
-            fresh = addArticles(fresh, [article])
             newArticleIdsInOrder.push(article.id)
-            setStore({ ...fresh })
-            setStreamingArticleIds([...newArticleIdsInOrder])
-            markArticleEntering(article.id)
+            writeChain = writeChain.then(async () => {
+              const next = await addArticles(fresh, [article])
+              fresh = next
+              setStore({ ...next })
+              setStreamingArticleIds([...newArticleIdsInOrder])
+              markArticleEntering(article.id)
+            })
           },
           {
             dayContext,
@@ -290,8 +307,15 @@ export function NewsApp() {
           },
         )
 
+        await writeChain
+
         if (newArticleIdsInOrder.length > 0) {
-          fresh = assignArticleListPositions(fresh, targetDate, newArticleIdsInOrder, baseline)
+          fresh = await assignArticleListPositions(
+            fresh,
+            targetDate,
+            newArticleIdsInOrder,
+            baseline,
+          )
           setStore({ ...fresh })
         } else {
           setGenerationFailed(true)
@@ -390,10 +414,10 @@ export function NewsApp() {
       skipAutoGenerateRef.current = false
       return
     }
-    if (articlesForDay.length === 0 && !isGenerating && !generationFailed) {
+    if (store && articlesForDay.length === 0 && !isGenerating && !generationFailed) {
       void handleGenerate()
     }
-  }, [articlesForDay.length, generationFailed, isGenerating, editionDate, handleGenerate])
+  }, [store, articlesForDay.length, generationFailed, isGenerating, editionDate, handleGenerate])
 
   useEffect(() => {
     if (!selectedId) {
@@ -507,6 +531,14 @@ export function NewsApp() {
         <div class="news__row-title">{article.title}</div>
         <div class="news__row-lead">{article.lead}</div>
       </button>
+    )
+  }
+
+  if (!store) {
+    return (
+      <div class="news" ref={hostRef}>
+        <NewsLoadingState />
+      </div>
     )
   }
 
