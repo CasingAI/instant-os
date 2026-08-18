@@ -569,6 +569,11 @@ export function MenuBar() {
         },
         {
           type: 'action',
+          label: '注册表',
+          onClick: () => openApp('registry'),
+        },
+        {
+          type: 'action',
           label: '帮助',
           onClick: () => openApp('help'),
         },

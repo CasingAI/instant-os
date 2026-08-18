@@ -213,7 +213,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 14px 8px;
+  padding: 5px 14px 6px;
   font-size: 13px;
   font-weight: 600;
   color: #1d1d1f;
@@ -241,7 +241,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
+  padding: 4px 14px;
   font-size: 12px;
   color: #1d1d1f;
 }
@@ -263,7 +263,7 @@
 }
 
 .cloud-panel__pow {
-  padding: 6px 14px 8px;
+  padding: 4px 14px 6px;
 }
 
 .cloud-panel__pow-label {
@@ -271,7 +271,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
   font-size: 12px;
   color: #1d1d1f;
 }
@@ -292,7 +292,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 14px;
+  padding: 4px 14px;
   min-width: 0;
 }
 
@@ -310,4 +310,49 @@
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: #8a8a8f;
+}
+
+/* 底部按钮：与设置列表 --button 保持一致的 Aqua 蓝色渐变 hover */
+.cloud-panel__actions {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0 0 6px 6px;
+}
+
+.cloud-panel__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 7px 14px;
+  color: #007aff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.cloud-panel__action + .cloud-panel__action {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.cloud-panel__action:hover:not(:disabled) {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
+  border-radius: 0;
+}
+
+.cloud-panel__action:active:not(:disabled) {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+  color: #fff;
+}
+
+.cloud-panel__action:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
