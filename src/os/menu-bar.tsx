@@ -389,39 +389,37 @@ function MenuBarRightSection({
 
   return (
     <div class="menu-bar__right">
-      {(proxyServer.connected || cloudWorking) && (
-        <div class="menu-bar__menu">
-          <button
-            type="button"
-            class={`menu-bar__status-trigger${openMenuLabel === STATUS_CLOUD_SERVICE_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
-            aria-haspopup="dialog"
-            aria-expanded={openMenuLabel === STATUS_CLOUD_SERVICE_LABEL}
-            aria-label={
-              cloudWorking
-                ? powProgress.active
-                  ? '云服务：正在计算 AI Challenge…'
-                  : '云服务：网络请求中…'
-                : proxyServer.connected
-                  ? proxyServer.proxyHost
-                    ? `云服务已连接，${proxyServer.proxyHost}`
-                    : '云服务已连接'
-                  : '云服务未连接'
-            }
-            onClick={() => onToggleMenu(STATUS_CLOUD_SERVICE_LABEL)}
-          >
-            <CloudServiceIcon active={cloudWorking} />
-          </button>
-          {openMenuLabel === STATUS_CLOUD_SERVICE_LABEL && (
-            <CloudServiceStatusPanel
-              connection={proxyServer}
-              powProgress={powProgress}
-              activeNetworkRequests={activeNetworkRequests}
-              onOpenCloudServiceSettings={onOpenCloudServiceSettings}
-              onOpenTaskManager={onOpenTaskManager}
-            />
-          )}
-        </div>
-      )}
+      <div class="menu-bar__menu">
+        <button
+          type="button"
+          class={`menu-bar__status-trigger${openMenuLabel === STATUS_CLOUD_SERVICE_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+          aria-haspopup="dialog"
+          aria-expanded={openMenuLabel === STATUS_CLOUD_SERVICE_LABEL}
+          aria-label={
+            cloudWorking
+              ? powProgress.active
+                ? '云服务：正在计算 AI Challenge…'
+                : '云服务：网络请求中…'
+              : proxyServer.connected
+                ? proxyServer.proxyLabel
+                  ? `云服务已连接，${proxyServer.proxyLabel}`
+                  : '云服务已连接'
+                : '云服务未连接'
+          }
+          onClick={() => onToggleMenu(STATUS_CLOUD_SERVICE_LABEL)}
+        >
+          <CloudServiceIcon active={cloudWorking} />
+        </button>
+        {openMenuLabel === STATUS_CLOUD_SERVICE_LABEL && (
+          <CloudServiceStatusPanel
+            connection={proxyServer}
+            powProgress={powProgress}
+            activeNetworkRequests={activeNetworkRequests}
+            onOpenCloudServiceSettings={onOpenCloudServiceSettings}
+            onOpenTaskManager={onOpenTaskManager}
+          />
+        )}
+      </div>
       <div class="menu-bar__menu">
         <button
           type="button"

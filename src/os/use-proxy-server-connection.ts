@@ -10,21 +10,34 @@ import {
 } from './proxy-server-metrics.ts'
 import {
   isProxyServerConnected,
+  loadProxyServerSettings,
   subscribeProxyServerSettings,
 } from './proxy-server-settings-storage.ts'
 
 export type ProxyServerConnectionState = {
   connected: boolean
-  proxyHost: string | undefined
+  /** 连接的可读标识：shared 预设显示「Instant 共享」，自定义显示 origin 的 host */
+  proxyLabel: string | undefined
   throughput: ProxyServerThroughputSnapshot
   recentRequests: ProxyServerRequestRecord[]
+}
+
+export function getProxyServerConnectionLabel(): string | undefined {
+  if (!isProxyServerConnected()) {
+    return undefined
+  }
+  const settings = loadProxyServerSettings()
+  if (settings.preset === 'shared') {
+    return 'Instant 共享'
+  }
+  return getProxyServerHost()
 }
 
 function readProxyServerConnectionState(): ProxyServerConnectionState {
   const connected = isProxyServerConnected()
   return {
     connected,
-    proxyHost: connected ? getProxyServerHost() : undefined,
+    proxyLabel: connected ? getProxyServerConnectionLabel() : undefined,
     throughput: getProxyServerThroughputSnapshot(),
     recentRequests: listRecentProxyServerRequests(5),
   }

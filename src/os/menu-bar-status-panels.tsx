@@ -193,7 +193,7 @@ export function CloudServiceStatusPanel({
   onOpenCloudServiceSettings,
   onOpenTaskManager,
 }: CloudServiceStatusPanelProps) {
-  const { connected, proxyHost, throughput, recentRequests } = connection
+  const { connected, proxyLabel, throughput, recentRequests } = connection
   const speedLabel = formatProxyServerMenuSpeed(throughput)
   const powActive = powProgress.active
   const networkActive = activeNetworkRequests > 0
@@ -204,30 +204,37 @@ export function CloudServiceStatusPanel({
 
       {/* 状态区块 */}
       <div class="cloud-panel__status">
-        <span class="cloud-panel__status-dot" aria-hidden="true" />
+        <span
+          class={`cloud-panel__status-dot${connected ? '' : ' cloud-panel__status-dot--off'}`}
+          aria-hidden="true"
+        />
         <span class="cloud-panel__status-text">
           {connected ? '已连接' : '未连接'}
-          {proxyHost ? ` · ${proxyHost}` : ''}
+          {proxyLabel ? ` · ${proxyLabel}` : ''}
         </span>
       </div>
 
-      {/* 速度区块 */}
-      <div class="menu-bar__popover-row">
-        <span class="menu-bar__popover-row-label">速度</span>
-        <span class="menu-bar__popover-row-value">{speedLabel}</span>
-      </div>
-      <div class="menu-bar__popover-row">
-        <span class="menu-bar__popover-row-label">下行</span>
-        <span class="menu-bar__popover-row-value">
-          {formatProxyServerBytesPerSec(throughput.downloadBytesPerSec)}
-        </span>
-      </div>
-      <div class="menu-bar__popover-row">
-        <span class="menu-bar__popover-row-label">上行</span>
-        <span class="menu-bar__popover-row-value">
-          {formatProxyServerBytesPerSec(throughput.uploadBytesPerSec)}
-        </span>
-      </div>
+      {/* 仅连接时展示代理流量统计 */}
+      {connected && (
+        <>
+          <div class="menu-bar__popover-row">
+            <span class="menu-bar__popover-row-label">速度</span>
+            <span class="menu-bar__popover-row-value">{speedLabel}</span>
+          </div>
+          <div class="menu-bar__popover-row">
+            <span class="menu-bar__popover-row-label">下行</span>
+            <span class="menu-bar__popover-row-value">
+              {formatProxyServerBytesPerSec(throughput.downloadBytesPerSec)}
+            </span>
+          </div>
+          <div class="menu-bar__popover-row">
+            <span class="menu-bar__popover-row-label">上行</span>
+            <span class="menu-bar__popover-row-value">
+              {formatProxyServerBytesPerSec(throughput.uploadBytesPerSec)}
+            </span>
+          </div>
+        </>
+      )}
 
       {/* 进行中区块 */}
       {(powActive || networkActive) && (
@@ -243,10 +250,10 @@ export function CloudServiceStatusPanel({
           {powActive && (
             <div class="cloud-panel__pow">
               <div class="cloud-panel__pow-label">
-                <span>免费 AI Challenge</span>
+                <span class="cloud-panel__pow-name">免费 AI Challenge</span>
                 <span class="cloud-panel__pow-count">
-                  {Math.round(powProgress.tried).toLocaleString()} /{' '}
-                  {powProgress.total.toLocaleString()} 次
+                  <span class="cloud-panel__pow-tried">{Math.round(powProgress.tried).toLocaleString()}</span>
+                  <span class="cloud-panel__pow-total">共 {powProgress.total.toLocaleString()} 次</span>
                 </span>
               </div>
               <Progress
@@ -260,24 +267,28 @@ export function CloudServiceStatusPanel({
         </>
       )}
 
-      {/* 最近请求概览 */}
-      <div class="menu-bar__popover-separator" />
-      <p class="menu-bar__popover-heading">最近请求</p>
-      {recentRequests.length === 0 ? (
-        <p class="menu-bar__popover-empty">暂无请求</p>
-      ) : (
-        <div class="cloud-panel__requests">
-          {recentRequests.map((request) => (
-            <div key={request.id} class="cloud-panel__request">
-              <span class="cloud-panel__request-host" title={request.host}>
-                {request.host}
-              </span>
-              <span class="cloud-panel__request-meta">
-                {request.status ?? '失败'} · {request.durationMs} ms
-              </span>
+      {/* 仅连接时展示最近请求概览 */}
+      {connected && (
+        <>
+          <div class="menu-bar__popover-separator" />
+          <p class="menu-bar__popover-heading">最近请求</p>
+          {recentRequests.length === 0 ? (
+            <p class="menu-bar__popover-empty">暂无请求</p>
+          ) : (
+            <div class="cloud-panel__requests">
+              {recentRequests.map((request) => (
+                <div key={request.id} class="cloud-panel__request">
+                  <span class="cloud-panel__request-host" title={request.host}>
+                    {request.host}
+                  </span>
+                  <span class="cloud-panel__request-meta">
+                    {request.status ?? '失败'} · {request.durationMs} ms
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       <div class="cloud-panel__actions">
