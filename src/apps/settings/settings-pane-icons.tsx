@@ -213,20 +213,20 @@ export function ResetPaneIcon() {
     <AppIconTile color="#b0723a" size={PANE_ICON_SIZE}>
       <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
         <path
-          d="M5 11 A6 6 0 1 1 11 17"
+          d="M4 11 L10 5 M4 11 L10 17"
           fill="none"
           stroke="#fff"
-          stroke-width="1.6"
+          stroke-width="2"
           stroke-linecap="round"
+          stroke-linejoin="round"
           opacity="0.95"
         />
         <path
-          d="M5 11 L3 8.5 M5 11 L7.5 8.5"
+          d="M4 11 H18"
           fill="none"
           stroke="#fff"
-          stroke-width="1.6"
+          stroke-width="2"
           stroke-linecap="round"
-          stroke-linejoin="round"
           opacity="0.95"
         />
       </svg>
