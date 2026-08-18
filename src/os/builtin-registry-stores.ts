@@ -10,30 +10,35 @@
  * 从而在所有内置应用上完成字段拆分。幂等：已拆分的应用会直接命中字段 key，不会复写。
  */
 
-const BUILTIN_STORE_MODULES: Array<{ appId: string; modulePath: string; readName: string }> = [
-  { appId: 'weather', modulePath: '../apps/weather/weather-storage.ts', readName: 'readWeatherStore' },
-  { appId: 'calendar', modulePath: '../apps/calendar/calendar-storage.ts', readName: 'readCalendarStore' },
-  { appId: 'stocks', modulePath: '../apps/stocks/stocks-storage.ts', readName: 'readStocksStore' },
-  { appId: 'gomoku', modulePath: '../apps/gomoku/gomoku-storage.ts', readName: 'loadGomokuGameMode' },
-  { appId: 'mail', modulePath: '../apps/mail/mail-storage.ts', readName: 'readMailStore' },
-  { appId: 'news', modulePath: '../apps/news/news-storage.ts', readName: 'readNewsStore' },
-  { appId: 'catgpt', modulePath: '../apps/catgpt/catgpt-storage.ts', readName: 'readCatGptStore' },
-  { appId: 'produde', modulePath: '../apps/produde/produde-storage.ts', readName: 'readProdudeStore' },
-  { appId: 'books', modulePath: '../apps/books/books-storage.ts', readName: 'readBooksStore' },
-  { appId: 'icode', modulePath: '../apps/icode/icode-storage.ts', readName: 'loadInternalProjects' },
+import { readWeatherStore } from '../apps/weather/weather-storage.ts'
+import { readCalendarStore } from '../apps/calendar/calendar-storage.ts'
+import { readStocksStore } from '../apps/stocks/stocks-storage.ts'
+import { loadGomokuGameMode } from '../apps/gomoku/gomoku-storage.ts'
+import { readMailStore } from '../apps/mail/mail-storage.ts'
+import { readNewsStore } from '../apps/news/news-storage.ts'
+import { readCatGptStore } from '../apps/catgpt/catgpt-storage.ts'
+import { readProdudeStore } from '../apps/produde/produde-storage.ts'
+import { readBooksStore } from '../apps/books/books-storage.ts'
+import { loadInternalProjects } from '../apps/icode/icode-storage.ts'
+
+const BUILTIN_STORE_READERS: Array<{ appId: string; read: () => Promise<unknown> }> = [
+  { appId: 'weather', read: readWeatherStore },
+  { appId: 'calendar', read: readCalendarStore },
+  { appId: 'stocks', read: readStocksStore },
+  { appId: 'gomoku', read: loadGomokuGameMode },
+  { appId: 'mail', read: readMailStore },
+  { appId: 'news', read: readNewsStore },
+  { appId: 'catgpt', read: readCatGptStore },
+  { appId: 'produde', read: readProdudeStore },
+  { appId: 'books', read: readBooksStore },
+  { appId: 'icode', read: loadInternalProjects },
 ]
 
 export async function hydrateAllBuiltinRegistryStores(): Promise<void> {
   await Promise.all(
-    BUILTIN_STORE_MODULES.map(async ({ appId, modulePath, readName }) => {
+    BUILTIN_STORE_READERS.map(async ({ appId, read }) => {
       try {
-        const mod = (await import(modulePath)) as Record<string, unknown>
-        const reader = mod[readName]
-        if (typeof reader !== 'function') {
-          console.warn(`[builtin-registry-stores] ${appId} 未导出 ${readName}，跳过拆分`)
-          return
-        }
-        await reader()
+        await read()
       } catch (error) {
         // 单个应用拆分失败不应阻塞启动；保留旧 store 键，下次启动再试
         console.warn(`[builtin-registry-stores] ${appId} 字段拆分失败`, error)
