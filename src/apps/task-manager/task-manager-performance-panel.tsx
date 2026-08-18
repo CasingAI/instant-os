@@ -815,7 +815,7 @@ export function TaskManagerPerformancePanel({
                       />
                     ) : (
                       <p class="task-manager__chart-unavailable">
-                        尚未连接代理服务器。请打开「系统设置 → 代理服务器」配置并连接。
+                        尚未连接代理服务器。请打开「系统设置 → 云服务」配置并连接。
                       </p>
                     )}
                   </div>
