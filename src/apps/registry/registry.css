@@ -1,0 +1,30 @@
+/* 注册表 — 对齐系统设置的组件 / 样式（复用 settings.css，此处仅补充注册表特有布局） */
+
+/* ── 命名空间列表行：应用名 + 副行（键数 / 更新时间）双行文案 ── */
+
+.registry__row-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.registry__row-meta > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 键条目行：键名（等宽） + 大小 + 删除按钮 三栏 ── */
+
+.registry__row--entry {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 8px 12px;
+}
+
+.registry__row-keys {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
