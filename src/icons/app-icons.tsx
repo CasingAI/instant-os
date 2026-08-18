@@ -601,8 +601,8 @@ export function CloudServiceIcon({ active = false }: CloudServiceIconProps = {})
   return (
     <svg
       width="16"
-      height="13"
-      viewBox="0 0 16 13"
+      height="16"
+      viewBox="0 0 16 16"
       class={`ethernet-icon${active ? ' ethernet-icon--active' : ''}`}
       role="img"
       aria-label="云服务"
@@ -611,18 +611,18 @@ export function CloudServiceIcon({ active = false }: CloudServiceIconProps = {})
         <>
           {/* 工作态：云朵 + 旋转圈替换为 loading spinner */}
           <path
-            d="M4.6 9.4 C2.6 9.4 1 7.9 1 6 c0 -1.6 1.1 -3 2.7 -3.3 C4 1.7 5.4 1 6.8 1 c1.6 0 3 0.9 3.7 2.2 C11 2.7 11.6 2.4 12.3 2.4 c1.5 0 2.7 1.2 2.7 2.7 c0 1.5 -1.2 2.7 -2.7 2.7 H4.6 Z"
+            d="M5 11.5 C3 11.5 1.5 10 1.5 8 C1.5 6.4 2.6 5 4.2 4.7 C4.5 2.5 6.5 1 8.5 1 C10.5 1 12.5 2.5 12.8 4.7 C14.4 5 15.5 6.4 15.5 8 C15.5 10 14 11.5 12 11.5 Z"
             fill="currentColor"
             opacity="0.25"
           />
           <g class="ethernet-icon__spinner" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none">
-            <circle cx="8" cy="6" r="3.8" opacity="0.18" />
-            <path d="M8 2.2 a3.8 3.8 0 0 1 3.8 3.8" />
+            <circle cx="8" cy="7" r="3.8" opacity="0.18" />
+            <path d="M8 3.2 a3.8 3.8 0 0 1 3.8 3.8" />
           </g>
         </>
       ) : (
         <path
-          d="M4.6 9.4 C2.6 9.4 1 7.9 1 6 c0 -1.6 1.1 -3 2.7 -3.3 C4 1.7 5.4 1 6.8 1 c1.6 0 3 0.9 3.7 2.2 C11 2.7 11.6 2.4 12.3 2.4 c1.5 0 2.7 1.2 2.7 2.7 c0 1.5 -1.2 2.7 -2.7 2.7 H4.6 Z"
+          d="M5 11.5 C3 11.5 1.5 10 1.5 8 C1.5 6.4 2.6 5 4.2 4.7 C4.5 2.5 6.5 1 8.5 1 C10.5 1 12.5 2.5 12.8 4.7 C14.4 5 15.5 6.4 15.5 8 C15.5 10 14 11.5 12 11.5 Z"
           fill="currentColor"
           opacity="0.9"
         />

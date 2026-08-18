@@ -103,7 +103,7 @@
 
 .ethernet-icon__spinner {
   animation: ethernet-icon-spin 0.8s linear infinite;
-  transform-origin: 8px 6px;
+  transform-origin: 8px 7px;
 }
 
 @keyframes ethernet-icon-spin {
