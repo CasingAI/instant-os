@@ -25,7 +25,6 @@ import {
   NpmPaneIcon,
   DockPaneIcon,
   WallpaperPaneIcon,
-  RegistryPaneIcon,
 } from './settings-pane-icons.tsx'
 
 export type SettingsPaneId =
@@ -51,7 +50,6 @@ export type SettingsPaneId =
   | 'news'
   | 'reset'
   | 'experimental'
-  | 'registry-manager'
 
 export type SettingsRoute =
   | { view: 'root' }
@@ -88,7 +86,6 @@ export type SettingsRoute =
   | { view: 'news' }
   | { view: 'reset' }
   | { view: 'experimental' }
-  | { view: 'registry-manager' }
 
 export type SettingsPaneGroupId =
   | 'general'
@@ -169,7 +166,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   },
   { id: 'model-cache', label: '模型缓存', Icon: ModelCachePaneIcon, route: { view: 'model-cache' }, group: 'storage' },
   { id: 'news', label: '新闻', Icon: NewsPaneIcon, route: { view: 'news' }, group: 'network' },
-  { id: 'proxy-server', label: '云服务', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' }, group: 'cloud' },
+  { id: 'proxy-server', label: '代理服务器', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' }, group: 'cloud' },
   {
     id: 'background-refresh',
     label: '背景刷新',
@@ -187,7 +184,6 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
     route: { view: 'experimental' },
     group: 'developer',
   },
-  { id: 'registry-manager', label: '注册表管理', Icon: RegistryPaneIcon, route: { view: 'registry-manager' }, group: 'developer' },
   { id: 'speech', label: '语音', Icon: SpeechPaneIcon, route: { view: 'speech' }, group: 'developer' },
   {
     // 【实验性 · 未完成】外链应用平台（Bridge）；仅在 experimental.externalBridge 开启时可见
@@ -300,8 +296,6 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'reset'
     case 'experimental':
       return 'experimental'
-    case 'registry-manager':
-      return 'registry-manager'
   }
 }
 
@@ -330,7 +324,6 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'news':
     case 'reset':
     case 'experimental':
-    case 'registry-manager':
       return false
     default:
       return true

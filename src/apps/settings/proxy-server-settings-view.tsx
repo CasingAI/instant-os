@@ -136,7 +136,13 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
   }
 
   const handlePresetChange = (value: string) => {
-    void applyPreset(value as ProxyServerPresetId)
+    const nextPreset = value as ProxyServerPresetId
+    if (nextPreset === 'custom' && !normalizeProxyBaseUrl(customProxyBaseUrl)) {
+      // 尚无有效自定义地址：仅切换到自定义 UI，等填好 URL 后再提交，避免空地址报错
+      setPreset('custom')
+      return
+    }
+    void applyPreset(nextPreset)
   }
 
   const commitCustomUrl = (raw: string) => {
@@ -223,7 +229,14 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
           options={PROXY_SERVER_PRESET_OPTIONS}
           value={preset}
           onChange={handlePresetChange}
-          onBack={() => setPicker(false)}
+          onBack={() => {
+            if (busy) {
+              probeAbortRef.current?.abort()
+              probeAbortRef.current = undefined
+              setBusy(false)
+            }
+            setPicker(false)
+          }}
           closeOnSelect={false}
           footnote="Instant 共享为官方 virtual-chromo Worker；自定义需自行部署支持 /viewer 与宿主 CORS relay 的 Worker。点选后不会自动返回，请用左上角返回。"
         />
@@ -238,7 +251,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
-          <h2 class="settings__section-title">云服务</h2>
+          <h2 class="settings__section-title">代理服务器</h2>
           <p class="settings__section-subtitle">
             Chromo / WebView 与 AI、GitHub 等共用同一 virtual-chromo Worker。选择服务器后立即生效。
           </p>
