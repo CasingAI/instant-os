@@ -51,7 +51,6 @@ import { Resources3dView } from './resources-3d-view.tsx'
 import { Resources3dDetailView } from './resources-3d-detail-view.tsx'
 import { NewsManagementView } from './news-management-view.tsx'
 import { LegacyStorageCleanupView } from './legacy-storage-cleanup-view.tsx'
-import { RegistryManagerPane } from './registry-manager-pane.tsx'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import {
   getNewsCommentStats,
@@ -335,7 +334,6 @@ export function SettingsApp() {
   const showReset = view === 'reset'
   const showExperimental = view === 'experimental'
   const showExternalBridgeConsent = view === 'external-bridge-consent'
-  const showRegistryManager = view === 'registry-manager'
   const showLegacyStorage = view === 'legacy-storage'
   const activePaneId = paneIdForRoute(route)
   const nestedRoute = isNestedSettingsRoute(route)
@@ -622,10 +620,6 @@ export function SettingsApp() {
           onBack={() => setRoute({ view: 'root' })}
           onDataChange={() => setCacheRevision((value) => value + 1)}
         />
-      </SettingsKeepLayer>
-
-      <SettingsKeepLayer show={showRegistryManager} keep={showRegistryManager}>
-        <RegistryManagerPane onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showExperimental} keep={showExperimental}>

@@ -215,6 +215,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '所有数据来源于浏览器 API，仅供展示与调试参考。',
     ],
   },
+  registry: {
+    version: '应用注册表管理',
+    paragraphs: [
+      '注册表以 IndexedDB 按应用命名空间存储键值数据：内置应用按字段拆分为独立 key（cities / sessions / articles 等），生成应用则每个键独立存储。',
+      '本工具可查看每个命名空间的键条目并删除单个键或清空整个命名空间，只读 / 只删，不支持修改；删除后对应应用下次写入会重建。',
+    ],
+  },
   'task-manager': {
     version: '程序与性能监视',
     paragraphs: [

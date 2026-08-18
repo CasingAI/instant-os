@@ -5,7 +5,7 @@
  * - 粗粒度按需 hydrate：首次访问某应用的任意 key 时整包读入内存
  * - 同步内存缓存 + 异步 IndexedDB 落盘（写失败回滚内存并抛错）
  * - 单应用 5 MB 配额（与 localStorage 设备容量一致）
- * - createGlobalRegistry() 仅供注册表管理面板：可读 / 删任意命名空间，不允许写入
+ * - createGlobalRegistry() 仅供注册表应用：可读 / 删任意命名空间，不允许写入
  */
 import {
   registryDbClearApp,
@@ -323,7 +323,7 @@ export type GlobalRegistry = {
 }
 
 /**
- * 注册表管理面板专用：可读 / 删任意命名空间，不允许写入（避免破坏应用数据）。
+ * 注册表应用专用：可读 / 删任意命名空间，不允许写入（避免破坏应用数据）。
  */
 export function createGlobalRegistry(): GlobalRegistry {
   const invalidateMemory = (appId: string): void => {

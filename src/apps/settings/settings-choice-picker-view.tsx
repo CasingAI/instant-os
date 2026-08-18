@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact'
 import { useMemo, useState } from 'preact/hooks'
 import { SearchIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
@@ -24,6 +25,8 @@ type SettingsChoicePickerViewProps = {
   closeOnSelect?: boolean
   /** 隐藏内容区小标题，标题改放导航栏中央 */
   titleInNav?: boolean
+  /** 选项列表下方的附加内容（如选中某项后需要就地填写的信息） */
+  footer?: ComponentChildren
   /** 网络请求进行中：空列表显示转圈，有列表则盖遮罩 */
   loading?: boolean
   loadingLabel?: string
@@ -41,6 +44,7 @@ export function SettingsChoicePickerView({
   searchPlaceholder = '搜索',
   closeOnSelect = true,
   titleInNav = false,
+  footer,
   loading = false,
   loadingLabel = '加载中…',
 }: SettingsChoicePickerViewProps) {
@@ -146,6 +150,7 @@ export function SettingsChoicePickerView({
           {footnote && !loading && (
             <p class="settings__section-footnote">{footnote}</p>
           )}
+          {footer}
         </section>
         </div>
       </div>

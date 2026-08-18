@@ -125,6 +125,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   'scene3d-lab': { title: '3D 实验室', width: 1180, height: 760 },
   'model-vision': { title: '模型识图', width: 1100, height: 740 },
   icode: { title: 'iCode', width: 1280, height: 720 },
+  registry: { title: '注册表', width: 720, height: 580 },
   gomoku: { title: '五子棋', width: 760, height: 680 },
   speech: { title: '语音实验室', width: 720, height: 640 },
   'system-info': { title: '系统信息', width: 680, height: 480 },

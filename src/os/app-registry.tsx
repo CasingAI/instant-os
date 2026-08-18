@@ -24,6 +24,7 @@ import { SimulatedTerminalApp } from '../apps/simulated-terminal/simulated-termi
 import { VirtualJsApp } from '../apps/virtual-js/virtual-js-app.tsx'
 import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
+import { RegistryApp } from '../apps/registry/registry-app.tsx'
 import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
 import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
 import { ServicesApp } from '../apps/services/services-app.tsx'
@@ -53,6 +54,7 @@ import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
 import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
+import { RegistryIcon } from '../apps/registry/registry-icon.tsx'
 import { AttuneBenchIcon } from '../apps/attunebench/attunebench-icon.tsx'
 import { withAppIconDecoration } from '../icons/app-icon-decoration.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
@@ -271,6 +273,14 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: true,
   }),
   withAbout({
+    id: 'registry',
+    name: BUILTIN_APP_DISPLAY_NAMES['registry'],
+    icon: RegistryIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+  }),
+  withAbout({
     id: 'settings',
     name: BUILTIN_APP_DISPLAY_NAMES['settings'],
     icon: SettingsIcon,
@@ -442,6 +452,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'scene3d-lab': Scene3dLabApp,
   'model-vision': ModelVisionApp,
   icode: ICodeApp,
+  registry: RegistryApp,
   settings: SettingsApp,
   'system-info': SystemInfoApp,
   'task-manager': TaskManagerApp,
