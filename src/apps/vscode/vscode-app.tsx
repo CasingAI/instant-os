@@ -780,7 +780,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const terminalWorkspaceRoot = prefs.workspaceFolder?.trim() || '/user'
   const terminalReplWelcome = useMemo(
     () => [
-      '终端 · InstantREPL',
+      '终端 · InstantREPL · Tab 补全',
       'instant.openApp / openPath / openUrl / listApps / listWindows / focus / close / …',
     ],
     [],

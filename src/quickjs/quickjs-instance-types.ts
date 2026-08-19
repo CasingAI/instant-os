@@ -143,6 +143,11 @@ export type QuickJsEvalOptions = {
    * Agent / program 脚本默认开启；交互 REPL 默认关闭。
    */
   waitUntilIdle?: boolean
+  /**
+   * Tab 补全等只读内省：仍占用 busy 切片（与正式 eval 互斥），
+   * 但不建 controlled journal，避免空 ChangeSet。
+   */
+  silent?: boolean
 }
 
 export type QuickJsEvalSuccess = {

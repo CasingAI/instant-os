@@ -25,7 +25,7 @@ export function TerminalApp({ windowId: _windowId }: { windowId?: string }) {
   const welcomeLines = useMemo(
     () => [
       '终端 · InstantREPL',
-      `工作区 ${WORKSPACE_ROOT} · 回车执行 · ⌘K 清屏 · .reset 重建实例`,
+      `工作区 ${WORKSPACE_ROOT} · 回车执行 · Tab 补全 · ⌘K 清屏 · .reset 重建实例`,
       'instant.openApp / openPath / openUrl / listApps / listWindows / focus / close / …',
       'webview.listUnits / create({ url }) / show / hide / snapshot / markdown / eval / listTabs / openDevTools / …',
     ],

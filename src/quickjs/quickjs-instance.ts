@@ -608,7 +608,8 @@ export async function createQuickJsInstance(
 
     const consoleStartIndex = state.consoleLines.length
     const consoleSlice = () => state.consoleLines.slice(consoleStartIndex)
-    if (fsMode === 'controlled') {
+    const silent = evalOptions.silent === true
+    if (fsMode === 'controlled' && !silent) {
       activeJournal = createTerminalFsJournal()
     }
 

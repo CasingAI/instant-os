@@ -21,6 +21,13 @@ import '../../terminal/terminal-panel.css'
 import './terminal-repl-shell.css'
 import { formatTerminalReplValue } from './terminal-repl-format.ts'
 import { wrapTerminalProgramEval } from './terminal-repl-program-eval.ts'
+import {
+  applyReplCompletion,
+  buildReplCompletionEval,
+  completeHostDotCommands,
+  isHostDotCommandLine,
+  parseReplCompletionTarget,
+} from './terminal-repl-tab-complete.ts'
 import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
 import type { TerminalFsMode } from '../../terminal/terminal-fs-mode.ts'
@@ -211,6 +218,8 @@ export function TerminalReplPanel({
   const imeComposingRef = useRef(false)
   const imeGuardUntilRef = useRef(0)
   const justSubmittedRef = useRef(false)
+  const completingRef = useRef(false)
+  const tabCompletingRef = useRef(false)
   const workspaceRootRef = useRef(workspaceRoot)
   workspaceRootRef.current = workspaceRoot
   const fsModeRef = useRef(fsMode)
@@ -289,8 +298,15 @@ export function TerminalReplPanel({
         if (!mountedRef.current || instanceRef.current !== instance) {
           return
         }
-        syncConsoleFromInstance(instance)
         const snap = instance.getSnapshot()
+        if (tabCompletingRef.current) {
+          setCwd(snap.cwd)
+          if (snap.destroyed) {
+            instanceRef.current = undefined
+          }
+          return
+        }
+        syncConsoleFromInstance(instance)
         if (snap.busy) {
           if (busySinceRef.current === undefined) {
             busySinceRef.current = Date.now()
@@ -815,6 +831,58 @@ export function TerminalReplPanel({
     [applyDraft],
   )
 
+  const applyTabComplete = useCallback(async () => {
+    if (completingRef.current) return
+    const instance = instanceRef.current
+    if (
+      instance === undefined ||
+      instance.getSnapshot().destroyed ||
+      instance.getSnapshot().busy
+    ) {
+      return
+    }
+
+    completingRef.current = true
+    tabCompletingRef.current = true
+    try {
+      const draft = draftRef.current
+      if (isHostDotCommandLine(draft)) {
+        const result = completeHostDotCommands(draft)
+        if (result.nextDraft !== draft) {
+          applyDraft(result.nextDraft)
+        }
+        if (result.candidates && result.candidates.length > 0) {
+          appendLine({ kind: 'info', text: result.candidates.join('  ') })
+        }
+        return
+      }
+
+      const target = parseReplCompletionTarget(draft)
+      if (target === undefined) return
+
+      const evalResult = await instance.eval(buildReplCompletionEval(target.objectExpr), {
+        silent: true,
+        timeoutMs: 100,
+        waitUntilIdle: false,
+      })
+      if (!evalResult.ok || !Array.isArray(evalResult.value)) return
+      const names = evalResult.value.filter((item): item is string => typeof item === 'string')
+      const result = applyReplCompletion(draft, target.from, target.prefix, names)
+      if (result.nextDraft !== draft) {
+        applyDraft(result.nextDraft)
+      }
+      if (result.candidates && result.candidates.length > 0) {
+        appendLine({ kind: 'info', text: result.candidates.join('  ') })
+      }
+    } catch {
+      // 补全失败当作无候选
+    } finally {
+      tabCompletingRef.current = false
+      completingRef.current = false
+      focusInput()
+    }
+  }, [appendLine, applyDraft, focusInput])
+
   const promptLabel = `node ${cwd}>`
   const panelClass = ['terminal-panel', className].filter(Boolean).join(' ')
 
@@ -943,6 +1011,13 @@ export function TerminalReplPanel({
             }
             const composing =
               imeComposingRef.current || event.isComposing || event.keyCode === 229
+            if (event.key === 'Tab') {
+              if (composing) return
+              event.preventDefault()
+              if (booting || bootError !== undefined || busy) return
+              void applyTabComplete()
+              return
+            }
             if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
               if (composing) return
               event.preventDefault()
