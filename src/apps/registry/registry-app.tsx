@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { Ref } from 'preact'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
+import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
@@ -76,31 +78,53 @@ function summarizeEntryValue(entry: RegistryEntry): string {
   }
 }
 
+function sortedNamespaces(namespaces: GlobalNamespaceInfo[]): GlobalNamespaceInfo[] {
+  return [...namespaces].sort((left, right) => right.bytes - left.bytes)
+}
+
+/** 与 `.settings` 面板纵向渐变 (#ececec → #d8d8d8) 对齐 */
+function settingsPanelColorAt(ratio: number): string {
+  const t = Math.min(1, Math.max(0, ratio))
+  const channel = (top: number, bottom: number) =>
+    Math.round(top + (bottom - top) * t)
+  const r = channel(0xec, 0xd8)
+  const g = channel(0xec, 0xd8)
+  const b = channel(0xec, 0xd8)
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 type NamespaceListProps = {
   namespaces: GlobalNamespaceInfo[]
+  selectedAppId?: string
+  selectedRowRef?: Ref<HTMLButtonElement>
   onSelect: (appId: string) => void
 }
 
-function NamespaceList({ namespaces, onSelect }: NamespaceListProps) {
+function NamespaceList({
+  namespaces,
+  selectedAppId,
+  selectedRowRef,
+  onSelect,
+}: NamespaceListProps) {
   return (
     <div class="settings__list">
-      {namespaces
-        .sort((left, right) => right.bytes - left.bytes)
-        .map((namespace) => (
-          <SettingsNavRow
-            key={namespace.appId}
-            label={
-              <span class="registry__row-meta">
-                <span>{appLabel(namespace.appId)}</span>
-                <span class="settings__row-key-detail">
-                  {namespace.keyCount} 键 · 更新于 {formatTimestamp(namespace.updatedAt)}
-                </span>
+      {sortedNamespaces(namespaces).map((namespace) => (
+        <SettingsNavRow
+          key={namespace.appId}
+          selected={namespace.appId === selectedAppId}
+          rowRef={namespace.appId === selectedAppId ? selectedRowRef : undefined}
+          label={
+            <span class="registry__row-meta">
+              <span>{appLabel(namespace.appId)}</span>
+              <span class="settings__row-key-detail">
+                {namespace.keyCount} 键 · 更新于 {formatTimestamp(namespace.updatedAt)}
               </span>
-            }
-            value={formatStorageSize(namespace.bytes)}
-            onClick={() => onSelect(namespace.appId)}
-          />
-        ))}
+            </span>
+          }
+          value={formatStorageSize(namespace.bytes)}
+          onClick={() => onSelect(namespace.appId)}
+        />
+      ))}
     </div>
   )
 }
@@ -136,18 +160,194 @@ function RegistryEntryRow({ entry, deleting, onDelete }: RegistryEntryRowProps) 
   )
 }
 
+type RegistryRootPaneProps = {
+  namespaces: GlobalNamespaceInfo[]
+  loading: boolean
+  selectedAppId?: string
+  selectedRowRef?: Ref<HTMLButtonElement>
+  footnote: string
+  onSelect: (appId: string) => void
+}
+
+function RegistryRootPane({
+  namespaces,
+  loading,
+  selectedAppId,
+  selectedRowRef,
+  footnote,
+  onSelect,
+}: RegistryRootPaneProps) {
+  return (
+    <>
+      <div class="settings__nav settings__nav--titled">
+        <div class="settings__nav-bar">
+          <span class="settings__nav-heading-spacer" aria-hidden="true" />
+          <h1 class="settings__nav-heading">注册表管理</h1>
+          <span class="settings__nav-trailing" aria-hidden="true" />
+        </div>
+      </div>
+      <div class="settings__content settings__content--compact">
+        <section class="settings__section">
+          <p class="settings__section-subtitle">
+            应用注册表（IndexedDB）按应用命名空间存储数据，单个应用上限{' '}
+            {formatStorageSize(APP_REGISTRY_QUOTA_BYTES)}
+          </p>
+          {loading ? (
+            <div class="settings__loading">
+              <div class="settings__loading-spinner" />
+              <span>加载中…</span>
+            </div>
+          ) : namespaces.length === 0 ? (
+            <div class="settings__box settings__empty">注册表暂无应用数据</div>
+          ) : (
+            <NamespaceList
+              namespaces={namespaces}
+              selectedAppId={selectedAppId}
+              selectedRowRef={selectedRowRef}
+              onSelect={onSelect}
+            />
+          )}
+          <p class="settings__section-footnote">{footnote}</p>
+        </section>
+      </div>
+    </>
+  )
+}
+
+type RegistryDetailPaneProps = {
+  selectedAppId: string
+  namespace: GlobalNamespaceInfo | undefined
+  entries: RegistryEntry[]
+  entriesLoading: boolean
+  deletingKey: string | undefined
+  clearing: boolean
+  showBack: boolean
+  onBack?: () => void
+  onDeleteKey: (key: string) => void
+  onConfirmClear: () => void
+}
+
+function RegistryDetailPane({
+  selectedAppId,
+  namespace,
+  entries,
+  entriesLoading,
+  deletingKey,
+  clearing,
+  showBack,
+  onBack,
+  onDeleteKey,
+  onConfirmClear,
+}: RegistryDetailPaneProps) {
+  return (
+    <>
+      <div class="settings__nav settings__nav--titled">
+        <div class="settings__nav-bar">
+          {showBack && onBack ? (
+            <IosNavBackButton label="注册表管理" onClick={onBack} />
+          ) : (
+            <span class="settings__nav-heading-spacer" aria-hidden="true" />
+          )}
+          <h1 class="settings__nav-heading">{appLabel(selectedAppId)}</h1>
+          {entries.length > 0 ? (
+            <div class="settings__nav-trailing">
+              <button
+                type="button"
+                class="settings__btn settings__btn--danger"
+                disabled={clearing}
+                onClick={onConfirmClear}
+              >
+                {clearing ? '清空中…' : '清空'}
+              </button>
+            </div>
+          ) : (
+            <span class="settings__nav-trailing" aria-hidden="true" />
+          )}
+        </div>
+      </div>
+      <div class="settings__content settings__content--compact">
+        <section class="settings__section">
+          <p class="settings__section-footnote">
+            {namespace?.keyCount ?? entries.length} 键 ·{' '}
+            {formatStorageSize(namespace?.bytes ?? 0)} /{' '}
+            {formatStorageSize(APP_REGISTRY_QUOTA_BYTES)}
+          </p>
+          {entriesLoading && entries.length === 0 ? (
+            <div class="settings__loading">
+              <div class="settings__loading-spinner" />
+              <span>加载中…</span>
+            </div>
+          ) : entries.length === 0 ? (
+            <div class="settings__box settings__empty">该命名空间暂无数据</div>
+          ) : (
+            <div class="settings__list">
+              <div class="settings__list-head">
+                <span>键</span>
+                <span>大小</span>
+              </div>
+              <div class="settings__list-body settings__list-body--keys">
+                {entries.map((entry) => (
+                  <RegistryEntryRow
+                    key={entry.key}
+                    entry={entry}
+                    deleting={deletingKey === entry.key}
+                    onDelete={() => onDeleteKey(entry.key)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          <p class="settings__section-footnote">
+            内置应用按字段拆分为独立 key（cities / sessions / articles 等），便于单独查看与删除；
+            生成应用则每个键独立存储。本工具只读 / 只删，不支持修改；删除后该应用下次写入会重建。
+          </p>
+        </section>
+      </div>
+    </>
+  )
+}
+
+function RegistryDetailEmpty() {
+  return (
+    <>
+      <div class="settings__nav settings__nav--titled">
+        <div class="settings__nav-bar">
+          <span class="settings__nav-heading-spacer" aria-hidden="true" />
+          <h1 class="settings__nav-heading">注册表管理</h1>
+          <span class="settings__nav-trailing" aria-hidden="true" />
+        </div>
+      </div>
+      <div class="settings__content settings__content--compact">
+        <div class="settings__box settings__empty">选择左侧应用以查看注册表键</div>
+      </div>
+    </>
+  )
+}
+
 export function RegistryApp() {
   const { closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
+  const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
+  const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
+  const splitRef = useRef<HTMLDivElement>(null)
+  const listPaneRef = useRef<HTMLDivElement>(null)
+  const detailPanelRef = useRef<HTMLDivElement>(null)
+  const selectedRowRef = useRef<HTMLButtonElement>(null)
+  const [caretPos, setCaretPos] = useState<
+    { x: number; y: number; fill: string } | undefined
+  >(undefined)
 
   const [namespaces, setNamespaces] = useState<GlobalNamespaceInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedAppId, setSelectedAppId] = useState<string | undefined>(undefined)
+  const [detailAppId, setDetailAppId] = useState<string | undefined>(undefined)
   const [entries, setEntries] = useState<RegistryEntry[]>([])
   const [entriesLoading, setEntriesLoading] = useState(false)
   const [deletingKey, setDeletingKey] = useState<string | undefined>(undefined)
   const [clearing, setClearing] = useState(false)
+  const entriesCacheRef = useRef(new Map<string, RegistryEntry[]>())
+  const hasDisplayedDetailRef = useRef(false)
 
   const {
     page: screen,
@@ -157,7 +357,16 @@ export function RegistryApp() {
     commitQueuedTransition: commitNavQueuedTransition,
     navigate: navigateTo,
     handleMotionEnd: handleStackMotionEnd,
+    setPage: setPageSilent,
   } = useKeychainNavStack<Screen>('root')
+
+  const applyDisplayedEntries = useCallback((appId: string, next: RegistryEntry[]) => {
+    entriesCacheRef.current.set(appId, next)
+    hasDisplayedDetailRef.current = true
+    setDetailAppId(appId)
+    setEntries(next)
+    setEntriesLoading(false)
+  }, [])
 
   const reloadNamespaces = useCallback(async () => {
     setLoading(true)
@@ -174,19 +383,29 @@ export function RegistryApp() {
 
   useEffect(() => {
     if (!selectedAppId) {
+      hasDisplayedDetailRef.current = false
+      setDetailAppId(undefined)
       setEntries([])
+      setEntriesLoading(false)
       return
     }
+
+    const cached = entriesCacheRef.current.get(selectedAppId)
+    if (cached) {
+      applyDisplayedEntries(selectedAppId, cached)
+    } else if (!hasDisplayedDetailRef.current) {
+      setEntriesLoading(true)
+    }
+
     let alive = true
-    setEntriesLoading(true)
     createGlobalRegistry()
       .listNamespaceEntries(selectedAppId)
       .then((next) => {
         if (alive) {
-          setEntries(next)
+          applyDisplayedEntries(selectedAppId, next)
         }
       })
-      .finally(() => {
+      .catch(() => {
         if (alive) {
           setEntriesLoading(false)
         }
@@ -194,7 +413,144 @@ export function RegistryApp() {
     return () => {
       alive = false
     }
-  }, [selectedAppId])
+  }, [applyDisplayedEntries, selectedAppId])
+
+  useEffect(() => {
+    if (namespaces.length === 0) {
+      return
+    }
+    let alive = true
+    const registry = createGlobalRegistry()
+    for (const namespace of namespaces) {
+      if (entriesCacheRef.current.has(namespace.appId)) {
+        continue
+      }
+      void registry.listNamespaceEntries(namespace.appId).then((next) => {
+        if (!alive) {
+          return
+        }
+        entriesCacheRef.current.set(namespace.appId, next)
+      })
+    }
+    return () => {
+      alive = false
+    }
+  }, [namespaces])
+
+  useEffect(() => {
+    if (!layoutReady || narrowLayout || selectedAppId || namespaces.length === 0) {
+      return
+    }
+    const first = sortedNamespaces(namespaces)[0]
+    if (first) {
+      setSelectedAppId(first.appId)
+      const cached = entriesCacheRef.current.get(first.appId)
+      if (cached) {
+        applyDisplayedEntries(first.appId, cached)
+      }
+    }
+  }, [applyDisplayedEntries, layoutReady, narrowLayout, namespaces, selectedAppId])
+
+  useEffect(() => {
+    if (loading || !selectedAppId) {
+      return
+    }
+    if (namespaces.some((namespace) => namespace.appId === selectedAppId)) {
+      return
+    }
+    if (narrowLayout) {
+      setSelectedAppId(undefined)
+      setPageSilent('root')
+      return
+    }
+    setSelectedAppId(sortedNamespaces(namespaces)[0]?.appId)
+  }, [loading, namespaces, selectedAppId, narrowLayout, setPageSilent])
+
+  useLayoutEffect(() => {
+    if (!layoutReady) {
+      return
+    }
+
+    const previous = prevNarrowLayoutRef.current
+    if (previous === undefined) {
+      prevNarrowLayoutRef.current = narrowLayout
+      return
+    }
+
+    prevNarrowLayoutRef.current = narrowLayout
+
+    if (!previous && narrowLayout && selectedAppId !== undefined) {
+      setPageSilent('detail')
+      return
+    }
+
+    if (!narrowLayout) {
+      setPageSilent('root')
+    }
+  }, [layoutReady, narrowLayout, selectedAppId, setPageSilent])
+
+  const syncCaretPos = useCallback(() => {
+    if (narrowLayout) {
+      setCaretPos(undefined)
+      return
+    }
+    const row = selectedRowRef.current
+    const split = splitRef.current
+    const panel = detailPanelRef.current
+    if (!row || !split || !panel) {
+      setCaretPos(undefined)
+      return
+    }
+    const rowRect = row.getBoundingClientRect()
+    const splitRect = split.getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    const rowCenterY = rowRect.top + rowRect.height / 2
+    const gradientT =
+      panelRect.height > 0 ? (rowCenterY - panelRect.top) / panelRect.height : 0
+    setCaretPos({
+      x: panelRect.left - splitRect.left,
+      y: rowCenterY - splitRect.top,
+      fill: settingsPanelColorAt(gradientT),
+    })
+  }, [narrowLayout])
+
+  useLayoutEffect(() => {
+    syncCaretPos()
+  }, [syncCaretPos, selectedAppId, namespaces, loading, narrowLayout])
+
+  useEffect(() => {
+    const listPane = listPaneRef.current
+    const split = splitRef.current
+    const panel = detailPanelRef.current
+    const row = selectedRowRef.current
+    listPane?.addEventListener('scroll', syncCaretPos, { passive: true })
+    panel?.addEventListener('scroll', syncCaretPos, { passive: true })
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            syncCaretPos()
+          })
+        : undefined
+    if (split) {
+      observer?.observe(split)
+    }
+    if (panel) {
+      observer?.observe(panel)
+    }
+    if (listPane) {
+      observer?.observe(listPane)
+    }
+    if (row) {
+      observer?.observe(row)
+    }
+    window.addEventListener('resize', syncCaretPos)
+    return () => {
+      listPane?.removeEventListener('scroll', syncCaretPos)
+      panel?.removeEventListener('scroll', syncCaretPos)
+      observer?.disconnect()
+      window.removeEventListener('resize', syncCaretPos)
+    }
+  }, [syncCaretPos, selectedAppId, namespaces, narrowLayout])
 
   const handleDeleteKey = async (key: string) => {
     if (!selectedAppId || deletingKey !== undefined) {
@@ -203,7 +559,11 @@ export function RegistryApp() {
     setDeletingKey(key)
     try {
       await createGlobalRegistry().removeItem(selectedAppId, key)
-      setEntries((current) => current.filter((entry) => entry.key !== key))
+      setEntries((current) => {
+        const next = current.filter((entry) => entry.key !== key)
+        entriesCacheRef.current.set(selectedAppId, next)
+        return next
+      })
       await reloadNamespaces()
     } finally {
       setDeletingKey(undefined)
@@ -217,6 +577,7 @@ export function RegistryApp() {
     setClearing(true)
     try {
       await createGlobalRegistry().clearNamespace(selectedAppId)
+      entriesCacheRef.current.set(selectedAppId, [])
       setEntries([])
       await reloadNamespaces()
     } finally {
@@ -240,12 +601,18 @@ export function RegistryApp() {
     await handleClearNamespace()
   }
 
-  const openNamespace = useCallback(
+  const selectNamespace = useCallback(
     (appId: string) => {
       setSelectedAppId(appId)
-      navigateTo('detail', 'push')
+      const cached = entriesCacheRef.current.get(appId)
+      if (cached) {
+        applyDisplayedEntries(appId, cached)
+      }
+      if (narrowLayout) {
+        navigateTo('detail', 'push')
+      }
     },
-    [navigateTo],
+    [applyDisplayedEntries, narrowLayout, navigateTo],
   )
 
   const closeDetail = useCallback(() => {
@@ -287,119 +654,109 @@ export function RegistryApp() {
 
   useAppMenuBar(APP_ID, menuBar)
 
+  const selectedNamespace = namespaces.find((item) => item.appId === selectedAppId)
+  const displayedAppId = detailAppId ?? selectedAppId
+  const displayedNamespace = namespaces.find((item) => item.appId === displayedAppId)
+  const displayedEntries = detailAppId === selectedAppId || !narrowLayout ? entries : []
+  const displayedLoading =
+    Boolean(selectedAppId) &&
+    (narrowLayout ? detailAppId !== selectedAppId : !detailAppId && entriesLoading)
+
   const renderPage = (target: Screen) => {
     if (target === 'detail') {
       if (!selectedAppId) {
         return null
       }
-      const namespace = namespaces.find((item) => item.appId === selectedAppId)
       return (
-        <>
-          <div class="settings__nav settings__nav--titled">
-            <div class="settings__nav-bar">
-              <IosNavBackButton label="注册表管理" onClick={closeDetail} />
-              <h1 class="settings__nav-heading">{appLabel(selectedAppId)}</h1>
-              {entries.length > 0 ? (
-                <div class="settings__nav-trailing">
-                  <button
-                    type="button"
-                    class="settings__btn settings__btn--danger"
-                    disabled={clearing}
-                    onClick={() => void handleConfirmClear()}
-                  >
-                    {clearing ? '清空中…' : '清空'}
-                  </button>
-                </div>
-              ) : (
-                <span class="settings__nav-trailing" aria-hidden="true" />
-              )}
-            </div>
-          </div>
-          <div class="settings__content settings__content--compact">
-            <section class="settings__section">
-              <p class="settings__section-footnote">
-                {namespace?.keyCount ?? entries.length} 键 ·{' '}
-                {formatStorageSize(namespace?.bytes ?? 0)} /{' '}
-                {formatStorageSize(APP_REGISTRY_QUOTA_BYTES)}
-              </p>
-              {entriesLoading ? (
-                <div class="settings__loading">
-                  <div class="settings__loading-spinner" />
-                  <span>加载中…</span>
-                </div>
-              ) : entries.length === 0 ? (
-                <div class="settings__box settings__empty">该命名空间暂无数据</div>
-              ) : (
-                <div class="settings__list">
-                  <div class="settings__list-head">
-                    <span>键</span>
-                    <span>大小</span>
-                  </div>
-                  <div class="settings__list-body settings__list-body--keys">
-                    {entries.map((entry) => (
-                      <RegistryEntryRow
-                        key={entry.key}
-                        entry={entry}
-                        deleting={deletingKey === entry.key}
-                        onDelete={() => void handleDeleteKey(entry.key)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-              <p class="settings__section-footnote">
-                内置应用按字段拆分为独立 key（cities / sessions / articles 等），便于单独查看与删除；
-                生成应用则每个键独立存储。本工具只读 / 只删，不支持修改；删除后该应用下次写入会重建。
-              </p>
-            </section>
-          </div>
-        </>
+        <RegistryDetailPane
+          selectedAppId={selectedAppId}
+          namespace={selectedNamespace}
+          entries={displayedEntries}
+          entriesLoading={displayedLoading}
+          deletingKey={deletingKey}
+          clearing={clearing}
+          showBack
+          onBack={closeDetail}
+          onDeleteKey={(key) => void handleDeleteKey(key)}
+          onConfirmClear={() => void handleConfirmClear()}
+        />
       )
     }
 
     return (
-      <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            <span class="settings__nav-heading-spacer" aria-hidden="true" />
-            <h1 class="settings__nav-heading">注册表管理</h1>
-            <span class="settings__nav-trailing" aria-hidden="true" />
-          </div>
-        </div>
-        <div class="settings__content settings__content--compact">
-          <section class="settings__section">
-            <p class="settings__section-subtitle">
-              应用注册表（IndexedDB）按应用命名空间存储数据，单个应用上限{' '}
-              {formatStorageSize(APP_REGISTRY_QUOTA_BYTES)}
-            </p>
-            {loading ? (
-              <div class="settings__loading">
-                <div class="settings__loading-spinner" />
-                <span>加载中…</span>
-              </div>
-            ) : namespaces.length === 0 ? (
-              <div class="settings__box settings__empty">注册表暂无应用数据</div>
-            ) : (
-              <NamespaceList namespaces={namespaces} onSelect={openNamespace} />
-            )}
-            <p class="settings__section-footnote">
-              点击命名空间可查看字段级键条目并删除单个键或清空整个命名空间。
-            </p>
-          </section>
-        </div>
-      </>
+      <RegistryRootPane
+        namespaces={namespaces}
+        loading={loading}
+        onSelect={selectNamespace}
+        footnote="点击命名空间可查看字段级键条目并删除单个键或清空整个命名空间。"
+      />
     )
   }
 
   return (
-    <KeychainNavStack
-      stack={navStack}
-      page={screen}
-      transition={navTransition}
-      queuedTransition={navQueuedTransition}
-      commitQueuedTransition={commitNavQueuedTransition}
-      onMotionEnd={handleStackMotionEnd}
-      renderPage={renderPage}
-    />
+    <div
+      ref={hostRef}
+      class={narrowLayout ? 'registry registry--narrow' : 'registry registry--wide'}
+    >
+      {narrowLayout ? (
+        <KeychainNavStack
+          stack={navStack}
+          page={screen}
+          transition={navTransition}
+          queuedTransition={navQueuedTransition}
+          commitQueuedTransition={commitNavQueuedTransition}
+          onMotionEnd={handleStackMotionEnd}
+          renderPage={renderPage}
+        />
+      ) : (
+        <div
+          ref={splitRef}
+          class="registry__split"
+          style={
+            caretPos
+              ? ({
+                  ['--registry-caret-x' as string]: `${caretPos.x}px`,
+                  ['--registry-caret-y' as string]: `${caretPos.y}px`,
+                  ['--registry-caret-fill' as string]: caretPos.fill,
+                } as Record<string, string>)
+              : undefined
+          }
+        >
+          <div ref={listPaneRef} class="registry__list-pane settings">
+            <RegistryRootPane
+              namespaces={namespaces}
+              loading={loading}
+              selectedAppId={selectedAppId}
+              selectedRowRef={selectedRowRef}
+              onSelect={selectNamespace}
+              footnote="点击应用可在右侧查看注册表键。"
+            />
+          </div>
+          <div
+            ref={detailPanelRef}
+            class="registry__detail-pane settings"
+          >
+            {selectedAppId && displayedAppId ? (
+              <RegistryDetailPane
+                selectedAppId={displayedAppId}
+                namespace={displayedNamespace}
+                entries={displayedEntries}
+                entriesLoading={displayedLoading}
+                deletingKey={deletingKey}
+                clearing={clearing}
+                showBack={false}
+                onDeleteKey={(key) => void handleDeleteKey(key)}
+                onConfirmClear={() => void handleConfirmClear()}
+              />
+            ) : (
+              <RegistryDetailEmpty />
+            )}
+          </div>
+          {selectedAppId && caretPos ? (
+            <span class="registry__detail-caret" aria-hidden="true" />
+          ) : undefined}
+        </div>
+      )}
+    </div>
   )
 }

@@ -1,5 +1,100 @@
 /* 注册表 — 对齐系统设置的组件 / 样式（复用 settings.css，此处仅补充注册表特有布局） */
 
+.registry {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.registry--narrow > .keychain-stack {
+  flex: 1;
+  min-height: 0;
+}
+
+.registry--wide {
+  display: block;
+}
+
+.registry__split {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(220px, 34%) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
+.registry__list-pane,
+.registry__detail-pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+.registry__list-pane {
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
+}
+
+.registry__detail-pane {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+/* 分栏 pane 已是窗口的一部分，不适用整页 860px 居中留白 */
+@container app-window (min-width: 700px) {
+  .registry--wide .registry__list-pane > .settings__content--compact,
+  .registry--wide .registry__detail-pane > .settings__content--compact {
+    --settings-content-pad-x: 18px;
+    padding: 14px 18px 18px;
+  }
+}
+
+/* tooltip 式左向尖尖，对齐左侧选中行中心（仅宽屏） */
+.registry__detail-caret {
+  position: absolute;
+  top: var(--registry-caret-y, 50%);
+  left: var(--registry-caret-x, 34%);
+  z-index: 4;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.registry__detail-caret::before,
+.registry__detail-caret::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.registry__detail-caret::before {
+  border-width: 9px 9px 9px 0;
+  border-color: transparent rgba(0, 0, 0, 0.18) transparent transparent;
+}
+
+.registry__detail-caret::after {
+  border-width: 8px 8px 8px 0;
+  border-color: transparent var(--registry-caret-fill, #ececec) transparent transparent;
+  right: -1px;
+}
+
+.registry--wide .settings__disclosure {
+  display: none;
+}
+
+.registry--wide .settings__row--nav {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 /* ── 命名空间列表行：应用名 + 副行（键数 / 更新时间）双行文案 ── */
 
 .registry__row-meta {

@@ -1063,7 +1063,8 @@
 }
 
 .settings__row--button:hover:not(:disabled) .settings__row-key-detail,
-.settings__row--button:active:not(:disabled) .settings__row-key-detail {
+.settings__row--button:active:not(:disabled) .settings__row-key-detail,
+.settings__row--selected:not(:disabled) .settings__row-key-detail {
   color: rgba(255, 255, 255, 0.75);
 }
 
@@ -1148,7 +1149,8 @@
 }
 
 .settings__row--button:hover:not(:disabled) .settings__disclosure,
-.settings__row--button:active:not(:disabled) .settings__disclosure {
+.settings__row--button:active:not(:disabled) .settings__disclosure,
+.settings__row--selected:not(:disabled) .settings__disclosure {
   color: rgba(255, 255, 255, 0.88);
 }
 
@@ -1232,8 +1234,20 @@
 .settings__row--button:active:not(:disabled) .settings__row-size,
 .settings__row--button:active:not(:disabled) .settings__row-count,
 .settings__row--button:hover:not(:disabled) .settings__secret-mask,
-.settings__row--button:active:not(:disabled) .settings__secret-mask {
+.settings__row--button:active:not(:disabled) .settings__secret-mask,
+.settings__row--selected:not(:disabled) .settings__row-size,
+.settings__row--selected:not(:disabled) .settings__row-count,
+.settings__row--selected:not(:disabled) .settings__secret-mask {
   color: rgba(255, 255, 255, 0.85);
+}
+
+.settings__row--selected:not(:disabled) {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
+}
+
+.settings__row--selected:not(:disabled):active {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
 }
 
 .settings__row--button:disabled,
