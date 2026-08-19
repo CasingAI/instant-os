@@ -1,10 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useOs } from '../../os/os-context.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { getAppDefinition } from '../../os/app-registry.tsx'
 import { UI_COMPONENTS, COMPONENT_CATEGORIES } from './ui-kit-components.ts'
 import type { ComponentDemo } from './ui-kit-components.ts'
 import {
@@ -152,45 +147,16 @@ function ComponentCard({ component }: { component: ComponentDemo }) {
 }
 
 export function UiKitApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const appId = 'ui-kit'
   const hostRef = useRef<HTMLDivElement>(null)
   const [narrow, setNarrow] = useState(false)
-
-  const definition = getAppDefinition(appId)
 
   const sections = useMemo(() => buildCategorySections(), [])
   const [activeCategoryId, setActiveCategoryId] = useState(() => sections[0]?.id ?? 'form')
 
   const activeSection = sections.find((section) => section.id === activeCategoryId) ?? sections[0]
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === appId && !window.minimized)
-    return [
-      {
-        label: definition?.name ?? 'UI 组件库',
-        items: [
-          ...aboutAppMenuPrefix(`关于 ${definition?.name ?? 'UI 组件库'}`, () => showBuiltinAbout(appId)),
-          {
-            type: 'action',
-            label: `隐藏${definition?.name ?? 'UI 组件库'}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出${definition?.name ?? 'UI 组件库'}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(appId),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, definition?.name, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar(appId, menuBar)
+  useAppMenuBar(appId, [])
 
   const measureWidth = useCallback(() => {
     if (!hostRef.current) return

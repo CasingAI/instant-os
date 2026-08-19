@@ -10,8 +10,6 @@ import {
 import { accountSettingsToOpenAiConfig, loadAccountSettings } from '../../os/account-settings-storage.ts'
 import { MarkdownHtmlView } from '../../markdown/markdown-html-view.tsx'
 import { renderMarkdownHtml } from '../../markdown/render-markdown-html.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -212,8 +210,7 @@ function SliderField({
 }
 
 export function LlmPlaygroundApp() {
-  const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const [store, setStore] = useState<LlmPlaygroundStore>(() => readLlmPlaygroundStore())
   const [running, setRunning] = useState(false)
   const [streamingReasoning, setStreamingReasoning] = useState('')
@@ -506,28 +503,7 @@ export function LlmPlaygroundApp() {
   }, [models])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'llm-playground' && !window.minimized)
-
     return [
-      {
-        label: 'LLM Playground',
-        items: [
-          ...aboutAppMenuPrefix('关于 LLM Playground', () => showBuiltinAbout('llm-playground')),
-          {
-            type: 'action',
-            label: '隐藏 LLM Playground',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 LLM Playground',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('llm-playground'),
-          },
-        ],
-      },
       {
         label: '编辑',
         items: [
@@ -560,15 +536,11 @@ export function LlmPlaygroundApp() {
       },
     ]
   }, [
-    closeWindowsForApp,
     handleClearMessages,
     handleCopyConversation,
     handleLoadExample,
     insertMessage,
-    minimizeWindow,
-    showBuiltinAbout,
     store.messages.length,
-    windows,
   ])
 
   useAppMenuBar('llm-playground', menuBar)

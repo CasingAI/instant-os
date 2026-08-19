@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
   formatCalendarYearLabel,
   formatChineseMonthLabel,
@@ -195,8 +193,7 @@ function buildMonthGrid(
 }
 
 export function CalendarApp() {
-  const { closeWindowsForApp, minimizeWindow, openApp, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { openApp } = useOs()
 
   const [todayKey, setTodayKey] = useState(() => formatEditionDateKey(getOsNowInstant()))
   const [view, setView] = useState<ViewMonth>(() => viewMonthFromInstant(getOsNowInstant()))
@@ -337,28 +334,7 @@ export function CalendarApp() {
   }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'calendar' && !window.minimized)
-
     return [
-      {
-        label: '月历',
-        items: [
-          ...aboutAppMenuPrefix('关于 月历', () => showBuiltinAbout('calendar')),
-          {
-            type: 'action',
-            label: '隐藏月历',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出月历',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('calendar'),
-          },
-        ],
-      },
       {
         label: '前往',
         items: [
@@ -381,14 +357,10 @@ export function CalendarApp() {
       },
     ]
   }, [
-    closeWindowsForApp,
     ensureMonthMarkers,
     goToday,
-    minimizeWindow,
     openDatePicker,
-    showBuiltinAbout,
     view,
-    windows,
   ])
 
   useAppMenuBar('calendar', menuBar)

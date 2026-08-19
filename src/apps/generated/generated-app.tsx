@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
   EXPERIMENTAL_SETTINGS_CHANGED_EVENT,
 } from '../../os/experimental-settings-storage.ts'
@@ -16,8 +14,6 @@ import {
 import { GENERATED_APP_STORAGE_ERROR_MESSAGE_TYPE } from '../../os/generated-app-data-storage.ts'
 import { getRegistryUsedBytesSync, hydrateAppRegistry } from '../../os/app-registry.ts'
 import { APP_REGISTRY_QUOTA_BYTES } from '../../os/app-registry.ts'
-import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
@@ -44,10 +40,9 @@ type GeneratedAppProps = {
 }
 
 export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
-  const { focusWindow, closeWindow, closeWindowsForApp, minimizeWindow, windows } = useOs()
+  const { focusWindow, closeWindow } = useOs()
   const { getInstalledApp, getAppDataRevision, getFailedInstall, installListing, dismissFailedInstall } =
     useGeneratedApps()
-  const { showAbout } = useAboutApp()
   const app = getInstalledApp(appId)
   const failedInstall = getFailedInstall(appId)
   const dataRevision = getAppDataRevision(appId)
@@ -169,46 +164,6 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     },
     [app?.name, appId, runtimeErrorAlertOpen, runtimeErrorDetailsOpen],
   )
-
-  const menuBar = useMemo((): MenuDefinition[] => {
-    if (!app) {
-      return []
-    }
-
-    const appWindow = windows.find((window) => window.appId === appId && !window.minimized)
-
-    return [
-      {
-        label: app.name,
-        items: [
-          ...aboutAppMenuPrefix(`关于 ${app.name}`, () =>
-            showAbout({
-              title: app.name,
-              version: app.category,
-              iconEmoji: app.iconEmoji,
-              themeColor: app.themeColor,
-              paragraphs: [app.description],
-            }),
-          ),
-          {
-            type: 'action',
-            label: `隐藏 ${app.name}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出 ${app.name}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(appId),
-          },
-        ],
-      },
-    ]
-  }, [app, appId, closeWindowsForApp, minimizeWindow, showAbout, windows])
-
-  useAppMenuBar(appId, menuBar)
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {

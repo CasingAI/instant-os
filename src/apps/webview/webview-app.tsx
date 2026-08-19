@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { mergeConsoleDisplayEntries } from '../chromo/chromo-console-types.ts'
 import { ChromoDevToolsPanel } from '../chromo/chromo-devtools-panel.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs, useWindowCloseGuard } from '../../os/os-context.tsx'
@@ -46,7 +44,6 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
     openApp,
     setWindowTitle,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
 
   const appWindow = windowId
     ? windows.find((window) => window.id === windowId && !window.closing)
@@ -179,7 +176,6 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
       {
         label: 'WebView',
         items: [
-          ...aboutAppMenuPrefix('关于 WebView', () => showBuiltinAbout(APP_ID)),
           {
             type: 'action',
             label: '关闭',
@@ -201,7 +197,7 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
         ],
       },
     ]
-  }, [closeWindow, displayedTab, openCurrentDevTools, showBuiltinAbout, windowId])
+  }, [closeWindow, displayedTab, openCurrentDevTools, windowId])
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)
 

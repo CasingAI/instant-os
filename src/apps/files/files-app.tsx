@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren, ComponentType, JSX } from 'preact'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
 import {
   getDefaultFileOpenApp,
@@ -582,8 +580,7 @@ function filesScrollKey(locationId: FilesLocationId, folderId: string | undefine
 }
 
 export function FilesApp({ windowId }: { windowId?: string }) {
-  const { closeWindowsForApp, minimizeWindow, windows, openApp, openGeneratedApp, activeWindowId } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { windows, openApp, openGeneratedApp, activeWindowId } = useOs()
   const modal = useWindowModal()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
 
@@ -3115,7 +3112,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [actionSheet, currentTitle])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     const canMutate = canCreateHere
     const atContainerRoot = pathNodes.length === 0
 
@@ -3123,14 +3119,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       {
         label: '文件',
         items: [
-          ...aboutAppMenuPrefix('关于文件', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏文件',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
           {
             type: 'action',
             label: '新建文件夹',
@@ -3188,13 +3176,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               }
             },
           },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出文件',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
         ],
       },
       {
@@ -3242,7 +3223,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     canCreateHere,
     canGoBackInPath,
     canPasteHere,
-    closeWindowsForApp,
     goBackInPath,
     handleCut,
     handleCopy,
@@ -3253,7 +3233,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     handleTrash,
     locationId,
     locations,
-    minimizeWindow,
     nameDisplayMode,
     navigatePathBar,
     openNewFileMenu,
@@ -3261,8 +3240,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     selectAll,
     selectLocation,
     selectedNodes,
-    showBuiltinAbout,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)

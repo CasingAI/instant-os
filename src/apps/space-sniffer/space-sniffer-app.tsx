@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -52,11 +50,8 @@ export function SpaceSnifferApp({ windowId }: SpaceSnifferAppProps) {
     setWindowTitle,
     setWindowDocumentId,
     closeWindow,
-    closeWindowsForApp,
-    minimizeWindow,
     bypassWindowCloseGuard,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
 
   const appWindow = windowId
     ? windows.find((window) => window.id === windowId && !window.closing)
@@ -302,9 +297,6 @@ export function SpaceSnifferApp({ windowId }: SpaceSnifferAppProps) {
       {
         label: definition?.name ?? DEFAULT_TITLE,
         items: [
-          ...aboutAppMenuPrefix(`关于 ${definition?.name ?? DEFAULT_TITLE}`, () =>
-            showBuiltinAbout(APP_ID),
-          ),
           {
             type: 'action',
             label: '新建扫描',
@@ -316,20 +308,6 @@ export function SpaceSnifferApp({ windowId }: SpaceSnifferAppProps) {
             label: '重新选择路径…',
             disabled: !canRepath,
             onClick: requestRepath,
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `隐藏${definition?.name ?? DEFAULT_TITLE}`,
-            shortcut: '⌘H',
-            onClick: () => windowId && minimizeWindow(windowId),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出${definition?.name ?? DEFAULT_TITLE}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
           },
         ],
       },
@@ -363,13 +341,9 @@ export function SpaceSnifferApp({ windowId }: SpaceSnifferAppProps) {
     activeTab,
     canRepath,
     closeTab,
-    closeWindowsForApp,
     definition?.name,
-    minimizeWindow,
     requestNewScan,
     requestRepath,
-    showBuiltinAbout,
-    windowId,
   ])
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)

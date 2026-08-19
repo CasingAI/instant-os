@@ -4,11 +4,8 @@ import {
   type QuickJsConsoleLine,
   type QuickJsInstance,
 } from '../../quickjs/quickjs-public.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import {
   DEFAULT_VIRTUAL_JS_SAMPLE_ID,
@@ -130,8 +127,6 @@ function initialSampleSource(): string {
 }
 
 export function VirtualJsApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const { showSystemOpenDialog, dialog: openDialog } = useSystemOpenDialog()
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
   const mountedRef = useRef(true)
@@ -674,28 +669,7 @@ export function VirtualJsApp() {
   const canSaveFile = canFileActions && fileMode
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
-
     return [
-      {
-        label: 'Virtual JS',
-        items: [
-          ...aboutAppMenuPrefix('关于 Virtual JS', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏 Virtual JS',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 Virtual JS',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
       {
         label: '文件',
         items: [
@@ -784,7 +758,6 @@ export function VirtualJsApp() {
     canSaveFile,
     canStartTestAll,
     canStop,
-    closeWindowsForApp,
     fileMode,
     handleClearOutput,
     handleOpenDemoEntry,
@@ -796,11 +769,8 @@ export function VirtualJsApp() {
     handleSaveFile,
     handleStop,
     handleTestAll,
-    minimizeWindow,
     readOnly,
-    showBuiltinAbout,
     testingAll,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)

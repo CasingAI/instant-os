@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
 import {
   DEVICE_STORAGE_KEYS,
@@ -8,7 +6,6 @@ import {
 } from '../../os/device-storage.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import {
   cancelPackageTask,
   estimatePackageStoreBytes,
@@ -106,8 +103,6 @@ function saveProjectRoot(root: string | undefined): void {
 }
 
 export function PackagesApp() {
-  const { windows, closeWindowsForApp, minimizeWindow } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const definition = getAppDefinition(APP_ID)
   const { showSystemOpenDialog, dialog: openDialog } = useSystemOpenDialog()
   const modal = useWindowModal()
@@ -621,14 +616,10 @@ export function PackagesApp() {
   }, [projectRoot, installed, startTaskWithSheet])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID)
     return [
       {
         label: definition?.name ?? '包管理',
         items: [
-          ...aboutAppMenuPrefix(`关于${definition?.name ?? '包管理'}`, () =>
-            showBuiltinAbout(APP_ID),
-          ),
           {
             type: 'action',
             label: '打开项目…',
@@ -649,32 +640,16 @@ export function PackagesApp() {
               void refreshCache()
             },
           },
-          {
-            type: 'action',
-            label: '最小化',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出${definition?.name ?? '包管理'}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
         ],
       },
     ]
   }, [
     clearProject,
-    closeWindowsForApp,
     definition?.name,
-    minimizeWindow,
     openProject,
     projectRoot,
     refreshCache,
     refreshDeps,
-    showBuiltinAbout,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)

@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -463,8 +461,7 @@ function EffortSelect({
 }
 
 export function SrmlDemoApp() {
-  const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
 
   const [events, setEvents] = useState<SrmlEngineEvent[]>([])
   const [running, setRunning] = useState(false)
@@ -605,27 +602,7 @@ export function SrmlDemoApp() {
   }, [setAppWindowTitle])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'srml-demo' && !window.minimized)
     return [
-      {
-        label: 'SRML',
-        items: [
-          ...aboutAppMenuPrefix('关于 SRML 演示', () => showBuiltinAbout('srml-demo')),
-          {
-            type: 'action',
-            label: '隐藏 SRML 演示',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 SRML 演示',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('srml-demo'),
-          },
-        ],
-      },
       {
         label: '文件',
         items: [
@@ -646,7 +623,7 @@ export function SrmlDemoApp() {
         ],
       },
     ]
-  }, [abortDemo, closeWindowsForApp, minimizeWindow, resetDemo, running, showBuiltinAbout, staged.length, submit, windows])
+  }, [abortDemo, resetDemo, running, staged.length, submit])
 
   useAppMenuBar('srml-demo', menuBar)
 

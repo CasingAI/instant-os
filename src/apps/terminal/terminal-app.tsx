@@ -1,9 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import {
   TERMINAL_FS_MODE_LABEL,
   type TerminalFsMode,
@@ -20,8 +17,6 @@ function menuCheckPrefix(active: boolean): string {
 
 /** 系统终端：原生 QuickJS / Node 兼容运行时，可操作虚拟文件系统与宿主能力。 */
 export function TerminalApp({ windowId: _windowId }: { windowId?: string }) {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const handleRef = useRef<TerminalReplHandle | null>(null)
   const busyRef = useRef(false)
   const [fsMode, setFsMode] = useState<TerminalFsMode>('normal')
@@ -59,29 +54,9 @@ export function TerminalApp({ windowId: _windowId }: { windowId?: string }) {
   }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     const modeItems: TerminalFsMode[] = ['normal', 'readonly', 'controlled']
 
     return [
-      {
-        label: '终端',
-        items: [
-          ...aboutAppMenuPrefix('关于终端', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏终端',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出终端',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
       {
         label: '编辑',
         items: [
@@ -120,14 +95,10 @@ export function TerminalApp({ windowId: _windowId }: { windowId?: string }) {
   }, [
     canRevert,
     clearScreen,
-    closeWindowsForApp,
     fsMode,
     handleAbort,
     handleRevert,
-    minimizeWindow,
     resetInstance,
-    showBuiltinAbout,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)

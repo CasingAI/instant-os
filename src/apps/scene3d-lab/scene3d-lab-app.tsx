@@ -3,8 +3,6 @@ import { flushSync } from 'preact/compat'
 import type { LiveTokenUsage } from '../browser/estimate-token-usage.ts'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -68,8 +66,7 @@ const EMPTY_USAGE: LiveTokenUsage = {
 }
 
 export function Scene3dLabApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const [prompt, setPrompt] = useState<string>(SCENE3D_DEFAULT_PROMPT)
   const [hasPreview, setHasPreview] = useState(false)
   const [htmlCode, setHtmlCode] = useState('')
@@ -157,13 +154,10 @@ export function Scene3dLabApp() {
   }, [setAppWindowTitle])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'scene3d-lab' && !window.minimized)
-
     return [
       {
         label: '3D 实验室',
         items: [
-          ...aboutAppMenuPrefix('关于 3D 实验室', () => showBuiltinAbout('scene3d-lab')),
           {
             type: 'action',
             label: inspectorOpen ? '隐藏调试面板' : '显示调试面板',
@@ -179,23 +173,10 @@ export function Scene3dLabApp() {
               setArchiveTitle((current) => current || defaultArchiveTitle(prompt))
             },
           },
-          {
-            type: 'action',
-            label: '隐藏 3D 实验室',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 3D 实验室',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('scene3d-lab'),
-          },
         ],
       },
     ]
-  }, [closeWindowsForApp, htmlCode, inspectorOpen, minimizeWindow, prompt, showBuiltinAbout, windows])
+  }, [htmlCode, inspectorOpen, prompt])
 
   useAppMenuBar('scene3d-lab', menuBar)
 

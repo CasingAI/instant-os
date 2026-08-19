@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { osNowMs } from '../../os/os-clock.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -42,8 +40,7 @@ function formatCatGptError(err: unknown): string {
 }
 
 export function CatGptApp() {
-  const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const [store, setStore] = useState<CatGptStore | undefined>(undefined)
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -219,28 +216,7 @@ export function CatGptApp() {
   }, [activeSession?.messages.length, streamingText, scrollToBottom])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'catgpt' && !window.minimized)
-
     return [
-      {
-        label: 'CatGPT',
-        items: [
-          ...aboutAppMenuPrefix('关于 CatGPT', () => showBuiltinAbout('catgpt')),
-          {
-            type: 'action',
-            label: '隐藏 CatGPT',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 CatGPT',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('catgpt'),
-          },
-        ],
-      },
       {
         label: '文件',
         items: [
@@ -261,7 +237,7 @@ export function CatGptApp() {
         })),
       },
     ]
-  }, [closeWindowsForApp, contentWidth, handleNewChat, minimizeWindow, showBuiltinAbout, windows])
+  }, [contentWidth, handleNewChat])
 
   useAppMenuBar('catgpt', menuBar)
 

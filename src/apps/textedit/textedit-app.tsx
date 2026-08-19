@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -75,12 +73,9 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     setWindowDocumentEdited,
     setWindowDocumentReadOnly,
     closeWindow,
-    closeWindowsForApp,
-    minimizeWindow,
     bypassWindowCloseGuard,
     cancelPendingAppQuit,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { showSystemOpenDialog, dialog: openDialog, isOpen: openDialogOpen } = useSystemOpenDialog()
 
@@ -474,25 +469,6 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
-        label: '文本编辑',
-        items: [
-          ...aboutAppMenuPrefix('关于文本编辑', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏文本编辑',
-            shortcut: '⌘H',
-            onClick: () => windowId && minimizeWindow(windowId),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出文本编辑',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
-      {
         label: '文件',
         items: [
           {
@@ -520,19 +496,15 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
       },
     ]
   }, [
-    closeWindowsForApp,
     dirty,
     dirtyPrompt,
     handleCloseTab,
     handleOpen,
     handleSave,
     loading,
-    minimizeWindow,
     openDialogOpen,
     ready,
-    showBuiltinAbout,
     tabs.length,
-    windowId,
     writable,
   ])
 

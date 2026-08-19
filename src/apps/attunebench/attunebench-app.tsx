@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import { usePlaygroundTextModels } from '../llm-playground/llm-playground-api.ts'
 import {
   SUBSETS,
@@ -26,9 +22,6 @@ import { AttuneBenchReportView, estimateRunCost } from './report.tsx'
 import './attunebench.css'
 
 export function AttuneBenchApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
-
   const models = usePlaygroundTextModels()
 
   const [selectedModelRefKey, setSelectedModelRefKey] = useState<string>('')
@@ -234,32 +227,7 @@ export function AttuneBenchApp() {
   const activeRun = activeRunId ? store.runs[activeRunId] : undefined
   const runStatus: RunStatus = activeRun?.status ?? 'idle'
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'attunebench' && !window.minimized)
-    return [
-      {
-        label: '评测',
-        items: [
-          ...aboutAppMenuPrefix('关于 评测', () => showBuiltinAbout('attunebench')),
-          {
-            type: 'action',
-            label: '隐藏 评测',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 评测',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('attunebench'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('attunebench', menuBar)
+  useAppMenuBar('attunebench', [])
 
   const groupedModels = useMemo(() => {
     const groups: Array<{ label: string; models: typeof models }> = []

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { materializeArchiveEntries } from '../../archive/archive-materialize.ts'
 import { listArchiveInWorker } from '../../archive/archive-worker-client.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getDefaultFileOpenApp, registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import {
   registerFilesContextMenuContribution,
@@ -148,10 +146,8 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     setWindowTitle,
     setWindowDocumentId,
     openApp,
-    closeWindowsForApp,
     registerWindowCloseGuard,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { showSystemOpenDialog, dialog: systemOpenDialog } = useSystemOpenDialog()
 
@@ -721,8 +717,6 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       {
         label: EMPTY_TITLE,
         items: [
-          ...aboutAppMenuPrefix('关于压缩包实用工具', () => showBuiltinAbout(APP_ID)),
-          { type: 'separator' },
           { type: 'action', label: '打开压缩包…', shortcut: '⌘O', onClick: () => void handleOpenArchive() },
           { type: 'action', label: '新建归档…', shortcut: '⌘N', onClick: () => void handleCreateArchive() },
           { type: 'separator' },
@@ -752,13 +746,6 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
             disabled: !session || selection.size !== 1 || session.format === 'gzip-file',
             onClick: () => void handleRenameSelected(),
           },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出压缩包实用工具',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
         ],
       },
       {
@@ -771,7 +758,6 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     ]
     return items
   }, [
-    closeWindowsForApp,
     currentDir.length,
     handleAddFiles,
     handleCreateArchive,
@@ -783,7 +769,6 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     handleRenameSelected,
     selection.size,
     session,
-    showBuiltinAbout,
   ])
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)

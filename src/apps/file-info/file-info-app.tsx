@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -67,11 +65,8 @@ export function FileInfoApp({ windowId }: FileInfoAppProps) {
     setWindowTitle,
     setWindowDocumentId,
     closeWindow,
-    closeWindowsForApp,
-    minimizeWindow,
     bypassWindowCloseGuard,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
 
   const appWindow = windowId
     ? windows.find((window) => window.id === windowId && !window.closing)
@@ -281,25 +276,6 @@ export function FileInfoApp({ windowId }: FileInfoAppProps) {
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
-        label: '文件信息',
-        items: [
-          ...aboutAppMenuPrefix('关于文件信息', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏文件信息',
-            shortcut: '⌘H',
-            onClick: () => windowId && minimizeWindow(windowId),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出文件信息',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
-      {
         label: '文件',
         items: [
           {
@@ -312,7 +288,7 @@ export function FileInfoApp({ windowId }: FileInfoAppProps) {
         ],
       },
     ]
-  }, [activeTab, closeTab, closeWindowsForApp, loading, minimizeWindow, showBuiltinAbout, windowId])
+  }, [activeTab, closeTab, loading])
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)
 

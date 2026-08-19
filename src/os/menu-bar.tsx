@@ -4,8 +4,10 @@ import { BatteryIcon, CloudServiceIcon, ForwardIcon, InstantLogoIcon } from '../
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../ui/adaptive-action-menu.tsx'
 import { isNarrowWorkArea } from '../window/window-snap.ts'
 import { useAboutApp } from './about-app-context.tsx'
+import { applyAppMenuTemplate } from './app-menu-template.ts'
 import { getAppDefinition } from './app-registry.tsx'
 import { getThisDeviceAbout } from './builtin-app-about.ts'
+import { useDevExtApps } from './dev-ext-apps-context.tsx'
 import { useMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
 import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
@@ -44,7 +46,7 @@ import {
   type PowProgressState,
 } from './pow-progress-store.ts'
 import type { AppId, BuiltinAppId } from './types.ts'
-import { isGeneratedAppId } from './types.ts'
+import { isExtAppId, isGeneratedAppId } from './types.ts'
 import './menu-bar.css'
 import './menu-bar-popover.css'
 import './notification-center.css'
@@ -57,9 +59,17 @@ const STATUS_VOLUME_LABEL = '__status_volume__'
 const MENU_GAP_PX = 2
 const MORE_MENU_BTN_SPACE_PX = 50
 
-function appNameForWindow(appId: AppId, windowTitle: string): string {
+function resolveAppMenuName(
+  appId: AppId,
+  windowTitle: string,
+  generatedName: string | undefined,
+  extName: string | undefined,
+): string {
   if (isGeneratedAppId(appId)) {
-    return windowTitle
+    return generatedName || windowTitle
+  }
+  if (isExtAppId(appId)) {
+    return extName || windowTitle
   }
   return getAppDefinition(appId as BuiltinAppId)?.name ?? windowTitle
 }
@@ -487,11 +497,13 @@ function MenuBarRightSection({
 }
 
 export function MenuBar() {
-  const { windows, activeWindowId, focusWindow, restoreWindow, openApp } = useOs()
+  const { windows, activeWindowId, focusWindow, restoreWindow, openApp, closeWindowsForApp, minimizeWindow } =
+    useOs()
   const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
-  const { showInstantAbout, showAbout } = useAboutApp()
-  const { pendingInstalls, failedInstalls, completedInstalls } = useGeneratedApps()
+  const { showInstantAbout, showAbout, showBuiltinAbout } = useAboutApp()
+  const { pendingInstalls, failedInstalls, completedInstalls, getInstalledApp } = useGeneratedApps()
+  const { getSessionExtApp } = useDevExtApps()
   const appNotifications = useAppNotifications()
   const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
   const storageWarning = useStorageWarningNotification()
@@ -589,7 +601,64 @@ export function MenuBar() {
     [showAbout, openApp],
   )
 
-  const menus = activeWindow ? (menusByApp[activeWindow.appId] ?? []) : desktopMenus
+  const menus = useMemo<MenuDefinition[]>(() => {
+    if (!activeWindow) {
+      return desktopMenus
+    }
+
+    const appId = activeWindow.appId
+    const generated = isGeneratedAppId(appId) ? getInstalledApp(appId) : undefined
+    const extApp = isExtAppId(appId) ? getSessionExtApp(appId) : undefined
+    const appName = resolveAppMenuName(
+      appId,
+      activeWindow.title,
+      generated?.name,
+      extApp?.manifest.name,
+    )
+
+    return applyAppMenuTemplate(menusByApp[appId] ?? [], appName, {
+      onAbout: () => {
+        if (generated) {
+          showAbout({
+            title: generated.name,
+            version: generated.category,
+            iconEmoji: generated.iconEmoji,
+            themeColor: generated.themeColor,
+            paragraphs: [generated.description],
+          })
+          return
+        }
+        if (extApp) {
+          showAbout({
+            title: extApp.manifest.name,
+            version: extApp.manifest.version,
+            themeColor: extApp.manifest.themeColor,
+            paragraphs: [
+              extApp.manifest.description,
+              `开发地址：${extApp.devUrl}`,
+              '本次会话调试应用，重启后自动移除。',
+            ],
+          })
+          return
+        }
+        if (!isGeneratedAppId(appId) && !isExtAppId(appId)) {
+          showBuiltinAbout(appId)
+        }
+      },
+      onHide: () => minimizeWindow(activeWindow.id),
+      onQuit: () => closeWindowsForApp(appId),
+    })
+  }, [
+    activeWindow,
+    closeWindowsForApp,
+    desktopMenus,
+    getInstalledApp,
+    getSessionExtApp,
+    menusByApp,
+    minimizeWindow,
+    showAbout,
+    showBuiltinAbout,
+  ])
   const hasMenuOverflow = visibleMenuCount < menus.length
   const overflowMenus = hasMenuOverflow ? menus.slice(visibleMenuCount) : []
 
@@ -659,14 +728,10 @@ export function MenuBar() {
       }
 
       const brand = left.querySelector<HTMLElement>('.menu-bar__menu--brand')
-      const fallback = left.querySelector<HTMLElement>('.menu-bar__fallback-name')
 
       let available = left.clientWidth
       if (brand) {
         available -= brand.offsetWidth + MENU_GAP_PX
-      }
-      if (fallback) {
-        available -= fallback.offsetWidth + MENU_GAP_PX
       }
 
       if (available <= 0) {
@@ -871,11 +936,6 @@ export function MenuBar() {
               <span class="menu-bar__trigger menu-bar__more-measure">更多</span>
             </div>
           </div>
-        )}
-        {activeWindow && menus.length === 0 && (
-          <span class="menu-bar__fallback-name">
-            {appNameForWindow(activeWindow.appId, activeWindow.title)}
-          </span>
         )}
       </div>
       <div class="menu-bar__center" />

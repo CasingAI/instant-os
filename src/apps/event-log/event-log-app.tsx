@@ -20,15 +20,11 @@ import { resolvePricingForLoggedModel } from '../../ai/ai-providers.ts'
 import { formatUsageDayLabel, formatUsageTime } from '../../ai/ai-token-usage.ts'
 import { loadAccountSettings } from '../../os/account-settings-storage.ts'
 import { formatTokenCount } from '../browser/format-token-count.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { useDevExtApps } from '../../os/dev-ext-apps-context.tsx'
 import { osDayKey } from '../../os/os-clock.ts'
-import { useOs } from '../../os/os-context.tsx'
 import { useOsNowDate } from '../../os/use-os-clock.ts'
 import type { AppId } from '../../os/types.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
@@ -110,12 +106,9 @@ function groupRecordsByDay(records: EnrichedEventLogRecord[]): DayGroup[] {
 }
 
 export function EventLogApp() {
-  const { windows, closeWindowsForApp, minimizeWindow } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const { getInstalledApp } = useGeneratedApps()
   const { getSessionExtApp } = useDevExtApps()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
-  const definition = getAppDefinition(APP_ID)
 
   const [records, setRecords] = useState<AiEventLogRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | undefined>()
@@ -193,35 +186,7 @@ export function EventLogApp() {
     }
   }, [layoutReady, narrowLayout, selectedId])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
-    return [
-      {
-        label: definition?.name ?? '事件日志',
-        items: [
-          ...aboutAppMenuPrefix(
-            `关于 ${definition?.name ?? '事件日志'}`,
-            () => showBuiltinAbout(APP_ID),
-          ),
-          {
-            type: 'action',
-            label: `隐藏${definition?.name ?? '事件日志'}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出${definition?.name ?? '事件日志'}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, definition?.name, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar(APP_ID, menuBar)
+  useAppMenuBar(APP_ID, [])
 
   const enrichedRecords = useMemo(
     () =>

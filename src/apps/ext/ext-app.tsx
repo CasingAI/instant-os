@@ -1,9 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
+import { useCallback, useEffect, useRef } from 'preact/hooks'
 import { useDevExtApps } from '../../os/dev-ext-apps-context.tsx'
-import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { ExtAppId } from '../../os/types.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
@@ -17,50 +13,10 @@ type ExtAppProps = {
 }
 
 export function ExtApp({ appId, windowId }: ExtAppProps) {
-  const { focusWindow, closeWindow, closeWindowsForApp, minimizeWindow, windows } = useOs()
+  const { focusWindow, closeWindow } = useOs()
   const { getSessionExtApp } = useDevExtApps()
-  const { showAbout } = useAboutApp()
   const app = getSessionExtApp(appId)
   const iframeRef = useRef<HTMLIFrameElement>(null)
-
-  const menuBar = useMemo((): MenuDefinition[] => {
-    if (!app) {
-      return []
-    }
-
-    const appWindow = windows.find((window) => window.appId === appId && !window.minimized)
-
-    return [
-      {
-        label: app.manifest.name,
-        items: [
-          ...aboutAppMenuPrefix(`关于 ${app.manifest.name}`, () =>
-            showAbout({
-              title: app.manifest.name,
-              version: app.manifest.version,
-              themeColor: app.manifest.themeColor,
-              paragraphs: [app.manifest.description, `开发地址：${app.devUrl}`, '本次会话调试应用，重启后自动移除。'],
-            }),
-          ),
-          {
-            type: 'action',
-            label: `隐藏 ${app.manifest.name}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出 ${app.manifest.name}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(appId),
-          },
-        ],
-      },
-    ]
-  }, [app, appId, closeWindowsForApp, minimizeWindow, showAbout, windows])
-
-  useAppMenuBar(appId, menuBar)
 
   useEffect(() => {
     if (!app?.manifest.tags.includes('ai')) {

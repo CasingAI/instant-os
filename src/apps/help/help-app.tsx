@@ -6,8 +6,6 @@ import {
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { HelpIcon } from '../../icons/app-icons.tsx'
 import { osNowMs } from '../../os/os-clock.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -446,8 +444,7 @@ function HelpLiveTimeline({
 }
 
 export function HelpApp() {
-  const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const [messages, setMessages] = useState<HelpMessage[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -744,28 +741,7 @@ export function HelpApp() {
   }, [messages.length, displayedLiveTimeline.length, liveAnswerLength, scrollToBottom])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
-
     return [
-      {
-        label: '帮助',
-        items: [
-          ...aboutAppMenuPrefix('关于 帮助', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏帮助',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出帮助',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
       {
         label: '编辑',
         items: [
@@ -798,14 +774,10 @@ export function HelpApp() {
     ]
   }, [
     busy,
-    closeWindowsForApp,
     contentWidth,
     handleClear,
     messages.length,
-    minimizeWindow,
-    showBuiltinAbout,
     thinkingEnabled,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)

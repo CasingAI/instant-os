@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
-import { getAppDefinition } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import {
   getServiceStartupType,
   patchServiceStartupType,
@@ -83,10 +78,7 @@ function settingsPanelColorAt(ratio: number): string {
 }
 
 export function ServicesApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
-  const definition = getAppDefinition(APP_ID)
   const [services, setServices] = useState<WorkerHeapReport[]>(() => listWorkerHeapReports())
   const [selectedId, setSelectedId] = useState<WorkerHeapServiceId | undefined>(() => {
     const initial = listWorkerHeapReports()
@@ -174,33 +166,7 @@ export function ServicesApp() {
 
   const runningCount = services.filter((s) => s.status === 'running').length
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
-    const name = definition?.name ?? '服务'
-    return [
-      {
-        label: name,
-        items: [
-          ...aboutAppMenuPrefix(`关于 ${name}`, () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: `隐藏${name}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出${name}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, definition?.name, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar(APP_ID, menuBar)
+  useAppMenuBar(APP_ID, [])
 
   const changeStartupType = (id: WorkerHeapServiceId, type: ServiceStartupType): void => {
     patchServiceStartupType(id, type)

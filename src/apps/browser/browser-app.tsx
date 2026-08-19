@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { registerUrlOpenHandler } from '../../os/url-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -215,15 +213,12 @@ function resolveViewSourceFrame(
 
 export function BrowserApp() {
   const {
-    closeWindowsForApp,
-    minimizeWindow,
     windows,
     focusWindow,
     setAppWindowDocumentId,
     setAppWindowUrl,
   } = useOs()
   const { setChromePinSource } = useFullscreenChromeReveal()
-  const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const appWindow = windows.find((window) => window.appId === 'browser' && !window.closing)
   const browserWindow = windows.find((window) => window.appId === 'browser' && !window.minimized)
@@ -1914,8 +1909,6 @@ export function BrowserApp() {
         : undefined
 
   const menuActionsRef = useRef({
-    hideSafari: () => {},
-    quitSafari: () => {},
     addTab: () => {},
     closeTab: () => {},
     toggleHistory: () => {},
@@ -1932,13 +1925,6 @@ export function BrowserApp() {
   })
 
   menuActionsRef.current = {
-    hideSafari: () => {
-      const browserWindow = windows.find((window) => window.appId === 'browser' && !window.minimized)
-      if (browserWindow) {
-        minimizeWindow(browserWindow.id)
-      }
-    },
-    quitSafari: () => closeWindowsForApp('browser'),
     addTab,
     closeTab: () => closeTab(activeTabId),
     toggleHistory: () => setHistoryOpen((open) => !open),
@@ -1991,15 +1977,6 @@ export function BrowserApp() {
     const check = (active: boolean) => (active ? '✓ ' : '')
 
     return [
-      {
-        label: '网页浏览器',
-        items: [
-          ...aboutAppMenuPrefix('关于网页浏览器', () => showBuiltinAbout('browser')),
-          { type: 'action', label: '隐藏网页浏览器', shortcut: '⌘H', onClick: () => run('hideSafari') },
-          { type: 'separator' },
-          { type: 'action', label: '退出网页浏览器', shortcut: '⌘Q', onClick: () => run('quitSafari') },
-        ],
-      },
       {
         label: '文件',
         items: [
@@ -2131,7 +2108,6 @@ export function BrowserApp() {
     historyIndex,
     historyOpen,
     onStartPage,
-    showBuiltinAbout,
     showProgress,
     toggleAlwaysShowFullUrl,
     toggleAlwaysShowToolbarInFullscreen,

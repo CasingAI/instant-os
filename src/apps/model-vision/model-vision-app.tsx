@@ -12,8 +12,6 @@ import {
 import { injectScene3dBridge } from '../../assets/3d/inject-scene3d-bridge.ts'
 import { ensureIframeBlankDocument, writeHtmlToIframe } from '../../assets/3d/write-html-to-iframe.ts'
 import { readDefaultModelFriendlyName } from '../../ai/openai-config.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -152,8 +150,7 @@ async function runOneModel(
 }
 
 export function ModelVisionApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const previewRef = useRef<HTMLIFrameElement>(null)
   const captureRef = useRef<HTMLIFrameElement>(null)
   const rowRefs = useRef(new Map<string, HTMLButtonElement>())
@@ -489,19 +486,10 @@ export function ModelVisionApp() {
   }
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     return [
       {
         label: '模型识图',
         items: [
-          ...aboutAppMenuPrefix('关于模型识图', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏模型识图',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
           {
             type: 'action',
             label: '导出全部结果…',
@@ -517,17 +505,10 @@ export function ModelVisionApp() {
             label: '清除全部结果',
             onClick: () => void clearAll(),
           },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出模型识图',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
         ],
       },
     ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
+  }, [clearAll, clearSelected, exportResults])
 
   useAppMenuBar(APP_ID, menuBar)
 

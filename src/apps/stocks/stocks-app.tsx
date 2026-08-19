@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { loadNotificationCenterWidgetsCache } from '../../os/notification-center-widgets-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { generateStockBoard, generateStockDetail } from './stocks-agent.ts'
@@ -172,8 +169,7 @@ function StockDetailPanel({
 }
 
 export function StocksApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
 
   const widgetCache = useMemo(() => loadNotificationCenterWidgetsCache(), [])
   const [store, setStore] = useState<StocksStore | undefined>(undefined)
@@ -327,33 +323,7 @@ export function StocksApp() {
     await loadBoard(true)
   }, [activeWatch, refreshWatchDetail, loadBoard])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'stocks' && !window.minimized)
-
-    return [
-      {
-        label: '股票',
-        items: [
-          ...aboutAppMenuPrefix('关于 股票', () => showBuiltinAbout('stocks')),
-          {
-            type: 'action',
-            label: '隐藏股票',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出股票',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('stocks'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('stocks', menuBar)
+  useAppMenuBar('stocks', [])
 
   const loading = loadingBoard || loadingWatchId !== undefined
 

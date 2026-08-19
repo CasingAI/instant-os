@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -81,11 +79,8 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
     setWindowDocumentEdited,
     setWindowDocumentReadOnly,
     closeWindow,
-    closeWindowsForApp,
-    minimizeWindow,
     bypassWindowCloseGuard,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { showSystemOpenDialog, dialog: openDialog, isOpen: openDialogOpen } = useSystemOpenDialog()
 
@@ -357,25 +352,6 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
-        label: '预览',
-        items: [
-          ...aboutAppMenuPrefix('关于预览', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏预览',
-            shortcut: '⌘H',
-            onClick: () => windowId && minimizeWindow(windowId),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出预览',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
-      {
         label: '文件',
         items: [
           {
@@ -398,13 +374,9 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
   }, [
     activeTab,
     closeTab,
-    closeWindowsForApp,
     handleOpen,
     loading,
-    minimizeWindow,
     openDialogOpen,
-    showBuiltinAbout,
-    windowId,
   ])
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)

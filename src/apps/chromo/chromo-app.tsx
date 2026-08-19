@@ -8,8 +8,6 @@ import {
   ReloadIcon,
   StopIcon,
 } from '../../icons/app-icons.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -253,10 +251,8 @@ function siteInitialFromUrl(url: string): string | undefined {
 }
 
 export function ChromoApp({ windowId }: { windowId?: string }) {
-  const { closeWindowsForApp, closeWindow, minimizeWindow, windows, setAppWindowUrl, openApp } =
-    useOs()
+  const { closeWindowsForApp, closeWindow, windows, setAppWindowUrl, openApp } = useOs()
   const { setChromePinSource } = useFullscreenChromeReveal()
-  const { showBuiltinAbout } = useAboutApp()
   const appWindow = windowId
     ? windows.find((window) => window.id === windowId && !window.closing)
     : windows.find((window) => window.appId === 'chromo' && !window.closing)
@@ -1329,25 +1325,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
 
     return [
       {
-        label: 'Chromo',
-        items: [
-          ...aboutAppMenuPrefix('关于 Chromo', () => showBuiltinAbout('chromo')),
-          {
-            type: 'action',
-            label: '隐藏 Chromo',
-            shortcut: '⌘H',
-            onClick: () => appWindowEntry && minimizeWindow(appWindowEntry.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 Chromo',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('chromo'),
-          },
-        ],
-      },
-      {
         label: '文件',
         items: [
           {
@@ -1381,8 +1358,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     addTab,
     closeTab,
     closeWindowsForApp,
-    minimizeWindow,
-    showBuiltinAbout,
     windows,
   ])
 

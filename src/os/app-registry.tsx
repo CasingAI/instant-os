@@ -1,5 +1,4 @@
 import type { ComponentType } from 'preact'
-import { useMemo } from 'preact/hooks'
 import { Scene3dLabApp } from '../apps/scene3d-lab/scene3d-lab-app.tsx'
 import { ModelVisionApp } from '../apps/model-vision/model-vision-app.tsx'
 import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
@@ -48,11 +47,7 @@ import { SrmlDemoApp } from '../apps/srml-demo/srml-app.tsx'
 import { LlmPlaygroundApp } from '../apps/llm-playground/llm-playground-app.tsx'
 import { AttuneBenchApp } from '../apps/attunebench/attunebench-app.tsx'
 import { WelcomeApp } from '../apps/welcome/welcome-app.tsx'
-import { useAboutApp } from './about-app-context.tsx'
-import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
-import type { MenuDefinition } from './menu-bar-types.ts'
-import { useOs } from './os-context.tsx'
 import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
 import { RegistryIcon } from '../apps/registry/registry-icon.tsx'
 import { AttuneBenchIcon } from '../apps/attunebench/attunebench-icon.tsx'
@@ -509,37 +504,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {
   return function AppPlaceholder() {
-    const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-    const { showBuiltinAbout } = useAboutApp()
-    const definition = getAppDefinition(appId)
-
-    const menuBar = useMemo((): MenuDefinition[] => {
-      const appWindow = windows.find((window) => window.appId === appId && !window.minimized)
-
-      return [
-        {
-          label: definition?.name ?? title,
-          items: [
-            ...aboutAppMenuPrefix(`关于 ${definition?.name ?? title}`, () => showBuiltinAbout(appId)),
-            {
-              type: 'action',
-              label: `隐藏${definition?.name ?? title}`,
-              shortcut: '⌘H',
-              onClick: () => appWindow && minimizeWindow(appWindow.id),
-            },
-            { type: 'separator' },
-            {
-              type: 'action',
-              label: `退出${definition?.name ?? title}`,
-              shortcut: '⌘Q',
-              onClick: () => closeWindowsForApp(appId),
-            },
-          ],
-        },
-      ]
-    }, [closeWindowsForApp, definition?.name, minimizeWindow, showBuiltinAbout, title, windows])
-
-    useAppMenuBar(appId, menuBar)
+    useAppMenuBar(appId, [])
 
     return (
       <div class="placeholder-app">

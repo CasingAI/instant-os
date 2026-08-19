@@ -6,8 +6,6 @@ import { BackIcon, ForwardIcon, ReloadIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SpeechReadAloudBar } from '../../ui/speech-read-aloud-bar.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -120,8 +118,7 @@ function NewsReaderPlaceholder({ editionDate }: { editionDate: string }) {
 }
 
 export function NewsApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
 
   const [store, setStore] = useState<NewsStore | undefined>(undefined)
@@ -429,22 +426,7 @@ export function NewsApp() {
   }, [listArticles, selectedId])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const win = windows.find((w) => w.appId === 'news' && !w.minimized)
     return [
-      {
-        label: '新闻',
-        items: [
-          ...aboutAppMenuPrefix('关于 新闻', () => showBuiltinAbout('news')),
-          {
-            type: 'action',
-            label: '隐藏新闻',
-            shortcut: '⌘H',
-            onClick: () => win && minimizeWindow(win.id),
-          },
-          { type: 'separator' },
-          { type: 'action', label: '退出新闻', shortcut: '⌘Q', onClick: () => closeWindowsForApp('news') },
-        ],
-      },
       {
         label: '日期',
         items: [
@@ -491,20 +473,16 @@ export function NewsApp() {
     ]
   }, [
     canStartSpeech,
-    closeWindowsForApp,
     handleJumpToToday,
     handleNextDay,
     handlePrevDay,
-    minimizeWindow,
     readAloud.close,
     readAloud.isActive,
     readAloud.panelOpen,
     readAloud.resume,
     readAloud.start,
     readAloud.stop,
-    showBuiltinAbout,
     speechBlocks,
-    windows,
   ])
 
   useAppMenuBar('news', menuBar)

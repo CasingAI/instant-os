@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { generateBookChaptersStreaming, generateStoreCatalogForCategoryStreaming, generateStoreCatalogStreaming } from './books-agent.ts'
 import { deleteBookChapters } from './books-data-storage.ts'
@@ -35,8 +32,7 @@ import './books.css'
 type BooksScreen = 'shelf' | 'store' | 'store-search' | 'store-detail' | 'reader'
 
 export function BooksApp() {
-  const { windows, closeWindowsForApp, minimizeWindow, setAppWindowTitle } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const storeVisitedRef = useRef(false)
 
   const [store, setStore] = useState<BooksIndexStore | undefined>(undefined)
@@ -236,33 +232,7 @@ export function BooksApp() {
     [],
   )
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'books' && !window.minimized)
-
-    return [
-      {
-        label: '书架',
-        items: [
-          ...aboutAppMenuPrefix('关于书架', () => showBuiltinAbout('books')),
-          {
-            type: 'action',
-            label: '隐藏书架',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出书架',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('books'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('books', menuBar)
+  useAppMenuBar('books', [])
 
   if (store === undefined) {
     return (

@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { loadNotificationCenterWidgetsCache } from '../../os/notification-center-widgets-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { generateWeatherDetail } from './weather-agent.ts'
@@ -166,8 +163,7 @@ function isWidgetDefaultCity(store: WeatherStore, cityId: string | undefined): b
 }
 
 export function WeatherApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
 
   const widgetCache = useMemo(() => loadNotificationCenterWidgetsCache(), [])
   const [store, setStore] = useState<WeatherStore | undefined>(undefined)
@@ -282,33 +278,7 @@ export function WeatherApp() {
     setStore(next)
   }, [])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'weather' && !window.minimized)
-
-    return [
-      {
-        label: '天气',
-        items: [
-          ...aboutAppMenuPrefix('关于 天气', () => showBuiltinAbout('weather')),
-          {
-            type: 'action',
-            label: '隐藏天气',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出天气',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('weather'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('weather', menuBar)
+  useAppMenuBar('weather', [])
 
   const activeWeather = activeCity?.weather
   const loadingActive = activeCity !== undefined && loadingCityId === activeCity.id

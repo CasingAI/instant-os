@@ -1,10 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useLayoutEffect, useCallback } from 'preact/hooks'
-import { useOs } from '../../os/os-context.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { getAppDefinition } from '../../os/app-registry.tsx'
 import { collectDeviceInfo, type DeviceInfoSpec } from '../../os/collect-device-info.ts'
 import { fetchCfNetworkState, buildCfNetworkSpecs, type CfNetworkFetchState } from '../../os/collect-cloudflare-trace.ts'
 import './system-info.css'
@@ -92,41 +87,12 @@ function buildSections(
 }
 
 export function SystemInfoApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const appId = 'system-info'
   const hostRef = useRef<HTMLDivElement>(null)
   const [narrow, setNarrow] = useState(false)
   const [cfState, setCfState] = useState<CfFetchState>({ status: 'loading' })
 
-  const definition = getAppDefinition(appId)
-
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === appId && !window.minimized)
-    return [
-      {
-        label: definition?.name ?? '系统信息',
-        items: [
-          ...aboutAppMenuPrefix(`关于 ${definition?.name ?? '系统信息'}`, () => showBuiltinAbout(appId)),
-          {
-            type: 'action',
-            label: `隐藏${definition?.name ?? '系统信息'}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出${definition?.name ?? '系统信息'}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(appId),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, definition?.name, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar(appId, menuBar)
+  useAppMenuBar(appId, [])
 
   useEffect(() => {
     let cancelled = false

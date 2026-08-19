@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { osNowMs } from '../../os/os-clock.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -125,8 +123,7 @@ type TransientTrack = {
 }
 
 export function MusicApp({ windowId }: { windowId?: string }) {
-  const { windows, activeWindowId, setAppWindowTitle, closeWindowsForApp, minimizeWindow, openApp } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { windows, activeWindowId, setAppWindowTitle, openApp } = useOs()
   const modal = useWindowModal()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
   const { showSystemOpenDialog, dialog: systemDialog } = useSystemOpenDialog()
@@ -521,35 +518,19 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   }, [openApp])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     return [
       {
         label: '音乐',
         items: [
-          ...aboutAppMenuPrefix('关于音乐', () => showBuiltinAbout('music')),
-          {
-            type: 'action',
-            label: '隐藏音乐',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
           {
             type: 'action',
             label: '打开音乐文件夹',
             onClick: handleOpenMusicsFolder,
           },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出音乐',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
         ],
       },
     ]
-  }, [closeWindowsForApp, handleOpenMusicsFolder, minimizeWindow, showBuiltinAbout, windows])
+  }, [handleOpenMusicsFolder])
 
   useAppMenuBar(APP_ID, menuBar)
 

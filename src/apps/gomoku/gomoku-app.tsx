@@ -2,11 +2,8 @@ import type { ComponentChild } from 'preact'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { hasOpenAiApiKey } from '../../ai/openai-config.ts'
 import { useDefaultAiModelFriendlyName } from '../../ai/use-default-ai-model.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import {
   GOMOKU_HEURISTIC_AI_NAME,
   gomokuAiDegradeBannerMessage,
@@ -233,8 +230,6 @@ function gomokuModeLabel(gameMode: GomokuGameMode): string {
 }
 
 export function GomokuApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const opponentFriendlyName = useDefaultAiModelFriendlyName()
   const [gameMode, setGameMode] = useState<GomokuGameMode>('pve')
   const [game, setGame] = useState<GameState>(createInitialState)
@@ -310,32 +305,15 @@ export function GomokuApp() {
   }, [resetEndgamePresentation])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'gomoku' && !window.minimized)
-
     return [
       {
         label: '五子棋',
         items: [
-          ...aboutAppMenuPrefix('关于五子棋', () => showBuiltinAbout('gomoku')),
           {
             type: 'action',
             label: sessionPhase === 'idle' ? '开始新对局' : '新局',
             shortcut: '⌘N',
             onClick: startNewGame,
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '隐藏五子棋',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出五子棋',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('gomoku'),
           },
         ],
       },
@@ -387,7 +365,7 @@ export function GomokuApp() {
         ],
       },
     ]
-  }, [closeWindowsForApp, gameMode, minimizeWindow, selectGameMode, sessionPhase, showBuiltinAbout, startNewGame, windows])
+  }, [gameMode, selectGameMode, sessionPhase, startNewGame])
 
   useAppMenuBar('gomoku', menuBar)
 

@@ -6,8 +6,6 @@ import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from '../../os/experimental-settings-storage.ts'
 import { isGeneratedAppStorageMessage } from '../../os/generated-app-data-storage.ts'
 import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-context.tsx'
@@ -228,8 +226,7 @@ function icodePreviewHeartbeatWindowId(projectId: string): string {
 }
 
 export function ICodeApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, bypassAppCloseGuard } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle, closeWindowsForApp, bypassAppCloseGuard } = useOs()
   const { installedApps, syncAppFromIcode, getAppDataRevision, uninstallApp, pendingIcodeProjectId, clearPendingIcodeProject } = useGeneratedApps()
 
   const [projectRevision, setProjectRevision] = useState(0)
@@ -1728,8 +1725,6 @@ export function ICodeApp() {
   )
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'icode' && !window.minimized)
-
     const fileItems = session
       ? [
           {
@@ -1780,36 +1775,13 @@ export function ICodeApp() {
         label: '文件',
         items: fileItems,
       },
-      {
-        label: 'iCode',
-        items: [
-          ...aboutAppMenuPrefix('关于 iCode', () => showBuiltinAbout('icode')),
-          {
-            type: 'action',
-            label: '隐藏 iCode',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 iCode',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('icode'),
-          },
-        ],
-      },
     ]
   }, [
     closeEditor,
-    closeWindowsForApp,
     exportCurrentProject,
-    minimizeWindow,
     onPublish,
     onSaveDraft,
     session,
-    showBuiltinAbout,
-    windows,
   ])
 
   useAppMenuBar('icode', menuBar)

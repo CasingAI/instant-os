@@ -34,6 +34,7 @@ import { getAiTokenUsageBytes } from '../../ai/ai-token-usage-storage.ts'
 import { getAiEventLogBytes } from '../../ai/ai-event-log-storage.ts'
 import { getVscodeAiChatBytes } from '../vscode/vscode-ai-chat-storage.ts'
 import { getBrowserSystemStorageBytes } from '../browser/browser-system-storage.ts'
+import { buildSystemSpaceBreakdown } from './app-storage-system.ts'
 
 export type ManagedAppKind = 'builtin' | 'generated'
 
@@ -53,6 +54,7 @@ export type ManagedAppEntry = {
 }
 
 export { DEVICE_CAPACITY_BYTES }
+export { buildSystemSpaceBreakdown }
 
 export function getManagedAppTotalBytes(entry: ManagedAppEntry): number {
   return entry.appSizeBytes + entry.documentsBytes + entry.dataBytes + entry.versionHistoryBytes
@@ -235,12 +237,8 @@ export function getStorageSummary(
 ) {
   const { registryBytesByApp } = dataStorage
   const entries = buildManagedAppList(installedApps, registryBytesByApp)
-  const generatedRegistryBytes = Object.entries(registryBytesByApp).reduce(
-    (total, [appId, bytes]) => (appId.startsWith('gen:') ? total + bytes : total),
-    0,
-  )
-  const appsBytes =
-    getInstalledAppsStorageBytes() + getLegacyGeneratedAppBytes() + generatedRegistryBytes
+  /** 系统空间「应用程序」只计本体索引与未迁移旧键，不含注册表文档 */
+  const appsBytes = getInstalledAppsStorageBytes() + getLegacyGeneratedAppBytes()
   const browserSystemBytes = getBrowserSystemStorageBytes()
   const {
     totalBytes: dataUsedBytes,
@@ -253,14 +251,6 @@ export function getStorageSummary(
     modelVisionBytes,
     filesBytes,
   } = dataStorage
-  const appDocumentsBytes = (appId: BuiltinAppId): number => {
-    const registryBytes = registryBytesByApp[appId] ?? 0
-    const extra = REGISTRY_MIGRATED_EXTRA_KEYS[appId] ?? []
-    return registryBytes + sumLocalStorageKeys(extra)
-  }
-  const mailDataBytes = appDocumentsBytes('mail')
-  const newsDataBytes = appDocumentsBytes('news')
-  const booksIndexBytes = appDocumentsBytes('books')
   const legacyAppDataBytes = getLegacyMigratedStorageBytes()
   const appDataTotal = Object.values(dataStorage.appDataBytesByApp).reduce(
     (total, bytes) => total + bytes,
@@ -294,9 +284,6 @@ export function getStorageSummary(
     entries: entriesWithData,
     appsBytes,
     safariCacheBytes,
-    mailDataBytes,
-    newsDataBytes,
-    booksIndexBytes,
     booksDataBytes,
     browserSystemBytes,
     otherBytes,

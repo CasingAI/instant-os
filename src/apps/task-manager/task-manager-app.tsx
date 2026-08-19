@@ -8,8 +8,6 @@ import {
   getLiveAiEventLogCount,
   listLiveAiEventLogs,
 } from '../../ai/ai-event-log.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -140,13 +138,10 @@ export function TaskManagerApp() {
     activeWindowId,
     closeWindowsForApp,
     closeWindow,
-    minimizeWindow,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const { getInstalledApp } = useGeneratedApps()
   const { getSessionExtApp } = useDevExtApps()
   const { isAppUnresponsive } = useGeneratedAppHeartbeat()
-  const definition = getAppDefinition(APP_ID)
   const [tab, setTab] = useState<TaskManagerTab>('programs')
   const [perfCategory, setPerfCategory] = useState<PerfCategory>('ai')
   const [sampleIntervalSec, setSampleIntervalSec] = useState<SpeedSampleIntervalSec>(1)
@@ -230,27 +225,7 @@ export function TaskManagerApp() {
   }, [liveByActor.size, refreshLiveActivity, tab])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     return [
-      {
-        label: definition?.name ?? '性能监视器',
-        items: [
-          ...aboutAppMenuPrefix(`关于 ${definition?.name ?? '性能监视器'}`, () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: `隐藏${definition?.name ?? '性能监视器'}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出${definition?.name ?? '性能监视器'}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
       {
         label: '视图',
         items: [
@@ -280,12 +255,7 @@ export function TaskManagerApp() {
       },
     ]
   }, [
-    closeWindowsForApp,
-    definition?.name,
-    minimizeWindow,
     sampleIntervalSec,
-    showBuiltinAbout,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)

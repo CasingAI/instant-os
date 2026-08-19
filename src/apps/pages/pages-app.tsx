@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -134,12 +132,9 @@ export function PagesApp({ windowId }: PagesAppProps) {
     setWindowDocumentEdited,
     setWindowDocumentReadOnly,
     closeWindow,
-    closeWindowsForApp,
-    minimizeWindow,
     bypassWindowCloseGuard,
     cancelPendingAppQuit,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { showSystemOpenDialog, dialog: openDialog, isOpen: openDialogOpen } = useSystemOpenDialog()
 
@@ -877,25 +872,6 @@ export function PagesApp({ windowId }: PagesAppProps) {
     const formatDisabled = !ready || !writable || loading || activeTab?.viewMode !== 'edit'
     return [
       {
-        label: '文稿',
-        items: [
-          ...aboutAppMenuPrefix('关于文稿', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏文稿',
-            shortcut: '⌘H',
-            onClick: () => windowId && minimizeWindow(windowId),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出文稿',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
-      {
         label: '文件',
         items: [
           {
@@ -1046,7 +1022,6 @@ export function PagesApp({ windowId }: PagesAppProps) {
     activeTab?.format,
     activeTab?.outlineOpen,
     activeTab?.viewMode,
-    closeWindowsForApp,
     dirty,
     dirtyPrompt,
     exportMarkdown,
@@ -1054,15 +1029,12 @@ export function PagesApp({ windowId }: PagesAppProps) {
     handleOpen,
     handleSave,
     loading,
-    minimizeWindow,
     openDialogOpen,
     ready,
     runEditorCommand,
     setActiveViewMode,
-    showBuiltinAbout,
     tabs.length,
     toggleOutline,
-    windowId,
     writable,
   ])
 

@@ -1,12 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { generatedAppIdToSlug } from '../appstore/store-agent.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import { isGeneratedAppId } from '../../os/types.ts'
@@ -15,6 +12,7 @@ import {
   findManagedApp,
   getStorageSummary,
   loadDataStorageBreakdown,
+  buildSystemSpaceBreakdown,
   type ManagedAppEntry,
 } from './app-storage.ts'
 import { DATA_CAPACITY_BYTES, DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
@@ -101,8 +99,7 @@ const SETTINGS_WINDOW_TITLE = '系统设置'
 const INSTALLED_APPS_PREVIEW_COUNT = 10
 
 export function SettingsApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, openApp } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle, openApp } = useOs()
   const [route, setRoute] = useState<SettingsRoute>(SETTINGS_DEFAULT_ROUTE)
   const hostRef = useRef<HTMLDivElement>(null)
   const [cacheRevision, setCacheRevision] = useState(0)
@@ -258,33 +255,7 @@ export function SettingsApp() {
     }
   }, [])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const settingsWindow = windows.find((window) => window.appId === 'settings' && !window.minimized)
-
-    return [
-      {
-        label: '系统设置',
-        items: [
-          ...aboutAppMenuPrefix('关于系统设置', () => showBuiltinAbout('settings')),
-          {
-            type: 'action',
-            label: '隐藏系统设置',
-            shortcut: '⌘H',
-            onClick: () => settingsWindow && minimizeWindow(settingsWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出系统设置',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('settings'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('settings', menuBar)
+  useAppMenuBar('settings', [])
 
   const view = route.view
   const showRoot = view === 'root'
@@ -735,38 +706,19 @@ function UsageView({
   onOpenEventLogStorage,
   onOpenFilesStorage,
 }: UsageViewProps) {
-  const [newsCommentStats, setNewsCommentStats] = useState<NewsCommentStats | undefined>(undefined)
-  const newsTokenUsage = useMemo(() => loadNewsTokenUsage(), [])
-
-  useEffect(() => {
-    let alive = true
-    readNewsStore().then((store) => {
-      if (alive) {
-        setNewsCommentStats(getNewsCommentStats(store))
-      }
-    })
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  const systemAttributedBytes =
-    summary.appsBytes +
-    summary.mailDataBytes +
-    summary.newsDataBytes +
-    summary.booksIndexBytes +
-    summary.browserSystemBytes +
-    summary.otherBytes
-  const systemConfigBytes = residualBytes(summary.usedBytes, systemAttributedBytes)
+  const systemBreakdown = buildSystemSpaceBreakdown({
+    usedBytes: summary.usedBytes,
+    capacityBytes: DEVICE_CAPACITY_BYTES,
+    appsBytes: summary.appsBytes,
+    browserSystemBytes: summary.browserSystemBytes,
+    otherBytes: summary.otherBytes,
+  })
   const systemSegments: StorageMeterSegment[] = [
     { id: 'apps', label: '应用程序', bytes: summary.appsBytes, color: '#4a90e2' },
-    { id: 'mail', label: '邮件', bytes: summary.mailDataBytes, color: '#5856d6' },
-    { id: 'news', label: '新闻', bytes: summary.newsDataBytes, color: '#ff9500' },
-    { id: 'books-index', label: '图书索引', bytes: summary.booksIndexBytes, color: '#34c759' },
     { id: 'browser', label: '网页浏览器', bytes: summary.browserSystemBytes, color: '#5ac8fa' },
-    { id: 'system-config', label: '系统配置', bytes: systemConfigBytes, color: '#636366' },
+    { id: 'system-config', label: '系统配置', bytes: systemBreakdown.systemConfigBytes, color: '#636366' },
     { id: 'other', label: '其他', bytes: summary.otherBytes, color: '#8e8e93' },
-    { id: 'free', label: '剩余', bytes: summary.availableBytes, color: '#d4d4d4', free: true },
+    { id: 'free', label: '剩余', bytes: systemBreakdown.availableBytes, color: '#d4d4d4', free: true },
   ]
 
   const dataAttributedBytes =
@@ -853,17 +805,6 @@ function UsageView({
                     bytes={summary.appsBytes}
                     onClick={onOpenAppsStorage}
                   />
-                  <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
-                  <StorageCategoryRow
-                    label="新闻"
-                    bytes={summary.newsDataBytes}
-                    hint={
-                      newsCommentStats
-                        ? `${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`
-                        : undefined
-                    }
-                  />
-                  <StorageCategoryRow label="图书索引" bytes={summary.booksIndexBytes} />
                   <StorageCategoryRow
                     label="网页浏览器（历史/书签等）"
                     bytes={summary.browserSystemBytes}
@@ -936,10 +877,10 @@ function UsageView({
             <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
             <p class="settings__section-footnote">
-              系统空间存放配置与索引；数据空间存放网页浏览器网页缓存、图书章节、文件应用用户文件、事件日志、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
-              应用程序的用户数据通过 localStorage 桥接按应用独立存储；「文件」应用的用户文件计入数据空间并归在该应用名下。
-              系统空间上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}、数据空间上限{' '}
-              {formatStorageSize(DATA_CAPACITY_BYTES)}，均为硬限制。
+              系统空间存放配置与索引（上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间存放网页缓存、图书章节、文件、事件日志等大体积数据（上限{' '}
+              {formatStorageSize(DATA_CAPACITY_BYTES)}），均为硬限制。
+              应用文档存放在注册表（每应用 5 MB），不计入系统空间；列表「系统」一栏含文档字节，仅作应用内明细。
+              「文件」应用的用户文件计入数据空间并归在该应用名下。
             </p>
           </section>
         </div>

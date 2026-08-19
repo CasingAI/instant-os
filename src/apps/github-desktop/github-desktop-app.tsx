@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { GithubDesktopIcon, ReloadIcon } from '../../icons/app-icons.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
   hasGithubCredentials,
   subscribeGithubCredentials,
@@ -418,8 +416,7 @@ function mergeLocalHistoryLists(
 }
 
 export function GithubDesktopApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, openApp } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle, openApp } = useOs()
   const modal = useWindowModal()
 
   const [hasToken, setHasToken] = useState(() => hasGithubCredentials())
@@ -1899,33 +1896,17 @@ export function GithubDesktopApp() {
   }, [cloneDialogOpen, cloneSourceTab, cloneOwner, cloneRepo, cloneUrl])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     const repoMeta = view.kind === 'repo' ? view.meta : undefined
 
     return [
       {
         label: 'GitHub Desktop',
         items: [
-          ...aboutAppMenuPrefix('关于 GitHub Desktop', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏 GitHub Desktop',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
           {
             type: 'action',
             label: '设置…',
             shortcut: '⌘,',
             onClick: () => openPreferences(),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 GitHub Desktop',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
           },
         ],
       },
@@ -2046,11 +2027,7 @@ export function GithubDesktopApp() {
       },
     ]
   }, [
-    windows,
     view,
-    showBuiltinAbout,
-    minimizeWindow,
-    closeWindowsForApp,
     openClone,
     goHome,
     openApp,

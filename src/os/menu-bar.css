@@ -152,11 +152,6 @@
   background: var(--menu-bar-hover, rgba(255, 255, 255, 0.18));
 }
 
-.menu-bar__fallback-name {
-  padding: 0 10px;
-  font-weight: 600;
-}
-
 .menu-bar__datetime {
   display: flex;
   align-items: center;

@@ -15,11 +15,8 @@ import {
   subscribeTerminalPendingActions,
   takeTerminalPendingAction,
 } from '../../terminal/terminal-pending-actions.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import './simulated-terminal-app.css'
 
 // @deprecated 模拟终端已弃用，此 APP_ID 为遗留标识符，后续移除
@@ -36,8 +33,6 @@ function menuCheckPrefix(active: boolean): string {
  * 相关文件一并弃用，见 src/terminal/ 下各文件的 @deprecated 标注。
  */
 export function SimulatedTerminalApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const handleRef = useRef<TerminalHandle | null>(null)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -82,28 +77,7 @@ export function SimulatedTerminalApp() {
   }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
-
     return [
-      {
-        label: '模拟终端',
-        items: [
-          ...aboutAppMenuPrefix('关于模拟终端', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏模拟终端',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出模拟终端',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
       {
         label: '编辑',
         items: [
@@ -134,13 +108,9 @@ export function SimulatedTerminalApp() {
     ]
   }, [
     busy,
-    closeWindowsForApp,
     handleClear,
     handleStop,
-    minimizeWindow,
-    showBuiltinAbout,
     thinkingEnabled,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)

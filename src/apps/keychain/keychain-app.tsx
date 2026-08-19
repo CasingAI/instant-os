@@ -13,10 +13,7 @@ import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
 import { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from '../settings/settings-layout-breakpoints.ts'
 import { KeychainTextFieldDialog } from './keychain-text-field-dialog.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import {
   clearAccountSettings,
@@ -364,9 +361,7 @@ function loadInitialState(): {
 }
 
 export function KeychainApp() {
-  const { windows, closeWindowsForApp, minimizeWindow, setAppWindowTitle } =
-    useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const modal = useWindowModal()
 
   type SavedSnapshot =
@@ -512,36 +507,7 @@ export function KeychainApp() {
     return subscribeGithubCredentials(refreshGithubStatus)
   }, [refreshGithubStatus])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find(
-      (w) => w.appId === 'keychain' && !w.minimized,
-    )
-    return [
-      {
-        label: '钥匙串',
-        items: [
-          ...aboutAppMenuPrefix('关于钥匙串', () =>
-            showBuiltinAbout('keychain'),
-          ),
-          {
-            type: 'action',
-            label: '隐藏钥匙串',
-            shortcut: '\u2318H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出钥匙串',
-            shortcut: '\u2318Q',
-            onClick: () => closeWindowsForApp('keychain'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('keychain', menuBar)
+  useAppMenuBar('keychain', [])
 
   const handleCancelChanges = useCallback(() => {
     if (!savedSnapshot) {
@@ -931,7 +897,7 @@ export function KeychainApp() {
           onCancel={handleAddModelCancel}
           onComplete={handleAddModelComplete}
         />
-      
+
         </>
       )
     }
@@ -947,7 +913,7 @@ export function KeychainApp() {
           onBack={handleModelSettingsBack}
           onChange={setEditingEntry}
         />
-      
+
         </>
       )
     }
@@ -1055,7 +1021,7 @@ export function KeychainApp() {
             onSave={(value) => handleFieldDialogSave(fieldDialog, value)}
           />
         )}
-      
+
         </>
       )
     }
@@ -1099,7 +1065,7 @@ export function KeychainApp() {
             </p>
           </section>
         </div>
-      
+
         </>
       )
     }
@@ -1145,7 +1111,7 @@ export function KeychainApp() {
           onClose={() => setGithubDialogOpen(false)}
           onChanged={refreshGithubStatus}
         />
-      
+
         </>
       )
     }
@@ -1226,7 +1192,7 @@ export function KeychainApp() {
             )}
           </section>
         </div>
-      
+
         </>
       )
     }

@@ -2,8 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { osNowMs } from '../../os/os-clock.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -107,8 +105,7 @@ function shortWorkspaceLabel(path: string): string {
 }
 
 export function ProdudeApp() {
-  const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const { showSystemOpenDialog, dialog: openDialog } = useSystemOpenDialog()
   const textModels = useVscodeAiTextModels()
   const capabilityTags = useVscodeAiCapabilityTags()
@@ -633,28 +630,7 @@ export function ProdudeApp() {
   }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'produde' && !window.minimized)
-
     return [
-      {
-        label: 'ProDude',
-        items: [
-          ...aboutAppMenuPrefix('关于 ProDude', () => showBuiltinAbout('produde')),
-          {
-            type: 'action',
-            label: '隐藏 ProDude',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 ProDude',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('produde'),
-          },
-        ],
-      },
       {
         label: '文件',
         items: [
@@ -681,13 +657,9 @@ export function ProdudeApp() {
       },
     ]
   }, [
-    closeWindowsForApp,
     contentWidth,
     handleNewChat,
     handlePickWorkspace,
-    minimizeWindow,
-    showBuiltinAbout,
-    windows,
   ])
 
   useAppMenuBar('produde', menuBar)

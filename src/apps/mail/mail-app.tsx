@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { osNowMs } from '../../os/os-clock.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -74,8 +72,7 @@ function countUnreadInbox(store: MailStore): number {
 }
 
 export function MailApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const { hostRef, narrowLayout } = useAppNarrowLayout()
   const [store, setStore] = useState<MailStore | undefined>(undefined)
   const [mailbox, setMailbox] = useState<MailMailbox>('inbox')
@@ -159,23 +156,7 @@ export function MailApp() {
   }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const mailWindow = windows.find((window) => window.appId === 'mail' && !window.minimized)
-
     return [
-      {
-        label: '邮件',
-        items: [
-          ...aboutAppMenuPrefix('关于 邮件', () => showBuiltinAbout('mail')),
-          {
-            type: 'action',
-            label: '隐藏邮件',
-            shortcut: '⌘H',
-            onClick: () => mailWindow && minimizeWindow(mailWindow.id),
-          },
-          { type: 'separator' },
-          { type: 'action', label: '退出邮件', shortcut: '⌘Q', onClick: () => closeWindowsForApp('mail') },
-        ],
-      },
       {
         label: '文件',
         items: [
@@ -201,7 +182,7 @@ export function MailApp() {
         ],
       },
     ]
-  }, [closeWindowsForApp, minimizeWindow, requestDeleteThread, selectedThread, showBuiltinAbout, windows])
+  }, [requestDeleteThread, selectedThread])
 
   useAppMenuBar('mail', menuBar)
 

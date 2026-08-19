@@ -15,8 +15,6 @@ import {
   type MonacoProblem,
 } from '../../monaco/monaco-markers.ts'
 import { DeviceDataStorageFullError } from '../../os/device-data-storage.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -337,11 +335,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setWindowDocumentId,
     setWindowDocumentEdited,
     setWindowDocumentReadOnly,
-    closeWindowsForApp,
-    minimizeWindow,
     openApp,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { showSystemOpenDialog, dialog: openDialog, isOpen: openDialogOpen } = useSystemOpenDialog()
 
@@ -2806,25 +2801,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
-        label: 'Virtual Studio Code Desktop',
-        items: [
-          ...aboutAppMenuPrefix('关于 Virtual Studio Code Desktop', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏 Virtual Studio Code Desktop',
-            shortcut: '⌘H',
-            onClick: () => windowId && minimizeWindow(windowId),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 Virtual Studio Code Desktop',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
-      {
         label: '文件',
         items: [
           {
@@ -2978,7 +2954,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     activateSearchSidebar,
     activeTab,
     canRevertTerminal,
-    closeWindowsForApp,
     closeWorkspaceFolder,
     dirty,
     dirtyPrompt,
@@ -2989,7 +2964,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     handleSave,
     hasOtherTabsInFocusedGroup,
     loading,
-    minimizeWindow,
     openDialogOpen,
     openMarkdownPreviewBeside,
     openOrFocusAiChat,
@@ -3001,13 +2975,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     prefs.aiDebugSystemReminder,
     prefs.workspaceFolder,
     refreshCanRevertTerminal,
-    showBuiltinAbout,
     showMarkdownPreviewAction,
     activeTerminalFsMode,
     activeTerminalSession?.kind,
     toggleBottomPanelTab,
     updatePrefs,
-    windowId,
     writable,
   ])
 

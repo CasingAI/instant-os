@@ -1,8 +1,5 @@
-import { useCallback, useMemo } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
+import { useCallback } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { isActiveProviderInstantFree } from '../../ai/openai-config.ts'
 import {
@@ -15,36 +12,10 @@ import './welcome.css'
 const APP_ID = 'welcome' as const
 
 export function WelcomeApp() {
-  const { closeWindowsForApp, minimizeWindow, openApp, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { openApp } = useOs()
   const freeTier = isActiveProviderInstantFree()
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
-    return [
-      {
-        label: '欢迎',
-        items: [
-          ...aboutAppMenuPrefix('关于欢迎', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏欢迎',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出欢迎',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar(APP_ID, menuBar)
+  useAppMenuBar(APP_ID, [])
 
   const handleTryAi = useCallback(() => {
     openApp('catgpt')

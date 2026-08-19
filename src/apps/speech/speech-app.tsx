@@ -15,8 +15,6 @@ import { readDefaultModelFriendlyName } from '../../ai/openai-config.ts'
 import { subscribeOpenAiConfig } from '../../ai/openai-config-events.ts'
 import { subscribeSpeechSettings } from '../../os/speech-settings-storage.ts'
 import { osNowDate } from '../../os/os-clock.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -61,9 +59,7 @@ function voiceLabel(voiceId: string, voices: readonly { id: string; label: strin
 }
 
 export function SpeechApp() {
-  const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } =
-    useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
 
   const [tab, setTab] = useState<SpeechTab>('chat')
   const initialStatus = useMemo(() => readSpeechSystemStatus(), [])
@@ -126,32 +122,7 @@ export function SpeechApp() {
   }, [setAppWindowTitle])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find(
-      (window) => window.appId === 'speech' && !window.minimized,
-    )
-
     return [
-      {
-        label: '语音实验室',
-        items: [
-          ...aboutAppMenuPrefix('关于 语音实验室', () =>
-            showBuiltinAbout('speech'),
-          ),
-          {
-            type: 'action',
-            label: '隐藏语音实验室',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出语音实验室',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('speech'),
-          },
-        ],
-      },
       {
         label: '操作',
         items: [
@@ -180,7 +151,7 @@ export function SpeechApp() {
         ],
       },
     ]
-  }, [clearLog, closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
+  }, [clearLog])
 
   useAppMenuBar('speech', menuBar)
 
