@@ -42,6 +42,7 @@ function dueTaskIds(): BackgroundRefreshTaskId[] {
 
 /**
  * 立即执行指定背景刷新任务（单飞：同任务进行中则等待已有 Promise）。
+ * 先登记 inFlight 再启动 runner，避免同步 patch 存储时重入再开一轮。
  */
 export function runBackgroundRefreshTask(
   taskId: BackgroundRefreshTaskId,
@@ -51,7 +52,8 @@ export function runBackgroundRefreshTask(
     return existing
   }
   const runner = TASK_RUNNERS[taskId]
-  const promise = runner()
+  const promise = Promise.resolve()
+    .then(() => runner())
     .catch(
       (error): PricingRefreshOutcome => ({
         ok: false,
@@ -90,14 +92,23 @@ export function startBackgroundRefreshService(): () => void {
     void runDueTasks()
   }
 
+  const settings = loadBackgroundRefreshSettings()
+  let lastEnabled = settings.enabled
+  let lastIntervalHours = settings.intervalHours
+
   const unsubscribeSettings = subscribeBackgroundRefreshSettings(() => {
-    // 开关变化后立刻巡检一次
-    tick()
+    const next = loadBackgroundRefreshSettings()
+    const shouldTick =
+      next.enabled !== lastEnabled || next.intervalHours !== lastIntervalHours
+    lastEnabled = next.enabled
+    lastIntervalHours = next.intervalHours
+    if (shouldTick) {
+      tick()
+    }
   })
 
   // 启动：立刻巡检 + 空 PriceToken 缓存则强制拉一次
   tick()
-  const settings = loadBackgroundRefreshSettings()
   if (
     settings.enabled &&
     Object.keys(loadModelPricingCache().prices).length === 0

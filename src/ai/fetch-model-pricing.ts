@@ -19,7 +19,9 @@ export type PricingRefreshOutcome = {
 export const DEFAULT_PRICING_API_URL = 'https://pricetoken.ai'
 
 /** 该任务在背景刷新设置中的存储字段，失败时统一写入 */
-const TASK_STATE_PATCH_FAILURE = { lastResult: 'failure' as const }
+function taskStatePatchFailure(): { lastResult: 'failure'; lastAttemptAt: number } {
+  return { lastResult: 'failure', lastAttemptAt: Date.now() }
+}
 
 /**
  * 定价数据源：pricetoken.ai 官方 SDK。
@@ -84,7 +86,7 @@ export function mapSdkPricingToTable(
 
 /**
  * 拉取一次远端定价并写入缓存。
- * lastSuccessAt 只在成功时更新；失败仅记录结果标记。
+ * lastSuccessAt 只在成功时更新；失败写入 lastAttemptAt 以便按间隔退避。
  */
 export async function refreshModelPricing(): Promise<PricingRefreshOutcome> {
   try {
@@ -92,7 +94,7 @@ export async function refreshModelPricing(): Promise<PricingRefreshOutcome> {
     const prices = mapSdkPricingToTable(models)
     const updatedCount = Object.keys(prices).length
     if (updatedCount === 0) {
-      patchBackgroundRefreshTaskState('model-pricing', TASK_STATE_PATCH_FAILURE)
+      patchBackgroundRefreshTaskState('model-pricing', taskStatePatchFailure())
       return {
         ok: false,
         updatedCount: 0,
@@ -106,7 +108,7 @@ export async function refreshModelPricing(): Promise<PricingRefreshOutcome> {
       prices,
     }
     if (!saveModelPricingCache(cache)) {
-      patchBackgroundRefreshTaskState('model-pricing', TASK_STATE_PATCH_FAILURE)
+      patchBackgroundRefreshTaskState('model-pricing', taskStatePatchFailure())
       return {
         ok: false,
         updatedCount: 0,
@@ -116,6 +118,7 @@ export async function refreshModelPricing(): Promise<PricingRefreshOutcome> {
 
     patchBackgroundRefreshTaskState('model-pricing', {
       lastSuccessAt: cache.lastFetch,
+      lastAttemptAt: cache.lastFetch,
       lastResult: 'success',
     })
     return {
@@ -124,7 +127,7 @@ export async function refreshModelPricing(): Promise<PricingRefreshOutcome> {
       message: `已更新 ${updatedCount} 个模型的定价`,
     }
   } catch (error) {
-    patchBackgroundRefreshTaskState('model-pricing', TASK_STATE_PATCH_FAILURE)
+    patchBackgroundRefreshTaskState('model-pricing', taskStatePatchFailure())
     const reason = error instanceof Error ? error.message : '未知错误'
     return { ok: false, updatedCount: 0, message: `刷新失败：${reason}` }
   }

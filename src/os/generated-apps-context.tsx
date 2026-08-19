@@ -520,9 +520,10 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const dismissFailedInstall = useCallback((appId: GeneratedAppId) => {
     setFailedInstalls((current) => {
       const failed = current.find((item) => item.id === appId)
-      if (failed) {
-        clearPendingInstallStream(failed.listing.slug)
+      if (!failed) {
+        return current
       }
+      clearPendingInstallStream(failed.listing.slug)
       return current.filter((item) => item.id !== appId)
     })
   }, [])
@@ -535,9 +536,10 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const dismissCompletedInstall = useCallback((appId: GeneratedAppId) => {
     setCompletedInstalls((current) => {
       const completed = current.find((item) => item.id === appId)
-      if (completed) {
-        clearPendingInstallStream(completed.listing.slug)
+      if (!completed) {
+        return current
       }
+      clearPendingInstallStream(completed.listing.slug)
       return current.filter((item) => item.id !== appId)
     })
   }, [])

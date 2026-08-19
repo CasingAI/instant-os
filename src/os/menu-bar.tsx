@@ -18,11 +18,7 @@ import { formatOsDateTime } from './format-os-datetime.ts'
 import { isOsUsing24HourTime } from './os-clock.ts'
 import { useOsNowDate } from './use-os-clock.ts'
 import { useNotificationCenter } from './notification-center-context.tsx'
-import { useAppNotifications } from './use-app-notifications.ts'
-import { useProcessIsolationFallbackNotification } from './use-process-isolation-fallback-notification.ts'
-import { useStorageWarningNotification } from './use-storage-warning-notification.ts'
-import { useMountDisconnectedNotification } from './use-mount-disconnected-notification.ts'
-import { useGithubDesktopMissingEmailNotification } from '../apps/github-desktop/use-github-desktop-missing-email-notification.ts'
+import { useOsNotifications } from './use-os-notifications.ts'
 import { reloadInstantOs } from './reload-instant-os.ts'
 import { useOs } from './os-context.tsx'
 import {
@@ -502,13 +498,9 @@ export function MenuBar() {
   const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
   const { showInstantAbout, showAbout, showBuiltinAbout } = useAboutApp()
-  const { pendingInstalls, failedInstalls, completedInstalls, getInstalledApp } = useGeneratedApps()
+  const { getInstalledApp } = useGeneratedApps()
   const { getSessionExtApp } = useDevExtApps()
-  const appNotifications = useAppNotifications()
-  const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
-  const storageWarning = useStorageWarningNotification()
-  const mountDisconnected = useMountDisconnectedNotification()
-  const githubDesktopMissingEmail = useGithubDesktopMissingEmailNotification()
+  const osNotifications = useOsNotifications()
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
   const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
@@ -662,15 +654,7 @@ export function MenuBar() {
   const hasMenuOverflow = visibleMenuCount < menus.length
   const overflowMenus = hasMenuOverflow ? menus.slice(visibleMenuCount) : []
 
-  const activeNotificationCount =
-    pendingInstalls.length +
-    failedInstalls.length +
-    completedInstalls.length +
-    appNotifications.length +
-    (processIsolationFallbackActive ? 1 : 0) +
-    (storageWarning ? 1 : 0) +
-    (mountDisconnected ? 1 : 0) +
-    (githubDesktopMissingEmail ? 1 : 0)
+  const activeNotificationCount = osNotifications.length
 
   useEffect(() => {
     setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)

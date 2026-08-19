@@ -5,9 +5,9 @@ import {
   proxiedFetch,
 } from '../os/proxy-server-api.ts'
 import {
-  dismissOpenRouterPricingNotification,
-  setOpenRouterPricingNotification,
-} from '../os/openrouter-pricing-notification-store.ts'
+  dismissOsNotification,
+  postOsNotification,
+} from '../os/os-notifications.ts'
 import type { PricingRefreshOutcome } from './fetch-model-pricing.ts'
 import {
   getOpenRouterPricing,
@@ -19,7 +19,9 @@ const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1'
 /** 两次 OpenRouter 请求之间的间隔 */
 export const OPENROUTER_PRICING_REQUEST_GAP_MS = 30_000
 
-const TASK_STATE_PATCH_FAILURE = { lastResult: 'failure' as const }
+function taskStatePatchFailure(): { lastResult: 'failure'; lastAttemptAt: number } {
+  return { lastResult: 'failure', lastAttemptAt: Date.now() }
+}
 
 export type OpenRouterModelSearchHit = {
   id: string
@@ -223,6 +225,52 @@ function sleep(ms: number): Promise<void> {
   })
 }
 
+export const OPENROUTER_PRICING_NOTIFICATION_SLUG = 'system:openrouter-pricing'
+
+const OPENROUTER_PRICING_TILE = { kind: 'tile' as const, emoji: '🔄', color: '#34a0a4' }
+
+function openRouterPricingHandlers() {
+  return {
+    onAction: {
+      dismiss: () => dismissOsNotification(OPENROUTER_PRICING_NOTIFICATION_SLUG),
+    },
+  }
+}
+
+function postOpenRouterPricingNotification(input: {
+  phase: 'running' | 'success' | 'failure'
+  current: number
+  total: number
+  subtitle: string
+  error?: string
+}): void {
+  const percent = input.total <= 0 ? 0 : Math.round((input.current / input.total) * 100)
+  postOsNotification(
+    {
+      id: OPENROUTER_PRICING_NOTIFICATION_SLUG,
+      title: 'OpenRouter 模型定价',
+      subtitle: input.subtitle,
+      phase: input.phase,
+      icon: OPENROUTER_PRICING_TILE,
+      ...(input.phase === 'running'
+        ? {
+            progress: {
+              percent,
+              statLabel: '已更新',
+              statValue: `${input.current}/${input.total}`,
+            },
+            banner: 'progress' as const,
+          }
+        : {
+            banner: 'once' as const,
+            actions: [{ id: 'dismiss', label: '忽略' }],
+          }),
+      ...(input.error ? { body: input.error } : {}),
+    },
+    input.phase === 'running' ? undefined : openRouterPricingHandlers(),
+  )
+}
+
 /**
  * 刷新账户中已绑定的 OpenRouter 定价。
  * 无绑定则零网络成功；有绑定则串行请求，间隔 30 秒，并更新通知中心进度。
@@ -230,10 +278,11 @@ function sleep(ms: number): Promise<void> {
 export async function refreshBoundOpenRouterPricing(): Promise<PricingRefreshOutcome> {
   const bindings = collectOpenRouterBindings()
   if (bindings.length === 0) {
-    dismissOpenRouterPricingNotification()
+    dismissOsNotification(OPENROUTER_PRICING_NOTIFICATION_SLUG)
     const now = Date.now()
     patchBackgroundRefreshTaskState('openrouter-model-pricing', {
       lastSuccessAt: now,
+      lastAttemptAt: now,
       lastResult: 'success',
     })
     return {
@@ -243,11 +292,11 @@ export async function refreshBoundOpenRouterPricing(): Promise<PricingRefreshOut
     }
   }
 
-  setOpenRouterPricingNotification({
+  postOpenRouterPricingNotification({
     phase: 'running',
     current: 0,
     total: bindings.length,
-    message: '正在更新 OpenRouter 定价',
+    subtitle: '正在更新',
   })
 
   let updatedCount = 0
@@ -256,11 +305,11 @@ export async function refreshBoundOpenRouterPricing(): Promise<PricingRefreshOut
   try {
     for (let index = 0; index < bindings.length; index++) {
       const binding = bindings[index]
-      setOpenRouterPricingNotification({
+      postOpenRouterPricingNotification({
         phase: 'running',
         current: index,
         total: bindings.length,
-        message: `正在更新 ${binding.modelId}`,
+        subtitle: '正在更新',
       })
       try {
         const previous = getOpenRouterPricing(binding.modelId, binding.providerTag)
@@ -276,11 +325,11 @@ export async function refreshBoundOpenRouterPricing(): Promise<PricingRefreshOut
         errors.push(`${binding.modelId}（${binding.providerTag}）：${reason}`)
       }
 
-      setOpenRouterPricingNotification({
+      postOpenRouterPricingNotification({
         phase: 'running',
         current: index + 1,
         total: bindings.length,
-        message: '正在更新 OpenRouter 定价',
+        subtitle: '正在更新',
       })
 
       if (index < bindings.length - 1) {
@@ -290,12 +339,12 @@ export async function refreshBoundOpenRouterPricing(): Promise<PricingRefreshOut
 
     if (updatedCount === 0) {
       const errorText = errors.join('；') || '全部绑定更新失败'
-      patchBackgroundRefreshTaskState('openrouter-model-pricing', TASK_STATE_PATCH_FAILURE)
-      setOpenRouterPricingNotification({
+      patchBackgroundRefreshTaskState('openrouter-model-pricing', taskStatePatchFailure())
+      postOpenRouterPricingNotification({
         phase: 'failure',
         current: bindings.length,
         total: bindings.length,
-        message: 'OpenRouter 定价更新失败',
+        subtitle: '更新失败',
         error: errorText,
       })
       return {
@@ -308,17 +357,18 @@ export async function refreshBoundOpenRouterPricing(): Promise<PricingRefreshOut
     const now = Date.now()
     patchBackgroundRefreshTaskState('openrouter-model-pricing', {
       lastSuccessAt: now,
+      lastAttemptAt: now,
       lastResult: errors.length > 0 ? 'failure' : 'success',
     })
     const message =
       errors.length > 0
         ? `已更新 ${updatedCount}/${bindings.length} 个绑定（部分失败）`
         : `已更新 ${updatedCount} 个 OpenRouter 绑定定价`
-    setOpenRouterPricingNotification({
+    postOpenRouterPricingNotification({
       phase: errors.length > 0 ? 'failure' : 'success',
       current: bindings.length,
       total: bindings.length,
-      message,
+      subtitle: errors.length > 0 ? '更新失败' : '更新完成 · 已就绪',
       ...(errors.length > 0 ? { error: errors.join('；') } : {}),
     })
     return {
@@ -328,12 +378,12 @@ export async function refreshBoundOpenRouterPricing(): Promise<PricingRefreshOut
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : '未知错误'
-    patchBackgroundRefreshTaskState('openrouter-model-pricing', TASK_STATE_PATCH_FAILURE)
-    setOpenRouterPricingNotification({
+    patchBackgroundRefreshTaskState('openrouter-model-pricing', taskStatePatchFailure())
+    postOpenRouterPricingNotification({
       phase: 'failure',
       current: updatedCount,
       total: bindings.length,
-      message: 'OpenRouter 定价更新失败',
+      subtitle: '更新失败',
       error: reason,
     })
     return { ok: false, updatedCount, message: `刷新失败：${reason}` }

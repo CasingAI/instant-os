@@ -8,7 +8,7 @@ import {
 import { isStreamIdleTimeoutError, streamChatCompletion } from '../../ai/stream-chat.ts'
 import type { StreamChatTurn } from '../../ai/stream-chat.ts'
 import { hasOpenAiApiKey } from '../../ai/openai-config.ts'
-import { addAppNotification } from '../../os/app-notifications-store.ts'
+import { dismissOsNotification, postOsNotification } from '../../os/os-notifications.ts'
 import { setBookStream, clearBookStream } from '../../os/book-stream-store.ts'
 import {
   appendChapterIndex,
@@ -781,15 +781,29 @@ export async function generateBookChaptersStreaming(
     store = updateBookInLibrary(store, bookId, { status: 'failed' })
     await writeBooksStore(store)
 
-    addAppNotification({
-      id: `book-fail-${bookId}`,
-      appName: listing.title,
-      appSlug: listing.slug,
-      iconEmoji: listing.coverEmoji,
-      themeColor: listing.coverColor,
-      error: msg,
-      failedAt: osNowMs(),
-    })
+    postOsNotification(
+      {
+        id: `book:${listing.slug}`,
+        title: listing.title,
+        subtitle: '生成失败',
+        phase: 'failure',
+        icon: {
+          kind: 'tile',
+          emoji: listing.coverEmoji,
+          color: listing.coverColor,
+        },
+        body: msg,
+        banner: 'once',
+        streamSlug: listing.slug,
+        streamKind: 'book',
+        actions: [{ id: 'dismiss', label: '忽略' }],
+      },
+      {
+        onAction: {
+          dismiss: () => dismissOsNotification(`book:${listing.slug}`),
+        },
+      },
+    )
   }
 
   const resetBookForRetry = async () => {

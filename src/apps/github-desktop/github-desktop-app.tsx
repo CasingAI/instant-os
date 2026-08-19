@@ -89,10 +89,9 @@ import {
   OPEN_GITHUB_DESKTOP_GIT_PREFS_EVENT,
   shouldWarnGithubDesktopMissingEmail,
   showGithubDesktopMissingEmailNotification,
+  GITHUB_DESKTOP_MISSING_EMAIL_SLUG,
 } from './github-desktop-missing-email.ts'
-import {
-  dismissGithubDesktopMissingEmailNotification,
-} from './github-desktop-missing-email-notification-store.ts'
+import { dismissOsNotification } from '../../os/os-notifications.ts'
 import { applyGithubFetchResult, fetchGithubRemote, GITHUB_REMOTE_COMMIT_LIST_LIMIT } from './github-fetch.ts'
 import { pullGithubRepository, switchGithubBranch } from './github-pull.ts'
 import { githubRepoRootPath, parseGithubRepoUrl } from './github-repo-paths.ts'
@@ -696,14 +695,14 @@ export function GithubDesktopApp() {
     if (shouldWarnGithubDesktopMissingEmail()) {
       showGithubDesktopMissingEmailNotification()
     } else {
-      dismissGithubDesktopMissingEmailNotification()
+      dismissOsNotification(GITHUB_DESKTOP_MISSING_EMAIL_SLUG)
     }
   }, [hasToken])
 
   // 用户改邮箱或刷新到真实邮箱后，条件解除则清掉通知（不在此处重新激活，以免覆盖「忽略」）
   useEffect(() => {
     if (!shouldWarnGithubDesktopMissingEmail()) {
-      dismissGithubDesktopMissingEmailNotification()
+      dismissOsNotification(GITHUB_DESKTOP_MISSING_EMAIL_SLUG)
     }
   }, [desktopPrefs.gitUserEmail, user?.email])
 

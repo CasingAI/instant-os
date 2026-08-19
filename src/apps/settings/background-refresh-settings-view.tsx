@@ -28,6 +28,27 @@ function formatRefreshTimestamp(timestamp: number): string {
   return new Date(timestamp).toLocaleString('zh-CN', { hour12: false })
 }
 
+function taskStatesEqual(
+  left: Map<BackgroundRefreshTaskId, BackgroundRefreshTaskState>,
+  right: Map<BackgroundRefreshTaskId, BackgroundRefreshTaskState>,
+): boolean {
+  if (left.size !== right.size) {
+    return false
+  }
+  for (const [id, state] of right) {
+    const current = left.get(id)
+    if (
+      !current ||
+      current.lastSuccessAt !== state.lastSuccessAt ||
+      current.lastAttemptAt !== state.lastAttemptAt ||
+      current.lastResult !== state.lastResult
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 function taskRowValue(state: BackgroundRefreshTaskState): string {
   if (!state.lastSuccessAt) {
     return state.lastResult === 'failure' ? '失败' : '从未'
@@ -77,11 +98,10 @@ export function BackgroundRefreshSettingsView({
       const settings = loadBackgroundRefreshSettings()
       setEnabled(settings.enabled)
       setIntervalHours(settings.intervalHours)
-      setTaskStates(
-        new Map(
-          BACKGROUND_REFRESH_TASKS.map((task) => [task.id, loadTaskState(settings, task.id)]),
-        ),
+      const next = new Map(
+        BACKGROUND_REFRESH_TASKS.map((task) => [task.id, loadTaskState(settings, task.id)]),
       )
+      setTaskStates((current) => (taskStatesEqual(current, next) ? current : next))
     }
     sync()
     return subscribeBackgroundRefreshSettings(sync)
@@ -164,6 +184,7 @@ export function BackgroundRefreshSettingsView({
             {BACKGROUND_REFRESH_TASKS.map((task) => {
               const state = taskStates.get(task.id) ?? {
                 lastSuccessAt: 0,
+                lastAttemptAt: 0,
                 lastResult: undefined,
               }
               return (

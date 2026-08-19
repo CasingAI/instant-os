@@ -10,8 +10,10 @@ export type BackgroundRefreshTaskId = 'model-pricing' | 'openrouter-model-pricin
 
 /** 单个任务最近一次刷新的状态（写入存储） */
 export type BackgroundRefreshTaskState = {
-  /** 上次成功刷新的时间戳；0 表示从未刷新 */
+  /** 上次成功刷新的时间戳；0 表示从未成功 */
   lastSuccessAt: number
+  /** 上次尝试（成功或失败）的时间戳；0 表示从未尝试 */
+  lastAttemptAt: number
   /** 最近一次尝试的结果；undefined 表示从未尝试 */
   lastResult: 'success' | 'failure' | undefined
 }
@@ -48,6 +50,7 @@ const STORAGE_KEY = DEVICE_STORAGE_KEYS.backgroundRefreshSettings
 
 const EMPTY_TASK_STATE: BackgroundRefreshTaskState = {
   lastSuccessAt: 0,
+  lastAttemptAt: 0,
   lastResult: undefined,
 }
 
@@ -77,14 +80,29 @@ export function patchBackgroundRefreshTaskState(
   })
 }
 
+/**
+ * 距下次到期的毫秒数。从未尝试过立即到期；失败也按间隔退避，
+ * 避免 lastSuccessAt=0 时被当成永远到期。
+ */
+export function msUntilTaskDueFromState(
+  state: Pick<BackgroundRefreshTaskState, 'lastAttemptAt' | 'lastSuccessAt'>,
+  intervalHours: number,
+  now: number,
+): number {
+  const lastRunAt = state.lastAttemptAt || state.lastSuccessAt
+  if (lastRunAt <= 0) {
+    return 0
+  }
+  const intervalMs = intervalHours * 60 * 60 * 1000
+  return Math.max(0, lastRunAt + intervalMs - now)
+}
+
 function msUntilTaskDue(taskId: BackgroundRefreshTaskId, now: number): number {
   const settings = loadBackgroundRefreshSettings()
   if (!settings.enabled) {
     return Number.POSITIVE_INFINITY
   }
-  const intervalMs = settings.intervalHours * 60 * 60 * 1000
-  const dueAt = loadTaskState(settings, taskId).lastSuccessAt + intervalMs
-  return Math.max(0, dueAt - now)
+  return msUntilTaskDueFromState(loadTaskState(settings, taskId), settings.intervalHours, now)
 }
 
 export const BACKGROUND_REFRESH_TASKS: readonly BackgroundRefreshTaskDef[] = [
@@ -127,11 +145,17 @@ function normalizeTaskState(raw: unknown): BackgroundRefreshTaskState {
     return { ...EMPTY_TASK_STATE }
   }
   const record = raw as Record<string, unknown>
+  const lastSuccessAt =
+    typeof record.lastSuccessAt === 'number' && record.lastSuccessAt > 0
+      ? record.lastSuccessAt
+      : 0
+  const lastAttemptAt =
+    typeof record.lastAttemptAt === 'number' && record.lastAttemptAt > 0
+      ? record.lastAttemptAt
+      : lastSuccessAt
   return {
-    lastSuccessAt:
-      typeof record.lastSuccessAt === 'number' && record.lastSuccessAt > 0
-        ? record.lastSuccessAt
-        : 0,
+    lastSuccessAt,
+    lastAttemptAt,
     lastResult:
       record.lastResult === 'success' || record.lastResult === 'failure'
         ? record.lastResult
@@ -168,8 +192,10 @@ function normalizeBackgroundRefreshSettings(raw: unknown): BackgroundRefreshSett
       : undefined
   if (legacyTimestamp > 0 || legacyResult !== undefined) {
     const key = taskStateStorageKey('model-pricing')
+    const lastSuccessAt = settings[key].lastSuccessAt || legacyTimestamp
     settings[key] = {
-      lastSuccessAt: settings[key].lastSuccessAt || legacyTimestamp,
+      lastSuccessAt,
+      lastAttemptAt: settings[key].lastAttemptAt || lastSuccessAt,
       lastResult: settings[key].lastResult ?? legacyResult,
     }
   }
@@ -190,7 +216,15 @@ export function loadBackgroundRefreshSettings(): BackgroundRefreshSettings {
 
 export function saveBackgroundRefreshSettings(settings: BackgroundRefreshSettings): boolean {
   const payload = normalizeBackgroundRefreshSettings(settings)
-  if (!writeLocalStorageItem(STORAGE_KEY, JSON.stringify(payload))) {
+  const serialized = JSON.stringify(payload)
+  try {
+    if (localStorage.getItem(STORAGE_KEY) === serialized) {
+      return true
+    }
+  } catch {
+    // 读失败则继续写入
+  }
+  if (!writeLocalStorageItem(STORAGE_KEY, serialized)) {
     return false
   }
   window.dispatchEvent(new CustomEvent(BACKGROUND_REFRESH_SETTINGS_CHANGED_EVENT))

@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { AiStreamPreview } from '../ai/ai-stream-preview.tsx'
-import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
-import { formatTextLengthK } from '../apps/appstore/format-text-length.ts'
-import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
-import { BooksCover } from '../apps/books/books-cover.tsx'
 import { DateTimeWidget, StockWidget, WeatherWidget } from './notification-center-widgets.tsx'
-import { useGeneratedApps } from './generated-apps-context.tsx'
 import { useNotificationCenter } from './notification-center-context.tsx'
 import { useNotificationCenterWidgets } from './use-notification-center-widgets.ts'
 import {
@@ -13,522 +7,19 @@ import {
   NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT,
   type NotificationCenterSettings,
 } from './notification-center-settings-storage.ts'
-import { usePendingInstallStream } from './use-pending-install-stream.ts'
 import { useOs } from './os-context.tsx'
-import { useAppNotifications } from './use-app-notifications.ts'
-import { useProcessIsolationFallbackNotification } from './use-process-isolation-fallback-notification.ts'
 import {
-  ProcessIsolationFallbackDetail,
-  ProcessIsolationFallbackListItem,
-} from './process-isolation-fallback-notification-center.tsx'
-import { PROCESS_ISOLATION_FALLBACK_SLUG } from './process-isolation-fallback.ts'
+  IosStyleClearButton,
+  OsNotificationDetail,
+  OsNotificationListRow,
+} from './os-notification-views.tsx'
 import {
-  StorageWarningDetail,
-  StorageWarningListItem,
-} from './storage-warning-notification-center.tsx'
-import { STORAGE_WARNING_SLUG } from './storage-warning.ts'
-import { useStorageWarningNotification } from './use-storage-warning-notification.ts'
-import { useMountDisconnectedNotification } from './use-mount-disconnected-notification.ts'
-import {
-  MountDisconnectedDetail,
-  MountDisconnectedListItem,
-} from './mount-disconnected-notification-center.tsx'
-import { MOUNT_DISCONNECTED_SLUG } from './mount-disconnected.ts'
-import { useBookStream } from './use-book-stream.ts'
-import type { CompletedInstall, FailedInstall, PendingInstall } from '../apps/appstore/types.ts'
-import type { AppNotification } from './app-notifications-store.ts'
-import { clearAppNotifications, dismissAppNotification } from './app-notifications-store.ts'
-import { dismissProcessIsolationFallbackNotification } from './process-isolation-fallback-notification-store.ts'
-import { dismissStorageWarningNotification } from './storage-warning-notification-store.ts'
-import { dismissMountDisconnectedNotification } from './mount-disconnected-notification-store.ts'
-import {
-  OpenRouterPricingDetail,
-  OpenRouterPricingListItem,
-} from './openrouter-pricing-notification-center.tsx'
-import {
-  dismissOpenRouterPricingNotification,
-  OPENROUTER_PRICING_NOTIFICATION_SLUG,
-} from './openrouter-pricing-notification-store.ts'
-import { useOpenRouterPricingNotification } from './use-openrouter-pricing-notification.ts'
+  clearDismissibleOsNotifications,
+  dismissOsNotification,
+  isOsNotificationDismissible,
+} from './os-notifications.ts'
+import { useOsNotifications } from './use-os-notifications.ts'
 import { NOTIFICATION_CENTER_SCREEN_FADE_MS } from './notification-center-store.ts'
-import { useGithubDesktopMissingEmailNotification } from '../apps/github-desktop/use-github-desktop-missing-email-notification.ts'
-import {
-  GithubDesktopMissingEmailDetail,
-  GithubDesktopMissingEmailListItem,
-} from '../apps/github-desktop/github-desktop-missing-email-notification-center.tsx'
-import { GITHUB_DESKTOP_MISSING_EMAIL_SLUG } from '../apps/github-desktop/github-desktop-missing-email.ts'
-import { dismissGithubDesktopMissingEmailNotification } from '../apps/github-desktop/github-desktop-missing-email-notification-store.ts'
-
-function phaseLabel(phase: PendingInstall['phase'], isUpdate?: boolean): string {
-  if (phase === 'waiting') {
-    return '正在连接 AI…'
-  }
-  if (phase === 'thinking') {
-    return isUpdate ? '正在思考更新方案…' : '正在思考应用方案…'
-  }
-  return isUpdate ? '正在更新应用…' : '正在生成应用…'
-}
-
-type NotificationListItemProps = {
-  item: PendingInstall
-  onSelect: () => void
-}
-
-type FailedNotificationListItemProps = {
-  item: FailedInstall
-  onSelect: () => void
-  onDismiss: () => void
-  armedClearId: string | undefined
-  setArmedClearId: (id: string | undefined) => void
-}
-
-type CompletedNotificationListItemProps = {
-  item: CompletedInstall
-  onSelect: () => void
-  onDismiss: () => void
-  armedClearId: string | undefined
-  setArmedClearId: (id: string | undefined) => void
-}
-
-type IosStyleClearButtonProps = {
-  clearId: string
-  armedClearId: string | undefined
-  setArmedClearId: (id: string | undefined) => void
-  onConfirm: () => void
-  confirmLabel: string
-  className?: string
-}
-
-function IosStyleClearButton({
-  clearId,
-  armedClearId,
-  setArmedClearId,
-  onConfirm,
-  confirmLabel,
-  className,
-}: IosStyleClearButtonProps) {
-  const armed = armedClearId === clearId
-
-  return (
-    <button
-      type="button"
-      data-ios-clear={clearId}
-      class={`notification-center__ios-clear${armed ? ' notification-center__ios-clear--armed' : ''}${className ? ` ${className}` : ''}`}
-      aria-label={armed ? confirmLabel : '准备清除'}
-      aria-expanded={armed}
-      onClick={(event) => {
-        event.stopPropagation()
-        if (armed) {
-          setArmedClearId(undefined)
-          onConfirm()
-          return
-        }
-        setArmedClearId(clearId)
-      }}
-    >
-      <span class="notification-center__ios-clear-glyph" aria-hidden="true" />
-      <span class="notification-center__ios-clear-label" aria-hidden="true">
-        {confirmLabel}
-      </span>
-    </button>
-  )
-}
-
-function CompletedNotificationListItem({
-  item,
-  onSelect,
-  onDismiss,
-  armedClearId,
-  setArmedClearId,
-}: CompletedNotificationListItemProps) {
-  return (
-    <div class="notification-center__item-wrap">
-      <button
-        type="button"
-        class="notification-center__item notification-center__item--complete"
-        onClick={onSelect}
-      >
-        <span class="notification-center__item-icon">
-          <GeneratedAppIcon
-            emoji={item.listing.iconEmoji}
-            themeColor={item.listing.themeColor}
-            size={40}
-          />
-        </span>
-        <span class="notification-center__item-copy">
-          <span class="notification-center__item-title">{item.listing.name}</span>
-          <span class="notification-center__item-subtitle">
-            {item.isUpdate ? '更新完成' : '安装完成'} · 已就绪
-          </span>
-        </span>
-      </button>
-      <IosStyleClearButton
-        clearId={`completed:${item.id}`}
-        armedClearId={armedClearId}
-        setArmedClearId={setArmedClearId}
-        onConfirm={onDismiss}
-        confirmLabel="清除"
-      />
-    </div>
-  )
-}
-
-function FailedNotificationListItem({
-  item,
-  onSelect,
-  onDismiss,
-  armedClearId,
-  setArmedClearId,
-}: FailedNotificationListItemProps) {
-  return (
-    <div class="notification-center__item-wrap">
-      <button
-        type="button"
-        class="notification-center__item notification-center__item--failed"
-        onClick={onSelect}
-      >
-        <span class="notification-center__item-icon">
-          <GeneratedAppIcon
-            emoji={item.listing.iconEmoji}
-            themeColor={item.listing.themeColor}
-            size={40}
-          />
-        </span>
-        <span class="notification-center__item-copy">
-          <span class="notification-center__item-title">{item.listing.name}</span>
-          <span class="notification-center__item-subtitle">
-            {item.isUpdate ? '更新失败' : '生成失败'} · {item.error}
-          </span>
-        </span>
-      </button>
-      <IosStyleClearButton
-        clearId={`failed:${item.id}`}
-        armedClearId={armedClearId}
-        setArmedClearId={setArmedClearId}
-        onConfirm={onDismiss}
-        confirmLabel="清除"
-      />
-    </div>
-  )
-}
-
-function NotificationListItem({ item, onSelect }: NotificationListItemProps) {
-  const progress = Math.round(item.progress)
-
-  return (
-    <button type="button" class="notification-center__item" onClick={onSelect}>
-      <span class="notification-center__item-icon">
-        <GeneratedAppIcon
-          emoji={item.listing.iconEmoji}
-          themeColor={item.listing.themeColor}
-          size={40}
-        />
-      </span>
-      <span class="notification-center__item-copy">
-        <span class="notification-center__item-title">{item.listing.name}</span>
-        <span class="notification-center__item-subtitle">{phaseLabel(item.phase, item.isUpdate)}</span>
-        <span class="notification-center__item-progress" aria-hidden="true">
-          <span class="notification-center__item-progress-track">
-            <span
-              class="notification-center__item-progress-fill"
-              style={{ width: `${progress}%` }}
-            />
-          </span>
-        </span>
-      </span>
-      <span class="notification-center__item-meta">{progress}%</span>
-    </button>
-  )
-}
-
-type NotificationDetailProps = {
-  item: PendingInstall
-  onBack: () => void
-}
-
-type FailedNotificationDetailProps = {
-  item: FailedInstall
-  onBack: () => void
-  onRetry: () => void
-  onDismiss: () => void
-}
-
-type CompletedNotificationDetailProps = {
-  item: CompletedInstall
-  onBack: () => void
-  onOpen: () => void
-  onDismiss: () => void
-}
-
-function handleDetailBack(event: MouseEvent, onBack: () => void) {
-  event.stopPropagation()
-  onBack()
-}
-
-function CompletedNotificationDetail({
-  item,
-  onBack,
-  onOpen,
-  onDismiss,
-}: CompletedNotificationDetailProps) {
-  const stream = usePendingInstallStream(item.listing.slug)
-
-  return (
-    <div class="notification-center__detail">
-      <div class="notification-center__detail-header">
-        <IosNavBackButton
-          label="返回通知"
-          onClick={(event) => handleDetailBack(event, onBack)}
-        />
-      </div>
-      <div class="notification-center__detail-card notification-center__detail-card--complete">
-        <div class="notification-center__detail-hero">
-          <GeneratedAppIcon
-            emoji={item.listing.iconEmoji}
-            themeColor={item.listing.themeColor}
-            size={52}
-          />
-          <div class="notification-center__detail-copy">
-            <p class="notification-center__detail-title">{item.listing.name}</p>
-            <p class="notification-center__detail-phase notification-center__detail-phase--complete">
-              {item.isUpdate ? '更新完成' : '安装完成'}
-            </p>
-          </div>
-        </div>
-        <div class="notification-center__detail-actions">
-          <button
-            type="button"
-            class="notification-center__action notification-center__action--primary"
-            onClick={onOpen}
-          >
-            打开
-          </button>
-          <button type="button" class="notification-center__action" onClick={onDismiss}>
-            忽略
-          </button>
-        </div>
-      </div>
-      {(stream.reasoningText || stream.rawText) && (
-        <>
-          <p class="notification-center__stream-heading">AI 输出</p>
-          <AiStreamPreview
-            reasoningText={stream.reasoningText}
-            contentText={stream.rawText}
-            variant="notification"
-          />
-        </>
-      )}
-    </div>
-  )
-}
-
-function FailedNotificationDetail({ item, onBack, onRetry, onDismiss }: FailedNotificationDetailProps) {
-  const stream = usePendingInstallStream(item.listing.slug)
-
-  return (
-    <div class="notification-center__detail">
-      <div class="notification-center__detail-header">
-        <IosNavBackButton
-          label="返回通知"
-          onClick={(event) => handleDetailBack(event, onBack)}
-        />
-      </div>
-      <div class="notification-center__detail-card notification-center__detail-card--failed">
-        <div class="notification-center__detail-hero">
-          <GeneratedAppIcon
-            emoji={item.listing.iconEmoji}
-            themeColor={item.listing.themeColor}
-            size={52}
-          />
-          <div class="notification-center__detail-copy">
-            <p class="notification-center__detail-title">{item.listing.name}</p>
-            <p class="notification-center__detail-phase notification-center__detail-phase--failed">
-              {item.isUpdate ? '更新失败' : '生成失败'}
-            </p>
-          </div>
-        </div>
-        <p class="notification-center__detail-error">{item.error}</p>
-        <div class="notification-center__detail-actions">
-          <button type="button" class="notification-center__action notification-center__action--primary" onClick={onRetry}>
-            重试
-          </button>
-          <button type="button" class="notification-center__action" onClick={onDismiss}>
-            忽略
-          </button>
-        </div>
-      </div>
-      {(stream.reasoningText || stream.rawText) && (
-        <>
-          <p class="notification-center__stream-heading">上次 AI 输出</p>
-          <AiStreamPreview
-            reasoningText={stream.reasoningText}
-            contentText={stream.rawText}
-            variant="notification"
-          />
-        </>
-      )}
-    </div>
-  )
-}
-
-function NotificationDetail({ item, onBack }: NotificationDetailProps) {
-  const progress = Math.round(item.progress)
-  const phase = phaseLabel(item.phase, item.isUpdate)
-  const stream = usePendingInstallStream(item.listing.slug)
-
-  return (
-    <div class="notification-center__detail">
-      <div class="notification-center__detail-header">
-        <IosNavBackButton
-          label="返回通知"
-          onClick={(event) => handleDetailBack(event, onBack)}
-        />
-      </div>
-      <div class="notification-center__detail-card">
-        <div class="notification-center__detail-hero">
-          <GeneratedAppIcon
-            emoji={item.listing.iconEmoji}
-            themeColor={item.listing.themeColor}
-            size={52}
-            progress={item.progress}
-            textLength={item.textLength}
-          />
-          <div class="notification-center__detail-copy">
-            <p class="notification-center__detail-title">{item.listing.name}</p>
-            <p class="notification-center__detail-phase">{phase}</p>
-          </div>
-        </div>
-        <div class="notification-center__detail-stats">
-          <div class="notification-center__stat">
-            <span class="notification-center__stat-label">进度</span>
-            <span class="notification-center__stat-value">{progress}%</span>
-          </div>
-          <div class="notification-center__stat">
-            <span class="notification-center__stat-label">已输出</span>
-            <span class="notification-center__stat-value">{formatTextLengthK(item.textLength)}</span>
-          </div>
-        </div>
-        <div class="notification-center__detail-progress" aria-hidden="true">
-          <span class="notification-center__detail-progress-track">
-            <span
-              class="notification-center__detail-progress-fill"
-              style={{ width: `${progress}%` }}
-            />
-          </span>
-        </div>
-      </div>
-      <p class="notification-center__stream-heading">AI 输出</p>
-      <AiStreamPreview
-        reasoningText={stream.reasoningText}
-        contentText={stream.rawText}
-        variant="notification"
-      />
-    </div>
-  )
-}
-
-type AppNotificationListItemProps = {
-  notification: AppNotification
-  onSelect: () => void
-  onDismiss: () => void
-  armedClearId: string | undefined
-  setArmedClearId: (id: string | undefined) => void
-}
-
-function AppNotificationListItem({
-  notification,
-  onSelect,
-  onDismiss,
-  armedClearId,
-  setArmedClearId,
-}: AppNotificationListItemProps) {
-  return (
-    <div class="notification-center__item-wrap">
-      <button
-        type="button"
-        class="notification-center__item notification-center__item--failed"
-        onClick={onSelect}
-      >
-        <span class="notification-center__item-icon">
-          <BooksCover
-            title={notification.appName}
-            coverColor={notification.themeColor}
-            coverEmoji={notification.iconEmoji}
-            size="small"
-          />
-        </span>
-        <span class="notification-center__item-copy">
-          <span class="notification-center__item-title">{notification.appName}</span>
-          <span class="notification-center__item-subtitle">
-            生成失败 · {notification.error}
-          </span>
-        </span>
-      </button>
-      <IosStyleClearButton
-        clearId={`app:${notification.id}`}
-        armedClearId={armedClearId}
-        setArmedClearId={setArmedClearId}
-        onConfirm={onDismiss}
-        confirmLabel="清除"
-      />
-    </div>
-  )
-}
-
-type AppNotificationDetailProps = {
-  notification: AppNotification
-  onBack: () => void
-  onDismiss: () => void
-}
-
-function AppNotificationDetail({ notification, onBack, onDismiss }: AppNotificationDetailProps) {
-  const stream = useBookStream(notification.appSlug)
-
-  return (
-    <div class="notification-center__detail">
-      <div class="notification-center__detail-header">
-        <IosNavBackButton
-          label="返回通知"
-          onClick={(event) => {
-            event.stopPropagation()
-            onBack()
-          }}
-        />
-      </div>
-      <div class="notification-center__detail-card notification-center__detail-card--failed">
-        <div class="notification-center__detail-hero">
-          <div class="notification-center__item-icon">
-            <BooksCover
-              title={notification.appName}
-              coverColor={notification.themeColor}
-              coverEmoji={notification.iconEmoji}
-              size="small"
-            />
-          </div>
-          <div class="notification-center__detail-copy">
-            <p class="notification-center__detail-title">{notification.appName}</p>
-            <p class="notification-center__detail-phase notification-center__detail-phase--failed">
-              生成失败
-            </p>
-          </div>
-        </div>
-        <p class="notification-center__detail-error">{notification.error}</p>
-        <div class="notification-center__detail-actions">
-          <button type="button" class="notification-center__action" onClick={onDismiss}>
-            忽略
-          </button>
-        </div>
-      </div>
-      <p class="notification-center__stream-heading">AI 最后输出</p>
-      <AiStreamPreview
-        reasoningText=""
-        contentText={stream.rawText}
-        variant="notification"
-        emptyLabel="无 AI 输出记录"
-      />
-    </div>
-  )
-}
 
 type NotificationCenterPanelProps = {
   open: boolean
@@ -536,22 +27,7 @@ type NotificationCenterPanelProps = {
 }
 
 export function NotificationCenterPanel({ open, onClose }: NotificationCenterPanelProps) {
-  const {
-    pendingInstalls,
-    failedInstalls,
-    completedInstalls,
-    installListing,
-    dismissFailedInstall,
-    dismissCompletedInstall,
-    clearDismissibleInstallNotifications,
-    openInstalledApp,
-  } = useGeneratedApps()
-  const appNotifications = useAppNotifications()
-  const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
-  const storageWarning = useStorageWarningNotification()
-  const mountDisconnected = useMountDisconnectedNotification()
-  const githubDesktopMissingEmail = useGithubDesktopMissingEmailNotification()
-  const openRouterPricing = useOpenRouterPricingNotification()
+  const notifications = useOsNotifications()
   const { panelScreen, selectedSlug, openDetail, closeDetail } = useNotificationCenter()
   const { openApp } = useOs()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -573,28 +49,7 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
   const showWidgets = widgetSettings.showWeather || widgetSettings.showStocks
   const widgets = useNotificationCenterWidgets(open && visible && showWidgets)
 
-  const clearableCount =
-    failedInstalls.length +
-    completedInstalls.length +
-    appNotifications.length +
-    (processIsolationFallbackActive ? 1 : 0) +
-    (storageWarning ? 1 : 0) +
-    (mountDisconnected ? 1 : 0) +
-    (githubDesktopMissingEmail ? 1 : 0) +
-    (openRouterPricing && openRouterPricing.phase !== 'running' ? 1 : 0)
-
-  const clearDismissibleNotifications = () => {
-    clearDismissibleInstallNotifications()
-    clearAppNotifications()
-    dismissProcessIsolationFallbackNotification()
-    dismissStorageWarningNotification()
-    dismissMountDisconnectedNotification()
-    dismissGithubDesktopMissingEmailNotification()
-    if (openRouterPricing && openRouterPricing.phase !== 'running') {
-      dismissOpenRouterPricingNotification()
-    }
-  }
-
+  const clearableCount = notifications.filter(isOsNotificationDismissible).length
   const [armedClearId, setArmedClearId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
@@ -631,31 +86,9 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
 
   const activeDetailSlug =
     contentScreen === 'detail' ? (selectedSlug ?? lastDetailSlugRef.current) : undefined
-
-  const selectedPending = activeDetailSlug
-    ? pendingInstalls.find((item) => item.listing.slug === activeDetailSlug)
+  const selectedNotification = activeDetailSlug
+    ? notifications.find((item) => item.id === activeDetailSlug)
     : undefined
-  const selectedFailed = activeDetailSlug
-    ? failedInstalls.find((item) => item.listing.slug === activeDetailSlug)
-    : undefined
-  const selectedCompleted = activeDetailSlug
-    ? completedInstalls.find((item) => item.listing.slug === activeDetailSlug)
-    : undefined
-  const selectedAppNotification = activeDetailSlug
-    ? appNotifications.find((item) => item.appSlug === activeDetailSlug)
-    : undefined
-  const selectedProcessIsolationFallback =
-    activeDetailSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive
-  const selectedStorageWarning =
-    activeDetailSlug === STORAGE_WARNING_SLUG ? storageWarning : undefined
-  const selectedMountDisconnected =
-    activeDetailSlug === MOUNT_DISCONNECTED_SLUG ? mountDisconnected : undefined
-  const selectedGithubDesktopMissingEmail =
-    activeDetailSlug === GITHUB_DESKTOP_MISSING_EMAIL_SLUG && githubDesktopMissingEmail
-  const selectedOpenRouterPricing =
-    activeDetailSlug === OPENROUTER_PRICING_NOTIFICATION_SLUG
-      ? openRouterPricing
-      : undefined
 
   useEffect(() => {
     if (selectedSlug) {
@@ -663,8 +96,6 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     }
   }, [selectedSlug])
 
-  // 同步外部 open 状态到本地的可见状态：打开时用 rAF 确保元素已在 DOM 后再加可见类以触发动画；
-  // 关闭时立即置为不可见以开始滑出过渡。组件本身常驻 DOM，由 CSS 类控制视觉与交互。
   useEffect(() => {
     if (open) {
       const id = window.requestAnimationFrame(() => setVisible(true))
@@ -674,8 +105,6 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     return undefined
   }, [open])
 
-  // 管理内部内容区（列表/详情）的切换与淡入淡出过渡。
-  // 首次打开面板时直接显示目标屏幕，不走淡出再淡入；后续在列表与详情间切换时会有短暂淡出过渡。
   useEffect(() => {
     if (!open) {
       setContentScreen('list')
@@ -708,30 +137,9 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     return () => window.clearTimeout(timer)
   }, [open, panelScreen, contentScreen])
 
-  const showDetail =
-    contentScreen === 'detail' &&
-    (selectedPending !== undefined ||
-      selectedFailed !== undefined ||
-      selectedCompleted !== undefined ||
-      selectedAppNotification !== undefined ||
-      selectedProcessIsolationFallback ||
-      selectedStorageWarning !== undefined ||
-      selectedMountDisconnected !== undefined ||
-      selectedGithubDesktopMissingEmail ||
-      selectedOpenRouterPricing !== undefined)
-
+  const showDetail = contentScreen === 'detail' && selectedNotification !== undefined
   const selectedHasNotification =
-    selectedSlug !== undefined &&
-    (pendingInstalls.some((item) => item.listing.slug === selectedSlug) ||
-      failedInstalls.some((item) => item.listing.slug === selectedSlug) ||
-      completedInstalls.some((item) => item.listing.slug === selectedSlug) ||
-      appNotifications.some((item) => item.appSlug === selectedSlug) ||
-      (selectedSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive) ||
-      (selectedSlug === STORAGE_WARNING_SLUG && storageWarning !== undefined) ||
-      (selectedSlug === MOUNT_DISCONNECTED_SLUG && mountDisconnected !== undefined) ||
-      (selectedSlug === GITHUB_DESKTOP_MISSING_EMAIL_SLUG && githubDesktopMissingEmail) ||
-      (selectedSlug === OPENROUTER_PRICING_NOTIFICATION_SLUG &&
-        openRouterPricing !== undefined))
+    selectedSlug !== undefined && notifications.some((item) => item.id === selectedSlug)
 
   useEffect(() => {
     if (!open) {
@@ -799,76 +207,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
           <div
             class={`notification-center__screen${contentVisible ? '' : ' notification-center__screen--hidden'}`}
           >
-            {showDetail && selectedPending ? (
-              <NotificationDetail item={selectedPending} onBack={closeDetail} />
-            ) : showDetail && selectedFailed ? (
-              <FailedNotificationDetail
-                item={selectedFailed}
-                onBack={closeDetail}
-                onRetry={() => {
-                  dismissFailedInstall(selectedFailed.id)
-                  void installListing(selectedFailed.listing)
-                  closeDetail()
-                }}
-                onDismiss={() => {
-                  dismissFailedInstall(selectedFailed.id)
-                  closeDetail()
-                }}
-              />
-            ) : showDetail && selectedCompleted ? (
-              <CompletedNotificationDetail
-                item={selectedCompleted}
-                onBack={closeDetail}
-                onOpen={() => {
-                  openInstalledApp(selectedCompleted.id)
-                  dismissCompletedInstall(selectedCompleted.id)
-                  onClose()
-                }}
-                onDismiss={() => {
-                  dismissCompletedInstall(selectedCompleted.id)
-                  closeDetail()
-                }}
-              />
-            ) : showDetail && selectedAppNotification ? (
-              <AppNotificationDetail
-                notification={selectedAppNotification}
-                onBack={closeDetail}
-                onDismiss={() => {
-                  dismissAppNotification(selectedAppNotification.id)
-                  closeDetail()
-                }}
-              />
-            ) : showDetail && selectedProcessIsolationFallback ? (
-              <ProcessIsolationFallbackDetail
-                onBack={closeDetail}
-                onDismiss={closeDetail}
-              />
-            ) : showDetail && selectedStorageWarning ? (
-              <StorageWarningDetail
-                level={selectedStorageWarning.level}
-                scope={selectedStorageWarning.scope}
-                onBack={closeDetail}
-                onDismiss={closeDetail}
-                onClose={onClose}
-              />
-            ) : showDetail && selectedMountDisconnected ? (
-              <MountDisconnectedDetail
-                label={selectedMountDisconnected.label}
-                onBack={closeDetail}
-                onDismiss={closeDetail}
-              />
-            ) : showDetail && selectedGithubDesktopMissingEmail ? (
-              <GithubDesktopMissingEmailDetail
-                onBack={closeDetail}
-                onDismiss={closeDetail}
-                onClose={onClose}
-              />
-            ) : showDetail && selectedOpenRouterPricing ? (
-              <OpenRouterPricingDetail
-                notification={selectedOpenRouterPricing}
-                onBack={closeDetail}
-                onDismiss={closeDetail}
-              />
+            {showDetail && selectedNotification ? (
+              <OsNotificationDetail notification={selectedNotification} onBack={closeDetail} />
             ) : (
               <>
                 <DateTimeWidget onOpen={handleOpenCalendarApp} />
@@ -900,138 +240,26 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                         clearId="section:all"
                         armedClearId={armedClearId}
                         setArmedClearId={setArmedClearId}
-                        onConfirm={clearDismissibleNotifications}
+                        onConfirm={clearDismissibleOsNotifications}
                         confirmLabel="清除全部"
                         className="notification-center__ios-clear--section"
                       />
                     ) : undefined}
                   </div>
-                  {pendingInstalls.length === 0 &&
-                  failedInstalls.length === 0 &&
-                  completedInstalls.length === 0 &&
-                  appNotifications.length === 0 &&
-                  !processIsolationFallbackActive &&
-                  !storageWarning &&
-                  !mountDisconnected &&
-                  !githubDesktopMissingEmail ? (
+                  {notifications.length === 0 ? (
                     <p class="notification-center__empty">暂无通知</p>
                   ) : (
                     <div class="notification-center__list">
-                      {pendingInstalls.map((item) => (
-                        <NotificationListItem
-                          key={item.id}
-                          item={item}
-                          onSelect={() => openDetail(item.listing.slug)}
-                        />
-                      ))}
-                      {completedInstalls.map((item) => (
-                        <CompletedNotificationListItem
-                          key={item.id}
-                          item={item}
-                          onSelect={() => openDetail(item.listing.slug)}
-                          onDismiss={() => dismissCompletedInstall(item.id)}
-                          armedClearId={armedClearId}
-                          setArmedClearId={setArmedClearId}
-                        />
-                      ))}
-                      {failedInstalls.map((item) => (
-                        <FailedNotificationListItem
-                          key={item.id}
-                          item={item}
-                          onSelect={() => openDetail(item.listing.slug)}
-                          onDismiss={() => dismissFailedInstall(item.id)}
-                          armedClearId={armedClearId}
-                          setArmedClearId={setArmedClearId}
-                        />
-                      ))}
-                      {appNotifications.map((notification) => (
-                        <AppNotificationListItem
+                      {notifications.map((notification) => (
+                        <OsNotificationListRow
                           key={notification.id}
                           notification={notification}
-                          onSelect={() => openDetail(notification.appSlug)}
-                          onDismiss={() => dismissAppNotification(notification.id)}
+                          onSelect={() => openDetail(notification.id)}
+                          onDismiss={() => dismissOsNotification(notification.id)}
                           armedClearId={armedClearId}
                           setArmedClearId={setArmedClearId}
                         />
                       ))}
-                      {openRouterPricing ? (
-                        <div class="notification-center__item-wrap">
-                          <OpenRouterPricingListItem
-                            notification={openRouterPricing}
-                            onSelect={() =>
-                              openDetail(OPENROUTER_PRICING_NOTIFICATION_SLUG)
-                            }
-                          />
-                          {openRouterPricing.phase !== 'running' ? (
-                            <IosStyleClearButton
-                              clearId="openrouter-pricing"
-                              armedClearId={armedClearId}
-                              setArmedClearId={setArmedClearId}
-                              onConfirm={dismissOpenRouterPricingNotification}
-                              confirmLabel="清除"
-                            />
-                          ) : undefined}
-                        </div>
-                      ) : undefined}
-                      {storageWarning ? (
-                        <div class="notification-center__item-wrap">
-                          <StorageWarningListItem
-                            level={storageWarning.level}
-                            scope={storageWarning.scope}
-                            onSelect={() => openDetail(STORAGE_WARNING_SLUG)}
-                          />
-                          <IosStyleClearButton
-                            clearId="storage-warning"
-                            armedClearId={armedClearId}
-                            setArmedClearId={setArmedClearId}
-                            onConfirm={dismissStorageWarningNotification}
-                            confirmLabel="清除"
-                          />
-                        </div>
-                      ) : undefined}
-                      {processIsolationFallbackActive ? (
-                        <div class="notification-center__item-wrap">
-                          <ProcessIsolationFallbackListItem
-                            onSelect={() => openDetail(PROCESS_ISOLATION_FALLBACK_SLUG)}
-                          />
-                          <IosStyleClearButton
-                            clearId="process-isolation-fallback"
-                            armedClearId={armedClearId}
-                            setArmedClearId={setArmedClearId}
-                            onConfirm={dismissProcessIsolationFallbackNotification}
-                            confirmLabel="清除"
-                          />
-                        </div>
-                      ) : undefined}
-                      {mountDisconnected ? (
-                        <div class="notification-center__item-wrap">
-                          <MountDisconnectedListItem
-                            label={mountDisconnected.label}
-                            onSelect={() => openDetail(MOUNT_DISCONNECTED_SLUG)}
-                          />
-                          <IosStyleClearButton
-                            clearId="mount-disconnected"
-                            armedClearId={armedClearId}
-                            setArmedClearId={setArmedClearId}
-                            onConfirm={dismissMountDisconnectedNotification}
-                            confirmLabel="清除"
-                          />
-                        </div>
-                      ) : undefined}
-                      {githubDesktopMissingEmail ? (
-                        <div class="notification-center__item-wrap">
-                          <GithubDesktopMissingEmailListItem
-                            onSelect={() => openDetail(GITHUB_DESKTOP_MISSING_EMAIL_SLUG)}
-                          />
-                          <IosStyleClearButton
-                            clearId="github-desktop-missing-email"
-                            armedClearId={armedClearId}
-                            setArmedClearId={setArmedClearId}
-                            onConfirm={dismissGithubDesktopMissingEmailNotification}
-                            confirmLabel="清除"
-                          />
-                        </div>
-                      ) : undefined}
                     </div>
                   )}
                 </div>

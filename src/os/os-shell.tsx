@@ -13,6 +13,7 @@ import { DevExtAppsProvider } from './dev-ext-apps-context.tsx'
 import { GeneratedAppHeartbeatProvider } from './generated-app-heartbeat-context.tsx'
 import { MenuBarProvider } from './menu-bar-context.tsx'
 import { NotificationCenterProvider } from './notification-center-context.tsx'
+import { OsNotificationSources } from './os-notification-sources.tsx'
 import { MenuBar } from './menu-bar.tsx'
 import { OsProvider } from './os-context.tsx'
 import { FullscreenChromeRevealProvider } from './fullscreen-chrome-reveal-context.tsx'
@@ -38,6 +39,7 @@ function OsShellContent() {
   return (
     <div class="os-shell" ref={shellRef}>
       <StartupItemsBootstrap />
+      <OsNotificationSources />
       <ImmersiveDesktopBackdrop />
       <MenuBar />
       <Desktop />
