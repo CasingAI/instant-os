@@ -1043,7 +1043,8 @@ type AppDetailViewProps = {
 }
 
 function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }: AppDetailViewProps) {
-  const { uninstallApp, pruneAppVersionHistory, getAppVersionCount, clearAppData } =
+  const { openApp } = useOs()
+  const { uninstallApp, pruneAppVersionHistory, getAppVersionCount, clearAppData, openInstalledApp } =
     useGeneratedApps()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
@@ -1095,6 +1096,14 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
     }
     clearAppData(app.id)
     setClearDataConfirmOpen(false)
+  }
+
+  const handleLaunch = () => {
+    if (isGeneratedAppId(app.id)) {
+      openInstalledApp(app.id)
+      return
+    }
+    openApp(app.id)
   }
 
   return (
@@ -1185,54 +1194,72 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
           </div>
         </section>
 
-        {app.removable && app.documentsBytes > 0 && (
-          <div class="settings__actions">
-            <button type="button" class="settings__btn" onClick={() => setClearDataConfirmOpen(true)}>
-              清除应用数据
+        <section class="settings__section">
+          <div class="settings__list">
+            <button type="button" class="settings__row settings__row--show-all" onClick={handleLaunch}>
+              启动程序
             </button>
-            <p class="settings__hint">删除该应用保存的全部用户数据，不影响应用本身。</p>
+            {app.id === 'browser' && onOpenSafariSettings ? (
+              <button type="button" class="settings__row settings__row--show-all" onClick={onOpenSafariSettings}>
+                管理网页浏览器缓存与用量
+              </button>
+            ) : undefined}
+            {app.id === 'news' && onOpenNewsSettings ? (
+              <button type="button" class="settings__row settings__row--show-all" onClick={onOpenNewsSettings}>
+                管理新闻存档与评论区
+              </button>
+            ) : undefined}
           </div>
-        )}
-
-        {app.removable && archivedVersionCount > 0 && (
-          <div class="settings__actions">
-            <button type="button" class="settings__btn" onClick={() => setPruneConfirmOpen(true)}>
-              清理旧版本
-            </button>
-            <p class="settings__hint">将删除除当前版本外的全部历史代码，不可恢复。</p>
-          </div>
-        )}
-
-        {app.id === 'browser' && onOpenSafariSettings && (
-          <div class="settings__actions">
-            <button type="button" class="settings__btn" onClick={onOpenSafariSettings}>
-              管理网页浏览器缓存与用量
-            </button>
-          </div>
-        )}
-
-        {app.id === 'news' && onOpenNewsSettings && (
-          <div class="settings__actions">
-            <button type="button" class="settings__btn" onClick={onOpenNewsSettings}>
-              管理新闻存档与评论区
-            </button>
-            <p class="settings__hint">
+          {app.id === 'news' && onOpenNewsSettings ? (
+            <p class="settings__section-footnote">
               含报道、评论、点赞/举报记录及 AI 用量统计。
             </p>
-          </div>
-        )}
+          ) : undefined}
+        </section>
 
-        {app.removable && (
-          <div class="settings__actions">
-            <button
-              type="button"
-              class="settings__btn settings__btn--danger"
-              onClick={() => setConfirmOpen(true)}
-            >
-              卸载
-            </button>
-          </div>
-        )}
+        {app.removable && app.documentsBytes > 0 ? (
+          <section class="settings__section">
+            <div class="settings__list">
+              <button
+                type="button"
+                class="settings__row settings__row--show-all"
+                onClick={() => setClearDataConfirmOpen(true)}
+              >
+                清除应用数据
+              </button>
+            </div>
+            <p class="settings__section-footnote">删除该应用保存的全部用户数据，不影响应用本身。</p>
+          </section>
+        ) : undefined}
+
+        {app.removable && archivedVersionCount > 0 ? (
+          <section class="settings__section">
+            <div class="settings__list">
+              <button
+                type="button"
+                class="settings__row settings__row--show-all"
+                onClick={() => setPruneConfirmOpen(true)}
+              >
+                清理旧版本
+              </button>
+            </div>
+            <p class="settings__section-footnote">将删除除当前版本外的全部历史代码，不可恢复。</p>
+          </section>
+        ) : undefined}
+
+        {app.removable ? (
+          <section class="settings__section">
+            <div class="settings__list">
+              <button
+                type="button"
+                class="settings__row settings__row--show-all settings__row--destructive"
+                onClick={() => setConfirmOpen(true)}
+              >
+                卸载
+              </button>
+            </div>
+          </section>
+        ) : undefined}
       </div>
 
       {confirmOpen && (

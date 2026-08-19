@@ -347,4 +347,18 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '之后可从桌面图标或「应用程序」里再打开；关窗不影响正常使用。',
     ],
   },
+  'welcome-next': {
+    version: '欢迎',
+    paragraphs: [
+      '一张可关的明信片：说明这台电脑靠你的模型编内容，带你去钥匙串插上 API Key，再用几个有性格的入口展示内置应用。',
+      '与「欢迎中心」并列，互不影响；关窗不影响正常使用。',
+    ],
+  },
+  'welcome-hello': {
+    version: '你好',
+    paragraphs: [
+      '分页开机向导：用几屏大字说明这是一台会写内容的电脑，再带你去钥匙串或先打开一个应用。',
+      '与「欢迎中心」「欢迎」并列，互不影响；关窗不影响正常使用。',
+    ],
+  },
 }

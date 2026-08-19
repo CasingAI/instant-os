@@ -53,6 +53,8 @@ export const BUILTIN_APP_DISPLAY_NAMES: Record<BuiltinAppId, string> = {
   'llm-playground': 'LLM Playground',
   attunebench: '评测',
   welcome: '欢迎中心',
+  'welcome-next': '欢迎',
+  'welcome-hello': '你好',
 }
 
 /** 目录枚举顺序（与历史 APP_REGISTRY 顺序一致，便于对照；catalog 最终仍会按 bundleName 排序）。 */
@@ -105,4 +107,6 @@ export const BUILTIN_APP_CATALOG_ORDER: readonly BuiltinAppId[] = [
   'llm-playground',
   'attunebench',
   'welcome',
+  'welcome-next',
+  'welcome-hello',
 ]

@@ -47,6 +47,10 @@ import { SrmlDemoApp } from '../apps/srml-demo/srml-app.tsx'
 import { LlmPlaygroundApp } from '../apps/llm-playground/llm-playground-app.tsx'
 import { AttuneBenchApp } from '../apps/attunebench/attunebench-app.tsx'
 import { WelcomeApp } from '../apps/welcome/welcome-app.tsx'
+import { WelcomeNextApp } from '../apps/welcome-next/welcome-next-app.tsx'
+import { WelcomeNextIcon } from '../apps/welcome-next/welcome-next-icon.tsx'
+import { WelcomeHelloApp } from '../apps/welcome-hello/welcome-hello-app.tsx'
+import { WelcomeHelloIcon } from '../apps/welcome-hello/welcome-hello-icon.tsx'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
 import { RegistryIcon } from '../apps/registry/registry-icon.tsx'
@@ -448,6 +452,24 @@ export const APP_REGISTRY: AppDefinition[] = [
     dockWhenRunning: true,
     desktop: true,
   }),
+  withAbout({
+    id: 'welcome-next',
+    name: BUILTIN_APP_DISPLAY_NAMES['welcome-next'],
+    icon: WelcomeNextIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: true,
+    iconDecoration: { sleeve: { label: '新' } },
+  }),
+  withAbout({
+    id: 'welcome-hello',
+    name: BUILTIN_APP_DISPLAY_NAMES['welcome-hello'],
+    icon: WelcomeHelloIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: true,
+    iconDecoration: { sleeve: { label: '新' } },
+  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: string }>> = {
@@ -500,6 +522,8 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'llm-playground': LlmPlaygroundApp,
   attunebench: AttuneBenchApp,
   welcome: WelcomeApp,
+  'welcome-next': WelcomeNextApp,
+  'welcome-hello': WelcomeHelloApp,
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {

@@ -86,6 +86,10 @@ import { ForwardIcon } from '../../icons/app-icons.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GithubCredentialsDialog } from './github-credentials-dialog.tsx'
+import {
+  consumePendingOpenKeychainAiProvidersView,
+  OPEN_KEYCHAIN_AI_PROVIDERS_EVENT,
+} from '../../os/keychain-route-open.ts'
 import '../../ui/ios-nav-back.css'
 import '../settings/settings.css'
 import './keychain.css'
@@ -508,6 +512,37 @@ export function KeychainApp() {
   }, [refreshGithubStatus])
 
   useAppMenuBar('keychain', [])
+
+  const screenRef = useRef(screen)
+  screenRef.current = screen
+
+  useEffect(() => {
+    const goToAiProviders = () => {
+      const current = screenRef.current
+      if (
+        current === 'ai-providers' ||
+        current === 'provider-settings' ||
+        current === 'model-settings' ||
+        current === 'add-model'
+      ) {
+        return
+      }
+      navigateTo('ai-providers', 'push')
+    }
+
+    if (consumePendingOpenKeychainAiProvidersView()) {
+      goToAiProviders()
+    }
+
+    const onOpenAiProviders = () => {
+      consumePendingOpenKeychainAiProvidersView()
+      goToAiProviders()
+    }
+    window.addEventListener(OPEN_KEYCHAIN_AI_PROVIDERS_EVENT, onOpenAiProviders)
+    return () => {
+      window.removeEventListener(OPEN_KEYCHAIN_AI_PROVIDERS_EVENT, onOpenAiProviders)
+    }
+  }, [navigateTo])
 
   const handleCancelChanges = useCallback(() => {
     if (!savedSnapshot) {
