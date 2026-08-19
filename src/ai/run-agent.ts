@@ -282,6 +282,7 @@ function finishAgentUsage(options: {
   completionTokens: number
   cachedPromptTokens: number
   totalTokens: number
+  model?: string
   status?: 'success' | 'error'
   errorMessage?: string
 }): void {
@@ -296,7 +297,7 @@ function finishAgentUsage(options: {
       : undefined
 
   if (options.usageContext && usage) {
-    recordAiTokenUsage(options.usageContext, usage)
+    recordAiTokenUsage(options.usageContext, usage, options.model)
   }
 
   if (options.logSession && options.usageContext) {
@@ -723,6 +724,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           completionTokens: accumulatedCompletionTokens,
           cachedPromptTokens: accumulatedCachedPromptTokens,
           totalTokens: accumulatedTotalTokens,
+          model,
         })
         return {
           text: turn.content,
@@ -836,6 +838,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           completionTokens: accumulatedCompletionTokens,
           cachedPromptTokens: accumulatedCachedPromptTokens,
           totalTokens: accumulatedTotalTokens,
+          model,
         })
         return {
           text: stoppedText || turn.content,
@@ -856,6 +859,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       completionTokens: accumulatedCompletionTokens,
       cachedPromptTokens: accumulatedCachedPromptTokens,
       totalTokens: accumulatedTotalTokens,
+      model,
     })
 
     return {

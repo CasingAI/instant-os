@@ -136,6 +136,7 @@ export async function runLlmCompact(
             : '上下文压缩',
         },
         usage,
+        params.model,
       )
     }
 

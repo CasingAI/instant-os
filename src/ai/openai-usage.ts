@@ -21,7 +21,7 @@ export function recordOpenAiCompletionUsage(
   },
 ): void {
   const usage = snapshotFromOpenAiUsage(response.usage)
-  recordAiTokenUsage(context, usage)
+  recordAiTokenUsage(context, usage, log?.model)
 
   if (log?.session) {
     finishAiEventLogSession(log.session, context, {

@@ -16,6 +16,11 @@ export type {
   AiUsageRequestRecord,
   BehaviorTokenUsage,
   DayTokenUsage,
+  ModelTokenUsage,
+} from './ai-token-usage-types.ts'
+export {
+  UNKNOWN_AI_USAGE_MODEL,
+  UNKNOWN_AI_USAGE_MODEL_LABEL,
 } from './ai-token-usage-types.ts'
 export type { AiUsageContext } from './ai-usage-context.ts'
 
@@ -25,7 +30,9 @@ import type {
   AiUsageRequestRecord,
   BehaviorTokenUsage,
   DayTokenUsage,
+  ModelTokenUsage,
 } from './ai-token-usage-types.ts'
+import { UNKNOWN_AI_USAGE_MODEL, UNKNOWN_AI_USAGE_MODEL_LABEL } from './ai-token-usage-types.ts'
 
 export const AI_TOKEN_USAGE_CHANGED_EVENT = 'instant-os:ai-token-usage-changed'
 
@@ -37,12 +44,13 @@ function dispatchUsageChanged(): void {
 export function recordAiTokenUsage(
   context: AiUsageContext,
   usage: TokenUsageSnapshot | undefined,
+  model?: string,
 ): void {
   if (!usage || usage.totalTokens <= 0) {
     return
   }
 
-  void persistAiTokenUsage(context, usage)
+  void persistAiTokenUsage(context, usage, model)
     .then(() => dispatchUsageChanged())
     .catch(() => undefined)
 }
@@ -71,6 +79,21 @@ export function getBehaviorUsageList(actor: ActorTokenUsage): BehaviorTokenUsage
 
 export function getDayUsageList(record: AiTokenUsageRecord): DayTokenUsage[] {
   return Object.values(record.byDay).sort((left, right) => right.day.localeCompare(left.day))
+}
+
+export function getModelUsageList(record: AiTokenUsageRecord): ModelTokenUsage[] {
+  return Object.values(record.byModel ?? {}).sort((left, right) => right.totalTokens - left.totalTokens)
+}
+
+export function formatUsageModelLabel(model: string): string {
+  return model === UNKNOWN_AI_USAGE_MODEL || !model.trim() ? UNKNOWN_AI_USAGE_MODEL_LABEL : model
+}
+
+export function formatCacheHitRate(cachedPromptTokens: number, promptTokens: number): string {
+  if (promptTokens <= 0) {
+    return '—'
+  }
+  return `${Math.round((Math.max(0, cachedPromptTokens) / promptTokens) * 100)}%`
 }
 
 export function formatUsageDayLabel(day: string): string {

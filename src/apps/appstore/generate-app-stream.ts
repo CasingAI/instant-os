@@ -311,7 +311,7 @@ export async function generateAppHtmlStreaming(
     )
   } catch (error) {
     if (isStreamAbortError(error, options.signal)) {
-      recordAiTokenUsage(usageContext, usage)
+      recordAiTokenUsage(usageContext, usage, model)
       finishAiEventLogSession(logSession, usageContext, {
         response: formatStreamEventResponse(reasoningText, contentText),
         usage,
@@ -346,7 +346,7 @@ export async function generateAppHtmlStreaming(
 
   emit(true)
 
-  recordAiTokenUsage(usageContext, usage)
+  recordAiTokenUsage(usageContext, usage, model)
   finishAiEventLogSession(logSession, usageContext, {
     response: formatStreamEventResponse(reasoningText, contentText),
     usage,

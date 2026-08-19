@@ -185,7 +185,7 @@ export async function mimoRecognizeSpeechStream(options: {
     }
 
     if (options.usageContext && logSession) {
-      recordAiTokenUsage(options.usageContext, usage)
+      recordAiTokenUsage(options.usageContext, usage, config.defaultModel)
       finishAiEventLogSession(logSession, options.usageContext, {
         response: trimmed,
         usage,
@@ -403,7 +403,7 @@ export async function mimoSynthesizeSpeechStream(options: {
     const pcm = concatUint8Arrays(pcmParts)
 
     if (options.usageContext && logSession) {
-      recordAiTokenUsage(options.usageContext, usage)
+      recordAiTokenUsage(options.usageContext, usage, config.defaultModel)
       finishAiEventLogSession(logSession, options.usageContext, {
         response: `[audio pcm16 stream bytes=${totalBytes}]`,
         usage,

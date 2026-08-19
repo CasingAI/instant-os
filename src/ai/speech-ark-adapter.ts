@@ -307,7 +307,7 @@ async function consumeTtsSse(options: {
         promptTokens: approx,
         completionTokens: 0,
         totalTokens: approx,
-      })
+      }, options.config.defaultModel || 'doubao-seed-tts-2.0')
     }
 
     if (logSession) {

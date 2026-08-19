@@ -259,7 +259,7 @@ export async function generateScene3dHtmlStreaming(
     )
     const html = extractScene3dHtmlFromAiText(contentText)
     const rawText = formatScene3dRawOutput(reasoningText, contentText)
-    recordAiTokenUsage(usageContext, usage)
+    recordAiTokenUsage(usageContext, usage, model)
     finishAiEventLogSession(logSession, usageContext, {
       response: formatStreamEventResponse(reasoningText, contentText),
       usage,

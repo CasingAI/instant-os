@@ -28,6 +28,18 @@ export type DayTokenUsage = {
   requestCount: number
 }
 
+export const UNKNOWN_AI_USAGE_MODEL = 'unknown'
+export const UNKNOWN_AI_USAGE_MODEL_LABEL = '未知'
+
+export type ModelTokenUsage = {
+  model: string
+  promptTokens: number
+  completionTokens: number
+  cachedPromptTokens: number
+  totalTokens: number
+  requestCount: number
+}
+
 export type AiUsageRequestRecord = {
   id: string
   day: string
@@ -36,6 +48,7 @@ export type AiUsageRequestRecord = {
   behavior: string
   actorLabel: string
   behaviorLabel: string
+  model?: string
   promptTokens: number
   completionTokens: number
   cachedPromptTokens: number
@@ -50,4 +63,5 @@ export type AiTokenUsageRecord = {
   requestCount: number
   byActor: Record<string, ActorTokenUsage>
   byDay: Record<string, DayTokenUsage>
+  byModel: Record<string, ModelTokenUsage>
 }

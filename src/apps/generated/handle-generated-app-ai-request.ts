@@ -280,7 +280,7 @@ export async function handleGeneratedAppAiRequest(
         const usage = snapshotFromOpenAiUsage(chunk.usage)
         if (usage) {
           streamUsage = usage
-          recordAiTokenUsage(context, usage)
+          recordAiTokenUsage(context, usage, config.defaultModel)
         }
 
         const delta = chunk.choices[0]?.delta?.content

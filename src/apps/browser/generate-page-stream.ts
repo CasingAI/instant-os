@@ -482,7 +482,7 @@ export async function generatePageHtmlStreaming(
       cachedPromptTokens: liveUsage.cachedPromptTokens ?? 0,
       totalTokens: liveUsage.totalTokens,
     }
-    recordAiTokenUsage(usageContext, usage)
+    recordAiTokenUsage(usageContext, usage, model)
     finishAiEventLogSession(logSession, usageContext, {
       response: formatStreamEventResponse(reasoningText, text),
       usage: finalUsage,

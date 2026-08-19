@@ -214,7 +214,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     if (!text.trim()) {
       if (options.allowEmpty) {
         if (options.usageContext && logSession) {
-          recordAiTokenUsage(options.usageContext, usage)
+          recordAiTokenUsage(options.usageContext, usage, model)
           finishAiEventLogSession(logSession, options.usageContext, {
             response: formatStreamEventResponse(reasoningText, ''),
             usage,
@@ -229,7 +229,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
 
     const trimmed = text.trim()
     if (options.usageContext && logSession) {
-      recordAiTokenUsage(options.usageContext, usage)
+      recordAiTokenUsage(options.usageContext, usage, model)
       finishAiEventLogSession(logSession, options.usageContext, {
         response: formatStreamEventResponse(reasoningText, trimmed),
         usage,
