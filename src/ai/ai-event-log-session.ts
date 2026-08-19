@@ -163,6 +163,7 @@ export function startAiEventLogSession(
     response: '',
     promptTokens: undefined,
     completionTokens: undefined,
+    cachedPromptTokens: undefined,
     totalTokens: undefined,
     usageEstimated: undefined,
     status: 'running',
@@ -218,6 +219,7 @@ export function startAiEventLogSession(
       if (patch.usage) {
         current.record.promptTokens = patch.usage.promptTokens
         current.record.completionTokens = patch.usage.completionTokens
+        current.record.cachedPromptTokens = patch.usage.cachedPromptTokens ?? 0
         current.record.totalTokens = patch.usage.totalTokens
         current.record.usageEstimated = false
       } else if (patch.estimateUsage !== false) {
@@ -347,6 +349,7 @@ export function takeLiveAiEventLogFinishInputsForActor(
             ? {
                 promptTokens: state.record.promptTokens ?? 0,
                 completionTokens: state.record.completionTokens ?? 0,
+                cachedPromptTokens: state.record.cachedPromptTokens ?? 0,
                 totalTokens:
                   state.record.totalTokens ??
                   (state.record.promptTokens ?? 0) +

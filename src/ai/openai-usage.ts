@@ -1,33 +1,13 @@
 import type OpenAI from 'openai'
-import type { TokenUsageSnapshot } from '../apps/browser/browser-token-usage.ts'
 import { finishAiEventLogSession, recordAiEventLog, type AiEventLogSessionHandle } from './ai-event-log.ts'
 import type { AiEventLogMessage } from './ai-event-log-types.ts'
 import { serializeCompletionResponse } from './ai-event-log-serialize.ts'
 import type { AiEventLogTimingInput } from './ai-event-log-timing.ts'
 import { recordAiTokenUsage, type AiUsageContext } from './ai-token-usage.ts'
+import { snapshotFromOpenAiUsage } from './openai-usage-snapshot.ts'
 
-export type OpenAiUsageLike = {
-  prompt_tokens?: number
-  completion_tokens?: number
-  total_tokens?: number
-}
-
-export function snapshotFromOpenAiUsage(
-  usage: OpenAiUsageLike | null | undefined,
-): TokenUsageSnapshot | undefined {
-  if (!usage) {
-    return undefined
-  }
-
-  const promptTokens = usage.prompt_tokens ?? 0
-  const completionTokens = usage.completion_tokens ?? 0
-  const totalTokens = usage.total_tokens ?? promptTokens + completionTokens
-  if (totalTokens <= 0) {
-    return undefined
-  }
-
-  return { promptTokens, completionTokens, totalTokens }
-}
+export type { OpenAiUsageLike } from './openai-usage-snapshot.ts'
+export { snapshotFromOpenAiUsage } from './openai-usage-snapshot.ts'
 
 export function recordOpenAiCompletionUsage(
   response: OpenAI.Chat.ChatCompletion,

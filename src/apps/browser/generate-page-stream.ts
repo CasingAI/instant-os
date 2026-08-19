@@ -2,6 +2,7 @@ import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from '../../ai/ai-thinking.ts'
 import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
+import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { TokenUsageSnapshot } from './browser-token-usage.ts'
@@ -314,25 +315,6 @@ function createSafariAiLogger(url: string) {
   }
 }
 
-function snapshotFromUsage(usage: OpenAIUsage | undefined): TokenUsageSnapshot | undefined {
-  if (!usage) {
-    return undefined
-  }
-
-  return {
-    promptTokens: usage.prompt_tokens ?? 0,
-    completionTokens: usage.completion_tokens ?? 0,
-    totalTokens: usage.total_tokens ?? 0,
-  }
-}
-
-// OpenAI types via import - check if we need to use inline type
-type OpenAIUsage = {
-  prompt_tokens?: number
-  completion_tokens?: number
-  total_tokens?: number
-}
-
 export async function generatePageHtmlStreaming(
   context: PageGenerationContext,
   onUpdate: (update: PageGenerationUpdate) => void,
@@ -451,7 +433,7 @@ export async function generatePageHtmlStreaming(
       const { reasoning, content } = readStreamDelta(choice?.delta)
 
       if (chunk.usage) {
-        usage = snapshotFromUsage(chunk.usage)
+        usage = snapshotFromOpenAiUsage(chunk.usage)
         refreshLiveUsage()
         logSession.update({
           response: formatStreamEventResponse(reasoningText, text),
@@ -497,6 +479,7 @@ export async function generatePageHtmlStreaming(
     const finalUsage = usage ?? {
       promptTokens: liveUsage.promptTokens,
       completionTokens: liveUsage.completionTokens,
+      cachedPromptTokens: liveUsage.cachedPromptTokens ?? 0,
       totalTokens: liveUsage.totalTokens,
     }
     recordAiTokenUsage(usageContext, usage)

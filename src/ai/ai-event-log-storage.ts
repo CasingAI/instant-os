@@ -75,6 +75,7 @@ function toDbRecord(
     response: input.response,
     promptTokens: input.usage?.promptTokens,
     completionTokens: input.usage?.completionTokens,
+    cachedPromptTokens: input.usage?.cachedPromptTokens,
     totalTokens: input.usage?.totalTokens,
     usageEstimated: input.usageEstimated,
     status: input.status ?? 'success',

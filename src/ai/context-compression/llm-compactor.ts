@@ -135,11 +135,7 @@ export async function runLlmCompact(
             ? `${params.usageContext.behaviorLabel} · 上下文压缩`
             : '上下文压缩',
         },
-        {
-          promptTokens: usage.promptTokens,
-          completionTokens: usage.completionTokens,
-          totalTokens: usage.totalTokens,
-        },
+        usage,
       )
     }
 

@@ -502,7 +502,11 @@ export function EventLogApp() {
                       {selected.usageEstimated ? '约 ' : ''}
                       {formatTokenCount(selected.totalTokens)}
                       {selected.promptTokens !== undefined && selected.completionTokens !== undefined
-                        ? `（输入 ${formatTokenCount(selected.promptTokens)} / 输出 ${formatTokenCount(selected.completionTokens)}）`
+                        ? `（输入 ${formatTokenCount(selected.promptTokens)}${
+                            selected.cachedPromptTokens
+                              ? ` / 缓存输入 ${formatTokenCount(selected.cachedPromptTokens)}`
+                              : ''
+                          } / 输出 ${formatTokenCount(selected.completionTokens)}）`
                         : ''}
                     </dd>
                   </>

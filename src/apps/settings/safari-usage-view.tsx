@@ -78,6 +78,10 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
               <dd>{formatTokenCount(usage.totalPromptTokens)}</dd>
             </dl>
             <dl class="settings__form-row">
+              <dt>缓存输入 Tokens</dt>
+              <dd>{formatTokenCount(usage.totalCachedPromptTokens)}</dd>
+            </dl>
+            <dl class="settings__form-row">
               <dt>输出 Tokens</dt>
               <dd>{formatTokenCount(usage.totalCompletionTokens)}</dd>
             </dl>

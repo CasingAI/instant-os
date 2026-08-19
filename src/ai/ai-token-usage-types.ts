@@ -3,6 +3,7 @@ export type BehaviorTokenUsage = {
   label: string
   promptTokens: number
   completionTokens: number
+  cachedPromptTokens: number
   totalTokens: number
   requestCount: number
 }
@@ -12,6 +13,7 @@ export type ActorTokenUsage = {
   label: string
   promptTokens: number
   completionTokens: number
+  cachedPromptTokens: number
   totalTokens: number
   requestCount: number
   byBehavior: Record<string, BehaviorTokenUsage>
@@ -21,6 +23,7 @@ export type DayTokenUsage = {
   day: string
   promptTokens: number
   completionTokens: number
+  cachedPromptTokens: number
   totalTokens: number
   requestCount: number
 }
@@ -35,12 +38,14 @@ export type AiUsageRequestRecord = {
   behaviorLabel: string
   promptTokens: number
   completionTokens: number
+  cachedPromptTokens: number
   totalTokens: number
 }
 
 export type AiTokenUsageRecord = {
   totalPromptTokens: number
   totalCompletionTokens: number
+  totalCachedPromptTokens: number
   totalTokens: number
   requestCount: number
   byActor: Record<string, ActorTokenUsage>

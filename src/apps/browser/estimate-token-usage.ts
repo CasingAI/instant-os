@@ -137,6 +137,8 @@ export type LiveTokenUsage = {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  /** 缓存命中的输入 token；是 promptTokens 的子集。缺省视为 0。 */
+  cachedPromptTokens?: number
   /** true = 字符等粗估（UI 可显示 ~）；tokenizer / API 为 false */
   estimated: boolean
 }
@@ -185,7 +187,14 @@ export async function buildLiveTokenUsageAsync(
 
 export function finalizeTokenUsage(
   live: LiveTokenUsage,
-  actual: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined,
+  actual:
+    | {
+        promptTokens: number
+        completionTokens: number
+        totalTokens: number
+        cachedPromptTokens?: number
+      }
+    | undefined,
 ): LiveTokenUsage {
   if (!actual || actual.totalTokens <= 0) {
     return live
@@ -195,6 +204,7 @@ export function finalizeTokenUsage(
     promptTokens: actual.promptTokens,
     completionTokens: actual.completionTokens,
     totalTokens: actual.totalTokens,
+    cachedPromptTokens: actual.cachedPromptTokens ?? 0,
     estimated: false,
   }
 }

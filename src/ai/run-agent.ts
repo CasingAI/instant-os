@@ -97,6 +97,7 @@ export type AgentUsageEvent = {
   step: number
   promptTokens: number
   completionTokens: number
+  cachedPromptTokens: number
   totalTokens: number
 }
 
@@ -279,6 +280,7 @@ function finishAgentUsage(options: {
   response: string
   promptTokens: number
   completionTokens: number
+  cachedPromptTokens: number
   totalTokens: number
   status?: 'success' | 'error'
   errorMessage?: string
@@ -288,6 +290,7 @@ function finishAgentUsage(options: {
       ? {
           promptTokens: options.promptTokens,
           completionTokens: options.completionTokens,
+          cachedPromptTokens: options.cachedPromptTokens,
           totalTokens: options.totalTokens,
         }
       : undefined
@@ -596,6 +599,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
   const chatTools = tools.length > 0 ? tools.map(toChatCompletionTool) : undefined
   let accumulatedPromptTokens = 0
   let accumulatedCompletionTokens = 0
+  let accumulatedCachedPromptTokens = 0
   let accumulatedTotalTokens = 0
 
   const logSession = options.usageContext
@@ -660,12 +664,14 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       if (turn.usage) {
         accumulatedPromptTokens += turn.usage.promptTokens
         accumulatedCompletionTokens += turn.usage.completionTokens
+        accumulatedCachedPromptTokens += turn.usage.cachedPromptTokens ?? 0
         accumulatedTotalTokens += turn.usage.totalTokens
         estimatedTokens = turn.usage.promptTokens
         options.onUsage?.({
           step,
           promptTokens: turn.usage.promptTokens,
           completionTokens: turn.usage.completionTokens,
+          cachedPromptTokens: turn.usage.cachedPromptTokens ?? 0,
           totalTokens: turn.usage.totalTokens,
         })
       }
@@ -701,6 +707,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
               ? {
                   promptTokens: accumulatedPromptTokens,
                   completionTokens: accumulatedCompletionTokens,
+                  cachedPromptTokens: accumulatedCachedPromptTokens,
                   totalTokens: accumulatedTotalTokens,
                 }
               : undefined,
@@ -714,6 +721,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           response: formatStreamEventResponse(turn.reasoning, turn.content),
           promptTokens: accumulatedPromptTokens,
           completionTokens: accumulatedCompletionTokens,
+          cachedPromptTokens: accumulatedCachedPromptTokens,
           totalTokens: accumulatedTotalTokens,
         })
         return {
@@ -826,6 +834,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           response: formatStreamEventResponse(turn.reasoning, turn.content),
           promptTokens: accumulatedPromptTokens,
           completionTokens: accumulatedCompletionTokens,
+          cachedPromptTokens: accumulatedCachedPromptTokens,
           totalTokens: accumulatedTotalTokens,
         })
         return {
@@ -845,6 +854,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       response: incompleteText || `已达最大步数 ${maxSteps}，可继续`,
       promptTokens: accumulatedPromptTokens,
       completionTokens: accumulatedCompletionTokens,
+      cachedPromptTokens: accumulatedCachedPromptTokens,
       totalTokens: accumulatedTotalTokens,
     })
 

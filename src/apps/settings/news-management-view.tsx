@@ -185,6 +185,10 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
               <dd>{formatTokenCount(tokenUsage.totalPromptTokens)}</dd>
             </dl>
             <dl class="settings__form-row">
+              <dt>缓存输入 Tokens</dt>
+              <dd>{formatTokenCount(tokenUsage.totalCachedPromptTokens)}</dd>
+            </dl>
+            <dl class="settings__form-row">
               <dt>输出 Tokens</dt>
               <dd>{formatTokenCount(tokenUsage.totalCompletionTokens)}</dd>
             </dl>

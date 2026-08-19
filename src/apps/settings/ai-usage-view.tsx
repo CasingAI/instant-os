@@ -79,12 +79,14 @@ function enrichDayLabels(days: DayTokenUsage[]): Array<DayTokenUsage & { label: 
 function SummaryBox({
   title,
   promptTokens,
+  cachedPromptTokens,
   completionTokens,
   totalTokens,
   requestCount,
 }: {
   title?: string
   promptTokens: number
+  cachedPromptTokens: number
   completionTokens: number
   totalTokens: number
   requestCount: number
@@ -98,6 +100,10 @@ function SummaryBox({
       <dl class="settings__form-row">
         <dt>输入 Tokens</dt>
         <dd>{formatTokenCount(promptTokens)}</dd>
+      </dl>
+      <dl class="settings__form-row">
+        <dt>缓存输入 Tokens</dt>
+        <dd>{formatTokenCount(cachedPromptTokens)}</dd>
       </dl>
       <dl class="settings__form-row">
         <dt>输出 Tokens</dt>
@@ -161,6 +167,7 @@ function RequestRow({
         <span class="settings__row-hint">{request.behaviorLabel}</span>
       </span>
       <span class="settings__row-size">{formatTokenCount(request.promptTokens)}</span>
+      <span class="settings__row-size">{formatTokenCount(request.cachedPromptTokens)}</span>
       <span class="settings__row-size">{formatTokenCount(request.completionTokens)}</span>
       <span class="settings__row-size">{formatTokenCount(request.totalTokens)}</span>
     </div>
@@ -298,6 +305,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
             <h2 class="settings__section-title">{formatUsageDayLabel(selectedDay)}</h2>
             <SummaryBox
               promptTokens={selectedDaySummary.promptTokens}
+              cachedPromptTokens={selectedDaySummary.cachedPromptTokens}
               completionTokens={selectedDaySummary.completionTokens}
               totalTokens={selectedDaySummary.totalTokens}
               requestCount={selectedDaySummary.requestCount}
@@ -314,6 +322,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
                   <span>时间</span>
                   <span>来源</span>
                   <span>输入</span>
+                  <span>缓存</span>
                   <span>输出</span>
                   <span>合计</span>
                 </div>
@@ -352,6 +361,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
             </h2>
             <SummaryBox
               promptTokens={selectedEntry.promptTokens}
+              cachedPromptTokens={selectedEntry.cachedPromptTokens}
               completionTokens={selectedEntry.completionTokens}
               totalTokens={selectedEntry.totalTokens}
               requestCount={selectedEntry.requestCount}
@@ -367,6 +377,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
                 <div class="settings__list-head settings__list-head--ai-detail">
                   <span>行为</span>
                   <span>输入</span>
+                  <span>缓存</span>
                   <span>输出</span>
                   <span>合计</span>
                 </div>
@@ -380,6 +391,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
                         </span>
                       </span>
                       <span class="settings__row-size">{formatTokenCount(entry.promptTokens)}</span>
+                      <span class="settings__row-size">{formatTokenCount(entry.cachedPromptTokens)}</span>
                       <span class="settings__row-size">{formatTokenCount(entry.completionTokens)}</span>
                       <span class="settings__row-size">{formatTokenCount(entry.totalTokens)}</span>
                     </div>
@@ -405,6 +417,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
   const usageRecord = record ?? {
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
+    totalCachedPromptTokens: 0,
     totalTokens: 0,
     requestCount: 0,
     byActor: {},
@@ -421,6 +434,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
           <h2 class="settings__section-title">总用量</h2>
           <SummaryBox
             promptTokens={usageRecord.totalPromptTokens}
+            cachedPromptTokens={usageRecord.totalCachedPromptTokens}
             completionTokens={usageRecord.totalCompletionTokens}
             totalTokens={usageRecord.totalTokens}
             requestCount={usageRecord.requestCount}

@@ -28,6 +28,7 @@ export type AiEventLogRecord = {
   response: string
   promptTokens: number | undefined
   completionTokens: number | undefined
+  cachedPromptTokens: number | undefined
   totalTokens: number | undefined
   /** token 是否为估算值（流式进行中常见）；旧记录可能缺失。 */
   usageEstimated: boolean | undefined

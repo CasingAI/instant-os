@@ -643,6 +643,10 @@ export function Scene3dLabApp() {
                       <dd>{formatTokenCount(usage.promptTokens)}</dd>
                     </div>
                     <div>
+                      <dt>缓存输入 Token</dt>
+                      <dd>{formatTokenCount(usage.cachedPromptTokens ?? 0)}</dd>
+                    </div>
+                    <div>
                       <dt>输出 Token</dt>
                       <dd>{formatTokenCount(usage.completionTokens)}</dd>
                     </div>

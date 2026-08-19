@@ -10,6 +10,7 @@ import {
 } from '../../ai/ai-thinking.ts'
 import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
+import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import { buildScene3dBuilderPrompt } from '../../assets/3d/scene3d-prompt-sections.ts'
@@ -103,24 +104,6 @@ function progressFromTextLength(textLength: number, generating: boolean): number
   }
   const ratio = Math.min(1, textLength / EXPECTED_MAX_CHARS)
   return PROGRESS_START + ratio * (PROGRESS_CAP - PROGRESS_START)
-}
-
-type OpenAIUsage = {
-  prompt_tokens?: number
-  completion_tokens?: number
-  total_tokens?: number
-}
-
-function snapshotFromUsage(usage: OpenAIUsage | undefined): TokenUsageSnapshot | undefined {
-  if (!usage) {
-    return undefined
-  }
-
-  return {
-    promptTokens: usage.prompt_tokens ?? 0,
-    completionTokens: usage.completion_tokens ?? 0,
-    totalTokens: usage.total_tokens ?? 0,
-  }
 }
 
 export function buildScene3dUserMessage(userPrompt: string, physicsEnabled = false): string {
@@ -226,7 +209,7 @@ export async function generateScene3dHtmlStreaming(
     for await (const chunk of stream) {
       streamStarted = true
       if (chunk.usage) {
-        usage = snapshotFromUsage(chunk.usage)
+        usage = snapshotFromOpenAiUsage(chunk.usage)
       }
 
       const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
