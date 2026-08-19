@@ -79,18 +79,18 @@ button:active:not(:disabled) .app-icon-tile__tile::after {
 
 .app-icon-notification-badge {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  z-index: 3;
+  top: -6px;
+  right: -6px;
+  z-index: 6;
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1;
   color: #fff;
