@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { isDesktopPageWheelHit } from './is-desktop-page-wheel-hit.ts'
+import { isDesktopEmptyPointerTarget } from './run-desktop-click-action.ts'
+import { DESKTOP_EMPTY_HOLD_MS } from './use-desktop-empty-press.ts'
 
 const SNAP_RATIO = 0.18
 const TAP_THRESHOLD = 8
@@ -19,6 +21,24 @@ type PagerSession = {
   dragging: boolean
   pointerId: number
   captureTarget: HTMLElement | undefined
+  holdTimer: number | undefined
+  holdFired: boolean
+  finished: boolean
+  emptyTarget: boolean
+  unbindDocument: (() => void) | undefined
+}
+
+function clearHoldTimer(session: PagerSession): void {
+  if (session.holdTimer === undefined) {
+    return
+  }
+  window.clearTimeout(session.holdTimer)
+  session.holdTimer = undefined
+}
+
+function unbindDocument(session: PagerSession): void {
+  session.unbindDocument?.()
+  session.unbindDocument = undefined
 }
 
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
@@ -42,13 +62,25 @@ export function useDesktopPagePager(
   onEmptyTap?: (event: PointerEvent) => void,
   keyboardNavEnabled = false,
   wheelNavEnabled = keyboardNavEnabled,
+  onEmptyHold?: () => void,
 ) {
   const [currentPage, setCurrentPage] = useState(0)
   const [dragOffset, setDragOffset] = useState(0)
   const [animating, setAnimating] = useState(false)
   const didSwipeRef = useRef(false)
   const sessionRef = useRef<PagerSession | undefined>(undefined)
+  const onEmptyHoldRef = useRef(onEmptyHold)
+  const onEmptyTapRef = useRef(onEmptyTap)
   const currentPageRef = useRef(currentPage)
+
+  useEffect(() => {
+    onEmptyHoldRef.current = onEmptyHold
+  }, [onEmptyHold])
+
+  useEffect(() => {
+    onEmptyTapRef.current = onEmptyTap
+  }, [onEmptyTap])
+
   const wheelAccumRef = useRef(0)
   const wheelLockedRef = useRef(false)
   const wheelSeenSettleRef = useRef(false)
@@ -203,8 +235,13 @@ export function useDesktopPagePager(
 
   const cancelInteraction = useCallback(() => {
     const session = sessionRef.current
-    if (session?.captureTarget?.hasPointerCapture(session.pointerId)) {
-      session.captureTarget.releasePointerCapture(session.pointerId)
+    if (session) {
+      session.finished = true
+      clearHoldTimer(session)
+      unbindDocument(session)
+      if (session.captureTarget?.hasPointerCapture(session.pointerId)) {
+        session.captureTarget.releasePointerCapture(session.pointerId)
+      }
     }
 
     sessionRef.current = undefined
@@ -237,28 +274,10 @@ export function useDesktopPagePager(
     [currentPage, pageCount],
   )
 
-  const onPointerDown = useCallback(
-    (event: PointerEvent) => {
-      if (!enabled || event.button !== 0 || pagerWidth <= 0) {
-        return
-      }
-
-      sessionRef.current = {
-        startX: event.clientX,
-        startY: event.clientY,
-        dragging: false,
-        pointerId: event.pointerId,
-        captureTarget: event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined,
-      }
-      setAnimating(false)
-    },
-    [enabled, pagerWidth],
-  )
-
   const onPointerMove = useCallback(
     (event: PointerEvent) => {
       const session = sessionRef.current
-      if (!session || !enabled) {
+      if (!session || session.finished || !enabled || session.holdFired || event.pointerId !== session.pointerId) {
         return
       }
 
@@ -270,13 +289,15 @@ export function useDesktopPagePager(
           return
         }
 
+        clearHoldTimer(session)
         if (Math.abs(deltaX) <= Math.abs(deltaY)) {
+          session.finished = true
+          unbindDocument(session)
           sessionRef.current = undefined
           return
         }
 
         session.dragging = true
-        session.captureTarget?.setPointerCapture(event.pointerId)
       }
 
       setDragOffset(applyRubberBand(deltaX))
@@ -287,10 +308,16 @@ export function useDesktopPagePager(
   const onPointerUp = useCallback(
     (event: PointerEvent) => {
       const session = sessionRef.current
-      if (!session) {
+      if (!session || session.finished || event.pointerId !== session.pointerId) {
+        return
+      }
+      if ((event.buttons & 1) === 1) {
         return
       }
 
+      session.finished = true
+      clearHoldTimer(session)
+      unbindDocument(session)
       if (session.captureTarget?.hasPointerCapture(session.pointerId)) {
         session.captureTarget.releasePointerCapture(session.pointerId)
       }
@@ -299,11 +326,11 @@ export function useDesktopPagePager(
 
       if (!enabled || !session.dragging) {
         setDragOffset(0)
-        if (enabled && onEmptyTap) {
+        if (enabled && !session.holdFired && session.emptyTarget) {
           const deltaX = event.clientX - session.startX
           const deltaY = event.clientY - session.startY
           if (Math.abs(deltaX) < TAP_THRESHOLD && Math.abs(deltaY) < TAP_THRESHOLD) {
-            onEmptyTap(event)
+            onEmptyTapRef.current?.(event)
           }
         }
         return
@@ -315,22 +342,96 @@ export function useDesktopPagePager(
         didSwipeRef.current = false
       })
 
-      let nextPage = currentPage
+      let nextPage = currentPageRef.current
       if (deltaX <= -pagerWidth * SNAP_RATIO) {
-        nextPage = currentPage + 1
+        nextPage = currentPageRef.current + 1
       } else if (deltaX >= pagerWidth * SNAP_RATIO) {
-        nextPage = currentPage - 1
+        nextPage = currentPageRef.current - 1
       }
 
       goToPage(nextPage)
     },
-    [currentPage, enabled, goToPage, onEmptyTap, pagerWidth],
+    [enabled, goToPage, pagerWidth],
   )
 
-  const onPointerCancel = useCallback(() => {
-    cancelInteraction()
-    setAnimating(true)
-  }, [cancelInteraction])
+  const onPointerCancel = useCallback(
+    (event: PointerEvent) => {
+      const session = sessionRef.current
+      if (session && event.pointerId !== session.pointerId) {
+        return
+      }
+      cancelInteraction()
+      setAnimating(true)
+    },
+    [cancelInteraction],
+  )
+
+  const onPointerDown = useCallback(
+    (event: PointerEvent) => {
+      if (!enabled || event.button !== 0 || pagerWidth <= 0) {
+        return
+      }
+
+      cancelInteraction()
+
+      const captureTarget =
+        event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined
+      const emptyTarget = isDesktopEmptyPointerTarget(event.target)
+      const session: PagerSession = {
+        startX: event.clientX,
+        startY: event.clientY,
+        dragging: false,
+        pointerId: event.pointerId,
+        captureTarget,
+        holdTimer: undefined,
+        holdFired: false,
+        finished: false,
+        emptyTarget,
+        unbindDocument: undefined,
+      }
+      sessionRef.current = session
+      setAnimating(false)
+      captureTarget?.setPointerCapture(event.pointerId)
+
+      const onDocumentMove = (moveEvent: PointerEvent) => onPointerMove(moveEvent)
+      const onDocumentUp = (upEvent: PointerEvent) => onPointerUp(upEvent)
+      const onDocumentCancel = (cancelEvent: PointerEvent) => onPointerCancel(cancelEvent)
+      document.addEventListener('pointermove', onDocumentMove)
+      document.addEventListener('pointerup', onDocumentUp)
+      document.addEventListener('pointercancel', onDocumentCancel)
+      session.unbindDocument = () => {
+        document.removeEventListener('pointermove', onDocumentMove)
+        document.removeEventListener('pointerup', onDocumentUp)
+        document.removeEventListener('pointercancel', onDocumentCancel)
+      }
+
+      if (!emptyTarget) {
+        return
+      }
+
+      event.preventDefault()
+
+      if (!onEmptyHoldRef.current) {
+        return
+      }
+
+      session.holdTimer = window.setTimeout(() => {
+        const current = sessionRef.current
+        if (
+          !current ||
+          current.finished ||
+          current.pointerId !== session.pointerId ||
+          current.dragging
+        ) {
+          return
+        }
+        current.holdTimer = undefined
+        current.holdFired = true
+        onEmptyHoldRef.current?.()
+      }, DESKTOP_EMPTY_HOLD_MS)
+    },
+    [cancelInteraction, enabled, onPointerCancel, onPointerMove, onPointerUp, pagerWidth],
+  )
 
   return {
     currentPage,

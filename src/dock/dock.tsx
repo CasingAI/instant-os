@@ -25,7 +25,8 @@ import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
-import { runDesktopClickAction } from '../desktop/run-desktop-click-action.ts'
+import { runDesktopClickAction, runDesktopHoldAction } from '../desktop/run-desktop-click-action.ts'
+import { useDesktopEmptyPressHandlers } from '../desktop/use-desktop-empty-press.ts'
 import {
   isExtAppId,
   isGeneratedAppId,
@@ -186,6 +187,7 @@ export function Dock() {
     toggleFullscreen,
     desktopRevealed,
     toggleDesktopReveal,
+    hideDesktopReveal,
     enterFlip3d,
     flip3dActive,
     flip3dRestoring,
@@ -211,6 +213,22 @@ export function Dock() {
     windows.some((window) => window.fullscreen && !window.minimized)
   const iconSize = useDockIconSize()
   const desktopClickAction = useDesktopClickAction()
+  const { onPointerDown: handleDesktopRevealZonePointerDown } = useDesktopEmptyPressHandlers(
+    () =>
+      runDesktopClickAction({
+        enterFlip3d,
+        toggleDesktopReveal,
+        hideDesktopReveal,
+        desktopRevealed,
+      }),
+    () =>
+      runDesktopHoldAction({
+        enterFlip3d,
+        toggleDesktopReveal,
+        hideDesktopReveal,
+        desktopRevealed,
+      }),
+  )
 
   const [reorderSession, setReorderSession] = useState<DockReorderSession | undefined>(undefined)
   const lastPointerRef = useRef({ x: 0, y: 0 })
@@ -309,11 +327,6 @@ export function Dock() {
       return
     }
     focusWindow(target.id)
-  }
-
-  function handleDesktopRevealZonePointerDown(event: Event) {
-    event.preventDefault()
-    runDesktopClickAction({ enterFlip3d, toggleDesktopReveal })
   }
 
   function buildWindowSubmenu(appId: AppId, windowId?: string) {

@@ -60,6 +60,7 @@ export const DESKTOP_CLICK_ACTION_OPTIONS = DESKTOP_CLICK_ACTIONS.map((id) => ({
 export type DockSettings = {
   sizeTier: DockSizeTier
   desktopClickAction: DesktopClickAction
+  desktopHoldAction: DesktopClickAction
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.dockSettings
@@ -89,6 +90,7 @@ export function createInitialDockSettings(screenWidth = window.innerWidth): Dock
   return {
     sizeTier: resolveDefaultDockSizeTier(screenWidth),
     desktopClickAction: 'reveal',
+    desktopHoldAction: 'flip3d',
   }
 }
 
@@ -124,6 +126,9 @@ export function normalizeDockSettings(raw: unknown): DockSettings {
     desktopClickAction: isDesktopClickAction(record.desktopClickAction)
       ? record.desktopClickAction
       : 'reveal',
+    desktopHoldAction: isDesktopClickAction(record.desktopHoldAction)
+      ? record.desktopHoldAction
+      : 'flip3d',
   }
 }
 
@@ -173,6 +178,9 @@ export function saveDockSettings(settings: DockSettings): boolean {
     desktopClickAction: isDesktopClickAction(settings.desktopClickAction)
       ? settings.desktopClickAction
       : 'reveal',
+    desktopHoldAction: isDesktopClickAction(settings.desktopHoldAction)
+      ? settings.desktopHoldAction
+      : 'flip3d',
   }
   return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(payload))
 }
@@ -194,6 +202,11 @@ export function resolveDockSizeTier(settings?: DockSettings): DockSizeTier {
 export function resolveDesktopClickAction(settings?: DockSettings): DesktopClickAction {
   const action = (settings ?? loadDockSettings()).desktopClickAction
   return isDesktopClickAction(action) ? action : 'reveal'
+}
+
+export function resolveDesktopHoldAction(settings?: DockSettings): DesktopClickAction {
+  const action = (settings ?? loadDockSettings()).desktopHoldAction
+  return isDesktopClickAction(action) ? action : 'flip3d'
 }
 
 export function desktopClickActionLabel(action: DesktopClickAction): string {

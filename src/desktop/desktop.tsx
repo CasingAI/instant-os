@@ -28,7 +28,7 @@ import {
 import { isBuiltinAppVisibleOnDesktop } from '../os/launcher-app-visibility.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT, loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import { useOs } from '../os/os-context.tsx'
-import { runDesktopClickAction } from './run-desktop-click-action.ts'
+import { runDesktopClickAction, runDesktopHoldAction } from './run-desktop-click-action.ts'
 import type { AppId, BuiltinAppId, ExtAppId, GeneratedAppId } from '../os/types.ts'
 import {
   buildPreviewOrder,
@@ -550,7 +550,7 @@ function renderDragGhost(entry: DesktopEntry) {
 }
 
 export function Desktop() {
-  const { windows, activeWindowId, desktopRevealed, toggleDesktopReveal, enterFlip3d, flip3dActive, flip3dRestoring } =
+  const { windows, activeWindowId, desktopRevealed, toggleDesktopReveal, hideDesktopReveal, enterFlip3d, flip3dActive, flip3dRestoring } =
     useOs()
   const { installedApps, pendingInstalls, pendingUpdateCount } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
@@ -841,10 +841,24 @@ export function Desktop() {
       if (target.closest('.desktop-icon') || target.closest('.desktop__page-dot')) {
         return
       }
-      runDesktopClickAction({ enterFlip3d, toggleDesktopReveal })
+      runDesktopClickAction({
+        enterFlip3d,
+        toggleDesktopReveal,
+        hideDesktopReveal,
+        desktopRevealed,
+      })
     },
-    [enterFlip3d, toggleDesktopReveal],
+    [desktopRevealed, enterFlip3d, hideDesktopReveal, toggleDesktopReveal],
   )
+
+  const onDesktopEmptyHold = useCallback(() => {
+    runDesktopHoldAction({
+      enterFlip3d,
+      toggleDesktopReveal,
+      hideDesktopReveal,
+      desktopRevealed,
+    })
+  }, [desktopRevealed, enterFlip3d, hideDesktopReveal, toggleDesktopReveal])
 
   const hasFrontmostWindow = windows.some(
     (window) => window.id === activeWindowId && !window.minimized,
@@ -868,6 +882,7 @@ export function Desktop() {
     onDesktopEmptyTap,
     keyboardPageNavEnabled,
     wheelPageNavEnabled,
+    onDesktopEmptyHold,
   )
 
   const onReorderStart = useCallback(

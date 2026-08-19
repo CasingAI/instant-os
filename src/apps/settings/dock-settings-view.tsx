@@ -15,6 +15,7 @@ import {
   loadDockSettings,
   patchDockSettings,
   resolveDesktopClickAction,
+  resolveDesktopHoldAction,
   resolveDockIconSizePx,
   resolveDockSizeScale,
   resolveDockSizeTier,
@@ -37,11 +38,16 @@ export function DockSettingsView({ onBack }: DockSettingsViewProps) {
   const [desktopClickAction, setDesktopClickAction] = useState<DesktopClickAction>(
     () => resolveDesktopClickAction(loadDockSettings()),
   )
-  const [picker, setPicker] = useState<'desktop-click' | undefined>(undefined)
+  const [desktopHoldAction, setDesktopHoldAction] = useState<DesktopClickAction>(
+    () => resolveDesktopHoldAction(loadDockSettings()),
+  )
+  const [picker, setPicker] = useState<'desktop-click' | 'desktop-hold' | undefined>(undefined)
   const [saveError, setSaveError] = useState(false)
   const trackRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
-  const iconSize = resolveDockIconSizePx(resolveDockSizeScale({ sizeTier, desktopClickAction }))
+  const iconSize = resolveDockIconSizePx(
+    resolveDockSizeScale({ sizeTier, desktopClickAction, desktopHoldAction }),
+  )
   const tierIndex = dockSizeTierToIndex(sizeTier)
 
   const commitSizeTier = (nextTier: DockSizeTier) => {
@@ -67,6 +73,21 @@ export function DockSettingsView({ onBack }: DockSettingsViewProps) {
     }
     setDesktopClickAction(next)
     if (!patchDockSettings({ desktopClickAction: next })) {
+      setSaveError(true)
+      return
+    }
+    setSaveError(false)
+    setPicker(undefined)
+  }
+
+  const commitDesktopHoldAction = (value: string) => {
+    const next = value as DesktopClickAction
+    if (next === desktopHoldAction) {
+      setPicker(undefined)
+      return
+    }
+    setDesktopHoldAction(next)
+    if (!patchDockSettings({ desktopHoldAction: next })) {
       setSaveError(true)
       return
     }
@@ -130,15 +151,16 @@ export function DockSettingsView({ onBack }: DockSettingsViewProps) {
     }
   }
 
-  if (picker === 'desktop-click') {
+  if (picker) {
+    const isHold = picker === 'desktop-hold'
     return (
       <div class="settings" ref={hostRef} data-settings-subpage>
         <SettingsChoicePickerView
-          title="点击空白区域时"
+          title={isHold ? '按住桌面空白区域时' : '点击空白区域时'}
           backLabel="程序坞和桌面"
           options={DESKTOP_CLICK_ACTION_OPTIONS}
-          value={desktopClickAction}
-          onChange={commitDesktopClickAction}
+          value={isHold ? desktopHoldAction : desktopClickAction}
+          onChange={isHold ? commitDesktopHoldAction : commitDesktopClickAction}
           onBack={() => setPicker(undefined)}
         />
       </div>
@@ -245,9 +267,18 @@ export function DockSettingsView({ onBack }: DockSettingsViewProps) {
               wideLayout={wideLayout}
               onNavigate={() => setPicker('desktop-click')}
             />
+            <SettingsChoiceField
+              label="按住桌面空白区域时"
+              value={desktopHoldAction}
+              displayValue={desktopClickActionLabel(desktopHoldAction)}
+              options={DESKTOP_CLICK_ACTION_OPTIONS}
+              onChange={commitDesktopHoldAction}
+              wideLayout={wideLayout}
+              onNavigate={() => setPicker('desktop-hold')}
+            />
           </div>
           <p class="settings__section-footnote">
-            点击桌面空白处或程序坞两侧空白处都会生效。「散开窗口」会把窗口移开以露出桌面；「切换窗口」会进入三维叠层。指针在窗口外的桌面上时，触控板左右滑动仍可翻页。
+            点击桌面空白处或程序坞两侧空白处会执行「点击空白区域时」。窗口已散开时，点击空白处只会收回窗口。按住同一位置约半秒会执行「按住桌面空白区域时」，松手不会再触发点击。「散开窗口」会把窗口移开以露出桌面；「切换窗口」会进入三维叠层。指针在窗口外的桌面上时，触控板左右滑动仍可翻页。
           </p>
         </section>
 

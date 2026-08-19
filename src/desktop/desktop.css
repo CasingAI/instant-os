@@ -21,7 +21,7 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  touch-action: pan-y;
+  touch-action: none;
   overscroll-behavior: none;
 }
 
