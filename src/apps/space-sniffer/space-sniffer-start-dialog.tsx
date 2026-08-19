@@ -2,11 +2,23 @@ import { useCallback, useEffect, useState } from 'preact/hooks'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { filesListVolumes, type FilesApiVolume } from '../files/files-api.ts'
-import { FILES_MOUNTS_CHANGED_EVENT } from '../files/files-mount-store.ts'
-import { parseFilesAbsolutePath } from '../files/files-path.ts'
+import {
+  addMount,
+  canMountDirectories,
+  FILES_MOUNTS_CHANGED_EVENT,
+  pickDirectoryToMount,
+} from '../files/files-mount-store.ts'
+import { filesLocationPathRoot, parseFilesAbsolutePath } from '../files/files-path.ts'
 import { DATA_SPACE_FILE_LOCATIONS } from '../files/files-storage.ts'
 import { isMountLocationId } from '../files/files-types.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
+  )
+}
 
 /** 仅展示可做占用分析的卷：用户/开发者数据 + 本机挂载；排除 /system、/models 等投影卷 */
 function isAnalyzableVolume(volume: FilesApiVolume): boolean {
@@ -62,16 +74,38 @@ export function SpaceSnifferStartDialog({
     }
   }, [initialPath])
 
+  const applyPickedPath = useCallback(
+    (path: string) => {
+      const normalized = path.replace(/\/+$/, '') || '/'
+      setPathInput(normalized)
+      setSelectedVolumePath(undefined)
+      setError(undefined)
+      onStart(normalized)
+    },
+    [onStart],
+  )
+
   const handlePickFolder = useCallback(async () => {
+    // 有 File System Access 时走本机选文件夹：可指定未挂载目录，也会复用已挂载卷。
+    if (canMountDirectories()) {
+      try {
+        const handle = await pickDirectoryToMount()
+        const mount = await addMount(handle)
+        applyPickedPath(filesLocationPathRoot(mount.id))
+      } catch (err) {
+        if (isAbortError(err)) return
+        setError(err instanceof Error ? err.message : '无法选择文件夹')
+      }
+      return
+    }
+
     const path = await showSystemOpenDialog({
       title: '选择要扫描的文件夹',
       selectionMode: 'folder',
     })
     if (!path) return
-    setPathInput(path)
-    setSelectedVolumePath(undefined)
-    setError(undefined)
-  }, [showSystemOpenDialog])
+    applyPickedPath(path)
+  }, [applyPickedPath, showSystemOpenDialog])
 
   const handleStart = useCallback(() => {
     const path = pathInput.trim()

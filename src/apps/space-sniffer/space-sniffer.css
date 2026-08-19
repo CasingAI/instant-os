@@ -164,9 +164,15 @@
   align-items: center;
 }
 
-.space-sniffer__path-row .ios-text-field {
+.space-sniffer__path-row .ios-text-field-wrap {
   flex: 1;
   min-width: 0;
+  width: auto;
+}
+
+.space-sniffer__path-row .ios-button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .space-sniffer__error {
