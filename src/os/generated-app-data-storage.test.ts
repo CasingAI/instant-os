@@ -7,7 +7,12 @@
  */
 import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
-import { __resetRegistryCacheForTest, createAppRegistry, hydrateAppRegistry } from './app-registry.ts'
+import {
+  __resetRegistryCacheForTest,
+  __setRegistryDataCapacityForTest,
+  createAppRegistry,
+  hydrateAppRegistry,
+} from './app-registry.ts'
 import { resetRegistryDbForTests, registryDbGet } from './app-registry-db.ts'
 import { GENERATED_APP_DATA_KEY_PREFIX } from './device-storage.ts'
 import {
@@ -80,6 +85,7 @@ async function testSaveAsyncQuotaFailureKeepsPrevious(): Promise<void> {
   const registry = createAppRegistry(appId)
   await registry.setText('small', 'x')
   await hydrateAppRegistry(appId)
+  __setRegistryDataCapacityForTest(5 * 1024 * 1024)
 
   const big = 'y'.repeat(5 * 1024 * 1024 + 1)
   const failures = await saveGeneratedAppDataAsync(appId, { small: big })

@@ -4,8 +4,9 @@
  * - 每个应用一个命名空间（createAppRegistry(appId)），只能读写自己的键
  * - 粗粒度按需 hydrate：首次访问某应用的任意 key 时整包读入内存
  * - 同步内存缓存 + 异步 IndexedDB 落盘（写失败回滚内存并抛错）
- * - 单应用 5 MB 配额（与 localStorage 设备容量一致）
+ * - 配额计入数据空间总上限（core IndexedDB + 文件 + 注册表合计），无单应用封顶
  * - 值仍是字符串，valueType 区分 text / json；旧记录缺省为 untyped
+ * - gen: 命名空间 hydrate 时把 untyped 惰性打成 text
  * - createGlobalRegistry() 仅供注册表应用：可读 / 写 / 删任意命名空间
  */
 import {
@@ -22,14 +23,26 @@ import {
   type RegistryStoredValueType,
   type RegistryValueType,
 } from './app-registry-db.ts'
+import { DATA_CAPACITY_BYTES, getCombinedDataStorageBytes } from './device-data-storage.ts'
+import { formatStorageSize } from './format-storage-size.ts'
 
 export type { RegistryStoredValueType, RegistryValueType } from './app-registry-db.ts'
 
-export const APP_REGISTRY_QUOTA_BYTES = 5 * 1024 * 1024
+export const APP_REGISTRY_CHANGED_EVENT = 'instant-os:app-registry-changed'
+
+let dataCapacityOverride: number | undefined
+
+export function __setRegistryDataCapacityForTest(bytes: number | undefined): void {
+  dataCapacityOverride = bytes
+}
+
+function registryDataCapacityBytes(): number {
+  return dataCapacityOverride ?? DATA_CAPACITY_BYTES
+}
 
 export class RegistryQuotaExceededError extends Error {
   constructor(appId: string) {
-    super(`应用数据超出配额（5 MB 上限）：${appId}`)
+    super(`数据空间已满（${formatStorageSize(registryDataCapacityBytes())} 上限）：${appId}`)
     this.name = 'RegistryQuotaExceededError'
   }
 }
@@ -66,6 +79,27 @@ function cacheEntryFromRecord(entry: RegistryEntry): CacheEntry {
   return { raw: entry.value, valueType: entryValueType(entry) }
 }
 
+function emitAppRegistryChanged(appId: string): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.dispatchEvent(new CustomEvent(APP_REGISTRY_CHANGED_EVENT, { detail: { appId } }))
+}
+
+export function subscribeAppRegistryChanged(listener: (appId: string) => void): () => void {
+  if (typeof window === 'undefined') {
+    return () => {}
+  }
+  const handler = (event: Event) => {
+    const appId = (event as CustomEvent<{ appId?: string }>).detail?.appId
+    if (typeof appId === 'string' && appId.length > 0) {
+      listener(appId)
+    }
+  }
+  window.addEventListener(APP_REGISTRY_CHANGED_EVENT, handler)
+  return () => window.removeEventListener(APP_REGISTRY_CHANGED_EVENT, handler)
+}
+
 export async function hydrateAppRegistry(appId: string): Promise<void> {
   if (hydrated.has(appId)) {
     return
@@ -78,7 +112,14 @@ export async function hydrateAppRegistry(appId: string): Promise<void> {
   const promise = (async () => {
     const entries = await registryDbListEntries(appId)
     const map = new Map<string, CacheEntry>()
+    const retagGenerated = appId.startsWith('gen:')
     for (const entry of entries) {
+      const type = entryValueType(entry)
+      if (retagGenerated && type === 'untyped') {
+        map.set(entry.key, { raw: entry.value, valueType: 'text' })
+        await registryDbPut(appId, entry.key, entry.value, 'text', entry.updatedAt)
+        continue
+      }
       map.set(entry.key, cacheEntryFromRecord(entry))
     }
     cache.set(appId, map)
@@ -152,6 +193,49 @@ export function __resetRegistryCacheForTest(): void {
   cache.clear()
   hydrated.clear()
   hydratePromises.clear()
+  dataCapacityOverride = undefined
+}
+
+async function assertFitsDataCapacity(appId: string, projectedAppBytes: number): Promise<void> {
+  const byApp = await registryDbGetBytesByApp()
+  let registryOthers = 0
+  for (const [id, bytes] of Object.entries(byApp)) {
+    if (id !== appId) {
+      registryOthers += bytes
+    }
+  }
+  let combined = 0
+  try {
+    combined = await getCombinedDataStorageBytes()
+  } catch {
+    combined = 0
+  }
+  if (registryOthers + projectedAppBytes + combined > registryDataCapacityBytes()) {
+    throw new RegistryQuotaExceededError(appId)
+  }
+}
+
+/** 生成应用 iframe：当前应用已用 + 数据空间剩余 */
+export async function getRegistryWriteLimitBytes(appId: string): Promise<number> {
+  const used = getRegistryUsedBytesSync(appId)
+  const byApp = await registryDbGetBytesByApp()
+  let registryOthers = 0
+  for (const [id, bytes] of Object.entries(byApp)) {
+    if (id !== appId) {
+      registryOthers += bytes
+    }
+  }
+  let combined = 0
+  try {
+    combined = await getCombinedDataStorageBytes()
+  } catch {
+    combined = 0
+  }
+  const remaining = Math.max(
+    0,
+    registryDataCapacityBytes() - combined - registryOthers - used,
+  )
+  return used + remaining
 }
 
 function stringifyJson(value: unknown): string | undefined {
@@ -172,14 +256,20 @@ async function writeRaw(
   const previous = map.get(key)
   const projected =
     usedBytesOfMap(map) - utf8ByteLength(previous?.raw ?? '') + utf8ByteLength(value)
-  if (projected > APP_REGISTRY_QUOTA_BYTES) {
-    throw new RegistryQuotaExceededError(appId)
+  try {
+    await assertFitsDataCapacity(appId, projected)
+  } catch (error) {
+    if (error instanceof RegistryQuotaExceededError) {
+      throw error
+    }
+    throw new RegistryWriteError(appId, key, error)
   }
 
   const next: CacheEntry = { raw: value, valueType }
   map.set(key, next)
   try {
     await registryDbPut(appId, key, value, valueType)
+    emitAppRegistryChanged(appId)
   } catch (error) {
     if (previous === undefined) {
       map.delete(key)
@@ -202,6 +292,7 @@ async function deleteKey(appId: string, key: string): Promise<void> {
   map.delete(key)
   try {
     await registryDbDelete(appId, key)
+    emitAppRegistryChanged(appId)
   } catch (error) {
     const restored = await registryDbGet(appId, key).catch(() => undefined)
     if (restored) {
@@ -321,6 +412,7 @@ export function createAppRegistry(appId: string): AppRegistry {
       await hydrateAppRegistry(appId)
       cache.set(appId, new Map())
       await registryDbClearApp(appId)
+      emitAppRegistryChanged(appId)
     },
 
     usedBytesSync() {
@@ -386,11 +478,21 @@ export async function applyRegistryBatch(
       usedBytesOfMap(map) -
       utf8ByteLength(previous?.raw ?? '') +
       utf8ByteLength(next.raw ?? '')
-    if (newBytes > APP_REGISTRY_QUOTA_BYTES) {
+    try {
+      await assertFitsDataCapacity(appId, newBytes)
+    } catch (error) {
+      if (error instanceof RegistryQuotaExceededError) {
+        failures.push({
+          key: item.key,
+          previous: previous?.raw,
+          error,
+        })
+        continue
+      }
       failures.push({
         key: item.key,
         previous: previous?.raw,
-        error: new RegistryQuotaExceededError(appId),
+        error: new RegistryWriteError(appId, item.key, error),
       })
       continue
     }
@@ -421,6 +523,9 @@ export async function applyRegistryBatch(
     }
   }
 
+  if (failures.length < items.length) {
+    emitAppRegistryChanged(appId)
+  }
   return failures
 }
 
@@ -480,6 +585,7 @@ export function createGlobalRegistry(): GlobalRegistry {
     },
 
     async listNamespaceEntries(appId) {
+      await hydrateAppRegistry(appId)
       return registryDbListEntries(appId)
     },
 
@@ -511,11 +617,13 @@ export function createGlobalRegistry(): GlobalRegistry {
     async removeItem(appId, key) {
       await registryDbDelete(appId, key)
       invalidateMemory(appId)
+      emitAppRegistryChanged(appId)
     },
 
     async clearNamespace(appId) {
       await registryDbClearApp(appId)
       invalidateMemory(appId)
+      emitAppRegistryChanged(appId)
     },
 
     async bytesByApp() {

@@ -3,13 +3,13 @@ import {
   GENERATED_APP_STORAGE_MESSAGE_TYPE,
 } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
-import { APP_REGISTRY_QUOTA_BYTES } from '../../os/app-registry.ts'
+import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 
 export type GeneratedAppStorageQuota = {
   /** 该应用当前已用字节（宿主注入时的内存快照字节） */
   usedBytes: number
-  /** 单应用上限（默认 5 MB） */
+  /** 当前应用已用 + 数据空间剩余 */
   limitBytes: number
 }
 
@@ -129,7 +129,7 @@ function buildStorageBridgeScript(
     var isQuota = payload.error === 'quota-exceeded';
     setTimeout(function () {
       throw new Error(
-        '存储写入失败：' + (isQuota ? '应用数据超出 5 MB 配额' : '注册表写入失败')
+        '存储写入失败：' + (isQuota ? '数据空间已满' : '注册表写入失败')
       );
     }, 0);
   });
@@ -186,7 +186,7 @@ export function injectGeneratedAppStorageBridge(
   html: string,
   appId: GeneratedAppId,
   initialData: GeneratedAppDataStore,
-  quota: GeneratedAppStorageQuota = { usedBytes: 0, limitBytes: APP_REGISTRY_QUOTA_BYTES },
+  quota: GeneratedAppStorageQuota = { usedBytes: 0, limitBytes: DATA_CAPACITY_BYTES },
 ): string {
   if (!html.trim()) {
     return html

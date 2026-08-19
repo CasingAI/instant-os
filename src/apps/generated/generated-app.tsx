@@ -12,8 +12,8 @@ import {
   saveGeneratedAppDataAsync,
 } from '../../os/generated-app-data-storage.ts'
 import { GENERATED_APP_STORAGE_ERROR_MESSAGE_TYPE } from '../../os/generated-app-data-storage.ts'
-import { getRegistryUsedBytesSync, hydrateAppRegistry } from '../../os/app-registry.ts'
-import { APP_REGISTRY_QUOTA_BYTES } from '../../os/app-registry.ts'
+import { getRegistryUsedBytesSync, getRegistryWriteLimitBytes, hydrateAppRegistry } from '../../os/app-registry.ts'
+import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
@@ -54,6 +54,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   const suppressRuntimeErrorAlertRef = useRef(false)
   const [processIsolated, setProcessIsolated] = useState(() => isGeneratedAppProcessIsolationActive())
   const [registryHydrated, setRegistryHydrated] = useState(false)
+  const [storageLimitBytes, setStorageLimitBytes] = useState(DATA_CAPACITY_BYTES)
   const {
     registerHeartbeat,
     unregisterHeartbeat,
@@ -107,6 +108,21 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     }
   }, [appId])
 
+  useEffect(() => {
+    if (!registryHydrated) {
+      return
+    }
+    let alive = true
+    void getRegistryWriteLimitBytes(appId).then((limit) => {
+      if (alive) {
+        setStorageLimitBytes(limit)
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [appId, dataRevision, registryHydrated])
+
   const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}-${processIsolated ? 'iso' : 'std'}`
 
   const preparedHtml = useMemo(() => {
@@ -121,11 +137,11 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
       enableTerminal: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL),
       storageQuota: {
         usedBytes: getRegistryUsedBytesSync(appId),
-        limitBytes: APP_REGISTRY_QUOTA_BYTES,
+        limitBytes: storageLimitBytes,
       },
     })
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, appId, windowId)
-  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, registryHydrated, windowId])
+  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, registryHydrated, storageLimitBytes, windowId])
 
   const handleIframeReady = useCallback(() => {
     setHeartbeatContentWindow(windowId, iframeRef.current?.contentWindow ?? undefined)

@@ -425,7 +425,6 @@ export function SettingsApp() {
       <SettingsKeepLayer show={showAppsStorage} keep={showAppsStorage}>
         <AppsStorageView
           entries={summary.entries}
-          totalBytes={summary.appsBytes}
           onBack={() => setRoute({ view: 'usage' })}
           onSelectApp={(entry) =>
             setRoute({ view: 'app-detail', appId: entry.id, from: 'apps-storage' })
@@ -709,12 +708,10 @@ function UsageView({
   const systemBreakdown = buildSystemSpaceBreakdown({
     usedBytes: summary.usedBytes,
     capacityBytes: DEVICE_CAPACITY_BYTES,
-    appsBytes: summary.appsBytes,
     browserSystemBytes: summary.browserSystemBytes,
     otherBytes: summary.otherBytes,
   })
   const systemSegments: StorageMeterSegment[] = [
-    { id: 'apps', label: '应用程序', bytes: summary.appsBytes, color: '#4a90e2' },
     { id: 'browser', label: '网页浏览器', bytes: summary.browserSystemBytes, color: '#5ac8fa' },
     { id: 'system-config', label: '系统配置', bytes: systemBreakdown.systemConfigBytes, color: '#636366' },
     { id: 'other', label: '其他', bytes: summary.otherBytes, color: '#8e8e93' },
@@ -724,6 +721,7 @@ function UsageView({
   const dataAttributedBytes =
     summary.safariCacheBytes +
     summary.booksDataBytes +
+    summary.appDataBytes +
     summary.aiUsageBytes +
     summary.aiEventLogBytes +
     summary.folderIconSnapshotsBytes +
@@ -734,6 +732,7 @@ function UsageView({
     { id: 'safari-cache', label: '网页浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
     { id: 'books-data', label: '图书章节', bytes: summary.booksDataBytes, color: '#34c759' },
     { id: 'files', label: '文件', bytes: summary.filesBytes, color: '#007aff' },
+    { id: 'app-data', label: '应用目录', bytes: summary.appDataBytes, color: '#4a90e2' },
     { id: 'ai-usage', label: 'AI 用量', bytes: summary.aiUsageBytes, color: '#af52de' },
     { id: 'event-log', label: '事件日志', bytes: summary.aiEventLogBytes, color: '#ff2d55' },
     {
@@ -801,11 +800,6 @@ function UsageView({
                 </div>
                 <div class="settings__list-body">
                   <StorageCategoryRow
-                    label="应用程序"
-                    bytes={summary.appsBytes}
-                    onClick={onOpenAppsStorage}
-                  />
-                  <StorageCategoryRow
                     label="网页浏览器（历史/书签等）"
                     bytes={summary.browserSystemBytes}
                     hint="历史、书签与 Token 统计；网页 HTML 缓存在数据空间"
@@ -842,6 +836,11 @@ function UsageView({
                     hint="「文件」应用中的用户文件"
                     onClick={onOpenFilesStorage}
                   />
+                  <StorageCategoryRow
+                    label="应用目录"
+                    bytes={summary.appDataBytes}
+                    hint="各应用 /Applications 下的 Data 与 Contents"
+                  />
                   <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
                   <StorageCategoryRow
                     label="事件日志"
@@ -871,16 +870,28 @@ function UsageView({
 
           <section class="settings__section">
           <h2 class="settings__section-title">已安装的应用</h2>
+          <p class="settings__section-subtitle">按应用合计占用，点进应用查看明细</p>
           {summary.entries.length === 0 ? (
             <div class="settings__box settings__empty">暂无已安装应用</div>
           ) : (
-            <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
+            <>
+              <div class="settings__list">
+                <div class="settings__list-body">
+                  <StorageCategoryRow
+                    label="占用分析"
+                    bytes={summary.appsTotalBytes}
+                    hint="按应用合计，含文稿与应用目录"
+                    onClick={onOpenAppsStorage}
+                  />
+                </div>
+              </div>
+              <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
+            </>
           )}
             <p class="settings__section-footnote">
-              系统空间存放配置与索引（上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间存放网页缓存、图书章节、文件、事件日志等大体积数据（上限{' '}
+              系统空间存放配置与索引（上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间存放网页缓存、图书章节、文件、应用目录与注册表（上限{' '}
               {formatStorageSize(DATA_CAPACITY_BYTES)}），均为硬限制。
-              应用文档存放在注册表（每应用 5 MB），不计入系统空间；列表「系统」一栏含文档字节，仅作应用内明细。
-              「文件」应用的用户文件计入数据空间并归在该应用名下。
+              应用文稿存放在注册表，计入数据空间总上限。
             </p>
           </section>
         </div>
@@ -1003,17 +1014,24 @@ function builtinDocumentsLabel(appId: BuiltinAppId): string {
   }
 }
 
+function appFilesLabel(appId: string): string {
+  switch (appId) {
+    case 'books':
+      return '章节正文'
+    case 'browser':
+      return '网页缓存'
+    case 'files':
+      return '用户文件'
+    case 'model-vision':
+      return '识图结果'
+    default:
+      return '应用目录'
+  }
+}
+
 function AppListRow({ entry, onClick }: AppListRowProps) {
-  const systemBytes =
-    entry.appSizeBytes + entry.documentsBytes + entry.versionHistoryBytes
-  const dataBytes = entry.dataBytes
-  const totalBytes = systemBytes + dataBytes
-  const sizeLabel =
-    dataBytes > 0 && systemBytes > 0
-      ? `系统 ${formatStorageSize(systemBytes)} · 数据 ${formatStorageSize(dataBytes)}`
-      : dataBytes > 0
-        ? `数据 ${formatStorageSize(dataBytes)}`
-        : formatStorageSize(totalBytes)
+  const totalBytes =
+    entry.appSizeBytes + entry.documentsBytes + entry.dataBytes + entry.versionHistoryBytes
 
   return (
     <button type="button" class="settings__row settings__row--button" onClick={onClick}>
@@ -1022,9 +1040,7 @@ function AppListRow({ entry, onClick }: AppListRowProps) {
         {entry.name}
         {entry.icodeManaged && <span class="settings__row-badge">iCode</span>}
       </span>
-      <span class="settings__row-size" title={dataBytes > 0 ? '网页缓存等指标在数据空间' : undefined}>
-        {sizeLabel}
-      </span>
+      <span class="settings__row-size">{formatStorageSize(totalBytes)}</span>
       <SettingsDisclosureIcon />
     </button>
   )
@@ -1113,10 +1129,12 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
         <section class="settings__section">
           <h2 class="settings__section-title">存储信息</h2>
           <div class="settings__box">
-            <dl class="settings__form-row">
-              <dt>应用大小</dt>
-              <dd>{formatStorageSize(app.appSizeBytes)}</dd>
-            </dl>
+            {app.appSizeBytes > 0 && (
+              <dl class="settings__form-row">
+                <dt>应用本体</dt>
+                <dd>{formatStorageSize(app.appSizeBytes)}</dd>
+              </dl>
+            )}
             {app.documentsBytes > 0 && (
               <dl class="settings__form-row">
                 <dt>
@@ -1129,13 +1147,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
             )}
             {app.dataBytes > 0 && (
               <dl class="settings__form-row">
-                <dt>
-                  {app.id === 'books'
-                    ? '章节正文'
-                    : app.id === 'browser'
-                      ? '网页缓存'
-                      : '数据空间'}
-                </dt>
+                <dt>{appFilesLabel(app.id)}</dt>
                 <dd>{formatStorageSize(app.dataBytes)}</dd>
               </dl>
             )}
@@ -1189,7 +1201,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
             <button type="button" class="settings__btn" onClick={() => setClearDataConfirmOpen(true)}>
               清除应用数据
             </button>
-            <p class="settings__hint">删除该应用通过 localStorage 保存的全部用户数据，不影响应用本身。</p>
+            <p class="settings__hint">删除该应用保存的全部用户数据，不影响应用本身。</p>
           </div>
         )}
 

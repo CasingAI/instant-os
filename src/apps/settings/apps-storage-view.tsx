@@ -20,7 +20,6 @@ const CHART_COLORS = [
 
 type AppsStorageViewProps = {
   entries: ManagedAppEntry[]
-  totalBytes: number
   onBack: () => void
   onSelectApp: (entry: ManagedAppEntry) => void
 }
@@ -56,7 +55,7 @@ function colorForEntry(entry: ManagedAppEntry | undefined, index: number): strin
   return CHART_COLORS[index % CHART_COLORS.length] ?? CHART_COLORS[0]
 }
 
-function buildChartSlices(entries: ManagedAppEntry[], totalBytes: number): ChartSlice[] {
+function buildChartSlices(entries: ManagedAppEntry[]): ChartSlice[] {
   const appEntries = entries
     .map((entry) => ({
       entry,
@@ -65,10 +64,9 @@ function buildChartSlices(entries: ManagedAppEntry[], totalBytes: number): Chart
     .filter((item) => item.bytes > 0)
     .sort((left, right) => right.bytes - left.bytes)
 
-  const attributedBytes = appEntries.reduce((sum, item) => sum + item.bytes, 0)
-  const overheadBytes = Math.max(0, totalBytes - attributedBytes)
+  const totalBytes = appEntries.reduce((sum, item) => sum + item.bytes, 0)
 
-  const slices: ChartSlice[] = appEntries.map((item, index) => ({
+  return appEntries.map((item, index) => ({
     id: item.entry.id,
     label: item.entry.name,
     bytes: item.bytes,
@@ -76,18 +74,6 @@ function buildChartSlices(entries: ManagedAppEntry[], totalBytes: number): Chart
     color: colorForEntry(item.entry, index),
     entry: item.entry,
   }))
-
-  if (overheadBytes > 0) {
-    slices.push({
-      id: '__registry__',
-      label: '应用清单索引',
-      bytes: overheadBytes,
-      percent: totalBytes > 0 ? (overheadBytes / totalBytes) * 100 : 0,
-      color: '#c7c7cc',
-    })
-  }
-
-  return slices
 }
 
 function formatPercent(value: number): string {
@@ -186,7 +172,7 @@ function StorageTreemap({ slices, onSelectSlice }: StorageTreemapProps) {
   if (slices.length === 0) {
     return (
       <div class="settings__treemap settings__treemap--empty" aria-label="暂无应用存储数据">
-        <p>暂无应用占用系统空间</p>
+        <p>暂无应用占用</p>
       </div>
     )
   }
@@ -258,15 +244,8 @@ function TreemapTileView({ tile, onSelect }: TreemapTileViewProps) {
   )
 }
 
-export function AppsStorageView({ entries, totalBytes, onBack, onSelectApp }: AppsStorageViewProps) {
-  const generatedEntries = useMemo(
-    () => entries.filter((entry) => entry.kind === 'generated'),
-    [entries],
-  )
-  const slices = useMemo(
-    () => buildChartSlices(generatedEntries, totalBytes),
-    [generatedEntries, totalBytes],
-  )
+export function AppsStorageView({ entries, onBack, onSelectApp }: AppsStorageViewProps) {
+  const slices = useMemo(() => buildChartSlices(entries), [entries])
 
   const handleSelectSlice = useMemo(
     () => (slice: ChartSlice) => {
@@ -285,7 +264,7 @@ export function AppsStorageView({ entries, totalBytes, onBack, onSelectApp }: Ap
       <div class="settings__content settings__content--compact">
         <section class="settings__section settings__section--fill">
           <h2 class="settings__section-title">应用程序</h2>
-          <p class="settings__section-subtitle">各应用占系统空间中「应用程序」分类的比例</p>
+          <p class="settings__section-subtitle">各应用占用比例（文稿、应用目录与本体合计）</p>
           <div class="settings__box settings__treemap-panel settings__treemap-panel--fill">
             <StorageTreemap slices={slices} onSelectSlice={handleSelectSlice} />
           </div>

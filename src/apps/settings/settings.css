@@ -971,6 +971,10 @@
   box-shadow: var(--settings-list-shadow);
 }
 
+.settings__list + .settings__list {
+  margin-top: 10px;
+}
+
 .settings__list-head {
   display: grid;
   grid-template-columns: 1fr auto;

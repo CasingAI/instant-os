@@ -3,14 +3,14 @@
  * 运行：node --experimental-strip-types src/os/app-registry.test.ts
  *
  * 覆盖：IndexedDB 读写删 / 命名空间枚举 / 字节统计；命名空间隔离；
- * 按需粗粒度 hydrate；5 MB 单应用配额；失败回滚；批量写入；全局注册表读写；
- * text/json 交叉读写、类型覆盖、setJson 校验。
+ * 按需粗粒度 hydrate；数据空间总配额；失败回滚；批量写入；全局注册表读写；
+ * text/json 交叉读写、类型覆盖、setJson 校验；生成应用 untyped 惰性打标。
  */
 import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
 import {
-  APP_REGISTRY_QUOTA_BYTES,
   __resetRegistryCacheForTest,
+  __setRegistryDataCapacityForTest,
   applyRegistryBatch,
   createAppRegistry,
   createGlobalRegistry,
@@ -26,6 +26,8 @@ import {
   registryDbPut,
   resetRegistryDbForTests,
 } from './app-registry-db.ts'
+
+const TEST_DATA_CAPACITY_BYTES = 5 * 1024 * 1024
 
 async function resetState(): Promise<void> {
   __resetRegistryCacheForTest()
@@ -130,8 +132,9 @@ async function testCoarseHydrationFromDb(): Promise<void> {
 
 async function testQuotaExceededThrows(): Promise<void> {
   await resetState()
+  __setRegistryDataCapacityForTest(TEST_DATA_CAPACITY_BYTES)
   const registry = createAppRegistry('quota-app')
-  const big = 'x'.repeat(APP_REGISTRY_QUOTA_BYTES + 1)
+  const big = 'x'.repeat(TEST_DATA_CAPACITY_BYTES + 1)
 
   await assert.rejects(() => registry.setText('store', big), RegistryQuotaExceededError)
   assert.equal(await registry.getText('store'), undefined)
@@ -140,7 +143,7 @@ async function testQuotaExceededThrows(): Promise<void> {
   await assert.rejects(() => registry.setText('store', big), RegistryQuotaExceededError)
   assert.equal(await registry.getText('store'), 'small')
 
-  await registry.setText('a', 'x'.repeat(APP_REGISTRY_QUOTA_BYTES - 10))
+  await registry.setText('a', 'x'.repeat(TEST_DATA_CAPACITY_BYTES - 10))
   await assert.rejects(
     () => registry.setText('b', 'x'.repeat(20)),
     RegistryQuotaExceededError,
@@ -149,8 +152,9 @@ async function testQuotaExceededThrows(): Promise<void> {
 
 async function testJsonQuotaUsesRawBytes(): Promise<void> {
   await resetState()
+  __setRegistryDataCapacityForTest(TEST_DATA_CAPACITY_BYTES)
   const registry = createAppRegistry('json-quota-app')
-  const payload = 'x'.repeat(APP_REGISTRY_QUOTA_BYTES)
+  const payload = 'x'.repeat(TEST_DATA_CAPACITY_BYTES)
   await assert.rejects(() => registry.setJson('blob', payload), RegistryQuotaExceededError)
   assert.equal(await registry.getText('blob'), undefined)
 }
@@ -186,7 +190,8 @@ async function testBatchApply(): Promise<void> {
   assert.equal(await registry.getType('cities'), 'json')
   assert.deepEqual(await registry.getJson('cities'), [{ id: 'a' }])
 
-  const big = 'x'.repeat(APP_REGISTRY_QUOTA_BYTES)
+  const big = 'x'.repeat(TEST_DATA_CAPACITY_BYTES)
+  __setRegistryDataCapacityForTest(TEST_DATA_CAPACITY_BYTES)
   const batchFailures = await applyRegistryBatch('batch-app', [
     { key: 'added', text: 'still-ok' },
     { key: 'keep', text: big },
@@ -229,7 +234,8 @@ async function testGlobalRegistryAdminWrites(): Promise<void> {
   assert.equal(await mail.getType('cities'), 'json')
   assert.deepEqual(await mail.getJson('cities'), [{ id: 'a' }])
 
-  const big = 'x'.repeat(APP_REGISTRY_QUOTA_BYTES + 1)
+  const big = 'x'.repeat(TEST_DATA_CAPACITY_BYTES + 1)
+  __setRegistryDataCapacityForTest(TEST_DATA_CAPACITY_BYTES)
   await assert.rejects(() => global.setText('mail', 'blob', big), RegistryQuotaExceededError)
   assert.equal(await mail.getText('blob'), undefined, '配额失败不落盘')
   assert.equal(await mail.getText('title'), 'new')
@@ -269,6 +275,22 @@ async function testBytesByAppStats(): Promise<void> {
   assert.equal(bytes.news, 100)
 }
 
+async function testGeneratedUntypedRetagsToText(): Promise<void> {
+  await resetState()
+  await registryDbPut('gen:legacy', 'prefs', '{"a":1}')
+  await registryDbPut('weather', 'legacy', '{"b":2}')
+  __resetRegistryCacheForTest()
+
+  const generated = createAppRegistry('gen:legacy')
+  assert.equal(await generated.getType('prefs'), 'text')
+  const stored = await registryDbGet('gen:legacy', 'prefs')
+  assert.equal(stored?.valueType, 'text')
+  assert.equal(stored?.value, '{"a":1}')
+
+  const builtin = createAppRegistry('weather')
+  assert.equal(await builtin.getType('legacy'), 'untyped')
+}
+
 async function main(): Promise<void> {
   const cases = [
     testReadWriteDeleteRoundTrip,
@@ -284,6 +306,7 @@ async function main(): Promise<void> {
     testGlobalRegistryAdminWrites,
     testClear,
     testBytesByAppStats,
+    testGeneratedUntypedRetagsToText,
   ]
   for (const test of cases) {
     await test()

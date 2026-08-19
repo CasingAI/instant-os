@@ -237,7 +237,7 @@ export function getStorageSummary(
 ) {
   const { registryBytesByApp } = dataStorage
   const entries = buildManagedAppList(installedApps, registryBytesByApp)
-  /** 系统空间「应用程序」只计本体索引与未迁移旧键，不含注册表文档 */
+  /** localStorage 里的应用清单索引（及未迁移旧键），并入系统配置，不是应用占用合计 */
   const appsBytes = getInstalledAppsStorageBytes() + getLegacyGeneratedAppBytes()
   const browserSystemBytes = getBrowserSystemStorageBytes()
   const {
@@ -252,13 +252,13 @@ export function getStorageSummary(
     filesBytes,
   } = dataStorage
   const legacyAppDataBytes = getLegacyMigratedStorageBytes()
-  const appDataTotal = Object.values(dataStorage.appDataBytesByApp).reduce(
+  const appDataBytes = Object.values(dataStorage.appDataBytesByApp).reduce(
     (total, bytes) => total + bytes,
     0,
   )
-  // 「文件」分类展示值扣除应用数据合计：应用数据已单列在各应用行，避免同一块字节出现两次。
+  // 「文件」分类展示值扣除应用目录合计：应用目录单列，避免同一块字节出现两次。
   // 总量条 dataUsedBytes 仍是真实占用，不做假减法。
-  const filesBytesExcludingAppData = Math.max(0, filesBytes - appDataTotal)
+  const filesBytesExcludingAppData = Math.max(0, filesBytes - appDataBytes)
   const otherBytes = getOtherStorageBytes()
   const usedBytes = getTotalLocalStorageBytes()
   const availableBytes = Math.max(0, DEVICE_CAPACITY_BYTES - usedBytes)
@@ -280,9 +280,16 @@ export function getStorageSummary(
     return { ...entry, dataBytes: dataStorage.appDataBytesByApp[entry.id] ?? 0 }
   })
 
+  const appsTotalBytes = entriesWithData.reduce(
+    (total, entry) => total + getManagedAppTotalBytes(entry),
+    0,
+  )
+
   return {
     entries: entriesWithData,
     appsBytes,
+    appsTotalBytes,
+    appDataBytes,
     safariCacheBytes,
     booksDataBytes,
     browserSystemBytes,
@@ -343,7 +350,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     createGlobalRegistry().bytesByApp(),
   ])
   return {
-    totalBytes: coreDataBytes + filesBytes,
+    totalBytes: coreDataBytes + filesBytes + Object.values(registryBytesByApp).reduce((sum, bytes) => sum + bytes, 0),
     // 开发者填充不计入网页缓存，归入用量条 / 分类列表的「其他」
     safariCacheBytes: Math.max(0, rawSafariCacheBytes - devFillBytes),
     booksDataBytes,

@@ -5,12 +5,14 @@ import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { ForwardIcon } from '../../icons/app-icons.tsx'
 import {
-  APP_REGISTRY_QUOTA_BYTES,
   createGlobalRegistry,
+  subscribeAppRegistryChanged,
   type GlobalNamespaceInfo,
 } from '../../os/app-registry.ts'
 import { entryValueType, type RegistryEntry } from '../../os/app-registry-db.ts'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
+import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
+import { loadInstalledAppsFromCache } from '../../os/generated-apps-store.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
@@ -66,6 +68,10 @@ function appLabel(appId: string): string {
     return `${builtin.name}（${appId}）`
   }
   if (appId.startsWith('gen:')) {
+    const generated = loadInstalledAppsFromCache().find((app) => app.id === appId)
+    if (generated?.name) {
+      return generated.name
+    }
     return `生成应用：${appId.slice('gen:'.length)}`
   }
   return appId
@@ -79,14 +85,7 @@ function formatTimestamp(timestamp: number): string {
 }
 
 function valueTypeBadgeLabel(entry: RegistryEntry): string {
-  const type = entryValueType(entry)
-  if (type === 'json') {
-    return 'JSON'
-  }
-  if (type === 'text') {
-    return '文本'
-  }
-  return '未标注'
+  return entryValueType(entry) === 'json' ? 'JSON' : '文本'
 }
 
 function summarizeEntryValue(entry: RegistryEntry): string {
@@ -106,6 +105,92 @@ function parsedJsonRoot(entry: RegistryEntry): unknown | undefined {
   }
   const parsed = parseJsonValue(entry.value)
   return parsed.ok ? parsed.value : undefined
+}
+
+function drillPathStillValid(entry: RegistryEntry | undefined, drill: DrillState): boolean {
+  if (!drill.selectedKey) {
+    return true
+  }
+  if (!entry) {
+    return false
+  }
+  if (drill.jsonPath.length === 0) {
+    return true
+  }
+  const root = parsedJsonRoot(entry)
+  if (root === undefined) {
+    return false
+  }
+  return getAtPath(root, drill.jsonPath) !== undefined
+}
+
+type PathCrumb = {
+  id: string
+  label: string
+}
+
+function buildPathCrumbs(
+  appId: string | undefined,
+  drill: DrillState,
+  entry: RegistryEntry | undefined,
+): PathCrumb[] {
+  if (!appId || !drill.selectedKey) {
+    return []
+  }
+  const crumbs: PathCrumb[] = [
+    { id: 'app', label: appLabel(appId) },
+    { id: 'key', label: drill.selectedKey },
+  ]
+  const root = entry ? parsedJsonRoot(entry) : undefined
+  for (let index = 0; index < drill.jsonPath.length; index += 1) {
+    const prefix = drill.jsonPath.slice(0, index + 1)
+    const label =
+      entry && root !== undefined
+        ? pathTitle(entry.key, prefix, root)
+        : String(drill.jsonPath[index])
+    crumbs.push({ id: `p:${prefix.join('\0')}`, label })
+  }
+  return crumbs
+}
+
+function RegistryPathBar({
+  crumbs,
+  onSelect,
+}: {
+  crumbs: PathCrumb[]
+  onSelect: (index: number) => void
+}) {
+  if (crumbs.length === 0) {
+    return null
+  }
+  return (
+    <nav class="registry__path-bar" aria-label="当前位置路径">
+      <div class="registry__path-bar-row">
+        {crumbs.map((crumb, index) => (
+          <span key={crumb.id} class="registry__path-bar-item">
+            {index > 0 ? (
+              <span class="registry__path-bar-chevron" aria-hidden="true">
+                ›
+              </span>
+            ) : undefined}
+            {index === crumbs.length - 1 ? (
+              <span class="registry__path-bar-segment registry__path-bar-segment--current">
+                {crumb.label}
+              </span>
+            ) : (
+              <button
+                type="button"
+                class="registry__path-bar-segment"
+                onClick={() => onSelect(index)}
+              >
+                {crumb.label}
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+    </nav>
+  )
 }
 
 function writeErrorMessage(error: unknown): string {
@@ -345,7 +430,9 @@ function NamespaceList({
             <span class="registry__row-meta">
               <span>{appLabel(namespace.appId)}</span>
               <span class="settings__row-key-detail">
-                {namespace.keyCount} 键 · 更新于 {formatTimestamp(namespace.updatedAt)}
+                {namespace.appId.startsWith('gen:')
+                  ? `${namespace.appId} · ${namespace.keyCount} 键 · 更新于 ${formatTimestamp(namespace.updatedAt)}`
+                  : `${namespace.keyCount} 键 · 更新于 ${formatTimestamp(namespace.updatedAt)}`}
               </span>
             </span>
           }
@@ -429,8 +516,9 @@ function RegistryRootPane({
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <p class="settings__section-subtitle">
-            应用注册表（IndexedDB）按应用命名空间存储数据，单个应用上限{' '}
-            {formatStorageSize(APP_REGISTRY_QUOTA_BYTES)}
+            应用注册表（IndexedDB）按应用命名空间存储数据，当前{' '}
+            {formatStorageSize(namespaces.reduce((sum, namespace) => sum + namespace.bytes, 0))} /{' '}
+            {formatStorageSize(DATA_CAPACITY_BYTES)}
           </p>
           {loading ? (
             <div class="settings__loading">
@@ -511,8 +599,7 @@ function RegistryDetailPane({
         <section class="settings__section">
           <p class="settings__section-footnote">
             {namespace?.keyCount ?? entries.length} 键 ·{' '}
-            {formatStorageSize(namespace?.bytes ?? 0)} /{' '}
-            {formatStorageSize(APP_REGISTRY_QUOTA_BYTES)}
+            {formatStorageSize(namespace?.bytes ?? 0)}
           </p>
           {entriesLoading && entries.length === 0 ? (
             <div class="settings__loading">
@@ -666,12 +753,18 @@ function RegistryValuePane({
   onDirtyChange,
 }: RegistryValuePaneProps) {
   const [draft, setDraft] = useState(initial)
+  const initialRef = useRef(initial)
+  const draftRef = useRef(draft)
+  draftRef.current = draft
   const parseError = editorDraftError(kind, draft)
   const dirty = draft !== initial
   const canSave = dirty && !saving && parseError === undefined
 
   useEffect(() => {
-    setDraft(initial)
+    if (draftRef.current === initialRef.current) {
+      setDraft(initial)
+    }
+    initialRef.current = initial
   }, [initial])
 
   useEffect(() => {
@@ -722,6 +815,9 @@ export function RegistryApp() {
   const detailPanelRef = useRef<HTMLDivElement>(null)
   const selectedRowRef = useRef<HTMLButtonElement>(null)
   const editorDirtyRef = useRef(false)
+  const selectedAppIdRef = useRef<string | undefined>(undefined)
+  const drillRef = useRef<DrillState>(EMPTY_DRILL)
+  const skipRegistryChangeAlertRef = useRef(false)
   const [caretPos, setCaretPos] = useState<
     { x: number; y: number; fill: string } | undefined
   >(undefined)
@@ -761,6 +857,13 @@ export function RegistryApp() {
     setDetailAppId(appId)
     setEntries(next)
     setEntriesLoading(false)
+  }, [])
+
+  selectedAppIdRef.current = selectedAppId
+  drillRef.current = drill
+
+  const noteLocalRegistryMutation = useCallback(() => {
+    skipRegistryChangeAlertRef.current = true
   }, [])
 
   const reloadNamespaces = useCallback(async (options?: { silent?: boolean }) => {
@@ -834,6 +937,38 @@ export function RegistryApp() {
       alive = false
     }
   }, [applyDisplayedEntries, selectedAppId])
+
+  useEffect(() => {
+    return subscribeAppRegistryChanged((appId) => {
+      const skipAlert = skipRegistryChangeAlertRef.current
+      skipRegistryChangeAlertRef.current = false
+      const previous = drillRef.current
+      void (async () => {
+        try {
+          await reloadNamespaces({ silent: true })
+          if (appId !== selectedAppIdRef.current) {
+            entriesCacheRef.current.delete(appId)
+            return
+          }
+          const next = await createGlobalRegistry().listNamespaceEntries(appId)
+          applyDisplayedEntries(appId, next)
+          if (skipAlert || !previous.selectedKey || !previous.editorOpen) {
+            return
+          }
+          const entry = next.find((item) => item.key === previous.selectedKey)
+          if (drillPathStillValid(entry, previous)) {
+            return
+          }
+          await modal.alert({
+            title: '节点已失效',
+            message: '该节点已被更新或删除',
+          })
+        } catch {
+          // 静默重载失败时保留当前页，用户可手动刷新
+        }
+      })()
+    })
+  }, [applyDisplayedEntries, modal, reloadNamespaces])
 
   useEffect(() => {
     if (namespaces.length === 0) {
@@ -1041,6 +1176,7 @@ export function RegistryApp() {
     if (!selectedAppId || deletingKey !== undefined) {
       return
     }
+    noteLocalRegistryMutation()
     setDeletingKey(key)
     try {
       await createGlobalRegistry().removeItem(selectedAppId, key)
@@ -1057,6 +1193,7 @@ export function RegistryApp() {
       }
       await reloadNamespaces({ silent: true })
     } finally {
+      skipRegistryChangeAlertRef.current = false
       setDeletingKey(undefined)
     }
   }
@@ -1066,6 +1203,7 @@ export function RegistryApp() {
       return
     }
     setClearing(true)
+    noteLocalRegistryMutation()
     try {
       await createGlobalRegistry().clearNamespace(selectedAppId)
       entriesCacheRef.current.set(selectedAppId, [])
@@ -1076,6 +1214,7 @@ export function RegistryApp() {
       }
       await reloadNamespaces({ silent: true })
     } finally {
+      skipRegistryChangeAlertRef.current = false
       setClearing(false)
     }
   }
@@ -1131,6 +1270,7 @@ export function RegistryApp() {
       return
     }
     setSaving(true)
+    noteLocalRegistryMutation()
     try {
       const registry = createGlobalRegistry()
       if (kind === 'raw' && entryValueType(entry) !== 'json') {
@@ -1168,6 +1308,7 @@ export function RegistryApp() {
         message: writeErrorMessage(error),
       })
     } finally {
+      skipRegistryChangeAlertRef.current = false
       setSaving(false)
     }
   }
@@ -1273,6 +1414,41 @@ export function RegistryApp() {
     })
   }, [navigateTo, resetDrill])
 
+  const jumpToPathCrumb = async (index: number) => {
+    if (!selectedAppId || !drill.selectedKey) {
+      return
+    }
+    if (index === 0) {
+      if (drill.editorOpen && !(await confirmDiscard())) {
+        return
+      }
+      resetDrill()
+      if (narrowLayout) {
+        setPageSilent(PAGE_KEYS)
+      }
+      return
+    }
+    const nextPath = index === 1 ? [] : drill.jsonPath.slice(0, index - 1)
+    const alreadyThere =
+      !drill.editorOpen &&
+      drill.jsonPath.length === nextPath.length &&
+      nextPath.every((segment, offset) => segment === drill.jsonPath[offset])
+    if (alreadyThere) {
+      return
+    }
+    if (drill.editorOpen && !(await confirmDiscard())) {
+      return
+    }
+    resetDrill({
+      selectedKey: drill.selectedKey,
+      jsonPath: nextPath,
+      editorOpen: false,
+    })
+    if (narrowLayout) {
+      setPageSilent(browsePageId(nextPath.length))
+    }
+  }
+
   const menuBar = useMemo<MenuDefinition[]>(() => {
     return [
       {
@@ -1282,12 +1458,22 @@ export function RegistryApp() {
             type: 'action',
             label: '刷新',
             shortcut: '⌘R',
-            onClick: () => void reloadNamespaces(),
+            onClick: () => {
+              void (async () => {
+                await reloadNamespaces()
+                const appId = selectedAppIdRef.current
+                if (!appId) {
+                  return
+                }
+                const next = await createGlobalRegistry().listNamespaceEntries(appId)
+                applyDisplayedEntries(appId, next)
+              })()
+            },
           },
         ],
       },
     ]
-  }, [reloadNamespaces])
+  }, [applyDisplayedEntries, reloadNamespaces])
 
   useAppMenuBar(APP_ID, menuBar)
 
@@ -1547,21 +1733,30 @@ export function RegistryApp() {
     )
   }
 
+  const pathCrumbs = buildPathCrumbs(selectedAppId, drill, selectedEntry)
+  const pathBar =
+    pathCrumbs.length > 0 ? (
+      <RegistryPathBar crumbs={pathCrumbs} onSelect={(index) => void jumpToPathCrumb(index)} />
+    ) : undefined
+
   return (
     <div
       ref={hostRef}
       class={narrowLayout ? 'registry registry--narrow' : 'registry registry--wide'}
     >
       {narrowLayout ? (
-        <KeychainNavStack
-          stack={navStack}
-          page={screen}
-          transition={navTransition}
-          queuedTransition={navQueuedTransition}
-          commitQueuedTransition={commitNavQueuedTransition}
-          onMotionEnd={handleStackMotionEnd}
-          renderPage={renderPage}
-        />
+        <>
+          <KeychainNavStack
+            stack={navStack}
+            page={screen}
+            transition={navTransition}
+            queuedTransition={navQueuedTransition}
+            commitQueuedTransition={commitNavQueuedTransition}
+            onMotionEnd={handleStackMotionEnd}
+            renderPage={renderPage}
+          />
+          {pathBar}
+        </>
       ) : (
         <div
           ref={splitRef}
@@ -1594,6 +1789,7 @@ export function RegistryApp() {
                 <RegistryDetailEmpty />
               </div>
             )}
+            {pathBar}
           </div>
           {selectedAppId && caretPos ? (
             <span class="registry__detail-caret" aria-hidden="true" />

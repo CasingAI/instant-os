@@ -825,10 +825,10 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         if (!ok) setListingsError('数据空间已满（4 GB 上限），无法发布应用。')
       })
 
-      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（5 MB 配额）
+      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（数据空间总配额）
       void saveGeneratedAppDataAsync(input.appId, input.appData).then((failures) => {
         if (failures.length > 0) {
-          setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
+          setListingsError('数据空间已满，无法保存应用数据。')
         }
       })
 
@@ -904,10 +904,10 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         if (!ok) setListingsError('数据空间已满（4 GB 上限），无法同步应用。')
       })
 
-      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（5 MB 配额）
+      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（数据空间总配额）
       void saveGeneratedAppDataAsync(input.appId, input.appData).then((failures) => {
         if (failures.length > 0) {
-          setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
+          setListingsError('数据空间已满，无法保存应用数据。')
         }
       })
 

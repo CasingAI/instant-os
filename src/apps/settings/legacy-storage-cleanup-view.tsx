@@ -182,7 +182,7 @@ export function LegacyStorageCleanupView({ onBack }: { onBack: () => void }) {
             </div>
           )}
           <p class="settings__section-footnote">
-            单个应用注册表上限 5 MB。详细的键级查看与删除见「注册表管理」。
+            注册表计入数据空间总上限。详细的键级查看与删除见「注册表管理」。
           </p>
         </section>
       </div>

@@ -314,6 +314,8 @@ export async function getStorageUsageSnapshot(): Promise<{
       booksDataLabel: string
       filesBytes: number
       filesLabel: string
+      appDataBytes: number
+      appDataLabel: string
       aiUsageBytes: number
       aiUsageLabel: string
       aiEventLogBytes: number
@@ -328,9 +330,6 @@ export async function getStorageUsageSnapshot(): Promise<{
   }
   categories: {
     installedAppsAndDataLabel: string
-    mailLabel: string
-    newsLabel: string
-    booksIndexLabel: string
     browserSystemLabel: string
     otherLabel: string
   }
@@ -412,6 +411,8 @@ export async function getStorageUsageSnapshot(): Promise<{
         booksDataLabel: formatStorageSize(summary.booksDataBytes),
         filesBytes: summary.filesBytes,
         filesLabel: formatStorageSize(summary.filesBytes),
+        appDataBytes: summary.appDataBytes,
+        appDataLabel: formatStorageSize(summary.appDataBytes),
         aiUsageBytes: summary.aiUsageBytes,
         aiUsageLabel: formatStorageSize(summary.aiUsageBytes),
         aiEventLogBytes: summary.aiEventLogBytes,
@@ -425,16 +426,13 @@ export async function getStorageUsageSnapshot(): Promise<{
       },
     },
     categories: {
-      installedAppsAndDataLabel: formatStorageSize(summary.appsBytes),
-      mailLabel: formatStorageSize(summary.mailDataBytes),
-      newsLabel: formatStorageSize(summary.newsDataBytes),
-      booksIndexLabel: formatStorageSize(summary.booksIndexBytes),
+      installedAppsAndDataLabel: formatStorageSize(summary.appsTotalBytes),
       browserSystemLabel: formatStorageSize(summary.browserSystemBytes),
       otherLabel: formatStorageSize(summary.otherBytes),
     },
     topApps,
     note:
-      `系统空间=localStorage（约 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间=IndexedDB（约 ${formatStorageSize(DATA_CAPACITY_BYTES)}，含网页缓存、图书正文、文件应用用户文件、AI 用量与事件日志、VS Code AI 对话等）。本工具只读，不能清理或卸载。账户/API Key 内容不可读。`,
+      `系统空间=配置与索引（约 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间=文件、应用目录、缓存与注册表（约 ${formatStorageSize(DATA_CAPACITY_BYTES)}）。应用占用是按应用合计（含注册表文稿），不是系统空间里的一类。注册表计入数据空间总上限，无单应用封顶。本工具只读，不能清理或卸载。账户/API Key 内容不可读。`,
   }
 }
 

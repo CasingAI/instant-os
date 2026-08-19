@@ -75,7 +75,7 @@ export const readLocalStorageKeyTool = defineTool<{
 export const getStorageUsageTool = defineTool<Record<string, never>>({
   name: 'get_storage_usage',
   description:
-    '读取系统存储用量总览：系统空间（localStorage）与数据空间（IndexedDB，含文件应用用户文件等）已用/上限/剩余、主要分类，以及占用靠前的应用。回答「占了多少空间、谁占得多」时优先用本工具。只读，不能清理或卸载。',
+    '读取系统存储用量总览：系统空间与数据空间已用/上限/剩余、主要分类，以及占用靠前的应用（按应用合计，含文稿与应用目录）。应用文档在注册表，计入数据空间总上限。回答「占了多少空间、谁占得多」时优先用本工具。只读，不能清理或卸载。',
   parameters: {
     type: 'object',
     additionalProperties: false,
