@@ -3,7 +3,7 @@
   top: calc(100% + 4px);
   left: 0;
   min-width: 240px;
-  padding: 10px 0 6px;
+  padding: 6px 0 4px;
   color: #1d1d1f;
   text-shadow: none;
   background: rgba(255, 255, 255, 0.96);
@@ -30,8 +30,8 @@
 }
 
 .menu-bar__popover-heading {
-  margin: 0 0 6px;
-  padding: 0 14px;
+  margin: 0;
+  padding: 0 12px 2px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -41,7 +41,7 @@
 
 .menu-bar__popover-empty {
   margin: 0;
-  padding: 4px 14px 8px;
+  padding: 2px 12px 6px;
   font-size: 12px;
   line-height: 1.45;
   color: #666;
@@ -54,8 +54,20 @@
 
 .menu-bar__popover-separator {
   height: 1px;
-  margin: 6px 0;
+  margin: 6px 0 0;
   background: rgba(0, 0, 0, 0.1);
+}
+
+.menu-bar__popover-separator + .menu-bar__popover-heading {
+  padding-top: 5px;
+}
+
+.menu-bar__popover-status {
+  margin: 0;
+  padding: 1px 12px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
 }
 
 .menu-bar__popover-row {
@@ -63,7 +75,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 14px;
+  padding: 2px 12px;
   font-size: 12px;
   line-height: 1.35;
 }
@@ -107,7 +119,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  padding: 2px 12px 8px;
   color: #1d1d1f;
 }
 
@@ -188,9 +200,9 @@
 .menu-bar__popover-app {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 5px 10px;
+  padding: 4px 10px;
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -216,17 +228,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
 }
 
 .menu-bar__popover-app-copy {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .menu-bar__popover-app-name {
-  display: block;
+  min-width: 0;
   overflow: hidden;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -234,8 +250,7 @@
 }
 
 .menu-bar__popover-app-status {
-  display: block;
-  margin-top: 1px;
+  flex-shrink: 0;
   font-size: 11px;
   opacity: 0.65;
 }
@@ -247,7 +262,7 @@
 .menu-bar__popover-more {
   display: block;
   width: 100%;
-  padding: 8px 14px;
+  padding: 5px 12px;
   color: #007aff;
   font: inherit;
   font-size: 12px;
@@ -268,7 +283,7 @@
 }
 
 .menu-bar__popover-datetime {
-  padding: 2px 14px 8px;
+  padding: 2px 12px 6px;
   text-align: center;
 }
 
@@ -289,16 +304,6 @@
 }
 
 /* ── 云服务状态卡片 ── */
-
-.cloud-panel .menu-bar__popover-heading {
-  margin-bottom: 3px;
-  padding-left: 12px;
-  padding-right: 12px;
-}
-
-.cloud-panel .menu-bar__popover-separator {
-  margin: 4px 0;
-}
 
 .cloud-panel__status {
   display: flex;

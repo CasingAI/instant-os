@@ -63,19 +63,13 @@ export function BatteryStatusPanel({
     return aActive ? -1 : 1
   })
   const visibleApps = runningApps.slice(0, BATTERY_PANEL_APP_LIMIT)
-  const hasMoreApps = runningApps.length > BATTERY_PANEL_APP_LIMIT
 
   return (
-    <MenuBarPopover align="right" label="电池与运行中的应用" flushBottom={hasMoreApps}>
+    <MenuBarPopover align="right" label="电池与运行中的应用" flushBottom>
       <p class="menu-bar__popover-heading">电池</p>
-      <div class="menu-bar__popover-row">
-        <span class="menu-bar__popover-row-label">电量</span>
-        <span class="menu-bar__popover-row-value">{levelLabel}</span>
-      </div>
-      <div class="menu-bar__popover-row">
-        <span class="menu-bar__popover-row-label">状态</span>
-        <span class="menu-bar__popover-row-value">{statusLabel}</span>
-      </div>
+      <p class="menu-bar__popover-status">
+        {levelLabel} · {statusLabel}
+      </p>
       {battery === undefined && (
         <p class="menu-bar__popover-empty menu-bar__popover-empty--compact">
           当前浏览器不支持 Battery API，或尚未授权读取电池信息。
@@ -85,12 +79,10 @@ export function BatteryStatusPanel({
         <p class="menu-bar__popover-empty menu-bar__popover-empty--compact">电量较低，建议连接电源。</p>
       )}
 
-      <div class="menu-bar__popover-separator" />
-      <p class="menu-bar__popover-heading">正在使用的应用</p>
-      {runningApps.length === 0 ? (
-        <p class="menu-bar__popover-empty">没有应用正在使用。</p>
-      ) : (
+      {runningApps.length > 0 && (
         <>
+          <div class="menu-bar__popover-separator" />
+          <p class="menu-bar__popover-heading">正在使用的应用</p>
           {visibleApps.map((window) => {
             const appId = window.appId as AppId
             const isActive = window.id === activeWindowId && !window.minimized
@@ -110,19 +102,19 @@ export function BatteryStatusPanel({
               >
                 <span class="menu-bar__popover-app-icon">
                   {Icon ? (
-                    <Icon size={24} />
+                    <Icon size={20} />
                   ) : generated ? (
                     <GeneratedAppIcon
                       emoji={generated.iconEmoji}
                       themeColor={generated.themeColor}
-                      size={24}
+                      size={20}
                     />
                   ) : extApp ? (
                     <ExtAppIcon
                       name={extApp.manifest.name}
                       themeColor={extApp.manifest.themeColor}
                       iconUrl={extApp.iconUrl}
-                      size={24}
+                      size={20}
                       devBadge
                     />
                   ) : (
@@ -136,17 +128,16 @@ export function BatteryStatusPanel({
               </button>
             )
           })}
-          {hasMoreApps && (
-            <button
-              type="button"
-              class="menu-bar__popover-more"
-              onClick={onOpenTaskManager}
-            >
-              打开性能监视器
-            </button>
-          )}
         </>
       )}
+
+      <button
+        type="button"
+        class="menu-bar__popover-more"
+        onClick={onOpenTaskManager}
+      >
+        打开性能监视器
+      </button>
     </MenuBarPopover>
   )
 }

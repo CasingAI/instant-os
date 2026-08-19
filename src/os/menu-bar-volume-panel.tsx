@@ -114,7 +114,7 @@ export function MenuBarVolumePanel() {
   const muted = state.muted || volumePercent === 0
 
   return (
-    <MenuBarPopover align="right" label="音量">
+    <MenuBarPopover align="right" label="音量" flushBottom>
       <p class="menu-bar__popover-heading">音量</p>
 
       <button
@@ -146,7 +146,6 @@ export function MenuBarVolumePanel() {
         <span class="menu-bar__volume-percent">{volumePercent}%</span>
       </div>
 
-      <div class="menu-bar__popover-separator" />
       <button type="button" class="menu-bar__popover-more" onClick={openSettingsSoundsView}>
         打开声音设置…
       </button>
