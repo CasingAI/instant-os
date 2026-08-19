@@ -18,6 +18,7 @@ type BannerToast = {
   notification: OsNotification
   generation: number
   visible: boolean
+  exiting: boolean
 }
 
 function bannerModeClass(phase: OsNotificationPhase): string {
@@ -47,36 +48,42 @@ function NotificationBanner({
     notification.banner === 'progress' && notification.phase === 'running' && notification.progress
 
   return (
-    <article
-      class={`notification-banner${toast.visible ? ' notification-banner--visible' : ''}${bannerModeClass(notification.phase)}`}
-      role="status"
+    <div
+      class={`notification-banner-slot${toast.exiting ? ' notification-banner-slot--exiting' : ''}`}
     >
-      <button type="button" class="notification-banner__body" onClick={onOpen}>
-        <span class="notification-banner__icon">
-          <OsNotificationIconView notification={notification} size={36} />
-        </span>
-        <span class="notification-banner__copy">
-          <span class="notification-banner__title">{notification.title}</span>
-          <span class="notification-banner__subtitle">{notification.subtitle}</span>
-        </span>
-      </button>
-      <button
-        type="button"
-        class="notification-banner__close"
-        aria-label="关闭通知"
-        onClick={onDismiss}
-      >
-        ×
-      </button>
-      {showProgress && (
-        <span class="notification-banner__progress" aria-hidden="true">
-          <span
-            class="notification-banner__progress-fill"
-            style={{ width: `${Math.round(notification.progress?.percent ?? 0)}%` }}
-          />
-        </span>
-      )}
-    </article>
+      <div class="notification-banner-slot__clip">
+        <article
+          class={`notification-banner${toast.visible ? ' notification-banner--visible' : ''}${bannerModeClass(notification.phase)}`}
+          role="status"
+        >
+          <button type="button" class="notification-banner__body" onClick={onOpen}>
+            <span class="notification-banner__icon">
+              <OsNotificationIconView notification={notification} size={36} />
+            </span>
+            <span class="notification-banner__copy">
+              <span class="notification-banner__title">{notification.title}</span>
+              <span class="notification-banner__subtitle">{notification.subtitle}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="notification-banner__close"
+            aria-label="关闭通知"
+            onClick={onDismiss}
+          >
+            ×
+          </button>
+          {showProgress && (
+            <span class="notification-banner__progress" aria-hidden="true">
+              <span
+                class="notification-banner__progress-fill"
+                style={{ width: `${Math.round(notification.progress?.percent ?? 0)}%` }}
+              />
+            </span>
+          )}
+        </article>
+      </div>
+    </div>
   )
 }
 
@@ -89,12 +96,15 @@ export function NotificationBannerHost() {
   const manuallyHiddenRef = useRef(new Set<string>())
   const lastGenerationRef = useRef(new Map<string, number>())
 
-  const clearTimers = (id: string) => {
+  const clearHideTimer = (id: string) => {
     const hideTimer = hideTimersRef.current.get(id)
     if (hideTimer !== undefined) {
       window.clearTimeout(hideTimer)
       hideTimersRef.current.delete(id)
     }
+  }
+
+  const clearRemoveTimer = (id: string) => {
     const removeTimer = removeTimersRef.current.get(id)
     if (removeTimer !== undefined) {
       window.clearTimeout(removeTimer)
@@ -102,11 +112,25 @@ export function NotificationBannerHost() {
     }
   }
 
+  const clearTimers = (id: string) => {
+    clearHideTimer(id)
+    clearRemoveTimer(id)
+  }
+
   const hideToast = (id: string) => {
-    clearTimers(id)
-    setToasts((existing) =>
-      existing.map((toast) => (toast.notification.id === id ? { ...toast, visible: false } : toast)),
-    )
+    clearHideTimer(id)
+    setToasts((existing) => {
+      const current = existing.find((toast) => toast.notification.id === id)
+      if (!current || current.exiting) {
+        return existing
+      }
+      return existing.map((toast) =>
+        toast.notification.id === id ? { ...toast, visible: false, exiting: true } : toast,
+      )
+    })
+    if (removeTimersRef.current.has(id)) {
+      return
+    }
     const timer = window.setTimeout(() => {
       setToasts((existing) => existing.filter((toast) => toast.notification.id !== id))
       removeTimersRef.current.delete(id)
@@ -118,12 +142,16 @@ export function NotificationBannerHost() {
     const activeIds = new Set(notifications.map((item) => item.id))
 
     setToasts((existing) => {
-      let next = existing.filter((toast) => activeIds.has(toast.notification.id))
+      let next = existing.filter(
+        (toast) => activeIds.has(toast.notification.id) || toast.exiting,
+      )
 
       for (const notification of notifications) {
         const banner = notification.banner ?? 'none'
         if (banner === 'none') {
-          next = next.filter((toast) => toast.notification.id !== notification.id)
+          next = next.filter(
+            (toast) => toast.notification.id !== notification.id || toast.exiting,
+          )
           lastGenerationRef.current.delete(notification.id)
           continue
         }
@@ -133,7 +161,7 @@ export function NotificationBannerHost() {
         const existingToast = next.find((toast) => toast.notification.id === notification.id)
 
         if (banner === 'progress') {
-          if (manuallyHiddenRef.current.has(notification.id)) {
+          if (manuallyHiddenRef.current.has(notification.id) || existingToast?.exiting) {
             lastGenerationRef.current.set(notification.id, generation)
             continue
           }
@@ -145,12 +173,15 @@ export function NotificationBannerHost() {
                 : toast,
             )
           } else {
-            next = [...next, { notification, generation, visible: false }]
+            next = [...next, { notification, generation, visible: false, exiting: false }]
           }
           continue
         }
 
-        if (manuallyHiddenRef.current.has(notification.id) && previousGeneration === generation) {
+        if (
+          (manuallyHiddenRef.current.has(notification.id) || existingToast?.exiting) &&
+          previousGeneration === generation
+        ) {
           continue
         }
 
@@ -169,7 +200,8 @@ export function NotificationBannerHost() {
           {
             notification,
             generation,
-            visible: existingToast?.visible ?? false,
+            visible: false,
+            exiting: false,
           },
         ]
       }
@@ -188,7 +220,9 @@ export function NotificationBannerHost() {
   useEffect(() => {
     const id = window.requestAnimationFrame(() => {
       setToasts((existing) =>
-        existing.map((toast) => (toast.visible ? toast : { ...toast, visible: true })),
+        existing.map((toast) =>
+          toast.visible || toast.exiting ? toast : { ...toast, visible: true },
+        ),
       )
     })
     return () => window.cancelAnimationFrame(id)
@@ -196,18 +230,23 @@ export function NotificationBannerHost() {
 
   useEffect(() => {
     for (const toast of toasts) {
-      if (toast.notification.banner === 'progress' || hideTimersRef.current.has(toast.notification.id)) {
-        if (toast.notification.banner === 'progress') {
-          clearTimers(toast.notification.id)
-        }
+      const id = toast.notification.id
+      if (toast.exiting) {
+        continue
+      }
+      if (toast.notification.banner === 'progress') {
+        clearHideTimer(id)
+        continue
+      }
+      if (hideTimersRef.current.has(id)) {
         continue
       }
 
       const timer = window.setTimeout(() => {
-        hideToast(toast.notification.id)
-        hideTimersRef.current.delete(toast.notification.id)
+        hideToast(id)
+        hideTimersRef.current.delete(id)
       }, autoHideMs(toast.notification.phase))
-      hideTimersRef.current.set(toast.notification.id, timer)
+      hideTimersRef.current.set(id, timer)
     }
   }, [toasts])
 
