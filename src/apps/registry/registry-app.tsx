@@ -3,8 +3,7 @@ import type { Ref } from 'preact'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
+import { ForwardIcon } from '../../icons/app-icons.tsx'
 import {
   APP_REGISTRY_QUOTA_BYTES,
   createGlobalRegistry,
@@ -14,18 +13,18 @@ import { entryValueType, type RegistryEntry } from '../../os/app-registry-db.ts'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { KeychainNavStack, useKeychainNavStack } from '../keychain/keychain-nav-stack.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import '../../ui/ios-nav-back.css'
+import '../keychain/keychain.css'
 import '../settings/settings.css'
 import './registry.css'
 
 const APP_ID = 'registry'
 const DATE_TIME_LOCALE = 'zh-CN'
 
-type Screen = 'root' | 'detail'
+type Screen = 'root' | 'detail' | 'editor'
 
 function utf8Length(value: string): number {
   return new TextEncoder().encode(value).length
@@ -76,6 +75,36 @@ function summarizeEntryValue(entry: RegistryEntry): string {
   } catch {
     return truncateValue(entry.value)
   }
+}
+
+function formatEntryForEditor(entry: RegistryEntry): string {
+  if (entryValueType(entry) !== 'json') {
+    return entry.value
+  }
+  try {
+    return JSON.stringify(JSON.parse(entry.value) as unknown, null, 2)
+  } catch {
+    return entry.value
+  }
+}
+
+function jsonDraftError(draft: string): string | undefined {
+  try {
+    JSON.parse(draft)
+    return undefined
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return error.message
+    }
+    return 'JSON 格式无效'
+  }
+}
+
+function writeErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+  return '注册表写入失败'
 }
 
 function sortedNamespaces(namespaces: GlobalNamespaceInfo[]): GlobalNamespaceInfo[] {
@@ -132,21 +161,33 @@ function NamespaceList({
 type RegistryEntryRowProps = {
   entry: RegistryEntry
   deleting: boolean
+  onOpen: () => void
   onDelete: () => void
 }
 
-function RegistryEntryRow({ entry, deleting, onDelete }: RegistryEntryRowProps) {
+function RegistryEntryRow({ entry, deleting, onOpen, onDelete }: RegistryEntryRowProps) {
   return (
-    <div class="settings__row settings__row--static registry__row--entry">
-      <span class="registry__row-keys">
-        <span class="registry__row-key-line">
-          <span class="settings__row-key">{entry.key}</span>
-          <span class="settings__row-badge">{valueTypeBadgeLabel(entry)}</span>
+    <div class="registry__entry-row">
+      <button
+        type="button"
+        class="settings__row settings__row--button registry__entry-open"
+        onClick={onOpen}
+      >
+        <span class="settings__row-name">
+          <span class="registry__row-meta">
+            <span class="registry__row-key-line">
+              <span class="settings__row-key">{entry.key}</span>
+              <span class="settings__row-badge">{valueTypeBadgeLabel(entry)}</span>
+            </span>
+            <span class="settings__row-key-detail">
+              {summarizeEntryValue(entry)} · 更新于 {formatTimestamp(entry.updatedAt)}
+            </span>
+          </span>
         </span>
-        <span class="settings__row-key-detail">
-          {summarizeEntryValue(entry)} · 更新于 {formatTimestamp(entry.updatedAt)}
+        <span class="settings__disclosure" aria-hidden="true">
+          <ForwardIcon size={13} />
         </span>
-      </span>
+      </button>
       <span class="settings__row-size">{formatStorageSize(utf8Length(entry.value))}</span>
       <button
         type="button"
@@ -223,6 +264,7 @@ type RegistryDetailPaneProps = {
   clearing: boolean
   showBack: boolean
   onBack?: () => void
+  onOpenKey: (key: string) => void
   onDeleteKey: (key: string) => void
   onConfirmClear: () => void
 }
@@ -236,6 +278,7 @@ function RegistryDetailPane({
   clearing,
   showBack,
   onBack,
+  onOpenKey,
   onDeleteKey,
   onConfirmClear,
 }: RegistryDetailPaneProps) {
@@ -280,10 +323,11 @@ function RegistryDetailPane({
           ) : entries.length === 0 ? (
             <div class="settings__box settings__empty">该命名空间暂无数据</div>
           ) : (
-            <div class="settings__list">
-              <div class="settings__list-head">
+            <div class="settings__list registry__key-list">
+              <div class="settings__list-head registry__list-head">
                 <span>键</span>
                 <span>大小</span>
+                <span>操作</span>
               </div>
               <div class="settings__list-body settings__list-body--keys">
                 {entries.map((entry) => (
@@ -291,6 +335,7 @@ function RegistryDetailPane({
                     key={entry.key}
                     entry={entry}
                     deleting={deletingKey === entry.key}
+                    onOpen={() => onOpenKey(entry.key)}
                     onDelete={() => onDeleteKey(entry.key)}
                   />
                 ))}
@@ -298,8 +343,8 @@ function RegistryDetailPane({
             </div>
           )}
           <p class="settings__section-footnote">
-            内置应用按字段拆分为独立 key（cities / sessions / articles 等），便于单独查看与删除；
-            生成应用则每个键独立存储。本工具只读 / 只删，不支持修改；删除后该应用下次写入会重建。
+            内置应用按字段拆分为独立 key（cities / sessions / articles 等），便于单独查看、编辑与删除；
+            生成应用则每个键独立存储。删除或修改后，该应用下次读取会使用新值。
           </p>
         </section>
       </div>
@@ -324,9 +369,80 @@ function RegistryDetailEmpty() {
   )
 }
 
+type RegistryValuePaneProps = {
+  entry: RegistryEntry
+  backLabel: string
+  saving: boolean
+  onBack: () => void
+  onSave: (draft: string) => void | Promise<void>
+  onDirtyChange: (dirty: boolean) => void
+}
+
+function RegistryValuePane({
+  entry,
+  backLabel,
+  saving,
+  onBack,
+  onSave,
+  onDirtyChange,
+}: RegistryValuePaneProps) {
+  const initial = useMemo(
+    () => formatEntryForEditor(entry),
+    [entry.appId, entry.key, entry.value, entry.valueType, entry.updatedAt],
+  )
+  const [draft, setDraft] = useState(initial)
+  const isJson = entryValueType(entry) === 'json'
+  const parseError = isJson ? jsonDraftError(draft) : undefined
+  const dirty = draft !== initial
+  const canSave = dirty && !saving && parseError === undefined
+
+  useEffect(() => {
+    setDraft(initial)
+  }, [initial])
+
+  useEffect(() => {
+    onDirtyChange(draft !== initial)
+    return () => onDirtyChange(false)
+  }, [draft, initial, onDirtyChange])
+
+  return (
+    <>
+      <div class="settings__nav settings__nav--titled">
+        <div class="settings__nav-bar">
+          <IosNavBackButton label={backLabel} onClick={onBack} />
+          <h1 class="settings__nav-heading">{entry.key}</h1>
+          <div class="settings__nav-trailing">
+            <button
+              type="button"
+              class="settings__btn settings__btn--default"
+              disabled={!canSave}
+              onClick={() => void onSave(draft)}
+            >
+              {saving ? '保存中…' : '保存'}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="settings__content settings__content--compact registry__value-content">
+        <p class="settings__section-footnote">
+          {valueTypeBadgeLabel(entry)} · {formatStorageSize(utf8Length(entry.value))} · 更新于{' '}
+          {formatTimestamp(entry.updatedAt)}
+        </p>
+        {parseError ? <p class="registry__value-error">{parseError}</p> : undefined}
+        <textarea
+          class="registry__value-textarea"
+          value={draft}
+          cols={1}
+          spellcheck={false}
+          disabled={saving}
+          onInput={(event) => setDraft((event.currentTarget as HTMLTextAreaElement).value)}
+        />
+      </div>
+    </>
+  )
+}
+
 export function RegistryApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
@@ -334,6 +450,7 @@ export function RegistryApp() {
   const listPaneRef = useRef<HTMLDivElement>(null)
   const detailPanelRef = useRef<HTMLDivElement>(null)
   const selectedRowRef = useRef<HTMLButtonElement>(null)
+  const editorDirtyRef = useRef(false)
   const [caretPos, setCaretPos] = useState<
     { x: number; y: number; fill: string } | undefined
   >(undefined)
@@ -342,10 +459,14 @@ export function RegistryApp() {
   const [loading, setLoading] = useState(true)
   const [selectedAppId, setSelectedAppId] = useState<string | undefined>(undefined)
   const [detailAppId, setDetailAppId] = useState<string | undefined>(undefined)
+  const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined)
   const [entries, setEntries] = useState<RegistryEntry[]>([])
   const [entriesLoading, setEntriesLoading] = useState(false)
   const [deletingKey, setDeletingKey] = useState<string | undefined>(undefined)
   const [clearing, setClearing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [wideHeldEntry, setWideHeldEntry] = useState<RegistryEntry | undefined>(undefined)
+  const [wideEditorShown, setWideEditorShown] = useState(false)
   const entriesCacheRef = useRef(new Map<string, RegistryEntry[]>())
   const hasDisplayedDetailRef = useRef(false)
 
@@ -368,14 +489,43 @@ export function RegistryApp() {
     setEntriesLoading(false)
   }, [])
 
-  const reloadNamespaces = useCallback(async () => {
-    setLoading(true)
+  const reloadNamespaces = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setLoading(true)
+    }
     try {
       setNamespaces(await createGlobalRegistry().listNamespaces())
     } finally {
-      setLoading(false)
+      if (!options?.silent) {
+        setLoading(false)
+      }
     }
   }, [])
+
+  const handleDirtyChange = useCallback((dirty: boolean) => {
+    editorDirtyRef.current = dirty
+  }, [])
+
+  const confirmDiscard = useCallback(async (): Promise<boolean> => {
+    if (!editorDirtyRef.current) {
+      return true
+    }
+    return modal.confirm({
+      title: '放弃未保存的更改？',
+      message: '此键的编辑尚未保存，离开后将丢失。',
+      confirmLabel: '放弃',
+      confirmTone: 'danger',
+    })
+  }, [modal])
+
+  const closeEditorView = useCallback(() => {
+    editorDirtyRef.current = false
+    if (narrowLayout) {
+      navigateTo('detail', 'pop', () => setSelectedKey(undefined))
+      return
+    }
+    setSelectedKey(undefined)
+  }, [narrowLayout, navigateTo])
 
   useEffect(() => {
     void reloadNamespaces()
@@ -458,6 +608,8 @@ export function RegistryApp() {
     if (namespaces.some((namespace) => namespace.appId === selectedAppId)) {
       return
     }
+    setSelectedKey(undefined)
+    editorDirtyRef.current = false
     if (narrowLayout) {
       setSelectedAppId(undefined)
       setPageSilent('root')
@@ -465,6 +617,20 @@ export function RegistryApp() {
     }
     setSelectedAppId(sortedNamespaces(namespaces)[0]?.appId)
   }, [loading, namespaces, selectedAppId, narrowLayout, setPageSilent])
+
+  useEffect(() => {
+    if (!selectedKey) {
+      return
+    }
+    if (entries.some((entry) => entry.key === selectedKey)) {
+      return
+    }
+    setSelectedKey(undefined)
+    editorDirtyRef.current = false
+    if (narrowLayout && screen === 'editor') {
+      setPageSilent('detail')
+    }
+  }, [entries, narrowLayout, screen, selectedKey, setPageSilent])
 
   useLayoutEffect(() => {
     if (!layoutReady) {
@@ -479,15 +645,19 @@ export function RegistryApp() {
 
     prevNarrowLayoutRef.current = narrowLayout
 
-    if (!previous && narrowLayout && selectedAppId !== undefined) {
-      setPageSilent('detail')
+    if (!previous && narrowLayout) {
+      if (selectedKey) {
+        setPageSilent('editor')
+      } else if (selectedAppId !== undefined) {
+        setPageSilent('detail')
+      }
       return
     }
 
     if (!narrowLayout) {
       setPageSilent('root')
     }
-  }, [layoutReady, narrowLayout, selectedAppId, setPageSilent])
+  }, [layoutReady, narrowLayout, selectedAppId, selectedKey, setPageSilent])
 
   const syncCaretPos = useCallback(() => {
     if (narrowLayout) {
@@ -516,7 +686,7 @@ export function RegistryApp() {
 
   useLayoutEffect(() => {
     syncCaretPos()
-  }, [syncCaretPos, selectedAppId, namespaces, loading, narrowLayout])
+  }, [syncCaretPos, selectedAppId, namespaces, loading, narrowLayout, selectedKey])
 
   useEffect(() => {
     const listPane = listPaneRef.current
@@ -550,7 +720,7 @@ export function RegistryApp() {
       observer?.disconnect()
       window.removeEventListener('resize', syncCaretPos)
     }
-  }, [syncCaretPos, selectedAppId, namespaces, narrowLayout])
+  }, [syncCaretPos, selectedAppId, namespaces, narrowLayout, selectedKey])
 
   const handleDeleteKey = async (key: string) => {
     if (!selectedAppId || deletingKey !== undefined) {
@@ -564,7 +734,14 @@ export function RegistryApp() {
         entriesCacheRef.current.set(selectedAppId, next)
         return next
       })
-      await reloadNamespaces()
+      if (selectedKey === key) {
+        setSelectedKey(undefined)
+        editorDirtyRef.current = false
+        if (narrowLayout) {
+          setPageSilent('detail')
+        }
+      }
+      await reloadNamespaces({ silent: true })
     } finally {
       setDeletingKey(undefined)
     }
@@ -579,7 +756,14 @@ export function RegistryApp() {
       await createGlobalRegistry().clearNamespace(selectedAppId)
       entriesCacheRef.current.set(selectedAppId, [])
       setEntries([])
-      await reloadNamespaces()
+      setSelectedKey(undefined)
+      editorDirtyRef.current = false
+      if (narrowLayout) {
+        if (screen === 'editor') {
+          setPageSilent('detail')
+        }
+      }
+      await reloadNamespaces({ silent: true })
     } finally {
       setClearing(false)
     }
@@ -601,56 +785,99 @@ export function RegistryApp() {
     await handleClearNamespace()
   }
 
+  const handleSaveEntry = async (entry: RegistryEntry, draft: string) => {
+    if (!selectedAppId || saving) {
+      return
+    }
+    setSaving(true)
+    try {
+      const registry = createGlobalRegistry()
+      if (entryValueType(entry) === 'json') {
+        await registry.setJson(selectedAppId, entry.key, JSON.parse(draft) as unknown)
+      } else {
+        await registry.setText(selectedAppId, entry.key, draft)
+      }
+      const next = await registry.listNamespaceEntries(selectedAppId)
+      applyDisplayedEntries(selectedAppId, next)
+      await reloadNamespaces({ silent: true })
+    } catch (error) {
+      await modal.alert({
+        title: '保存失败',
+        message: writeErrorMessage(error),
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openEntry = (key: string) => {
+    setSelectedKey(key)
+    if (narrowLayout) {
+      navigateTo('editor', 'push')
+    }
+  }
+
+  const closeEditor = async () => {
+    if (!(await confirmDiscard())) {
+      return
+    }
+    closeEditorView()
+  }
+
   const selectNamespace = useCallback(
     (appId: string) => {
-      setSelectedAppId(appId)
-      const cached = entriesCacheRef.current.get(appId)
-      if (cached) {
-        applyDisplayedEntries(appId, cached)
+      const switchTo = async () => {
+        if (selectedKey && appId !== selectedAppId) {
+          if (!(await confirmDiscard())) {
+            return
+          }
+          setSelectedKey(undefined)
+          editorDirtyRef.current = false
+        }
+        setSelectedAppId(appId)
+        const cached = entriesCacheRef.current.get(appId)
+        if (cached) {
+          applyDisplayedEntries(appId, cached)
+        }
+        if (narrowLayout) {
+          navigateTo('detail', 'push')
+        }
       }
-      if (narrowLayout) {
-        navigateTo('detail', 'push')
-      }
+      void switchTo()
     },
-    [applyDisplayedEntries, narrowLayout, navigateTo],
+    [
+      applyDisplayedEntries,
+      confirmDiscard,
+      narrowLayout,
+      navigateTo,
+      selectedAppId,
+      selectedKey,
+    ],
   )
 
   const closeDetail = useCallback(() => {
-    navigateTo('root', 'pop', () => setSelectedAppId(undefined))
+    navigateTo('root', 'pop', () => {
+      setSelectedAppId(undefined)
+      setSelectedKey(undefined)
+      editorDirtyRef.current = false
+    })
   }, [navigateTo])
-
-  const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
 
   const menuBar = useMemo<MenuDefinition[]>(() => {
     return [
       {
         label: '注册表',
         items: [
-          ...aboutAppMenuPrefix('关于注册表', () => showBuiltinAbout('registry')),
           {
             type: 'action',
             label: '刷新',
             shortcut: '⌘R',
             onClick: () => void reloadNamespaces(),
           },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '隐藏注册表',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出注册表',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
         ],
       },
     ]
-  }, [appWindow, closeWindowsForApp, minimizeWindow, reloadNamespaces, showBuiltinAbout])
+  }, [reloadNamespaces])
 
   useAppMenuBar(APP_ID, menuBar)
 
@@ -661,26 +888,65 @@ export function RegistryApp() {
   const displayedLoading =
     Boolean(selectedAppId) &&
     (narrowLayout ? detailAppId !== selectedAppId : !detailAppId && entriesLoading)
+  const selectedEntry = selectedKey
+    ? displayedEntries.find((entry) => entry.key === selectedKey)
+    : undefined
+
+  useEffect(() => {
+    if (narrowLayout) {
+      return
+    }
+    if (selectedEntry) {
+      setWideHeldEntry(selectedEntry)
+      setWideEditorShown(true)
+      return
+    }
+    setWideEditorShown(false)
+    const timer = window.setTimeout(() => setWideHeldEntry(undefined), 380)
+    return () => window.clearTimeout(timer)
+  }, [narrowLayout, selectedEntry])
+
+  const renderDetailPane = (appId: string, showBack: boolean) => (
+    <RegistryDetailPane
+      selectedAppId={appId}
+      namespace={appId === selectedAppId ? selectedNamespace : displayedNamespace}
+      entries={displayedEntries}
+      entriesLoading={displayedLoading}
+      deletingKey={deletingKey}
+      clearing={clearing}
+      showBack={showBack}
+      onBack={showBack ? closeDetail : undefined}
+      onOpenKey={openEntry}
+      onDeleteKey={(key) => void handleDeleteKey(key)}
+      onConfirmClear={() => void handleConfirmClear()}
+    />
+  )
+
+  const renderEditorPane = (appId: string, entry: RegistryEntry) => (
+    <RegistryValuePane
+      key={`${appId}:${entry.key}`}
+      entry={entry}
+      backLabel={appLabel(appId)}
+      saving={saving}
+      onBack={() => void closeEditor()}
+      onSave={(draft) => handleSaveEntry(entry, draft)}
+      onDirtyChange={handleDirtyChange}
+    />
+  )
 
   const renderPage = (target: Screen) => {
+    if (target === 'editor') {
+      if (!selectedAppId || !selectedEntry) {
+        return null
+      }
+      return renderEditorPane(selectedAppId, selectedEntry)
+    }
+
     if (target === 'detail') {
       if (!selectedAppId) {
         return null
       }
-      return (
-        <RegistryDetailPane
-          selectedAppId={selectedAppId}
-          namespace={selectedNamespace}
-          entries={displayedEntries}
-          entriesLoading={displayedLoading}
-          deletingKey={deletingKey}
-          clearing={clearing}
-          showBack
-          onBack={closeDetail}
-          onDeleteKey={(key) => void handleDeleteKey(key)}
-          onConfirmClear={() => void handleConfirmClear()}
-        />
-      )
+      return renderDetailPane(selectedAppId, true)
     }
 
     return (
@@ -688,8 +954,39 @@ export function RegistryApp() {
         namespaces={namespaces}
         loading={loading}
         onSelect={selectNamespace}
-        footnote="点击命名空间可查看字段级键条目并删除单个键或清空整个命名空间。"
+        footnote="点击命名空间可查看字段级键条目；点击键可查看并编辑其内容。"
       />
+    )
+  }
+
+  const renderWideDetail = () => {
+    if (!displayedAppId) {
+      return (
+        <div class="settings">
+          <RegistryDetailEmpty />
+        </div>
+      )
+    }
+
+    const editorEntry = selectedEntry ?? wideHeldEntry
+    const editorOpen = wideEditorShown && Boolean(editorEntry)
+    return (
+      <div
+        class={
+          editorOpen
+            ? 'registry__wide-stack registry__wide-stack--editor'
+            : 'registry__wide-stack'
+        }
+      >
+        <div class="settings registry__wide-stack__page registry__wide-stack__page--detail">
+          {renderDetailPane(displayedAppId, false)}
+        </div>
+        {editorEntry ? (
+          <div class="settings registry__wide-stack__page registry__wide-stack__page--editor">
+            {renderEditorPane(displayedAppId, editorEntry)}
+          </div>
+        ) : undefined}
+      </div>
     )
   }
 
@@ -729,27 +1026,16 @@ export function RegistryApp() {
               selectedAppId={selectedAppId}
               selectedRowRef={selectedRowRef}
               onSelect={selectNamespace}
-              footnote="点击应用可在右侧查看注册表键。"
+              footnote="点击应用可在右侧查看注册表键；点击键可编辑其内容。"
             />
           </div>
-          <div
-            ref={detailPanelRef}
-            class="registry__detail-pane settings"
-          >
+          <div ref={detailPanelRef} class="registry__detail-pane">
             {selectedAppId && displayedAppId ? (
-              <RegistryDetailPane
-                selectedAppId={displayedAppId}
-                namespace={displayedNamespace}
-                entries={displayedEntries}
-                entriesLoading={displayedLoading}
-                deletingKey={deletingKey}
-                clearing={clearing}
-                showBack={false}
-                onDeleteKey={(key) => void handleDeleteKey(key)}
-                onConfirmClear={() => void handleConfirmClear()}
-              />
+              renderWideDetail()
             ) : (
-              <RegistryDetailEmpty />
+              <div class="settings">
+                <RegistryDetailEmpty />
+              </div>
             )}
           </div>
           {selectedAppId && caretPos ? (

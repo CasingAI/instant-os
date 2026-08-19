@@ -6,7 +6,7 @@
  * - 同步内存缓存 + 异步 IndexedDB 落盘（写失败回滚内存并抛错）
  * - 单应用 5 MB 配额（与 localStorage 设备容量一致）
  * - 值仍是字符串，valueType 区分 text / json；旧记录缺省为 untyped
- * - createGlobalRegistry() 仅供注册表应用：可读 / 删任意命名空间，不允许写入
+ * - createGlobalRegistry() 仅供注册表应用：可读 / 写 / 删任意命名空间
  */
 import {
   entryValueType,
@@ -435,13 +435,22 @@ export type GlobalRegistry = {
   listNamespaces(): Promise<GlobalNamespaceInfo[]>
   listNamespaceEntries(appId: string): Promise<RegistryEntry[]>
   getItem(appId: string, key: string): Promise<string | undefined>
+  setText(appId: string, key: string, value: string): Promise<void>
+  setJson(appId: string, key: string, value: unknown): Promise<void>
   removeItem(appId: string, key: string): Promise<void>
   clearNamespace(appId: string): Promise<void>
   bytesByApp(): Promise<Record<string, number>>
 }
 
+function assertRegistryKey(key: string): void {
+  if (typeof key !== 'string') {
+    throw new TypeError('注册表 key 必须为 string')
+  }
+}
+
 /**
- * 注册表应用专用：可读 / 删任意命名空间，不允许写入（避免破坏应用数据）。
+ * 注册表应用专用：可读 / 写 / 删任意命名空间。
+ * 写入走 hydrate + writeRaw，与目标应用的内存缓存保持一致。
  */
 export function createGlobalRegistry(): GlobalRegistry {
   const invalidateMemory = (appId: string): void => {
@@ -477,6 +486,26 @@ export function createGlobalRegistry(): GlobalRegistry {
     async getItem(appId, key) {
       const entry = await registryDbGet(appId, key)
       return entry?.value
+    },
+
+    async setText(appId, key, value) {
+      assertRegistryKey(key)
+      if (typeof value !== 'string') {
+        throw new TypeError('注册表 value 必须为 string')
+      }
+      await hydrateAppRegistry(appId)
+      await writeRaw(appId, key, value, 'text')
+    },
+
+    async setJson(appId, key, value) {
+      assertRegistryKey(key)
+      await hydrateAppRegistry(appId)
+      const encoded = stringifyJson(value)
+      if (encoded === undefined) {
+        await deleteKey(appId, key)
+        return
+      }
+      await writeRaw(appId, key, encoded, 'json')
     },
 
     async removeItem(appId, key) {

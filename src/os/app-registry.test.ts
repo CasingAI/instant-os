@@ -3,7 +3,7 @@
  * 运行：node --experimental-strip-types src/os/app-registry.test.ts
  *
  * 覆盖：IndexedDB 读写删 / 命名空间枚举 / 字节统计；命名空间隔离；
- * 按需粗粒度 hydrate；5 MB 单应用配额；失败回滚；批量写入；全局注册表只读；
+ * 按需粗粒度 hydrate；5 MB 单应用配额；失败回滚；批量写入；全局注册表读写；
  * text/json 交叉读写、类型覆盖、setJson 校验。
  */
 import 'fake-indexeddb/auto'
@@ -199,7 +199,7 @@ async function testBatchApply(): Promise<void> {
   assert.equal(await registry.getText('keep'), 'updated', '失败 key 回滚旧值')
 }
 
-async function testGlobalRegistryReadOnly(): Promise<void> {
+async function testGlobalRegistryAdminWrites(): Promise<void> {
   await resetState()
   await createAppRegistry('weather').setText('store', 'w')
   await createAppRegistry('news').setText('store', 'n')
@@ -218,6 +218,22 @@ async function testGlobalRegistryReadOnly(): Promise<void> {
   const bytes = await global.bytesByApp()
   assert.equal(bytes.weather, 1)
 
+  const mail = createAppRegistry('mail')
+  await mail.setText('title', 'old')
+  await global.setText('mail', 'title', 'new')
+  assert.equal(await mail.getText('title'), 'new', '全局写入同步内存缓存')
+  assert.equal(await mail.getType('title'), 'text')
+  assert.equal(await global.getItem('mail', 'title'), 'new')
+
+  await global.setJson('mail', 'cities', [{ id: 'a' }])
+  assert.equal(await mail.getType('cities'), 'json')
+  assert.deepEqual(await mail.getJson('cities'), [{ id: 'a' }])
+
+  const big = 'x'.repeat(APP_REGISTRY_QUOTA_BYTES + 1)
+  await assert.rejects(() => global.setText('mail', 'blob', big), RegistryQuotaExceededError)
+  assert.equal(await mail.getText('blob'), undefined, '配额失败不落盘')
+  assert.equal(await mail.getText('title'), 'new')
+
   await global.removeItem('weather', 'store')
   assert.equal(await createAppRegistry('weather').getText('store'), undefined)
 
@@ -226,7 +242,11 @@ async function testGlobalRegistryReadOnly(): Promise<void> {
   assert.equal(await createAppRegistry('news').getText('x'), undefined)
 
   const after = await global.listNamespaces()
-  assert.equal(after.length, 0, '清空后无命名空间')
+  assert.deepEqual(
+    after.map((ns) => ns.appId).sort(),
+    ['mail'],
+    '清空无关命名空间后仍保留已写入的 mail',
+  )
 }
 
 async function testClear(): Promise<void> {
@@ -261,7 +281,7 @@ async function main(): Promise<void> {
     testJsonQuotaUsesRawBytes,
     testWriteFailureRollsBackMemory,
     testBatchApply,
-    testGlobalRegistryReadOnly,
+    testGlobalRegistryAdminWrites,
     testClear,
     testBytesByAppStats,
   ]

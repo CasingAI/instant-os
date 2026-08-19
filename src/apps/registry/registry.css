@@ -32,6 +32,8 @@
 }
 
 .registry__list-pane {
+  position: relative;
+  z-index: 2;
   border-right: 1px solid rgba(0, 0, 0, 0.18);
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
 }
@@ -39,13 +41,68 @@
 .registry__detail-pane {
   position: relative;
   z-index: 1;
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  isolation: isolate;
+  contain: inline-size;
+}
+
+.registry__detail-pane > .registry__wide-stack,
+.registry__detail-pane > .settings {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+}
+
+.registry__wide-stack {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.registry__wide-stack__page {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.registry__wide-stack__page--detail {
+  z-index: 0;
+  transition: transform 0.35s ease-in-out;
+}
+
+.registry__wide-stack__page--editor {
+  z-index: 1;
+  transform: translateX(100%);
+  transition: transform 0.35s ease-in-out;
+}
+
+.registry__wide-stack--editor .registry__wide-stack__page--detail {
+  transform: translateX(-30%);
+  pointer-events: none;
+}
+
+.registry__wide-stack--editor .registry__wide-stack__page--editor {
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .registry__wide-stack__page--detail,
+  .registry__wide-stack__page--editor {
+    transition: none;
+  }
 }
 
 /* 分栏 pane 已是窗口的一部分，不适用整页 860px 居中留白 */
 @container app-window (min-width: 700px) {
   .registry--wide .registry__list-pane > .settings__content--compact,
-  .registry--wide .registry__detail-pane > .settings__content--compact {
+  .registry--wide .registry__detail-pane .settings__content--compact {
     --settings-content-pad-x: 18px;
     padding: 14px 18px 18px;
   }
@@ -110,18 +167,119 @@
   white-space: nowrap;
 }
 
-/* ── 键条目行：键名（等宽） + 大小 + 删除按钮 三栏 ── */
+/* ── 键条目：表头与行共用三列（键 / 大小 / 操作）── */
 
-.registry__row--entry {
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  padding: 8px 12px;
+.registry__key-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
 }
 
-.registry__row-keys {
+.registry__key-list > .settings__list-body {
+  display: contents;
+}
+
+.settings__list-head.registry__list-head,
+.registry__entry-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  column-gap: 12px;
+  align-items: center;
+  padding: 0 12px;
+}
+
+.settings__list-head.registry__list-head {
+  gap: 12px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.settings__list-head.registry__list-head span:nth-child(2),
+.settings__list-head.registry__list-head span:nth-child(3) {
+  text-align: right;
+}
+
+.registry__entry-row {
+  background: var(--settings-list-bg, #fff);
+  border-bottom: 1px solid var(--settings-row-border);
+}
+
+.registry__entry-row:last-child {
+  border-bottom: none;
+}
+
+.registry__entry-open {
   min-width: 0;
+  min-height: 44px;
+  width: auto;
+  padding: 8px 0;
+  border-bottom: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 6px;
+}
+
+.registry--wide .registry__entry-open {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.registry__entry-row .settings__row-name {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  white-space: normal;
+}
+
+.registry__entry-row .settings__row-size,
+.registry__entry-row .settings__row-action {
+  justify-self: end;
+  text-align: right;
+  align-self: center;
+  min-width: 0;
+}
+
+.registry__entry-row .settings__row-size {
+  padding-left: 8px;
+}
+
+.registry__entry-row .settings__row-action {
+  margin: 0;
+  padding-left: 8px;
+}
+
+.registry__entry-row:hover,
+.registry__entry-row:has(.settings__row--button:active:not(:disabled)) {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
+}
+
+.registry__entry-row:has(.settings__row--button:active:not(:disabled)) {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.registry__entry-row:hover > .settings__row--button,
+.registry__entry-row:hover > .settings__row--button:hover:not(:disabled),
+.registry__entry-row:hover > .settings__row--button:active:not(:disabled) {
+  background: none;
+  color: #fff;
+}
+
+.registry__entry-row:hover .settings__row-key-detail,
+.registry__entry-row:hover .settings__row-size,
+.registry__entry-row:hover .settings__disclosure {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.registry__entry-row:hover .settings__row-badge {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.registry__entry-row:hover .settings__row-action {
+  color: #fff;
+}
+
+.registry__entry-row:hover .settings__row-action:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .registry__row-key-line {
@@ -129,4 +287,69 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.registry__row-key-line .settings__row-key {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 键值编辑页：textarea 占满剩余高度 ── */
+
+.registry .settings:has(> .registry__value-content) {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.registry .settings:has(> .registry__value-content) > .settings__content.registry__value-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.registry__value-content > .settings__section-footnote {
+  flex-shrink: 0;
+}
+
+.registry__value-error {
+  flex-shrink: 0;
+  margin: 0 0 8px;
+  color: var(--settings-error, #c0392b);
+  font-size: 12px;
+}
+
+.registry__value-textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 160px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--settings-input-border, #a8a8a8);
+  border-radius: 6px;
+  background: var(--settings-input-bg, #fff);
+  color: var(--settings-input-ink, #222);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  resize: none;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.registry__value-textarea:focus {
+  outline: none;
+  border-color: #007aff;
+}
+
+.registry__value-textarea:disabled {
+  opacity: 0.7;
 }
