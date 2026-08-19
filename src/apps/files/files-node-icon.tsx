@@ -7,6 +7,7 @@ import {
 } from '../../os/file-open-registry.ts'
 import { isApplicationsBundleRootNode } from './files-location-applications.ts'
 import { FilesAppBundleIcon } from './files-app-bundle-icon.tsx'
+import { resolveArchiveUtilityFormat } from '../archive-utility/archive-utility-format.ts'
 import { MUSIC_AUDIO_EXTENSIONS, MUSIC_LYRICS_EXTENSIONS } from '../music/music-storage.ts'
 import { VSCODE_OPEN_EXTENSIONS } from '../vscode/vscode-tabs.ts'
 import type { FilesNode } from './files-types.ts'
@@ -1340,6 +1341,107 @@ function DocxFileIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/** 压缩包：折角页中间一条拉链 + 底部拉片（不读文件内容） */
+function ArchiveFileGlyph({ className }: { className: string }) {
+  return (
+    <svg
+      class={className}
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
+      <path
+        fill="#f4f1ec"
+        stroke="#8a837c"
+        stroke-width="1.2"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      <path
+        fill="#faf8f5"
+        d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z"
+      />
+      <path
+        fill="#d9d4cd"
+        stroke="#8a837c"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+      {/* 拉链带 */}
+      <rect x="21.2" y="19.2" width="5.6" height="24.6" rx="1.1" fill="#c8c2ba" />
+      <path
+        fill="none"
+        stroke="#57534e"
+        stroke-width="0.95"
+        stroke-linecap="round"
+        d="M24 20 V42.4"
+      />
+      {/* 拉链齿：左右成对，块面够大以便列表尺寸仍可辨 */}
+      <g fill="#44403c">
+        <rect x="20.3" y="21" width="3.7" height="1.7" rx="0.35" />
+        <rect x="24" y="21" width="3.7" height="1.7" rx="0.35" />
+        <rect x="20.3" y="24.4" width="3.7" height="1.7" rx="0.35" />
+        <rect x="24" y="24.4" width="3.7" height="1.7" rx="0.35" />
+        <rect x="20.3" y="27.8" width="3.7" height="1.7" rx="0.35" />
+        <rect x="24" y="27.8" width="3.7" height="1.7" rx="0.35" />
+        <rect x="20.3" y="31.2" width="3.7" height="1.7" rx="0.35" />
+        <rect x="24" y="31.2" width="3.7" height="1.7" rx="0.35" />
+        <rect x="20.3" y="34.6" width="3.7" height="1.7" rx="0.35" />
+        <rect x="24" y="34.6" width="3.7" height="1.7" rx="0.35" />
+        <rect x="20.3" y="38" width="3.7" height="1.7" rx="0.35" />
+        <rect x="24" y="38" width="3.7" height="1.7" rx="0.35" />
+      </g>
+      {/* 滑块 */}
+      <rect
+        x="20.4"
+        y="40.4"
+        width="7.2"
+        height="5.4"
+        rx="1.1"
+        fill="#a8a29e"
+        stroke="#44403c"
+        stroke-width="0.75"
+      />
+      <path
+        fill="none"
+        stroke="rgba(255,255,255,0.45)"
+        stroke-width="0.7"
+        stroke-linecap="round"
+        d="M21.6 41.6h4.8"
+      />
+      {/* 拉片 */}
+      <path
+        fill="none"
+        stroke="#57534e"
+        stroke-width="1.15"
+        stroke-linecap="round"
+        d="M24 45.8v3"
+      />
+      <rect
+        x="21.4"
+        y="48.2"
+        width="5.2"
+        height="3.4"
+        rx="0.85"
+        fill="#d6d3d1"
+        stroke="#57534e"
+        stroke-width="0.7"
+      />
+    </svg>
+  )
+}
+
+function ArchiveFileIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--archive`}
+      aria-hidden="true"
+    >
+      <ArchiveFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
+
 /** 「新建文件夹」等无节点场景的静态文件夹图标 */
 export function FilesFolderTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
   return (
@@ -1446,6 +1548,10 @@ export function FilesNodeIcon({
 
   if (isDocxFileExtension(extension)) {
     return <DocxFileIcon size={size} />
+  }
+
+  if (resolveArchiveUtilityFormat(node.name)) {
+    return <ArchiveFileIcon size={size} />
   }
 
   return <BlankFileMarkIcon size={size} mark="?" />
