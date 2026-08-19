@@ -69,6 +69,7 @@ const MODULE_LABELS: Record<string, string> = {
   'event-log': '事件日志',
   keychain: '钥匙串',
   'scene3d-lab': '3D 实验室',
+  'midi-demo': 'MIDI 演示',
   'model-vision': '模型识图',
   generated: '微应用',
   bridge: '外部应用连接',

@@ -1606,6 +1606,48 @@ export function StemsIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function MidiDemoIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#5c3d2e" size={size}>
+      <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
+        <rect x="8" y="22" width="48" height="28" rx="3" fill="#f4efe6" />
+        <rect x="8" y="22" width="48" height="28" rx="3" fill="none" stroke="#2a1c14" stroke-width="1.6" />
+        {Array.from({ length: 7 }, (_, i) => (
+          <rect
+            key={`w-${i}`}
+            x={10 + i * 6.4}
+            y="24"
+            width="6"
+            height="24"
+            rx="0.6"
+            fill="#fffcf6"
+            stroke="#c4b8a8"
+            stroke-width="0.6"
+          />
+        ))}
+        {[0, 1, 3, 4, 5].map((i) => (
+          <rect
+            key={`b-${i}`}
+            x={13.6 + i * 6.4}
+            y="24"
+            width="3.4"
+            height="14"
+            rx="0.5"
+            fill="#1a1410"
+          />
+        ))}
+        <path
+          d="M42 12 v16"
+          stroke="#f0d48a"
+          stroke-width="2.4"
+          stroke-linecap="round"
+        />
+        <circle cx="38.6" cy="28" r="4.2" fill="#f0d48a" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function SrmlDemoIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#c07f1e" size={size}>

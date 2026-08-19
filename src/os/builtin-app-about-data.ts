@@ -316,6 +316,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '每个组件提供实时可交互的 Demo、使用代码示例（可一键复制）和详细的 Props 说明，方便开发者了解和使用系统组件。',
     ],
   },
+  'midi-demo': {
+    version: '乐谱 → MIDI · 钢琴',
+    paragraphs: [
+      'MIDI 演示用自然语言描述曲子，让模型写出 ABC 乐谱，再在浏览器里转成标准 MIDI 文件并用钢琴音色播放。',
+      '当前只使用 GM 钢琴（Program 0，Acoustic Grand Piano）。乐谱可手改后重新转换；播放走解码后的 MIDI 字节，以证明转换产物可独立使用。请求会计入 AI 用量。',
+    ],
+  },
   'srml-demo': {
     version: '标签 DSL · Fork 演示',
     paragraphs: [

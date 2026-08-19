@@ -165,6 +165,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   'virtual-js': { title: 'Virtual JS', width: 860, height: 640 },
   'ui-kit': { title: 'UI 组件库', width: 980, height: 700 },
   'srml-demo': { title: 'SRML 演示', width: 1040, height: 700 },
+  'midi-demo': { title: 'MIDI 演示', width: 960, height: 680 },
   'llm-playground': { title: 'LLM Playground', width: 1060, height: 720 },
   attunebench: { title: '评测', width: 900, height: 700 },
   welcome: { title: '欢迎中心', width: 800, height: 620 },
