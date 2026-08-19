@@ -929,23 +929,11 @@ export function BooksIcon({ size = 64 }: IconProps) {
 }
 
 export function MusicIcon({ size = 64 }: IconProps) {
-  const noteSize = Math.round(size * 0.56)
   return (
     <AppIconTile color="#fa2d55" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <defs>
-          <linearGradient id="music-icon-note" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#fff3f5" />
-            <stop offset="100%" stop-color="#ffc9d3" />
-          </linearGradient>
-        </defs>
-        <g transform={`translate(${(size - noteSize) / 2} ${(size - noteSize) / 2}) scale(${noteSize / 64})`}>
-          <circle cx="20" cy="48" r="9" fill="url(#music-icon-note)" />
-          <circle cx="46" cy="42" r="9" fill="url(#music-icon-note)" />
-          <path d="M29 48 L29 16 L56 10 L56 42" fill="none" stroke="url(#music-icon-note)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M29 16 L56 10" fill="none" stroke="url(#music-icon-note)" stroke-width="7" stroke-linecap="round" />
-        </g>
-      </svg>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        🎵
+      </span>
     </AppIconTile>
   )
 }
@@ -1559,15 +1547,15 @@ export function UiKitIcon({ size = 64 }: IconProps) {
 }
 
 export function StemsIcon({ size = 64 }: IconProps) {
+  // 外框圆角跟 AppIconTile 一致（size * 0.22）；波形井按相同内缩，保持同心圆角。
+  const tileRadius = Math.round(size * 0.22)
+  const inset = 4
+  const wellRx = Math.max(tileRadius * (64 / size) - inset, 2)
+
   return (
-    <AppIconTile color="#5a6068" size={size}>
+    <AppIconTile color="#c8c2b8" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
         <defs>
-          <linearGradient id="stems-icon-bezel" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#f2f0ec" />
-            <stop offset="55%" stop-color="#d4d0c8" />
-            <stop offset="100%" stop-color="#a8a39a" />
-          </linearGradient>
           <linearGradient id="stems-icon-well" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color="#141312" />
             <stop offset="100%" stop-color="#2a2826" />
@@ -1578,54 +1566,41 @@ export function StemsIcon({ size = 64 }: IconProps) {
             <stop offset="100%" stop-color="#1f5ea8" />
           </linearGradient>
         </defs>
-        {/* 铝框面板 */}
+        {/* 内凹波形井：上/左/右等距内缩，圆角 = 外框圆角 − 内缩 */}
         <rect
-          x="8"
-          y="10"
-          width="48"
-          height="44"
-          rx="8"
-          fill="url(#stems-icon-bezel)"
-          stroke="rgba(0,0,0,0.28)"
-          stroke-width="1"
-        />
-        {/* 内凹波形井 */}
-        <rect
-          x="12"
-          y="14"
-          width="40"
-          height="28"
-          rx="4"
+          x={inset}
+          y={inset}
+          width={64 - inset * 2}
+          height="43"
+          rx={wellRx}
           fill="url(#stems-icon-well)"
-          stroke="rgba(0,0,0,0.55)"
-          stroke-width="1"
         />
         {/* 四条分轨色带（长短不一，像波形片段） */}
-        <rect x="15" y="17" width="28" height="4.5" rx="2.2" fill="#e05a4e" />
-        <rect x="15" y="24" width="22" height="4.5" rx="2.2" fill="#e0b34e" />
-        <rect x="15" y="31" width="30" height="4.5" rx="2.2" fill="#4ed0a1" />
-        <rect x="15" y="38" width="18" height="4.5" rx="2.2" fill="#6aa6ef" />
+        <rect x="8" y="8" width="40" height="6.5" rx="3.25" fill="#e05a4e" />
+        <rect x="8" y="16.5" width="32" height="6.5" rx="3.25" fill="#e0b34e" />
+        <rect x="8" y="25" width="44" height="6.5" rx="3.25" fill="#4ed0a1" />
+        <rect x="8" y="33.5" width="26" height="6.5" rx="3.25" fill="#6aa6ef" />
         {/* 播放头 */}
         <line
-          x1="36"
-          y1="15"
-          x2="36"
-          y2="41"
+          x1="38"
+          y1="5.5"
+          x2="38"
+          y2="45.5"
           stroke="#fff8e8"
-          stroke-width="1.6"
+          stroke-width="1.8"
           stroke-linecap="round"
           opacity="0.95"
         />
         {/* 底部传输钮 */}
         <circle
           cx="32"
-          cy="48.5"
-          r="5.2"
+          cy="55"
+          r="6.2"
           fill="url(#stems-icon-play)"
           stroke="#145da8"
-          stroke-width="0.8"
+          stroke-width="1.1"
         />
-        <path d="M30.4 46.2 L30.4 50.8 L34.8 48.5 Z" fill="#ffffff" opacity="0.95" />
+        <path d="M30.1 52.3 L30.1 57.7 L35.4 55 Z" fill="#ffffff" opacity="0.95" />
       </svg>
     </AppIconTile>
   )
