@@ -12,7 +12,7 @@ type IconProps = {
 }
 
 export function BrowserIcon({ size = 64 }: IconProps) {
-  const compassSize = Math.round(size * 0.7)
+  const compassSize = Math.round(size * 0.86)
   return (
     <AppIconTile color="#3a7bd5" size={size}>
       <span
@@ -25,7 +25,7 @@ export function BrowserIcon({ size = 64 }: IconProps) {
           filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35))',
         }}
       >
-        <CompassMark />
+        <CompassMark size={compassSize} />
       </span>
     </AppIconTile>
   )
@@ -66,17 +66,6 @@ export function MailIcon({ size = 64 }: IconProps) {
       <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
         📧
       </span>
-    </AppIconTile>
-  )
-}
-
-export function PhotosIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#e85d3a" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <circle cx="22" cy="24" r="5" fill="#ffe08a" />
-        <path d="M10 48 L24 32 L36 42 L46 28 L54 48 Z" fill="#fff" opacity="0.95" />
-      </svg>
     </AppIconTile>
   )
 }
@@ -996,7 +985,8 @@ export function GomokuIcon({ size = 64 }: IconProps) {
 }
 
 export function TranslateIcon({ size = 64 }: IconProps) {
-  const fontSize = size * (22 / 72)
+  // SVG font-size 是 64 坐标系用户单位，不能随像素 size 再乘一遍。
+  const fontSize = 22 * (64 / 72)
 
   return (
     <AppIconTile color="#30b0c7" size={size}>
