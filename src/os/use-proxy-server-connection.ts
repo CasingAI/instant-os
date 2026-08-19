@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
 import { getProxyServerHost } from './proxy-server-api.ts'
 import {
-  formatProxyServerBytesPerSec,
   getProxyServerThroughputSnapshot,
   listRecentProxyServerRequests,
   subscribeProxyServerMetrics,
@@ -63,10 +62,4 @@ export function useProxyServerConnection(): ProxyServerConnectionState {
   }, [])
 
   return state
-}
-
-export function formatProxyServerMenuSpeed(throughput: ProxyServerThroughputSnapshot): string {
-  const down = formatProxyServerBytesPerSec(throughput.downloadBytesPerSec)
-  const up = formatProxyServerBytesPerSec(throughput.uploadBytesPerSec)
-  return `↓ ${down} · ↑ ${up}`
 }

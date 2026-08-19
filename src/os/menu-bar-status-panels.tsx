@@ -7,10 +7,7 @@ import { MenuBarPopover } from './menu-bar-popover.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
 import { isOsUsing24HourTime } from './os-clock.ts'
 import type { DeviceBattery } from './use-device-battery.ts'
-import {
-  formatProxyServerMenuSpeed,
-  type ProxyServerConnectionState,
-} from './use-proxy-server-connection.ts'
+import type { ProxyServerConnectionState } from './use-proxy-server-connection.ts'
 import {
   formatProxyServerBytesPerSec,
 } from './proxy-server-metrics.ts'
@@ -194,87 +191,67 @@ export function CloudServiceStatusPanel({
   onOpenTaskManager,
 }: CloudServiceStatusPanelProps) {
   const { connected, proxyLabel, throughput, recentRequests } = connection
-  const speedLabel = formatProxyServerMenuSpeed(throughput)
   const powActive = powProgress.active
   const networkActive = activeNetworkRequests > 0
+  const hasRecentRequests = connected && recentRequests.length > 0
 
   return (
     <MenuBarPopover align="right" label="云服务" flushBottom>
-      <p class="menu-bar__popover-heading">云服务</p>
+      <div class="cloud-panel">
+        <p class="menu-bar__popover-heading">云服务</p>
 
-      {/* 状态区块 */}
-      <div class="cloud-panel__status">
-        <span
-          class={`cloud-panel__status-dot${connected ? '' : ' cloud-panel__status-dot--off'}`}
-          aria-hidden="true"
-        />
-        <span class="cloud-panel__status-text">
-          {connected ? '已连接' : '未连接'}
-          {proxyLabel ? ` · ${proxyLabel}` : ''}
-        </span>
-      </div>
+        <div class="cloud-panel__status">
+          <span
+            class={`cloud-panel__status-dot${connected ? '' : ' cloud-panel__status-dot--off'}`}
+            aria-hidden="true"
+          />
+          <span class="cloud-panel__status-text">
+            {connected ? '已连接' : '未连接'}
+            {proxyLabel ? ` · ${proxyLabel}` : ''}
+          </span>
+        </div>
 
-      {/* 仅连接时展示代理流量统计 */}
-      {connected && (
-        <>
-          <div class="menu-bar__popover-row">
-            <span class="menu-bar__popover-row-label">速度</span>
-            <span class="menu-bar__popover-row-value">{speedLabel}</span>
+        {connected && (
+          <div class="cloud-panel__speed">
+            <span>↓ {formatProxyServerBytesPerSec(throughput.downloadBytesPerSec)}</span>
+            <span>↑ {formatProxyServerBytesPerSec(throughput.uploadBytesPerSec)}</span>
           </div>
-          <div class="menu-bar__popover-row">
-            <span class="menu-bar__popover-row-label">下行</span>
-            <span class="menu-bar__popover-row-value">
-              {formatProxyServerBytesPerSec(throughput.downloadBytesPerSec)}
-            </span>
-          </div>
-          <div class="menu-bar__popover-row">
-            <span class="menu-bar__popover-row-label">上行</span>
-            <span class="menu-bar__popover-row-value">
-              {formatProxyServerBytesPerSec(throughput.uploadBytesPerSec)}
-            </span>
-          </div>
-        </>
-      )}
+        )}
 
-      {/* 进行中区块 */}
-      {(powActive || networkActive) && (
-        <>
-          <div class="menu-bar__popover-separator" />
-          <p class="menu-bar__popover-heading">进行中</p>
-          {networkActive && (
-            <div class="cloud-panel__net">
-              <span class="cloud-panel__net-spinner" aria-hidden="true" />
-              <span>网络请求中…</span>
-            </div>
-          )}
-          {powActive && (
-            <div class="cloud-panel__pow">
-              <div class="cloud-panel__pow-label">
-                <span class="cloud-panel__pow-name">免费 AI Challenge</span>
-                <span class="cloud-panel__pow-count">
-                  <span class="cloud-panel__pow-tried">{Math.round(powProgress.tried).toLocaleString()}</span>
-                  <span class="cloud-panel__pow-total">共 {powProgress.total.toLocaleString()} 次</span>
-                </span>
+        {(powActive || networkActive) && (
+          <>
+            <div class="menu-bar__popover-separator" />
+            <p class="menu-bar__popover-heading">进行中</p>
+            {networkActive && (
+              <div class="cloud-panel__net">
+                <span class="cloud-panel__net-spinner" aria-hidden="true" />
+                <span>网络请求中…</span>
               </div>
-              <Progress
-                percent={powProgress.percent}
-                status="active"
-                size="small"
-                showInfo={false}
-              />
-            </div>
-          )}
-        </>
-      )}
+            )}
+            {powActive && (
+              <div class="cloud-panel__pow">
+                <div class="cloud-panel__pow-label">
+                  <span class="cloud-panel__pow-name">免费 AI Challenge</span>
+                  <span class="cloud-panel__pow-count">
+                    <span class="cloud-panel__pow-tried">{Math.round(powProgress.tried).toLocaleString()}</span>
+                    <span class="cloud-panel__pow-total">共 {powProgress.total.toLocaleString()} 次</span>
+                  </span>
+                </div>
+                <Progress
+                  percent={powProgress.percent}
+                  status="active"
+                  size="small"
+                  showInfo={false}
+                />
+              </div>
+            )}
+          </>
+        )}
 
-      {/* 仅连接时展示最近请求概览 */}
-      {connected && (
-        <>
-          <div class="menu-bar__popover-separator" />
-          <p class="menu-bar__popover-heading">最近请求</p>
-          {recentRequests.length === 0 ? (
-            <p class="menu-bar__popover-empty">暂无请求</p>
-          ) : (
+        {hasRecentRequests && (
+          <>
+            <div class="menu-bar__popover-separator" />
+            <p class="menu-bar__popover-heading">最近请求</p>
             <div class="cloud-panel__requests">
               {recentRequests.map((request) => (
                 <div key={request.id} class="cloud-panel__request">
@@ -287,17 +264,17 @@ export function CloudServiceStatusPanel({
                 </div>
               ))}
             </div>
-          )}
-        </>
-      )}
+          </>
+        )}
 
-      <div class="cloud-panel__actions">
-        <button type="button" class="cloud-panel__action" onClick={onOpenCloudServiceSettings}>
-          云服务设置…
-        </button>
-        <button type="button" class="cloud-panel__action" onClick={onOpenTaskManager}>
-          打开性能监视器
-        </button>
+        <div class="cloud-panel__actions">
+          <button type="button" class="cloud-panel__action" onClick={onOpenCloudServiceSettings}>
+            云服务设置…
+          </button>
+          <button type="button" class="cloud-panel__action" onClick={onOpenTaskManager}>
+            打开性能监视器
+          </button>
+        </div>
       </div>
     </MenuBarPopover>
   )
