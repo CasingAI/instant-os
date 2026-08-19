@@ -259,6 +259,10 @@
   opacity: 0.85;
 }
 
+.menu-bar__popover-row--button + .menu-bar__popover-more {
+  margin-top: 6px;
+}
+
 .menu-bar__popover-more {
   display: block;
   width: 100%;

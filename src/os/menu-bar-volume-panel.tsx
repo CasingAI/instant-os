@@ -50,7 +50,18 @@ export function MenuBarVolumePanel() {
   const [state, setState] = useState<SystemVolumeState>(() => getSystemVolumeState())
   const previewingRef = useRef(false)
 
-  useEffect(() => subscribeSystemVolume(() => setState(getSystemVolumeState())), [])
+  useEffect(
+    () =>
+      subscribeSystemVolume(() => {
+        const next = getSystemVolumeState()
+        setState(next)
+        if (next.muted && previewingRef.current) {
+          previewingRef.current = false
+          endSystemSoundVolumePreview()
+        }
+      }),
+    [],
+  )
 
   useEffect(() => {
     return () => {
@@ -121,30 +132,39 @@ export function MenuBarVolumePanel() {
         type="button"
         class="menu-bar__popover-row menu-bar__popover-row--button"
         aria-pressed={state.muted}
-        onClick={() => setSystemMuted(!state.muted)}
+        onClick={() => {
+          const nextMuted = !state.muted
+          if (nextMuted && previewingRef.current) {
+            previewingRef.current = false
+            endSystemSoundVolumePreview()
+          }
+          setSystemMuted(nextMuted)
+        }}
       >
         <span class="menu-bar__popover-row-label">静音</span>
         <span class="menu-bar__popover-row-value">{state.muted ? '已静音' : '未静音'}</span>
       </button>
 
-      <div class="menu-bar__volume-row">
-        <MenuBarVolumeIcon muted={muted} size={14} />
-        <input
-          type="range"
-          class="menu-bar__volume-slider"
-          min={0}
-          max={100}
-          step={1}
-          value={volumePercent}
-          aria-label="系统音量"
-          onPointerDown={handleVolumePointerDown}
-          onInput={handleVolumeInput}
-          onPointerUp={handleVolumePointerUp}
-          onPointerCancel={handleVolumePointerUp}
-          onBlur={handleVolumeBlur}
-        />
-        <span class="menu-bar__volume-percent">{volumePercent}%</span>
-      </div>
+      {!state.muted ? (
+        <div class="menu-bar__volume-row">
+          <MenuBarVolumeIcon muted={muted} size={14} />
+          <input
+            type="range"
+            class="menu-bar__volume-slider"
+            min={0}
+            max={100}
+            step={1}
+            value={volumePercent}
+            aria-label="系统音量"
+            onPointerDown={handleVolumePointerDown}
+            onInput={handleVolumeInput}
+            onPointerUp={handleVolumePointerUp}
+            onPointerCancel={handleVolumePointerUp}
+            onBlur={handleVolumeBlur}
+          />
+          <span class="menu-bar__volume-percent">{volumePercent}%</span>
+        </div>
+      ) : null}
 
       <button type="button" class="menu-bar__popover-more" onClick={openSettingsSoundsView}>
         打开声音设置…
