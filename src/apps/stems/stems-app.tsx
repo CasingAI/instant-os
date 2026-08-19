@@ -111,6 +111,8 @@ import type { AlignModel } from './lyrics-analysis.ts'
 const ALIGN_MODEL_STORAGE_KEY = 'stems-align-model'
 /** 分轨压缩包音频格式选择（wav / flac；菜单勾选，localStorage 记忆） */
 const ARCHIVE_CODEC_STORAGE_KEY = 'stems-archive-codec'
+/** 暂时关闭 FLAC 无损压缩入口；恢复时改 true 即可。 */
+const ARCHIVE_FLAC_ENABLED = false
 
 /** 歌词时间轴标签：由对齐结果逐字拍平（无逐字时整行一个标签） */
 type LyricTag = {
@@ -211,6 +213,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const [loadingArchive, setLoadingArchive] = useState(false)
   /** 分轨压缩包音频格式：wav（16-bit PCM）/ flac（FLAC 无损压缩），localStorage 记忆 */
   const [archiveCodec, setArchiveCodec] = useState<StemAudioCodec>(() => {
+    if (!ARCHIVE_FLAC_ENABLED) return 'wav'
     const raw = localStorage.getItem(ARCHIVE_CODEC_STORAGE_KEY)
     return raw === 'flac' ? 'flac' : 'wav'
   })
@@ -811,6 +814,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           {
             type: 'action',
             label: `${archiveCodec === 'flac' ? '✓ ' : ''}无损压缩（FLAC）`,
+            disabled: !ARCHIVE_FLAC_ENABLED,
             onClick: () => changeArchiveCodec(archiveCodec === 'flac' ? 'wav' : 'flac'),
           },
           { type: 'separator' },
