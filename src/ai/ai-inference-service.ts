@@ -16,6 +16,7 @@
 import { isWorkerHeapSampleMessage } from '../os/worker-heap-sampler.ts'
 import { upsertWorkerHeapReport } from '../os/worker-heap-reports.ts'
 import type { ServiceRoute } from '../os/service-supervisor.ts'
+import { MODEL_SOURCE_SETTINGS_CHANGED_EVENT } from '../os/model-source-settings-storage.ts'
 import StemsWorker from '../apps/stems/stems-worker.ts?worker'
 import MdxVocalWorker from '../apps/stems/mdx-vocal-worker.ts?worker'
 import ZipformerWorker from '../apps/align/zipformer-worker.ts?worker'
@@ -321,3 +322,10 @@ export function restartAiInference(): void {
 
 // 模块加载即登记服务条目，保证「服务」面板始终可见（与 tokenizer 的 defineService 一致）
 syncReport()
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(MODEL_SOURCE_SETTINGS_CHANGED_EVENT, () => {
+    if (activeTask || queue.length > 0) return
+    teardownWorker()
+  })
+}

@@ -214,6 +214,7 @@ export async function solvePowForBody(
   origin: string,
   body: Uint8Array,
   signal?: AbortSignal,
+  mode: PowSolverMode = solverConfig.mode,
 ): Promise<Record<string, string>> {
   beginPowProgress(MAX_NONCE)
   try {
@@ -223,7 +224,7 @@ export async function solvePowForBody(
     const baseInput = `${challenge.challenge}.${bodyHash}.`
 
     const nonce =
-      solverConfig.mode === 'parallel'
+      mode === 'parallel'
         ? await solveParallel(baseInput, difficulty, iters, signal)
         : await solveSequential(
             (nonce) => `${baseInput}${nonce}`,

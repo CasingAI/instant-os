@@ -18,10 +18,12 @@
  */
 
 import {
+  fetchModelAsset,
   fetchModelWithCache,
   ZIPFORMER_EN_MODEL_URL,
   ZIPFORMER_EN_TOKENS_URL,
   ZIPFORMER_MODEL_URL,
+  ZIPFORMER_TOKENS_URL,
 } from '../../os/model-cache.ts'
 import { ort, setupOrtWasm } from '../../os/ort-wasm-loader.ts'
 import {
@@ -106,7 +108,7 @@ function postProgress(progress: ZipformerProgress): void {
 async function loadTokens(url: string): Promise<LoadedTokens> {
   const cached = tokenLists.get(url)
   if (cached) return cached
-  const response = await fetch(url)
+  const response = await fetchModelAsset(url)
   if (!response.ok) throw new Error(`tokens.txt 加载失败：${response.status}`)
   const text = await response.text()
   const byId = new Map<number, string>()
@@ -239,7 +241,7 @@ async function recognize(request: ZipformerRequest): Promise<void> {
   const chunks = sliceAudioOverlapped(mono16k, MAX_SAMPLES, OVERLAP_SAMPLES)
 
   const { session: sessionInstance } = await loadSessionByUrl(ZIPFORMER_MODEL_URL)
-  const loaded = await loadTokens('/assets/zipformer-ctc/tokens.txt')
+  const loaded = await loadTokens(ZIPFORMER_TOKENS_URL)
   const tokens = loaded.tokens
   const blankId = loaded.blankId
 
@@ -393,7 +395,7 @@ async function alignVocals(request: ZipformerAlignRequest): Promise<void> {
     throw new Error('align 请求参数无效：lyricsLines 与 lineTimesMs 长度不匹配')
   }
 
-  const zhTokens = await loadTokens('/assets/zipformer-ctc/tokens.txt')
+  const zhTokens = await loadTokens(ZIPFORMER_TOKENS_URL)
   const enTokens = await loadTokens(ZIPFORMER_EN_TOKENS_URL)
   const zhVocab = buildVocab(zhTokens.tokens)
   const enVocab = buildVocab(enTokens.tokens)

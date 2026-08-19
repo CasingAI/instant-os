@@ -65,6 +65,7 @@ export const DEVICE_STORAGE_KEYS = {
   llmPlayground: 'instant-os-llm-playground',
   attunebench: 'instant-os-attunebench',
   welcomeSeen: 'instant-os-welcome-seen',
+  modelSourceSettings: 'instant-os-model-source-settings',
 } as const
 
 /** Frimousse 表情选择器缓存的 localStorage 键前缀 */

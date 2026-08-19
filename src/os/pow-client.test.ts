@@ -24,6 +24,17 @@ const TEST_ITERS = 64
 
 const FAKE_BODY_HASH = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
 
+async function readFetchBody(init?: RequestInit): Promise<Uint8Array | undefined> {
+  const body = init?.body
+  if (body instanceof Uint8Array) return body
+  if (body instanceof ArrayBuffer) return new Uint8Array(body)
+  if (typeof Blob !== 'undefined' && body instanceof Blob) {
+    return new Uint8Array(await body.arrayBuffer())
+  }
+  if (typeof body === 'string') return new TextEncoder().encode(body)
+  return undefined
+}
+
 function challengeResponse(overrides?: Record<string, unknown>): Response {
   return new Response(
     JSON.stringify({
@@ -129,11 +140,9 @@ async function solveWithAbort(signal: AbortSignal): Promise<Record<string, strin
   let fetchCount = 0
   let lastBody: Uint8Array | undefined
   const originalFetch = globalThis.fetch
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     fetchCount += 1
-    if (init?.body instanceof Uint8Array) {
-      lastBody = init.body
-    }
+    lastBody = await readFetchBody(init)
     if (input instanceof URL || typeof input === 'string') {
       const url = String(input)
       assert.ok(url.endsWith('/pow/challenge'), '应请求 challenge 端点')
@@ -141,7 +150,7 @@ async function solveWithAbort(signal: AbortSignal): Promise<Record<string, strin
     if (init?.method && init.method !== 'POST') {
       throw new Error('pow_client_match: challenge 应使用 POST')
     }
-    return Promise.resolve(challengeResponse())
+    return challengeResponse()
   }) as unknown as typeof fetch
   setPowSolverConfig({ mode: 'sequential' })
   try {
@@ -159,13 +168,13 @@ async function solveWithAbort(signal: AbortSignal): Promise<Record<string, strin
   // fetchPowChallenge 直接调用：POST 请求体正确
   let captured: { url: string; method?: string; body?: Uint8Array } | undefined
   const originalFetch = globalThis.fetch
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     captured = {
       url: String(input),
       method: init?.method,
-      body: init?.body instanceof Uint8Array ? init.body : undefined,
+      body: await readFetchBody(init),
     }
-    return Promise.resolve(challengeResponse())
+    return challengeResponse()
   }) as unknown as typeof fetch
   try {
     const body = new TextEncoder().encode('payload')

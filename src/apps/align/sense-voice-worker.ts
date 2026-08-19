@@ -16,7 +16,13 @@
  * 被 ai-inference-service 统一调度（换模型自动卸载旧 worker）。
  */
 
-import { fetchModelWithCache, SENSE_VOICE_MODEL_URL } from '../../os/model-cache.ts'
+import {
+  fetchModelAsset,
+  fetchModelWithCache,
+  SENSE_VOICE_META_URL,
+  SENSE_VOICE_MODEL_URL,
+  SENSE_VOICE_TOKENS_URL,
+} from '../../os/model-cache.ts'
 import { ort, setupOrtWasm } from '../../os/ort-wasm-loader.ts'
 import {
   resampleToMono16k,
@@ -77,7 +83,7 @@ function postProgress(progress: SenseVoiceProgress): void {
 
 async function loadTokens(): Promise<void> {
   if (tokens) return
-  const response = await fetch('/assets/sense-voice/tokens.txt')
+  const response = await fetchModelAsset(SENSE_VOICE_TOKENS_URL)
   const text = await response.text()
   const byId = new Map<number, string>()
   let maxId = 0
@@ -116,7 +122,7 @@ function metaVector(metaJson: Record<string, string>, key: string): number[] {
  */
 async function loadMeta(): Promise<SenseVoiceMeta> {
   if (meta) return meta
-  const response = await fetch('/assets/sense-voice/meta.json')
+  const response = await fetchModelAsset(SENSE_VOICE_META_URL)
   if (!response.ok) {
     throw new Error(`meta.json 加载失败：${response.status}`)
   }

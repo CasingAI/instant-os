@@ -56,5 +56,8 @@ public/assets/attunebench/
 # ZCode agent session artifacts
 .zcode/
 
+# Wrangler local state
+workers/model-gateway/.wrangler/
+
 # 临时测试残留
 dummy-non-existing-folder/

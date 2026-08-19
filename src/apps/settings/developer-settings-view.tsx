@@ -25,7 +25,13 @@ import {
   fillSystemStorageToCapacityForDev,
   getTotalLocalStorageBytes,
 } from '../../os/device-storage.ts'
-import { formatStorageSize } from './format-storage-size.ts'
+import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
+import {
+  loadModelSourceSettings,
+  MODEL_SOURCE_OPTIONS,
+  saveModelSourceSettings,
+  type ModelSource,
+} from '../../os/model-source-settings-storage.ts'
 
 type DeveloperSettingsViewProps = {
   onBack: () => void
@@ -71,6 +77,9 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
   )
   const [systemDebugLog, setSystemDebugLog] = useState(
     () => loadSystemDebugLogSettings().enabled,
+  )
+  const [modelSource, setModelSource] = useState<ModelSource>(
+    () => loadModelSourceSettings().source,
   )
   const [saveError, setSaveError] = useState(false)
   const [devUrl, setDevUrl] = useState('http://localhost:6175/')
@@ -141,6 +150,18 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
     }
     setSaveError(false)
     setSystemDebugLog(checked)
+  }
+
+  const handleModelSourceChange = (value: string) => {
+    const source: ModelSource = value === 'local' ? 'local' : 'remote'
+    void (async () => {
+      if (!(await saveModelSourceSettings({ source }))) {
+        setSaveError(true)
+        return
+      }
+      setSaveError(false)
+      setModelSource(source)
+    })()
   }
 
   const handleAddDevExtApp = async () => {
@@ -256,6 +277,21 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
           <p class="settings__section-subtitle">
             面向开发与调试的选项。部分功能可能不稳定；外链调试应用仅保存在本次会话，重启后自动消失。
           </p>
+
+          <div class="settings__developer-ext-section">
+            <h3 class="settings__section-title settings__section-title--minor">模型下载</h3>
+            <SettingsChoiceOptionList
+              ariaLabel="模型下载来源"
+              options={MODEL_SOURCE_OPTIONS}
+              value={modelSource}
+              onChange={handleModelSourceChange}
+            />
+            <p class="settings__section-footnote">
+              默认从模型网关（R2）拉取，生产与本地开发相同。同源只读本站 /assets，适合本地
+              pnpm
+              dev、且 public/assets 里已有权重时。切换后尚未加载的推理会按新来源下载。
+            </p>
+          </div>
 
           <div class="settings__developer-ext-section">
             {/* 【实验性 · 未完成】外链应用平台（Bridge）整条链路尚未定稿 */}
