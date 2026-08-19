@@ -35,6 +35,28 @@ export function createStartupItem(partial?: Partial<Omit<StartupItem, 'id'>>): S
   }
 }
 
+/** 列表与日志用的显示名：优先名称，否则命令摘要。 */
+export function startupItemDisplayLabel(item: Pick<StartupItem, 'label' | 'command'>): string {
+  const label = item.label.trim()
+  if (label) {
+    return label
+  }
+  const command = item.command.trim().replace(/\s+/g, ' ')
+  if (!command) {
+    return '未命名启动项'
+  }
+  return command.length > 48 ? `${command.slice(0, 48)}…` : command
+}
+
+/** 列表副行：单行命令预览。 */
+export function startupItemCommandPreview(item: Pick<StartupItem, 'command'>): string {
+  const command = item.command.trim().replace(/\s+/g, ' ')
+  if (!command) {
+    return '未填写命令'
+  }
+  return command
+}
+
 function normalizeStartupItem(raw: unknown): StartupItem | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined

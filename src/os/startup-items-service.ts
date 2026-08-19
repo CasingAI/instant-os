@@ -7,24 +7,30 @@ import { createQuickJsInstance } from '../quickjs/quickjs-public.ts'
 import type { InstantShellHost } from '../terminal/instant-shell/instant-shell-types.ts'
 import { appendSystemDebugLog } from './system-debug-log.ts'
 import { getResolvedSystemEnv } from './system-env-settings-storage.ts'
-import { getEnabledStartupItems, type StartupItem } from './startup-items-settings-storage.ts'
+import {
+  getEnabledStartupItems,
+  startupItemDisplayLabel,
+  type StartupItem,
+} from './startup-items-settings-storage.ts'
 
 const WORKSPACE_ROOT = '/user'
 /** 单条启动命令超时（避免一项卡死阻塞后续项）。 */
 const STARTUP_ITEM_TIMEOUT_MS = 60_000
 
-function itemLabel(item: StartupItem): string {
-  const label = item.label.trim()
-  if (label) {
-    return label
-  }
-  const command = item.command.trim().replace(/\s+/g, ' ')
-  return command.length > 48 ? `${command.slice(0, 48)}…` : command
-}
+export type StartupItemRunResult =
+  | { ok: true; durationMs: number }
+  | { ok: false; error: string; durationMs: number }
 
-async function runOneStartupItem(item: StartupItem, host: InstantShellHost): Promise<void> {
+export async function runOneStartupItem(
+  item: StartupItem,
+  host: InstantShellHost,
+): Promise<StartupItemRunResult> {
   const startedAt = Date.now()
-  const label = itemLabel(item)
+  const label = startupItemDisplayLabel(item)
+  if (!item.command.trim()) {
+    return { ok: false, error: '请先填写命令', durationMs: 0 }
+  }
+
   const instance = await createQuickJsInstance({
     workspaceRoot: WORKSPACE_ROOT,
     env: getResolvedSystemEnv(),
@@ -45,7 +51,7 @@ async function runOneStartupItem(item: StartupItem, host: InstantShellHost): Pro
         durationMs,
         force: true,
       })
-      return
+      return { ok: false, error: result.error, durationMs }
     }
     appendSystemDebugLog({
       layer: 'system',
@@ -53,6 +59,18 @@ async function runOneStartupItem(item: StartupItem, host: InstantShellHost): Pro
       detail: label,
       durationMs,
     })
+    return { ok: true, durationMs }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const durationMs = Date.now() - startedAt
+    appendSystemDebugLog({
+      layer: 'system',
+      op: 'startup-item-error',
+      detail: `${label}: ${message}`,
+      durationMs,
+      force: true,
+    })
+    return { ok: false, error: message, durationMs }
   } finally {
     instance.destroy()
   }
@@ -79,7 +97,7 @@ export async function runStartupItems(host: InstantShellHost): Promise<void> {
       appendSystemDebugLog({
         layer: 'system',
         op: 'startup-item-error',
-        detail: `${itemLabel(item)}: ${message}`,
+        detail: `${startupItemDisplayLabel(item)}: ${message}`,
         force: true,
       })
     }
