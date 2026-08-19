@@ -1,22 +1,29 @@
 import { useRef, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { applyDockSettingsVariables } from '../../dock/apply-dock-settings.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
 import {
+  DESKTOP_CLICK_ACTION_OPTIONS,
   DOCK_SIZE_TIERS,
+  desktopClickActionLabel,
   dockSizeTierFromIndex,
   dockSizeTierLabel,
   dockSizeTierStopPercent,
   dockSizeTierToIndex,
   loadDockSettings,
   patchDockSettings,
+  resolveDesktopClickAction,
   resolveDockIconSizePx,
   resolveDockSizeScale,
   resolveDockSizeTier,
+  type DesktopClickAction,
   type DockSizeTier,
 } from '../../dock/dock-settings-storage.ts'
 import type { BuiltinAppId } from '../../os/types.ts'
+import { useSettingsWideLayout } from './settings-layout-breakpoints.ts'
+import { SettingsChoicePickerView } from './settings-choice-picker-view.tsx'
 
 type DockSettingsViewProps = {
   onBack: () => void
@@ -25,11 +32,16 @@ type DockSettingsViewProps = {
 const PREVIEW_BUILTIN_APP_IDS: readonly BuiltinAppId[] = ['browser', 'mail', 'settings']
 
 export function DockSettingsView({ onBack }: DockSettingsViewProps) {
+  const { hostRef, wideLayout } = useSettingsWideLayout()
   const [sizeTier, setSizeTier] = useState<DockSizeTier>(() => resolveDockSizeTier(loadDockSettings()))
+  const [desktopClickAction, setDesktopClickAction] = useState<DesktopClickAction>(
+    () => resolveDesktopClickAction(loadDockSettings()),
+  )
+  const [picker, setPicker] = useState<'desktop-click' | undefined>(undefined)
   const [saveError, setSaveError] = useState(false)
   const trackRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
-  const iconSize = resolveDockIconSizePx(resolveDockSizeScale({ sizeTier }))
+  const iconSize = resolveDockIconSizePx(resolveDockSizeScale({ sizeTier, desktopClickAction }))
   const tierIndex = dockSizeTierToIndex(sizeTier)
 
   const commitSizeTier = (nextTier: DockSizeTier) => {
@@ -44,7 +56,22 @@ export function DockSettingsView({ onBack }: DockSettingsViewProps) {
     }
 
     setSaveError(false)
-    applyDockSettingsVariables({ sizeTier: nextTier })
+    applyDockSettingsVariables()
+  }
+
+  const commitDesktopClickAction = (value: string) => {
+    const next = value as DesktopClickAction
+    if (next === desktopClickAction) {
+      setPicker(undefined)
+      return
+    }
+    setDesktopClickAction(next)
+    if (!patchDockSettings({ desktopClickAction: next })) {
+      setSaveError(true)
+      return
+    }
+    setSaveError(false)
+    setPicker(undefined)
   }
 
   const pickTierFromClientX = (clientX: number) => {
@@ -103,8 +130,23 @@ export function DockSettingsView({ onBack }: DockSettingsViewProps) {
     }
   }
 
+  if (picker === 'desktop-click') {
+    return (
+      <div class="settings" ref={hostRef} data-settings-subpage>
+        <SettingsChoicePickerView
+          title="点击空白区域时"
+          backLabel="程序坞和桌面"
+          options={DESKTOP_CLICK_ACTION_OPTIONS}
+          value={desktopClickAction}
+          onChange={commitDesktopClickAction}
+          onBack={() => setPicker(undefined)}
+        />
+      </div>
+    )
+  }
+
   return (
-    <div class="settings">
+    <div class="settings" ref={hostRef}>
       <div class="settings__nav">
         <IosNavBackButton label="显示全部" onClick={onBack} />
       </div>
@@ -189,13 +231,31 @@ export function DockSettingsView({ onBack }: DockSettingsViewProps) {
               </div>
             </div>
           </div>
-
-          {saveError && (
-            <p class="settings__section-footnote settings__form-status--error">
-              保存失败，设备存储空间可能已满。
-            </p>
-          )}
         </section>
+
+        <section class="settings__section">
+          <h2 class="settings__section-title">桌面</h2>
+          <div class="settings__list">
+            <SettingsChoiceField
+              label="点击空白区域时"
+              value={desktopClickAction}
+              displayValue={desktopClickActionLabel(desktopClickAction)}
+              options={DESKTOP_CLICK_ACTION_OPTIONS}
+              onChange={commitDesktopClickAction}
+              wideLayout={wideLayout}
+              onNavigate={() => setPicker('desktop-click')}
+            />
+          </div>
+          <p class="settings__section-footnote">
+            点击桌面空白处或程序坞两侧空白处都会生效。「散开窗口」会把窗口移开以露出桌面；「切换窗口」会进入三维叠层。指针在窗口外的桌面上时，触控板左右滑动仍可翻页。
+          </p>
+        </section>
+
+        {saveError && (
+          <p class="settings__section-footnote settings__form-status--error">
+            保存失败，设备存储空间可能已满。
+          </p>
+        )}
       </div>
     </div>
   )

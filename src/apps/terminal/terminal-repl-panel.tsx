@@ -169,6 +169,7 @@ export function TerminalReplPanel({
     restoreWindow,
     toggleFullscreen,
     toggleMaximize,
+    enterFlip3d,
   } = useOs()
   const { installedApps } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
@@ -549,6 +550,22 @@ export function TerminalReplPanel({
         return '实例已重建'
       }
 
+      if (trimmed === '.flip3d') {
+        appendLine({ kind: 'input', text: code, source: options?.source ?? 'user' } as Omit<DisplayLine, 'id'>)
+        const result = enterFlip3d()
+        if (result === 'empty') {
+          appendLine({ kind: 'error', text: '没有可切换的窗口' })
+          return '没有可切换的窗口'
+        }
+        if (result === 'already-active') {
+          appendLine({ kind: 'info', text: '已在 Flip 3D' })
+          return '已在 Flip 3D'
+        }
+        appendLine({ kind: 'info', text: 'Flip 3D · 方向键切换窗口 · Esc 退出' })
+        inputRef.current?.blur()
+        return 'Flip 3D'
+      }
+
       const source = options?.source ?? 'user'
       appendLine({ kind: 'input', text: code, source } as Omit<DisplayLine, 'id'>)
 
@@ -651,7 +668,7 @@ export function TerminalReplPanel({
         focusInput()
       }
     },
-    [appendLine, createInstance, ensureInstance, focusInput, resetInstance, syncConsoleFromInstance],
+    [appendLine, createInstance, ensureInstance, enterFlip3d, focusInput, resetInstance, syncConsoleFromInstance],
   )
 
   const chdir = useCallback(

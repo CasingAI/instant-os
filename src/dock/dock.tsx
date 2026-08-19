@@ -25,6 +25,7 @@ import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
+import { runDesktopClickAction } from '../desktop/run-desktop-click-action.ts'
 import {
   isExtAppId,
   isGeneratedAppId,
@@ -41,7 +42,11 @@ import {
   subscribeDockDropSession,
 } from './dock-drop-session.ts'
 import { resolveDockDropTarget } from './dock-drop-target.ts'
-import { DOCK_SETTINGS_CHANGED_EVENT } from './dock-settings-storage.ts'
+import {
+  DOCK_SETTINGS_CHANGED_EVENT,
+  resolveDesktopClickAction,
+  type DesktopClickAction,
+} from './dock-settings-storage.ts'
 import { DOCK_VIEWPORT_FIT_CHANGED_EVENT } from './use-dock-viewport-fit.ts'
 import { resolveEffectiveDockIconSizePx } from './dock-layout-metrics.ts'
 import { useDockIconReorder } from './use-dock-icon-reorder.ts'
@@ -85,6 +90,18 @@ function useDockIconSize(): number {
   }, [])
 
   return iconSize
+}
+
+function useDesktopClickAction(): DesktopClickAction {
+  const [action, setAction] = useState(resolveDesktopClickAction)
+
+  useEffect(() => {
+    const sync = () => setAction(resolveDesktopClickAction())
+    window.addEventListener(DOCK_SETTINGS_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(DOCK_SETTINGS_CHANGED_EVENT, sync)
+  }, [])
+
+  return action
 }
 
 function useDockDropSession() {
@@ -169,6 +186,9 @@ export function Dock() {
     toggleFullscreen,
     desktopRevealed,
     toggleDesktopReveal,
+    enterFlip3d,
+    flip3dActive,
+    flip3dRestoring,
   } = useOs()
   const { installedApps, openInstalledApp, openMarketplaceDetail, openIcodeProject, pendingUpdateCount } =
     useGeneratedApps()
@@ -185,8 +205,12 @@ export function Dock() {
     dissolveDesktopFolder,
   } = useLauncherLayout()
   const dropSession = useDockDropSession()
-  const dockHidden = windows.some((window) => window.fullscreen && !window.minimized)
+  const dockHidden =
+    flip3dActive ||
+    flip3dRestoring ||
+    windows.some((window) => window.fullscreen && !window.minimized)
   const iconSize = useDockIconSize()
+  const desktopClickAction = useDesktopClickAction()
 
   const [reorderSession, setReorderSession] = useState<DockReorderSession | undefined>(undefined)
   const lastPointerRef = useRef({ x: 0, y: 0 })
@@ -289,8 +313,7 @@ export function Dock() {
 
   function handleDesktopRevealZonePointerDown(event: Event) {
     event.preventDefault()
-    closeOpenDesktopFolder()
-    toggleDesktopReveal()
+    runDesktopClickAction({ enterFlip3d, toggleDesktopReveal })
   }
 
   function buildWindowSubmenu(appId: AppId, windowId?: string) {
@@ -913,6 +936,12 @@ export function Dock() {
     return renderRunningBuiltinDockItems(appId)
   })
 
+  const revealZoneLabel =
+    desktopClickAction === 'flip3d'
+      ? '切换窗口'
+      : desktopRevealed
+        ? '显示窗口'
+        : '显示桌面'
   const showDivider = pinnedDockItems.length > 0 && runningDockItems.length > 0
   const dropInsertIndex = dropSession.active ? dropSession.insertIndex : undefined
   const ghostIcon = draggingItemId ? renderDockItemIcon(draggingItemId) : undefined
@@ -938,7 +967,7 @@ export function Dock() {
         <button
           type="button"
           class="dock__reveal-zone dock__reveal-zone--left"
-          aria-label={desktopRevealed ? '显示窗口' : '显示桌面'}
+          aria-label={revealZoneLabel}
           onPointerDown={handleDesktopRevealZonePointerDown}
         />
         <div class="dock__plate-anchor">
@@ -951,7 +980,7 @@ export function Dock() {
         <button
           type="button"
           class="dock__reveal-zone dock__reveal-zone--right"
-          aria-label={desktopRevealed ? '显示窗口' : '显示桌面'}
+          aria-label={revealZoneLabel}
           onPointerDown={handleDesktopRevealZonePointerDown}
         />
       </div>

@@ -28,6 +28,7 @@ import {
 import { isBuiltinAppVisibleOnDesktop } from '../os/launcher-app-visibility.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT, loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import { useOs } from '../os/os-context.tsx'
+import { runDesktopClickAction } from './run-desktop-click-action.ts'
 import type { AppId, BuiltinAppId, ExtAppId, GeneratedAppId } from '../os/types.ts'
 import {
   buildPreviewOrder,
@@ -43,7 +44,6 @@ import {
 import { DesktopFolderIcon, type FolderPreviewApp } from './desktop-folder-icon.tsx'
 import { warmFolderMiniIconSnapshotCache } from './desktop-folder-mini-icon-service.tsx'
 import {
-  closeOpenDesktopFolder,
   registerCloseOpenDesktopFolder,
   registerOpenDesktopFolder,
   setOpenDesktopFolderId,
@@ -550,7 +550,8 @@ function renderDragGhost(entry: DesktopEntry) {
 }
 
 export function Desktop() {
-  const { windows, activeWindowId, desktopRevealed, toggleDesktopReveal } = useOs()
+  const { windows, activeWindowId, desktopRevealed, toggleDesktopReveal, enterFlip3d, flip3dActive, flip3dRestoring } =
+    useOs()
   const { installedApps, pendingInstalls, pendingUpdateCount } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
   const {
@@ -840,17 +841,17 @@ export function Desktop() {
       if (target.closest('.desktop-icon') || target.closest('.desktop__page-dot')) {
         return
       }
-      closeOpenDesktopFolder()
-      toggleDesktopReveal()
+      runDesktopClickAction({ enterFlip3d, toggleDesktopReveal })
     },
-    [toggleDesktopReveal],
+    [enterFlip3d, toggleDesktopReveal],
   )
 
   const hasFrontmostWindow = windows.some(
     (window) => window.id === activeWindowId && !window.minimized,
   )
-  const pageSwitchNavEnabled =
+  const keyboardPageNavEnabled =
     openFolderId === undefined && (desktopRevealed || !hasFrontmostWindow)
+  const wheelPageNavEnabled = openFolderId === undefined && !flip3dActive && !flip3dRestoring
 
   const {
     currentPage,
@@ -865,8 +866,8 @@ export function Desktop() {
     pagerSize.width,
     reorderSession === undefined,
     onDesktopEmptyTap,
-    pageSwitchNavEnabled,
-    pagerRef,
+    keyboardPageNavEnabled,
+    wheelPageNavEnabled,
   )
 
   const onReorderStart = useCallback(
@@ -1144,7 +1145,7 @@ export function Desktop() {
 
   return (
     <section
-      class={`desktop${reorderSession ? ' desktop--reordering' : ''}${layoutReady ? '' : ' desktop--measuring'}`}
+      class={`desktop${reorderSession ? ' desktop--reordering' : ''}${layoutReady ? '' : ' desktop--measuring'}${flip3dActive || flip3dRestoring ? ' desktop--hidden' : ''}`}
       aria-label="桌面"
     >
       <div

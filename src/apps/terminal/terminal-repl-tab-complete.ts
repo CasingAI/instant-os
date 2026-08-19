@@ -3,7 +3,7 @@
  * 多候选时填入当前项并在输入框旁提示，再按 Tab 循环切换。
  */
 
-export const HOST_REPL_DOT_COMMANDS = ['.reset'] as const
+export const HOST_REPL_DOT_COMMANDS = ['.reset', '.flip3d'] as const
 
 export type ReplCompletionTarget = {
   /** 空字符串表示从 globalThis 补全 */

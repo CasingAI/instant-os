@@ -18,6 +18,19 @@ import {
   type SnapTarget,
 } from '../window/window-snap.ts'
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
+import {
+  bringFlip3dWindowToFront,
+  commitFlip3dCycle,
+  cycleFlip3dOrder,
+  FLIP3D_ENTER_MS,
+  FLIP3D_FLIGHT_IN_MS,
+  FLIP3D_FLIGHT_OUT_MS,
+  FLIP3D_RESTORE_MS,
+  FLIP3D_SELECT_MS,
+  listFlip3dWindowIds,
+  type Flip3dCycle,
+  type Flip3dEnterResult,
+} from '../window/flip3d.ts'
 import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { startBackgroundRefreshService } from './background-refresh-service.ts'
 import { startSystemServices } from './system-services.ts'
@@ -44,6 +57,14 @@ type OsContextValue = {
   desktopRevealRestoring: boolean
   toggleDesktopReveal: () => void
   hideDesktopReveal: () => void
+  flip3dActive: boolean
+  flip3dRestoring: boolean
+  flip3dEntering: boolean
+  flip3dOrder: string[]
+  flip3dCycle: Flip3dCycle | undefined
+  enterFlip3d: () => Flip3dEnterResult
+  cycleFlip3d: (delta: 1 | -1) => void
+  exitFlip3d: (windowId?: string) => void
   openApp: (appId: AppId, options?: OpenAppOptions) => string | undefined
   openGeneratedApp: (appId: GeneratedAppId, title: string) => void
   openExtApp: (appId: ExtAppId, title: string) => void
@@ -284,14 +305,37 @@ function createWindow(
 
 export function OsProvider({ children }: { children: ComponentChildren }) {
   const [windows, setWindows] = useState<WindowState[]>([])
+  const windowsRef = useRef(windows)
   const [activeWindowId, setActiveWindowId] = useState<string | undefined>(undefined)
   const [desktopRevealed, setDesktopRevealed] = useState(false)
   const [desktopRevealRestoring, setDesktopRevealRestoring] = useState(false)
   const desktopRevealedRef = useRef(false)
+  const [flip3dActive, setFlip3dActive] = useState(false)
+  const [flip3dRestoring, setFlip3dRestoring] = useState(false)
+  const [flip3dEntering, setFlip3dEntering] = useState(false)
+  const [flip3dOrder, setFlip3dOrder] = useState<string[]>([])
+  const [flip3dCycle, setFlip3dCycle] = useState<Flip3dCycle | undefined>(undefined)
+  const flip3dActiveRef = useRef(false)
+  const flip3dOrderRef = useRef<string[]>([])
+  const flip3dCycleRef = useRef<Flip3dCycle | undefined>(undefined)
+  const flip3dAnimGenRef = useRef(0)
+  const flip3dCycleTimerRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     desktopRevealedRef.current = desktopRevealed
   }, [desktopRevealed])
+
+  useEffect(() => {
+    flip3dActiveRef.current = flip3dActive
+  }, [flip3dActive])
+
+  useEffect(() => {
+    flip3dOrderRef.current = flip3dOrder
+  }, [flip3dOrder])
+
+  useEffect(() => {
+    flip3dCycleRef.current = flip3dCycle
+  }, [flip3dCycle])
 
   const startDesktopRestore = useCallback(() => {
     if (!desktopRevealedRef.current) {
@@ -320,6 +364,208 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     setDesktopRevealed(true)
   }, [startDesktopRestore])
 
+  const bumpFlip3dAnim = useCallback(() => {
+    flip3dAnimGenRef.current += 1
+    if (flip3dCycleTimerRef.current !== undefined) {
+      window.clearTimeout(flip3dCycleTimerRef.current)
+      flip3dCycleTimerRef.current = undefined
+    }
+    return flip3dAnimGenRef.current
+  }, [])
+
+  const raiseWindow = useCallback((windowId: string) => {
+    const nextZ = bumpZIndex()
+    setWindows((current) =>
+      current.map((window) =>
+        window.id === windowId ? { ...window, zIndex: nextZ } : window,
+      ),
+    )
+    setActiveWindowId(windowId)
+  }, [])
+
+  const applyFlip3dOrder = useCallback((next: string[]) => {
+    flip3dOrderRef.current = next
+    setFlip3dOrder(next)
+  }, [])
+
+  const settleFlip3dCycle = useCallback(() => {
+    const cycle = flip3dCycleRef.current
+    if (!cycle) {
+      return
+    }
+    applyFlip3dOrder(commitFlip3dCycle(flip3dOrderRef.current, cycle))
+    flip3dCycleRef.current = undefined
+    setFlip3dCycle(undefined)
+  }, [applyFlip3dOrder])
+
+  const startFlip3dRestore = useCallback((focusId?: string) => {
+    if (!flip3dActiveRef.current) {
+      return
+    }
+    bumpFlip3dAnim()
+    settleFlip3dCycle()
+    setFlip3dEntering(false)
+    if (focusId) {
+      raiseWindow(focusId)
+    }
+    setFlip3dActive(false)
+    setFlip3dRestoring(true)
+  }, [bumpFlip3dAnim, raiseWindow, settleFlip3dCycle])
+
+  useEffect(() => {
+    if (!flip3dRestoring) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setFlip3dRestoring(false)
+      setFlip3dOrder([])
+    }, FLIP3D_RESTORE_MS)
+    return () => window.clearTimeout(timer)
+  }, [flip3dRestoring])
+
+  const enterFlip3d = useCallback((): Flip3dEnterResult => {
+    if (flip3dActiveRef.current) {
+      return 'already-active'
+    }
+    const ids = listFlip3dWindowIds(windowsRef.current)
+    if (ids.length === 0) {
+      return 'empty'
+    }
+    if (desktopRevealedRef.current) {
+      startDesktopRestore()
+    }
+    closeOpenDesktopFolder()
+    const gen = bumpFlip3dAnim()
+    flip3dCycleRef.current = undefined
+    setFlip3dCycle(undefined)
+    setFlip3dRestoring(false)
+    applyFlip3dOrder(ids)
+    setFlip3dEntering(true)
+    setFlip3dActive(true)
+    flip3dCycleTimerRef.current = window.setTimeout(() => {
+      if (gen !== flip3dAnimGenRef.current) {
+        return
+      }
+      setFlip3dEntering(false)
+    }, FLIP3D_ENTER_MS)
+    return 'entered'
+  }, [applyFlip3dOrder, bumpFlip3dAnim, startDesktopRestore])
+
+  const cycleFlip3d = useCallback((delta: 1 | -1) => {
+    if (!flip3dActiveRef.current) {
+      return
+    }
+    setFlip3dEntering(false)
+    const interrupting = flip3dCycleRef.current !== undefined
+    settleFlip3dCycle()
+    const order = flip3dOrderRef.current
+    if (order.length <= 1) {
+      return
+    }
+
+    if (interrupting) {
+      applyFlip3dOrder(cycleFlip3dOrder(order, delta))
+      const gen = bumpFlip3dAnim()
+      const snap: Flip3dCycle = { flyingId: '', direction: delta, phase: 'snap' }
+      flip3dCycleRef.current = snap
+      setFlip3dCycle(snap)
+      requestAnimationFrame(() => {
+        if (gen !== flip3dAnimGenRef.current || !flip3dActiveRef.current) {
+          return
+        }
+        flip3dCycleRef.current = undefined
+        setFlip3dCycle(undefined)
+      })
+      return
+    }
+
+    const gen = bumpFlip3dAnim()
+    const isCurrent = () => gen === flip3dAnimGenRef.current && flip3dActiveRef.current
+
+    if (delta === 1) {
+      const flyingId = order[0]!
+      const nextCycle: Flip3dCycle = { flyingId, direction: 1, phase: 'out' }
+      flip3dCycleRef.current = nextCycle
+      setFlip3dCycle(nextCycle)
+      flip3dCycleTimerRef.current = window.setTimeout(() => {
+        if (!isCurrent()) {
+          return
+        }
+        applyFlip3dOrder(cycleFlip3dOrder(flip3dOrderRef.current, 1))
+        setFlip3dCycle({ flyingId, direction: 1, phase: 'teleport' })
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!isCurrent()) {
+              return
+            }
+            setFlip3dCycle({ flyingId, direction: 1, phase: 'in' })
+            flip3dCycleTimerRef.current = window.setTimeout(() => {
+              if (!isCurrent()) {
+                return
+              }
+              setFlip3dCycle(undefined)
+            }, FLIP3D_FLIGHT_IN_MS)
+          })
+        })
+      }, FLIP3D_FLIGHT_OUT_MS)
+      return
+    }
+
+    const flyingId = order[order.length - 1]!
+    const nextCycle: Flip3dCycle = { flyingId, direction: -1, phase: 'teleport' }
+    flip3dCycleRef.current = nextCycle
+    setFlip3dCycle(nextCycle)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!isCurrent()) {
+          return
+        }
+        applyFlip3dOrder(cycleFlip3dOrder(flip3dOrderRef.current, -1))
+        setFlip3dCycle({ flyingId, direction: -1, phase: 'out' })
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!isCurrent()) {
+              return
+            }
+            setFlip3dCycle({ flyingId, direction: -1, phase: 'in' })
+            flip3dCycleTimerRef.current = window.setTimeout(() => {
+              if (!isCurrent()) {
+                return
+              }
+              setFlip3dCycle(undefined)
+            }, FLIP3D_FLIGHT_OUT_MS)
+          })
+        })
+      })
+    })
+  }, [applyFlip3dOrder, bumpFlip3dAnim, settleFlip3dCycle])
+
+  const exitFlip3d = useCallback((windowId?: string) => {
+    if (!flip3dActiveRef.current) {
+      return
+    }
+    settleFlip3dCycle()
+    const targetId = windowId ?? flip3dOrderRef.current[0]
+    if (!targetId) {
+      startFlip3dRestore()
+      return
+    }
+    const nextOrder = bringFlip3dWindowToFront(flip3dOrderRef.current, targetId)
+    const alreadyFront = nextOrder[0] === flip3dOrderRef.current[0]
+    applyFlip3dOrder(nextOrder)
+    if (alreadyFront) {
+      startFlip3dRestore(targetId)
+      return
+    }
+    const gen = bumpFlip3dAnim()
+    flip3dCycleTimerRef.current = window.setTimeout(() => {
+      if (gen !== flip3dAnimGenRef.current || !flip3dActiveRef.current) {
+        return
+      }
+      startFlip3dRestore(targetId)
+    }, FLIP3D_SELECT_MS)
+  }, [applyFlip3dOrder, bumpFlip3dAnim, settleFlip3dCycle, startFlip3dRestore])
+
   useEffect(() => {
     setWindows((current) =>
       current.map((window) => {
@@ -342,8 +588,27 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const windowCloseGuardsRef = useRef(new Map<string, AppCloseGuard>())
   const bypassWindowCloseGuardRef = useRef(new Set<string>())
   const pendingQuitAppsRef = useRef(new Set<AppId>())
-  const windowsRef = useRef(windows)
   windowsRef.current = windows
+
+  useEffect(() => {
+    if (!flip3dActive) {
+      return
+    }
+    const liveIds = new Set(listFlip3dWindowIds(windows))
+    setFlip3dOrder((current) => {
+      const next = current.filter((id) => liveIds.has(id))
+      if (next.length === current.length && next.every((id, index) => id === current[index])) {
+        return current
+      }
+      return next
+    })
+  }, [windows, flip3dActive])
+
+  useEffect(() => {
+    if (flip3dActive && flip3dOrder.length === 0) {
+      startFlip3dRestore()
+    }
+  }, [flip3dActive, flip3dOrder.length, startFlip3dRestore])
 
   const openApp = useCallback((appId: AppId, options?: OpenAppOptions): string | undefined => {
     if (isGeneratedAppId(appId)) {
@@ -830,14 +1095,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
   const focusWindow = useCallback((windowId: string) => {
     startDesktopRestore()
-    const nextZ = bumpZIndex()
-    setWindows((current) =>
-      current.map((window) =>
-        window.id === windowId ? { ...window, zIndex: nextZ } : window,
-      ),
-    )
-    setActiveWindowId(windowId)
-  }, [startDesktopRestore])
+    if (flip3dActiveRef.current) {
+      exitFlip3d(windowId)
+      return
+    }
+    raiseWindow(windowId)
+  }, [exitFlip3d, raiseWindow, startDesktopRestore])
 
   const moveWindow = useCallback((windowId: string, x: number, y: number) => {
     setWindows((current) =>
@@ -1152,6 +1415,14 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       desktopRevealRestoring,
       toggleDesktopReveal,
       hideDesktopReveal,
+      flip3dActive,
+      flip3dRestoring,
+      flip3dEntering,
+      flip3dOrder,
+      flip3dCycle,
+      enterFlip3d,
+      cycleFlip3d,
+      exitFlip3d,
       openApp,
       openGeneratedApp,
       openExtApp,
@@ -1183,7 +1454,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       revealWindowlessPanel,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, flip3dActive, flip3dRestoring, flip3dEntering, flip3dOrder, flip3dCycle, enterFlip3d, cycleFlip3d, exitFlip3d, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])

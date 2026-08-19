@@ -122,6 +122,11 @@ function testHostDot(): void {
   const cycle = createReplCompletionCycle('.re', target!, HOST_REPL_DOT_COMMANDS, 1)
   assert.ok(cycle)
   assert.equal(draftFromReplCompletionCycle(cycle!), '.reset')
+  const flipTarget = parseHostDotTarget('.fl')
+  assert.ok(flipTarget)
+  const flipCycle = createReplCompletionCycle('.fl', flipTarget!, HOST_REPL_DOT_COMMANDS, 1)
+  assert.ok(flipCycle)
+  assert.equal(draftFromReplCompletionCycle(flipCycle!), '.flip3d')
   console.log('ok: host dot commands')
 }
 

@@ -1,5 +1,5 @@
-import type { RefObject } from 'preact'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { isDesktopPageWheelHit } from './is-desktop-page-wheel-hit.ts'
 
 const SNAP_RATIO = 0.18
 const TAP_THRESHOLD = 8
@@ -40,8 +40,8 @@ export function useDesktopPagePager(
   pagerWidth: number,
   enabled: boolean,
   onEmptyTap?: (event: PointerEvent) => void,
-  navEnabled = false,
-  wheelTargetRef?: RefObject<HTMLElement | null>,
+  keyboardNavEnabled = false,
+  wheelNavEnabled = keyboardNavEnabled,
 ) {
   const [currentPage, setCurrentPage] = useState(0)
   const [dragOffset, setDragOffset] = useState(0)
@@ -83,7 +83,7 @@ export function useDesktopPagePager(
   )
 
   useEffect(() => {
-    if (!enabled || !navEnabled || pageCount <= 1) {
+    if (!enabled || !keyboardNavEnabled || pageCount <= 1) {
       return
     }
 
@@ -104,11 +104,10 @@ export function useDesktopPagePager(
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [enabled, goToPage, navEnabled, pageCount])
+  }, [enabled, goToPage, keyboardNavEnabled, pageCount])
 
   useEffect(() => {
-    const target = wheelTargetRef?.current
-    if (!enabled || !navEnabled || pageCount <= 1 || !target) {
+    if (!enabled || !wheelNavEnabled || pageCount <= 1) {
       return
     }
 
@@ -150,7 +149,8 @@ export function useDesktopPagePager(
       if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) {
         return
       }
-      if (isEditableKeyboardTarget(event.target)) {
+      const hit = document.elementFromPoint(event.clientX, event.clientY) ?? event.target
+      if (!isDesktopPageWheelHit(hit)) {
         return
       }
 
@@ -192,12 +192,12 @@ export function useDesktopPagePager(
       fireWheelPage(wheelAccumRef.current > 0 ? 1 : -1)
     }
 
-    target.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('wheel', onWheel, { capture: true, passive: false })
     return () => {
-      target.removeEventListener('wheel', onWheel)
+      window.removeEventListener('wheel', onWheel, { capture: true })
       resetWheelGesture()
     }
-  }, [enabled, goToPage, navEnabled, pageCount, wheelTargetRef])
+  }, [enabled, goToPage, pageCount, wheelNavEnabled])
 
   const translateX = -currentPage * pagerWidth + dragOffset
 

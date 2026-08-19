@@ -8,8 +8,11 @@ import { useFullscreenChromeReveal } from '../os/fullscreen-chrome-reveal-contex
 import { isExtAppId, isGeneratedAppId } from '../os/types.ts'
 import type { BuiltinAppId, WindowState } from '../os/types.ts'
 import { buildDesktopRevealTransform } from './build-desktop-reveal-transform.ts'
+import { buildFlip3dFlyOutTransform, buildFlip3dTransform, FLIP3D_Z_BASE } from './build-flip3d-transform.ts'
+import { resolveFlip3dVisual } from './flip3d.ts'
 import { DesktopRevealPeekLayer } from './desktop-reveal-peek-layer.tsx'
 import { buildMinimizeTransform } from './build-minimize-transform.ts'
+import type { WindowBounds } from './window-metrics.ts'
 import { SnapPreview } from './window-snap-preview.tsx'
 import { useWindowDrag } from './use-window-drag.ts'
 import { useWindowResize } from './use-window-resize.ts'
@@ -22,6 +25,33 @@ import './window-frame.css'
 
 type WindowFrameProps = {
   window: WindowState
+}
+
+function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
+  const { flip3dActive, flip3dRestoring, flip3dOrder, flip3dCycle, exitFlip3d } = useOs()
+  const visual = resolveFlip3dVisual(flip3dOrder, windowId, flip3dCycle)
+  const inFlip3d = (flip3dActive || flip3dRestoring) && visual !== undefined
+  const viewport = { width: window.innerWidth, height: window.innerHeight }
+  const transform =
+    flip3dActive && visual
+      ? visual.flyOut
+        ? buildFlip3dFlyOutTransform(bounds, viewport)
+        : buildFlip3dTransform(bounds, visual.rank, viewport)
+      : undefined
+  const zIndex =
+    inFlip3d && visual
+      ? visual.flyOut
+        ? FLIP3D_Z_BASE + 40
+        : FLIP3D_Z_BASE - visual.rank
+      : undefined
+  return {
+    inFlip3d,
+    transform,
+    zIndex,
+    opacity: visual?.opacity,
+    skipTransition: visual?.skipTransition ?? false,
+    selectWindow: () => exitFlip3d(windowId),
+  }
 }
 
 function renderAppBody(
@@ -70,6 +100,14 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
     }),
     [window.x, window.y, window.width, window.height],
   )
+  const {
+    inFlip3d,
+    transform: flip3dTransform,
+    zIndex: flip3dZIndex,
+    opacity: flip3dOpacity,
+    skipTransition: flip3dInstant,
+    selectWindow: selectFlip3dWindow,
+  } = useFlip3dFrame(window.id, windowBounds)
   const [minimizeTransform, setMinimizeTransform] = useState<string | undefined>(undefined)
   const prevMinimizedRef = useRef(window.minimized)
   const [isMinimizing, setIsMinimizing] = useState(false)
@@ -129,7 +167,7 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
     releaseAnchoredWindow,
     applyWindowSnap,
     undefined,
-    revealed && !isEntering && !isMinimizing,
+    revealed && !isEntering && !isMinimizing && !inFlip3d,
   )
 
   useEffect(() => {
@@ -152,18 +190,24 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
       <section
         class={
           showAsWindowFrame
-            ? `window-frame${isDialogChrome ? ' window-frame--dialog' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isEntering ? ' window-frame--entering' : ''}`
+            ? `window-frame${isDialogChrome ? ' window-frame--dialog' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}`
             : 'windowless-app-host'
         }
         aria-hidden={showMinimizeVisual ? true : undefined}
         style={{
-          zIndex: window.zIndex,
+          zIndex: flip3dZIndex ?? window.zIndex,
           left: `${window.x}px`,
           top: `${window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
-          transform: isEntering ? undefined : showMinimizeVisual ? minimizeTransform : undefined,
-          opacity: showMinimizeVisual ? 0 : undefined,
+          transform: isEntering
+            ? undefined
+            : showMinimizeVisual
+              ? minimizeTransform
+              : inFlip3d
+                ? flip3dTransform
+                : undefined,
+          opacity: showMinimizeVisual ? 0 : inFlip3d ? flip3dOpacity : undefined,
         }}
         onAnimationEnd={(event) => {
           if (event.animationName === 'window-frame-open') {
@@ -174,6 +218,12 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
           revealed && !isMinimizing
             ? (event) => {
                 if (event.button !== 0) return
+                if (inFlip3d) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  selectFlip3dWindow()
+                  return
+                }
                 focusWindow(window.id)
               }
             : undefined
@@ -256,8 +306,26 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
   const isActive = activeWindowId === window.id
   const isAnchored = !window.fullscreen && (window.maximized || !!window.snap)
   const isDesktopRevealed = desktopRevealed && !window.minimized
+  const windowBounds = useMemo(
+    () => ({
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+    }),
+    [window.x, window.y, window.width, window.height],
+  )
+  const {
+    inFlip3d,
+    transform: flip3dTransform,
+    zIndex: flip3dZIndex,
+    opacity: flip3dOpacity,
+    skipTransition: flip3dInstant,
+    selectWindow: selectFlip3dWindow,
+  } = useFlip3dFrame(window.id, windowBounds)
+  const layoutLocked = isDesktopRevealed || inFlip3d
   const canResize =
-    !window.fullscreen && !window.minimized && !isDesktopRevealed
+    !window.fullscreen && !window.minimized && !layoutLocked
   const getDragBounds = useCallback(
     () => ({
       x: window.x,
@@ -276,7 +344,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     releaseAnchoredWindow,
     applyWindowSnap,
     () => toggleMaximize(window.id),
-    !window.fullscreen && !window.minimized && !isDesktopRevealed,
+    !window.fullscreen && !window.minimized && !layoutLocked,
   )
   const { resizing, onResizeHandlePointerDown, onResizeHandleDoubleClick } = useWindowResize(
     window.id,
@@ -287,15 +355,6 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     window.snap,
   )
   const isAnchoredLayout = window.maximized || !!window.snap || window.fullscreen
-  const windowBounds = useMemo(
-    () => ({
-      x: window.x,
-      y: window.y,
-      width: window.width,
-      height: window.height,
-    }),
-    [window.x, window.y, window.width, window.height],
-  )
   const [minimizeTransform, setMinimizeTransform] = useState<string | undefined>(undefined)
   const desktopRevealTransform = useMemo(
     () => buildDesktopRevealTransform(windowBounds),
@@ -339,24 +398,26 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     ? minimizeTransform
     : isClosing || isEntering
       ? undefined
-      : isDesktopRevealed
-        ? desktopRevealTransform
-        : undefined
+      : inFlip3d
+        ? flip3dTransform
+        : isDesktopRevealed
+          ? desktopRevealTransform
+          : undefined
 
   return (
     <>
       {dragging && <SnapPreview target={snapPreview} />}
       <section
-        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
+        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
         aria-hidden={showMinimizeVisual || isClosing ? true : undefined}
         style={{
-          zIndex: window.zIndex,
+          zIndex: flip3dZIndex ?? window.zIndex,
           left: `${window.x}px`,
           top: `${window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
           transform: isEntering ? undefined : frameTransform,
-          opacity: showMinimizeVisual ? 0 : undefined,
+          opacity: showMinimizeVisual ? 0 : inFlip3d ? flip3dOpacity : undefined,
         }}
         onAnimationEnd={(event) => {
           if (event.animationName === 'window-frame-open') {
@@ -367,7 +428,16 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
           }
         }}
         onPointerDownCapture={(event) => {
-          if (isDesktopRevealed || isClosing || event.button !== 0) {
+          if (isClosing || event.button !== 0) {
+            return
+          }
+          if (inFlip3d) {
+            event.preventDefault()
+            event.stopPropagation()
+            selectFlip3dWindow()
+            return
+          }
+          if (isDesktopRevealed) {
             return
           }
           focusWindow(window.id)
@@ -424,7 +494,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
             </span>
           </header>
           <div class="window-frame__content">
-            {!isActive && !isDesktopRevealed && (
+            {!isActive && !isDesktopRevealed && !inFlip3d && (
               <div class="window-frame__focus-catcher" aria-hidden="true" />
             )}
             <WindowModalProvider>{renderAppBody(window, AppComponent)}</WindowModalProvider>
@@ -463,12 +533,52 @@ export function WindowFrame({ window }: WindowFrameProps) {
 }
 
 export function WindowManager() {
-  const { windows, desktopRevealRestoring } = useOs()
+  const { windows, desktopRevealRestoring, flip3dActive, flip3dRestoring, flip3dEntering, cycleFlip3d, exitFlip3d } =
+    useOs()
+
+  useEffect(() => {
+    if (!flip3dActive) {
+      return
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        event.preventDefault()
+        event.stopPropagation()
+        cycleFlip3d(1)
+        return
+      }
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        event.stopPropagation()
+        cycleFlip3d(-1)
+        return
+      }
+      if (event.key === 'Escape' || event.key === 'Enter') {
+        event.preventDefault()
+        event.stopPropagation()
+        exitFlip3d()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [cycleFlip3d, exitFlip3d, flip3dActive])
 
   return (
     <div
-      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}`}
+      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}${flip3dActive || flip3dRestoring ? ' window-manager--flip3d' : ''}${flip3dEntering ? ' window-manager--flip3d-enter' : ''}${flip3dRestoring ? ' window-manager--flip3d-restore' : ''}`}
       aria-live="polite"
+      onPointerDown={
+        flip3dActive
+          ? (event) => {
+              if (event.button !== 0 || event.target !== event.currentTarget) {
+                return
+              }
+              event.preventDefault()
+              event.stopPropagation()
+              exitFlip3d()
+            }
+          : undefined
+      }
     >
       {windows.map((window) => (
         <WindowFrame key={window.id} window={window} />

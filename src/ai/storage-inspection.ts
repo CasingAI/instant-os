@@ -40,7 +40,7 @@ const KEY_LABELS: Record<string, string> = {
   [DEVICE_STORAGE_KEYS.accountSettings]: '账户与 API Key（敏感，不可读内容）',
   [DEVICE_STORAGE_KEYS.displaySettings]: '显示设置',
   [DEVICE_STORAGE_KEYS.dateTimeSettings]: '日期与时间设置',
-  [DEVICE_STORAGE_KEYS.dockSettings]: '程序坞设置',
+  [DEVICE_STORAGE_KEYS.dockSettings]: '程序坞和桌面设置',
   [DEVICE_STORAGE_KEYS.wallpaperSettings]: '壁纸设置',
   [DEVICE_STORAGE_KEYS.experimentalSettings]: '开发者选项',
   [DEVICE_STORAGE_KEYS.scene3dLabArchives]: '3D 实验室档案',

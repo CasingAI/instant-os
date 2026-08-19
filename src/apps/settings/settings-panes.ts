@@ -135,7 +135,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   // 外观
   { id: 'display', label: '显示', Icon: DisplayPaneIcon, route: { view: 'display' }, group: 'appearance' },
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' }, group: 'appearance' },
-  { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' }, group: 'appearance' },
+  { id: 'dock', label: '程序坞和桌面', Icon: DockPaneIcon, route: { view: 'dock' }, group: 'appearance' },
   // 系统
   { id: 'date-time', label: '日期与时间', Icon: DateTimePaneIcon, route: { view: 'date-time' }, group: 'system' },
   {

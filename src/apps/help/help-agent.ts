@@ -74,7 +74,7 @@ const MODULE_LABELS: Record<string, string> = {
   bridge: '外部应用连接',
   ai: 'AI 服务',
   desktop: '桌面',
-  dock: '程序坞',
+  dock: '程序坞和桌面',
   window: '窗口',
   os: '系统界面',
   ui: '界面控件',

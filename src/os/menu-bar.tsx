@@ -493,8 +493,17 @@ function MenuBarRightSection({
 }
 
 export function MenuBar() {
-  const { windows, activeWindowId, focusWindow, restoreWindow, openApp, closeWindowsForApp, minimizeWindow } =
-    useOs()
+  const {
+    windows,
+    activeWindowId,
+    focusWindow,
+    restoreWindow,
+    openApp,
+    closeWindowsForApp,
+    minimizeWindow,
+    flip3dActive,
+    flip3dRestoring,
+  } = useOs()
   const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
   const { showInstantAbout, showAbout, showBuiltinAbout } = useAboutApp()
@@ -511,9 +520,12 @@ export function MenuBar() {
   const closeMenu = useCallback(() => setOpenMenuLabel(undefined), [])
 
   const hasFullscreenWindow = windows.some((window) => window.fullscreen && !window.minimized)
-  const hidden = hasImmersiveFullscreen
-    ? !chromeRevealed
-    : hasFullscreenWindow
+  const hidden =
+    flip3dActive || flip3dRestoring
+      ? true
+      : hasImmersiveFullscreen
+        ? !chromeRevealed
+        : hasFullscreenWindow
   const activeWindow = windows.find((window) => window.id === activeWindowId && !window.minimized)
 
   const desktopMenus = useMemo<MenuDefinition[]>(

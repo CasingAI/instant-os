@@ -5,6 +5,12 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  transition: opacity 0.28s ease;
+}
+
+.desktop--hidden {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .desktop--measuring {

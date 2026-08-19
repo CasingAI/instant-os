@@ -43,14 +43,33 @@ export const DOCK_SIZE_TIER_SCALES: Record<DockSizeTier, number> = {
   extraLarge: 1.4,
 }
 
+export type DesktopClickAction = 'reveal' | 'flip3d'
+
+export const DESKTOP_CLICK_ACTIONS: readonly DesktopClickAction[] = ['reveal', 'flip3d']
+
+export const DESKTOP_CLICK_ACTION_LABELS: Record<DesktopClickAction, string> = {
+  reveal: '散开窗口',
+  flip3d: '切换窗口',
+}
+
+export const DESKTOP_CLICK_ACTION_OPTIONS = DESKTOP_CLICK_ACTIONS.map((id) => ({
+  id,
+  label: DESKTOP_CLICK_ACTION_LABELS[id],
+}))
+
 export type DockSettings = {
   sizeTier: DockSizeTier
+  desktopClickAction: DesktopClickAction
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.dockSettings
 
 function isDockSizeTier(value: unknown): value is DockSizeTier {
   return typeof value === 'string' && DOCK_SIZE_TIERS.includes(value as DockSizeTier)
+}
+
+function isDesktopClickAction(value: unknown): value is DesktopClickAction {
+  return typeof value === 'string' && DESKTOP_CLICK_ACTIONS.includes(value as DesktopClickAction)
 }
 
 export function resolveDefaultDockSizeTier(screenWidth = window.innerWidth): DockSizeTier {
@@ -69,6 +88,7 @@ export function resolveDefaultDockSizeTier(screenWidth = window.innerWidth): Doc
 export function createInitialDockSettings(screenWidth = window.innerWidth): DockSettings {
   return {
     sizeTier: resolveDefaultDockSizeTier(screenWidth),
+    desktopClickAction: 'reveal',
   }
 }
 
@@ -87,21 +107,24 @@ function migrateLegacySizeScale(scale: number): DockSizeTier {
   return nearest
 }
 
-function normalizeDockSettings(raw: unknown): DockSettings {
+export function normalizeDockSettings(raw: unknown): DockSettings {
   if (!raw || typeof raw !== 'object') {
     return createInitialDockSettings()
   }
 
   const record = raw as Record<string, unknown>
-  if (isDockSizeTier(record.sizeTier)) {
-    return { sizeTier: record.sizeTier }
-  }
+  const sizeTier = isDockSizeTier(record.sizeTier)
+    ? record.sizeTier
+    : typeof record.sizeScale === 'number' && Number.isFinite(record.sizeScale)
+      ? migrateLegacySizeScale(record.sizeScale)
+      : resolveDefaultDockSizeTier()
 
-  if (typeof record.sizeScale === 'number' && Number.isFinite(record.sizeScale)) {
-    return { sizeTier: migrateLegacySizeScale(record.sizeScale) }
+  return {
+    sizeTier,
+    desktopClickAction: isDesktopClickAction(record.desktopClickAction)
+      ? record.desktopClickAction
+      : 'reveal',
   }
-
-  return createInitialDockSettings()
 }
 
 export function dockSizeTierStopPercent(index: number, tierCount = DOCK_SIZE_TIERS.length): number {
@@ -147,6 +170,9 @@ export function hasStoredDockSettings(): boolean {
 export function saveDockSettings(settings: DockSettings): boolean {
   const payload: DockSettings = {
     sizeTier: isDockSizeTier(settings.sizeTier) ? settings.sizeTier : 'large',
+    desktopClickAction: isDesktopClickAction(settings.desktopClickAction)
+      ? settings.desktopClickAction
+      : 'reveal',
   }
   return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(payload))
 }
@@ -163,6 +189,15 @@ export function patchDockSettings(patch: Partial<DockSettings>): boolean {
 export function resolveDockSizeTier(settings?: DockSettings): DockSizeTier {
   const tier = (settings ?? loadDockSettings()).sizeTier
   return isDockSizeTier(tier) ? tier : 'large'
+}
+
+export function resolveDesktopClickAction(settings?: DockSettings): DesktopClickAction {
+  const action = (settings ?? loadDockSettings()).desktopClickAction
+  return isDesktopClickAction(action) ? action : 'reveal'
+}
+
+export function desktopClickActionLabel(action: DesktopClickAction): string {
+  return DESKTOP_CLICK_ACTION_LABELS[action]
 }
 
 export function resolveDockSizeScale(settings?: DockSettings): number {
