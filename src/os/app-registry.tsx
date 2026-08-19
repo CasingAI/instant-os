@@ -446,7 +446,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: InstantLogoIcon,
     dock: false,
     dockWhenRunning: true,
-    desktop: false,
+    desktop: true,
   }),
 ]
 

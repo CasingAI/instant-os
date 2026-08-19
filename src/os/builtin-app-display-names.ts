@@ -52,7 +52,7 @@ export const BUILTIN_APP_DISPLAY_NAMES: Record<BuiltinAppId, string> = {
   'srml-demo': 'SRML 演示',
   'llm-playground': 'LLM Playground',
   attunebench: '评测',
-  welcome: '欢迎',
+  welcome: '欢迎中心',
 }
 
 /** 目录枚举顺序（与历史 APP_REGISTRY 顺序一致，便于对照；catalog 最终仍会按 bundleName 排序）。 */

@@ -146,11 +146,12 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   'srml-demo': { title: 'SRML 演示', width: 1040, height: 700 },
   'llm-playground': { title: 'LLM Playground', width: 1060, height: 720 },
   attunebench: { title: '评测', width: 900, height: 700 },
-  welcome: { title: '欢迎', width: 760, height: 560 },
+  welcome: { title: '欢迎中心', width: 800, height: 620 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {
   appstore: ['App Store'],
+  welcome: ['欢迎'],
 }
 
 function resolveBuiltinWindowTitle(appId: BuiltinAppId, title: string): string {

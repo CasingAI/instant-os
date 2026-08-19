@@ -341,10 +341,10 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   welcome: {
-    version: '欢迎',
+    version: '欢迎中心',
     paragraphs: [
-      '欢迎应用在首次启动 Instant OS 时自动打开，介绍系统能力与快速入口。',
-      '可随时从启动台重新打开；关窗即完成引导，不影响正常使用。',
+      '欢迎中心在首次启动 Instant OS 时自动打开，介绍系统并提供可忽略的快速入口。',
+      '之后可从桌面图标或「应用程序」里再打开；关窗不影响正常使用。',
     ],
   },
 }
