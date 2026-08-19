@@ -94,6 +94,14 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
       const next = getSystemVolumeState()
       setSystemVolumeState(next.volume)
       setSystemMutedState(next.muted)
+      if (next.muted) {
+        setPickingPack(false)
+        if (volumePreviewingRef.current || systemVolumePreviewingRef.current) {
+          volumePreviewingRef.current = false
+          systemVolumePreviewingRef.current = false
+          endSystemSoundVolumePreview()
+        }
+      }
     })
   }, [])
 
@@ -117,9 +125,20 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
     }
     if (!commit({ enabled: checked })) return
     setEnabled(checked)
+    if (!checked) setPickingPack(false)
     if (checked) {
       playSystemSound('notification', { force: true })
     }
+  }
+
+  const handleMutedChange = (checked: boolean) => {
+    if (checked && (volumePreviewingRef.current || systemVolumePreviewingRef.current)) {
+      volumePreviewingRef.current = false
+      systemVolumePreviewingRef.current = false
+      endSystemSoundVolumePreview()
+    }
+    if (checked) setPickingPack(false)
+    setSystemMuted(checked)
   }
 
   const readSliderVolume = (el: HTMLInputElement): number => Number(el.value) / 100
@@ -240,7 +259,7 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
     playSystemSound(cue, { force: true })
   }
 
-  if (pickingPack) {
+  if (pickingPack && !systemMuted && enabled) {
     return (
       <div class="settings" ref={hostRef} data-settings-subpage>
         <SettingsChoicePickerView
@@ -266,59 +285,67 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
-          <h2 class="settings__section-title">系统音量</h2>
-          <p class="settings__section-subtitle">
-            总闸：统一控制音乐、提示音与语音朗读等全部系统声音。
-          </p>
-
-          <div class="settings__box settings__sound-volume-box">
-            <div class="settings__sound-volume-row">
-              <span class="settings__sound-volume-icon" aria-hidden="true">
-                <VolumeQuietIcon />
-              </span>
-              <input
-                type="range"
-                class="settings__emoji-offset-slider settings__sound-volume-slider"
-                min={0}
-                max={100}
-                step={1}
-                value={Math.round(systemVolume * 100)}
-                aria-label="系统音量"
-                onPointerDown={handleSystemVolumePointerDown}
-                onInput={handleSystemVolumeInput}
-                onPointerUp={handleSystemVolumePointerUp}
-                onPointerCancel={handleSystemVolumePointerUp}
-                onBlur={handleSystemVolumeBlur}
-              />
-              <span class="settings__sound-volume-icon" aria-hidden="true">
-                <VolumeLoudIcon />
-              </span>
-            </div>
-            {wideLayout ? (
-              <p class="settings__section-footnote settings__sound-volume-footnote">
-                当前 {Math.round(systemVolume * 100)}%
-              </p>
-            ) : null}
-          </div>
-
+          <h2 class="settings__section-title">静音</h2>
           <div class="settings__list">
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">静音</span>
               <IosSwitch
                 checked={systemMuted}
-                onChange={(checked) => setSystemMuted(checked)}
+                onChange={handleMutedChange}
                 label="静音"
               />
+            </div>
+          </div>
+          <p class="settings__section-footnote">
+            {systemMuted
+              ? '已静音。音乐、提示音和语音朗读都不会播放。'
+              : '打开后，音乐、提示音和语音朗读都不会播放。'}
+          </p>
+        </section>
+
+        {!systemMuted ? (
+          <>
+        <section class="settings__section">
+          <h2 class="settings__section-title">系统音量</h2>
+          <p class="settings__section-subtitle">
+            总闸：统一控制音乐、提示音与语音朗读等全部系统声音。
+          </p>
+
+          <div class="settings__list">
+            <div class="settings__sound-volume-cell">
+              <div class="settings__sound-volume-row">
+                <span class="settings__sound-volume-icon" aria-hidden="true">
+                  <VolumeQuietIcon />
+                </span>
+                <input
+                  type="range"
+                  class="settings__emoji-offset-slider settings__sound-volume-slider"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={Math.round(systemVolume * 100)}
+                  aria-label="系统音量"
+                  onPointerDown={handleSystemVolumePointerDown}
+                  onInput={handleSystemVolumeInput}
+                  onPointerUp={handleSystemVolumePointerUp}
+                  onPointerCancel={handleSystemVolumePointerUp}
+                  onBlur={handleSystemVolumeBlur}
+                />
+                <span class="settings__sound-volume-icon" aria-hidden="true">
+                  <VolumeLoudIcon />
+                </span>
+              </div>
+              {wideLayout ? (
+                <p class="settings__section-footnote settings__sound-volume-footnote">
+                  当前 {Math.round(systemVolume * 100)}%
+                </p>
+              ) : null}
             </div>
           </div>
         </section>
 
         <section class="settings__section">
-          <h2 class="settings__section-title">声音</h2>
-          <p class="settings__section-subtitle">
-            调节系统提示音音量与风格，效果类似 iOS 的「声音」设置。
-          </p>
-
+          <h2 class="settings__section-title">铃声和提醒</h2>
           <div class="settings__list">
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">系统提示音</span>
@@ -328,62 +355,57 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
                 label="系统提示音"
               />
             </div>
-          </div>
-        </section>
-
-        <section class="settings__section">
-          <h2 class="settings__section-title">铃声和提醒</h2>
-          <div class="settings__box settings__sound-volume-box">
-            <div
-              class="settings__sound-volume-row"
-              aria-disabled={!enabled ? 'true' : undefined}
-            >
-              <span class="settings__sound-volume-icon" aria-hidden="true">
-                <VolumeQuietIcon />
-              </span>
-              <input
-                ref={sliderRef}
-                type="range"
-                class="settings__emoji-offset-slider settings__sound-volume-slider"
-                min={0}
-                max={100}
-                step={1}
-                defaultValue={Math.round(volume * 100)}
-                disabled={!enabled}
-                aria-label="提示音音量"
-                onPointerDown={handleVolumePointerDown}
-                onInput={handleVolumeInput}
-                onPointerUp={handleVolumePointerUp}
-                onPointerCancel={handleVolumePointerUp}
-                onBlur={handleVolumeBlur}
-              />
-              <span class="settings__sound-volume-icon" aria-hidden="true">
-                <VolumeLoudIcon />
-              </span>
-            </div>
-            {wideLayout ? (
-              <p
-                ref={volumePercentLabelRef}
-                class="settings__section-footnote settings__sound-volume-footnote"
-              >
-                当前 {Math.round(volume * 100)}%
-              </p>
+            {enabled ? (
+              <>
+                <div class="settings__sound-volume-cell">
+                  <div class="settings__sound-volume-row">
+                    <span class="settings__sound-volume-icon" aria-hidden="true">
+                      <VolumeQuietIcon />
+                    </span>
+                    <input
+                      ref={sliderRef}
+                      type="range"
+                      class="settings__emoji-offset-slider settings__sound-volume-slider"
+                      min={0}
+                      max={100}
+                      step={1}
+                      defaultValue={Math.round(volume * 100)}
+                      aria-label="提示音音量"
+                      onPointerDown={handleVolumePointerDown}
+                      onInput={handleVolumeInput}
+                      onPointerUp={handleVolumePointerUp}
+                      onPointerCancel={handleVolumePointerUp}
+                      onBlur={handleVolumeBlur}
+                    />
+                    <span class="settings__sound-volume-icon" aria-hidden="true">
+                      <VolumeLoudIcon />
+                    </span>
+                  </div>
+                  {wideLayout ? (
+                    <p
+                      ref={volumePercentLabelRef}
+                      class="settings__section-footnote settings__sound-volume-footnote"
+                    >
+                      当前 {Math.round(volume * 100)}%
+                    </p>
+                  ) : null}
+                </div>
+                <SettingsNavRow
+                  label="提示音风格"
+                  value={systemSoundPackLabel(pack)}
+                  onClick={() => setPickingPack(true)}
+                />
+              </>
             ) : null}
           </div>
+          <p class="settings__section-footnote">
+            {enabled
+              ? '更改风格后，所有系统提示音都会切换。'
+              : '已关闭。系统不会播放提示音，音乐和语音朗读不受影响。'}
+          </p>
         </section>
 
-        <section class="settings__section">
-          <h2 class="settings__section-title">声音</h2>
-          <div class="settings__list">
-            <SettingsNavRow
-              label="提示音风格"
-              value={systemSoundPackLabel(pack)}
-              onClick={() => setPickingPack(true)}
-            />
-          </div>
-          <p class="settings__section-footnote">更改风格后，所有系统提示音都会切换。</p>
-        </section>
-
+        {enabled ? (
         <section class="settings__section">
           <h2 class="settings__section-title">试听</h2>
           <p class="settings__section-subtitle">点选可立即播放对应提示音。</p>
@@ -401,8 +423,11 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
             ))}
           </div>
         </section>
+        ) : null}
+          </>
+        ) : null}
 
-        {saveError && (
+        {saveError && !systemMuted && (
           <p class="settings__section-footnote settings__form-status--error">
             保存失败，请检查设备存储空间。
           </p>

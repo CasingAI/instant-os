@@ -3913,9 +3913,13 @@
   border-color: var(--settings-input-border);
 }
 
-/* —— 声音（仿 iOS 6 音量条） —— */
-.settings__sound-volume-box {
-  padding: 14px 14px 10px;
+/* —— 声音（仿 iOS 6 音量条，作为分组列表的一行） —— */
+.settings__sound-volume-cell {
+  padding: 12px 12px 10px;
+}
+
+.settings__list > .settings__sound-volume-cell:not(:last-child) {
+  border-bottom: 1px solid var(--settings-row-border);
 }
 
 .settings__sound-volume-row {
@@ -3923,11 +3927,6 @@
   grid-template-columns: 22px 1fr 22px;
   align-items: center;
   gap: 10px;
-}
-
-.settings__sound-volume-row[aria-disabled='true'] {
-  opacity: 0.45;
-  pointer-events: none;
 }
 
 .settings__sound-volume-icon {
