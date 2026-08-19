@@ -44,10 +44,11 @@ export type LauncherLayoutState = {
   desktopFolders: DesktopFolder[]
 }
 
-const DEFAULT_DOCK_PINNED_BUILTIN_COUNT = 4
+/** 出厂程序坞固定区。文件由 reconcile 保证始终存在。 */
+const DEFAULT_DOCK_PINNED_APP_IDS: readonly BuiltinAppId[] = ['files', 'appstore', 'browser', 'settings']
 
 /** 始终保留在程序坞固定区，不可移除。 */
-export const PERMANENTLY_PINNED_DOCK_APP_IDS: readonly BuiltinAppId[] = ['settings']
+export const PERMANENTLY_PINNED_DOCK_APP_IDS: readonly BuiltinAppId[] = ['files']
 
 export function isPermanentlyPinnedToDock(appId: AppId): boolean {
   return PERMANENTLY_PINNED_DOCK_APP_IDS.includes(appId as BuiltinAppId)
@@ -75,18 +76,16 @@ export function reconcilePinnedDockItemIds(
     ordered.push(itemId)
   }
 
-  for (const appId of PERMANENTLY_PINNED_DOCK_APP_IDS) {
-    if (!ordered.includes(appId)) {
-      ordered.push(appId)
-    }
+  const missingPermanent = PERMANENTLY_PINNED_DOCK_APP_IDS.filter((appId) => !ordered.includes(appId))
+  if (missingPermanent.length > 0) {
+    ordered.unshift(...missingPermanent)
   }
 
   return ordered
 }
 
 export function getDefaultPinnedDockItemIds(): DesktopItemId[] {
-  const leading = APP_REGISTRY.slice(0, DEFAULT_DOCK_PINNED_BUILTIN_COUNT).map((app) => app.id)
-  return reconcilePinnedDockItemIds(leading)
+  return reconcilePinnedDockItemIds([...DEFAULT_DOCK_PINNED_APP_IDS])
 }
 
 export function getDefaultDesktopIconOrder(): AppId[] {
