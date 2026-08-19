@@ -244,6 +244,7 @@
   text-align: left;
   cursor: pointer;
   text-shadow: inherit;
+  overflow: hidden;
 }
 
 .files__sidebar-item:hover {
@@ -263,6 +264,7 @@
 
 .files__sidebar-unmount {
   flex: 0 0 auto;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -315,6 +317,9 @@
 }
 
 .files__sidebar-label {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -324,9 +329,9 @@
 .files__sidebar-copy {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   min-width: 0;
   flex: 1;
+  overflow: hidden;
   line-height: 1.2;
 }
 
@@ -417,13 +422,14 @@
 
 .files__toolbar-title {
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
   font-size: 16px;
   font-weight: 700;
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 240px;
   color: #fff;
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.2);
 }
@@ -451,6 +457,7 @@
 
 .files__toolbar-btn {
   appearance: none;
+  flex-shrink: 0;
   margin: 0;
   padding: 5px 11px;
   border: 1px solid #8a6a38;
@@ -1413,6 +1420,21 @@ button.files__path-bar-segment:active {
   font-size: 10px;
   font-weight: 500;
   color: rgba(60, 42, 20, 0.62);
+}
+
+.files--narrow .files__toolbar {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  padding: 8px 8px;
+}
+
+.files--narrow .files__toolbar-left,
+.files--narrow .files__toolbar-right {
+  min-width: max-content;
+}
+
+.files--narrow .files__toolbar-right {
+  gap: 2px;
 }
 
 .files--narrow .files__sidebar-toolbar {

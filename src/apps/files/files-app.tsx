@@ -3454,31 +3454,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 </button>
               </>
             ) : undefined}
-            <button
-              type="button"
-              class="files__toolbar-btn files__toolbar-btn--icon"
-              aria-label="从本机导入…"
-              title="从本机导入…（也可从 Finder 拖入窗口）"
-              onClick={openSystemFilePicker}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  d="M8 2.5v7M5 6.5l3-3 3 3"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M2.5 9.5v2.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V9.5"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </button>
             <input
               ref={importInputRef}
               type="file"
