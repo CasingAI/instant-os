@@ -20,7 +20,6 @@ import {
   SoundsPaneIcon,
   SpeechPaneIcon,
   StoragePaneIcon,
-  SystemEnvPaneIcon,
   StartupItemsPaneIcon,
   NpmPaneIcon,
   DockPaneIcon,
@@ -42,7 +41,6 @@ export type SettingsPaneId =
   | 'proxy-server'
   | 'background-refresh'
   | 'npm'
-  | 'system-env'
   | 'startup-items'
   | 'resources'
   | 'safari'
@@ -68,7 +66,6 @@ export type SettingsRoute =
   | { view: 'background-refresh' }
   | { view: 'background-refresh-task'; taskId: BackgroundRefreshTaskId }
   | { view: 'npm' }
-  | { view: 'system-env' }
   | { view: 'startup-items' }
   | { view: 'display-emoji' }
   | { view: 'display-emoji-calibration' }
@@ -177,7 +174,6 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   },
   // 开发者
   { id: 'npm', label: 'NPM', Icon: NpmPaneIcon, route: { view: 'npm' }, group: 'developer' },
-  { id: 'system-env', label: '环境变量', Icon: SystemEnvPaneIcon, route: { view: 'system-env' }, group: 'developer' },
   {
     id: 'experimental',
     label: '开发者选项',
@@ -280,8 +276,6 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'background-refresh'
     case 'npm':
       return 'npm'
-    case 'system-env':
-      return 'system-env'
     case 'startup-items':
       return 'startup-items'
     case 'resources':
@@ -318,7 +312,6 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'proxy-server':
     case 'background-refresh':
     case 'npm':
-    case 'system-env':
     case 'startup-items':
     case 'resources':
     case 'safari-usage':

@@ -32,7 +32,6 @@ export const DEVICE_STORAGE_KEYS = {
   dockSettings: 'instant-os-dock-settings',
   wallpaperSettings: 'instant-os-wallpaper-settings',
   experimentalSettings: 'instant-os-experimental-settings',
-  systemEnvSettings: 'instant-os-system-env-settings',
   startupItemsSettings: 'instant-os-startup-items-settings',
   scene3dLabArchives: 'instant-os-scene3d-lab-archives',
   scene3dLabPrefs: 'instant-os-scene3d-lab-prefs',

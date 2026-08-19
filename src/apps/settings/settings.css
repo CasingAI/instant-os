@@ -1631,33 +1631,6 @@
   border-top: none;
 }
 
-.settings__list-head--system-env {
-  display: grid;
-  grid-template-columns: minmax(6rem, 0.35fr) minmax(8rem, 1fr) auto;
-  gap: 8px;
-  padding: 0 0 8px;
-}
-
-.settings__list-head--system-env span:last-child {
-  text-align: right;
-}
-
-.settings__system-env-row {
-  display: grid;
-  grid-template-columns: minmax(6rem, 0.35fr) minmax(8rem, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 0;
-}
-
-.settings__system-env-row + .settings__system-env-row {
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.settings__list--system-env {
-  margin-bottom: 4px;
-}
-
 .settings__list--startup-reordering {
   touch-action: none;
 }

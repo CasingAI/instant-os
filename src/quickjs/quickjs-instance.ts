@@ -4,7 +4,7 @@ import {
   type QuickJSAsyncRuntime,
   type QuickJSHandle,
 } from 'quickjs-emscripten'
-import { getResolvedSystemEnv } from '../os/system-env-settings-storage.ts'
+import { getResolvedSystemEnv } from '../os/system-env.ts'
 import { appendSystemDebugLog, shortenDebugPath } from '../os/system-debug-log.ts'
 import { FILES_VFS_READ_ROOT } from '../apps/files/files-path.ts'
 import {

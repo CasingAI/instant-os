@@ -6,7 +6,7 @@ import { wrapTerminalProgramEval } from '../apps/terminal/terminal-repl-program-
 import { createQuickJsInstance } from '../quickjs/quickjs-public.ts'
 import type { InstantShellHost } from '../terminal/instant-shell/instant-shell-types.ts'
 import { appendSystemDebugLog } from './system-debug-log.ts'
-import { getResolvedSystemEnv } from './system-env-settings-storage.ts'
+import { getResolvedSystemEnv } from './system-env.ts'
 import {
   getEnabledStartupItems,
   startupItemDisplayLabel,
