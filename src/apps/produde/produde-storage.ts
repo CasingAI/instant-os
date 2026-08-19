@@ -10,22 +10,11 @@ const registryStore = createRegistryStore<ProdudeStore>({
   fields: [
     {
       key: 'sessions',
+      valueType: 'json',
       read: (store) => store.sessions,
       write: (value, draft) => ({ ...draft, sessions: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return []
-        }
-        try {
-          const parsed = JSON.parse(raw) as unknown
-          return Array.isArray(parsed)
-            ? parsed.filter(isSessionLike).map(normalizeSession)
-            : []
-        } catch {
-          return []
-        }
-      },
+      normalize: (raw) =>
+        Array.isArray(raw) ? raw.filter(isSessionLike).map(normalizeSession) : [],
     },
     {
       key: 'activeSessionId',

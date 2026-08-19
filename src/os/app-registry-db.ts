@@ -4,21 +4,31 @@
  * 仅被 app-registry.ts（及测试）调用。
  *
  * - Object store: entries，复合主键 [appId, key]
- * - 记录只存 string value，语义与 localStorage 一致
+ * - 记录只存 string value；valueType 区分纯文本 / JSON（缺省 = 旧数据未标注）
  * - 额外 appId 索引，用于按命名空间枚举 / 字节统计
  */
 import { beginIdbTransaction } from './idb-transaction.ts'
 
 export const REGISTRY_DB_NAME = 'instant-os-app-registry'
-export const REGISTRY_DB_VERSION = 2
+export const REGISTRY_DB_VERSION = 3
 export const REGISTRY_ENTRIES_STORE = 'entries'
 export const REGISTRY_APP_ID_INDEX = 'appId'
+
+export type RegistryStoredValueType = 'text' | 'json'
+
+export type RegistryValueType = RegistryStoredValueType | 'untyped'
 
 export type RegistryEntry = {
   appId: string
   key: string
   value: string
+  /** 缺省表示迁移前旧记录（untyped） */
+  valueType?: RegistryStoredValueType
   updatedAt: number
+}
+
+export function entryValueType(entry: Pick<RegistryEntry, 'valueType'>): RegistryValueType {
+  return entry.valueType ?? 'untyped'
 }
 
 let dbPromise: Promise<IDBDatabase> | undefined
@@ -41,10 +51,16 @@ function createRegistryEntriesStore(db: IDBDatabase): IDBObjectStore {
 export function openRegistryDb(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
     const request = indexedDB.open(REGISTRY_DB_NAME, REGISTRY_DB_VERSION)
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result
+      const oldVersion = event.oldVersion
       if (!db.objectStoreNames.contains(REGISTRY_ENTRIES_STORE)) {
         createRegistryEntriesStore(db)
+        return
+      }
+
+      // v3 只增加可选 valueType 字段，无需重建 store。
+      if (oldVersion >= 2) {
         return
       }
 
@@ -89,17 +105,28 @@ export function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length
 }
 
-export async function registryDbGet(appId: string, key: string): Promise<string | undefined> {
+export async function registryDbGet(
+  appId: string,
+  key: string,
+): Promise<RegistryEntry | undefined> {
   const db = await openRegistryDb()
-  const result = await requestToPromise(
+  return requestToPromise(
     entriesStore(db, 'readonly').get([appId, key]) as IDBRequest<RegistryEntry | undefined>,
   )
-  return result?.value
 }
 
-export async function registryDbPut(appId: string, key: string, value: string): Promise<void> {
+export async function registryDbPut(
+  appId: string,
+  key: string,
+  value: string,
+  valueType?: RegistryStoredValueType,
+  updatedAt = Date.now(),
+): Promise<void> {
   const db = await openRegistryDb()
-  const entry: RegistryEntry = { appId, key, value, updatedAt: Date.now() }
+  const entry: RegistryEntry = { appId, key, value, updatedAt }
+  if (valueType !== undefined) {
+    entry.valueType = valueType
+  }
   await requestToPromise(entriesStore(db, 'readwrite').put(entry))
 }
 

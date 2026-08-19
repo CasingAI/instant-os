@@ -8,7 +8,7 @@ import {
   createGlobalRegistry,
   type GlobalNamespaceInfo,
 } from '../../os/app-registry.ts'
-import type { RegistryEntry } from '../../os/app-registry-db.ts'
+import { entryValueType, type RegistryEntry } from '../../os/app-registry-db.ts'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -54,6 +54,28 @@ function truncateValue(value: string, max = 180): string {
   return `${value.slice(0, max)}…`
 }
 
+function valueTypeBadgeLabel(entry: RegistryEntry): string {
+  const type = entryValueType(entry)
+  if (type === 'json') {
+    return 'JSON'
+  }
+  if (type === 'text') {
+    return '文本'
+  }
+  return '未标注'
+}
+
+function summarizeEntryValue(entry: RegistryEntry): string {
+  if (entryValueType(entry) !== 'json') {
+    return truncateValue(entry.value)
+  }
+  try {
+    return truncateValue(JSON.stringify(JSON.parse(entry.value) as unknown))
+  } catch {
+    return truncateValue(entry.value)
+  }
+}
+
 type NamespaceListProps = {
   namespaces: GlobalNamespaceInfo[]
   onSelect: (appId: string) => void
@@ -93,9 +115,12 @@ function RegistryEntryRow({ entry, deleting, onDelete }: RegistryEntryRowProps) 
   return (
     <div class="settings__row settings__row--static registry__row--entry">
       <span class="registry__row-keys">
-        <span class="settings__row-key">{entry.key}</span>
+        <span class="registry__row-key-line">
+          <span class="settings__row-key">{entry.key}</span>
+          <span class="settings__row-badge">{valueTypeBadgeLabel(entry)}</span>
+        </span>
         <span class="settings__row-key-detail">
-          {truncateValue(entry.value)} · 更新于 {formatTimestamp(entry.updatedAt)}
+          {summarizeEntryValue(entry)} · 更新于 {formatTimestamp(entry.updatedAt)}
         </span>
       </span>
       <span class="settings__row-size">{formatStorageSize(utf8Length(entry.value))}</span>

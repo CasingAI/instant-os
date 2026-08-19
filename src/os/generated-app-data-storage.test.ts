@@ -55,8 +55,8 @@ async function testSaveAsyncDiffsAndWrites(): Promise<void> {
   await resetState()
   const appId = 'gen:test-diff'
   const registry = createAppRegistry(appId)
-  await registry.setItem('keep', '1')
-  await registry.setItem('remove-me', 'old')
+  await registry.setText('keep', '1')
+  await registry.setText('remove-me', 'old')
 
   await hydrateAppRegistry(appId)
 
@@ -66,9 +66,11 @@ async function testSaveAsyncDiffsAndWrites(): Promise<void> {
   })
   assert.deepEqual(failures, [], '全部成功时无失败项')
 
-  assert.equal(await registry.getItem('keep'), 'updated')
-  assert.equal(await registry.getItem('added'), 'new')
-  assert.equal(await registry.getItem('remove-me'), undefined, '快照缺失的 key 被删除')
+  assert.equal(await registry.getText('keep'), 'updated')
+  assert.equal(await registry.getText('added'), 'new')
+  assert.equal(await registry.getText('remove-me'), undefined, '快照缺失的 key 被删除')
+  assert.equal(await registry.getType('keep'), 'text', '生成应用键类型为 text')
+  assert.equal(await registry.getType('added'), 'text')
   assert.deepEqual(loadGeneratedAppData(appId), { keep: 'updated', added: 'new' })
 }
 
@@ -76,7 +78,7 @@ async function testSaveAsyncQuotaFailureKeepsPrevious(): Promise<void> {
   await resetState()
   const appId = 'gen:test-quota'
   const registry = createAppRegistry(appId)
-  await registry.setItem('small', 'x')
+  await registry.setText('small', 'x')
   await hydrateAppRegistry(appId)
 
   const big = 'y'.repeat(5 * 1024 * 1024 + 1)
@@ -85,21 +87,22 @@ async function testSaveAsyncQuotaFailureKeepsPrevious(): Promise<void> {
   assert.equal(failures[0]!.key, 'small')
   assert.equal(failures[0]!.previous, 'x', '失败项携带写入前旧值')
   assert.ok(failures[0]!.error.name.includes('Quota'), '失败项为配额错误')
-  assert.equal(await registry.getItem('small'), 'x', '配额失败回滚旧值')
+  assert.equal(await registry.getText('small'), 'x', '配额失败回滚旧值')
 
   // 后续继续写入仍可用（batch 逐 key 隔离）
   const ok = await saveGeneratedAppDataAsync(appId, { small: 'ok', extra: 'e' })
   assert.deepEqual(ok, [])
-  assert.equal(await registry.getItem('small'), 'ok')
-  assert.equal(await registry.getItem('extra'), 'e')
+  assert.equal(await registry.getText('small'), 'ok')
+  assert.equal(await registry.getText('extra'), 'e')
+  assert.equal(await registry.getType('extra'), 'text')
 }
 
 async function testClearGeneratedAppData(): Promise<void> {
   await resetState()
   const appId = 'gen:test-clear'
   const registry = createAppRegistry(appId)
-  await registry.setItem('a', '1')
-  await registry.setItem('b', '2')
+  await registry.setText('a', '1')
+  await registry.setText('b', '2')
 
   await clearGeneratedAppData(appId)
   assert.equal(await registryDbGet(appId, 'a'), undefined)

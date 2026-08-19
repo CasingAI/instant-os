@@ -11,22 +11,14 @@ const registryStore = createRegistryStore<ICodeInternalProject[]>({
   fields: [
     {
       key: 'projects',
+      valueType: 'json',
       read: (projects) => projects,
       write: (value) => value,
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
+      normalize: (raw) => {
+        if (!Array.isArray(raw)) {
           return []
         }
-        try {
-          const parsed: unknown = JSON.parse(raw)
-          if (!Array.isArray(parsed)) {
-            return []
-          }
-          return parsed.filter(isInternalProject)
-        } catch {
-          return []
-        }
+        return raw.filter(isInternalProject)
       },
     },
   ],

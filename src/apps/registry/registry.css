@@ -28,3 +28,10 @@
   flex-direction: column;
   gap: 2px;
 }
+
+.registry__row-key-line {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

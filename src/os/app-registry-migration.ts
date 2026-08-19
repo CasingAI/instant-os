@@ -171,10 +171,10 @@ async function migrateSingleItem(
         return
       }
       for (const [key, value] of Object.entries(parsed)) {
-        await registry.setItem(key, value)
+        await registry.setText(key, value)
       }
     } else {
-      await registry.setItem(item.registryKey, raw)
+      await registry.setText(item.registryKey, raw)
     }
     removeLocalStorageItem(item.storageKey)
     result.migrated.push(item.appId)

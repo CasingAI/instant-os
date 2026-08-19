@@ -6,80 +6,78 @@
  *
  * 1. 多 key 字段模式（推荐）：通过 fields 把应用的顶层字段映射为独立 registry key。
  *    - 每个字段独立读写，写时 diff 只落变化字段。
- *    - 注册表管理器可直接看到字段级 key，而非一个巨大的 store blob。
+ *    - 文本字段走 setText；JSON 字段走 setJson（normalize 接收已 parse 的值）。
  *    ```
  *    const store = createRegistryStore<WeatherStore>({
  *      appId: 'weather',
  *      defaultValue: emptyStore,
  *      fields: [
- *        { key: 'cities', read: s => s.cities, write: (v, d) => ({ ...d, cities: v }),
- *          serialize: JSON.stringify, deserialize: raw => raw ? normalizeCities(JSON.parse(raw)) : [] },
- *        { key: 'activeCityId', read: s => s.activeCityId, write: (v, d) => ({ ...d, activeCityId: v }),
+ *        { key: 'cities', valueType: 'json', read: s => s.cities,
+ *          write: (v, d) => ({ ...d, cities: v }),
+ *          normalize: raw => normalizeCities(raw) },
+ *        { key: 'activeCityId', read: s => s.activeCityId,
+ *          write: (v, d) => ({ ...d, activeCityId: v }),
  *          serialize: v => v ?? '', deserialize: raw => raw || undefined },
  *      ],
  *      changedEventName: 'instant-os:weather-store-changed',
  *    })
  *    ```
  *
- * 2. 单 key 兼容模式（旧签名）：整份 store 序列化到一个 key（如 'store'）。
- *    ```
- *    const store = createRegistryStore<T>({ appId, key: 'store', serialize, deserialize, changedEventName })
- *    ```
+ * 2. 单 key 兼容模式（旧签名）：整份 store 序列化到一个 key（默认按 JSON 写入）。
  */
 import {
   applyRegistryBatch,
   createAppRegistry,
+  getRegistryCacheEntries,
   isRegistryHydrated,
   type RegistryBatchItem,
 } from './app-registry.ts'
 
-export type RegistryStoreOptions<T> =
-  | {
-      appId: string
-      /** 兼容模式：整份 store 序列化到单个 key */
-      key: string
-      serialize: (store: T) => string
-      deserialize: (raw: string | undefined) => T
-      changedEventName?: string
-    }
-  | {
-      appId: string
-      /** 字段模式的拖底默认值（缺失字段 / 空数据时使用） */
-      defaultValue: () => T
-      fields: RegistryField<T, any>[]
-      /** 旧版单 key（默认 'store'）存在时，首次访问自动按字段拆分迁移 */
-      legacyKey?: string
-      /** 合并所有字段后的整体归一化（用于跨字段不变量，如 activeCityId 必须在 cities 中） */
-      finalize?: (store: T) => T
-      changedEventName?: string
-    }
-
-/**
- * 多 key 模式下单个字段的映射定义：
- * - read：从完整 store 中取出该字段值
- * - write：把该字段值写回一份新的 store
- * - serialize / deserialize：字段值与 registry 字符串之间的转换
- */
-export type RegistryField<T, V> = {
+export type RegistryTextField<T, V> = {
   key: string
+  valueType?: 'text'
   read: (store: T) => V
   write: (value: V, current: T) => T
   serialize: (value: V) => string
   deserialize: (raw: string | undefined) => V
 }
 
+export type RegistryJsonField<T, V> = {
+  key: string
+  valueType: 'json'
+  read: (store: T) => V
+  write: (value: V, current: T) => T
+  normalize: (raw: unknown) => V
+}
+
+export type RegistryField<T, V = unknown> = RegistryTextField<T, V> | RegistryJsonField<T, V>
+
+export type RegistryStoreOptions<T> =
+  | {
+      appId: string
+      key: string
+      serialize: (store: T) => string
+      deserialize: (raw: string | undefined) => T
+      /** 兼容模式默认按 JSON 落盘 */
+      valueType?: 'text' | 'json'
+      changedEventName?: string
+    }
+  | {
+      appId: string
+      defaultValue: () => T
+      fields: RegistryField<T, any>[]
+      legacyKey?: string
+      finalize?: (store: T) => T
+      changedEventName?: string
+    }
+
 export type RegistryStore<T> = {
   subscribe: (listener: () => void) => () => void
   read: () => Promise<T>
   write: (store: T) => Promise<void>
-  /**
-   * 同步读内存缓存（未 hydrate 或写入尚未完成时可能滞后）。
-   * 仅用于「启动早期兜底展示」，常规路径一律用异步 read。
-   */
   readSync: () => T | undefined
   hydrate: () => Promise<void>
   isHydrated: () => boolean
-  /** 当前已落盘的字段 key 列表（管理 / 调试用） */
   keys: () => Promise<string[]>
 }
 
@@ -87,6 +85,23 @@ function isFieldMode<T>(
   options: RegistryStoreOptions<T>,
 ): options is Extract<RegistryStoreOptions<T>, { fields: RegistryField<T, any>[] }> {
   return 'fields' in options
+}
+
+function isJsonField<T, V>(
+  field: RegistryField<T, V>,
+): field is RegistryJsonField<T, V> {
+  return field.valueType === 'json'
+}
+
+function parseJsonRaw(raw: string | undefined): unknown {
+  if (raw === undefined || raw === '') {
+    return undefined
+  }
+  try {
+    return JSON.parse(raw) as unknown
+  } catch {
+    return undefined
+  }
 }
 
 const LEGACY_FALLBACK_KEY = 'store'
@@ -98,9 +113,6 @@ export function createRegistryStore<T>(options: RegistryStoreOptions<T>): Regist
   return createLegacyRegistryStore(options)
 }
 
-/**
- * 字段模式：整份 store 以顶层字段拆分到多个 registry key 存储。
- */
 function createFieldRegistryStore<T>(
   options: Extract<RegistryStoreOptions<T>, { fields: RegistryField<T, any>[] }>,
 ): RegistryStore<T> {
@@ -118,22 +130,43 @@ function createFieldRegistryStore<T>(
     }
   }
 
-  /** 从内存快照合并出完整 store */
-  function mergeFromSnapshot(snapshot: Record<string, string> | undefined): T {
-    if (!snapshot) {
-      return defaultValue()
-    }
+  function mergeFromEntries(
+    entries: ReturnType<typeof getRegistryCacheEntries>,
+  ): T {
     let draft = defaultValue()
     for (const field of fields) {
-      draft = field.write(field.deserialize(snapshot[field.key]), draft)
+      const entry = entries?.[field.key]
+      if (isJsonField(field)) {
+        draft = field.write(field.normalize(parseJsonRaw(entry?.raw)), draft)
+      } else {
+        draft = field.write(field.deserialize(entry?.raw), draft)
+      }
     }
     return finalize ? finalize(draft) : draft
   }
 
-  /**
-   * 迁移旧版单 key 数据：若存在 legacyKey 且没有任何字段 key，则按字段拆分写入，
-   * 全部成功后删除 legacyKey。幂等：字段 key 已存在或有写入失败则跳过/保留旧 key。
-   */
+  function fieldWriteItem<V>(field: RegistryField<T, V>, store: T): RegistryBatchItem | undefined {
+    if (isJsonField(field)) {
+      const value = field.read(store)
+      if (value === undefined) {
+        return { key: field.key, value: undefined }
+      }
+      return { key: field.key, json: value }
+    }
+    return { key: field.key, text: field.serialize(field.read(store)) }
+  }
+
+  function encodedFieldValue<V>(field: RegistryField<T, V>, store: T): string | undefined {
+    if (isJsonField(field)) {
+      const value = field.read(store)
+      if (value === undefined) {
+        return undefined
+      }
+      return JSON.stringify(value)
+    }
+    return field.serialize(field.read(store))
+  }
+
   async function runLegacyMigration(): Promise<void> {
     if (!isRegistryHydrated(appId)) {
       await registry.hydrate()
@@ -167,7 +200,10 @@ function createFieldRegistryStore<T>(
       : ({ ...defaultValue(), ...(legacy as Record<string, unknown>) } as T)
     const writes: RegistryBatchItem[] = []
     for (const field of fields) {
-      writes.push({ key: field.key, value: field.serialize(field.read(merged)) })
+      const item = fieldWriteItem(field, merged)
+      if (item && !('value' in item && item.value === undefined)) {
+        writes.push(item)
+      }
     }
     if (writes.length === 0) {
       return
@@ -180,6 +216,29 @@ function createFieldRegistryStore<T>(
     await registry.removeItem(legacyKey)
   }
 
+  async function retagFieldTypes(): Promise<void> {
+    const entries = getRegistryCacheEntries(appId) ?? {}
+    for (const field of fields) {
+      const entry = entries[field.key]
+      if (!entry) {
+        continue
+      }
+      if (isJsonField(field)) {
+        if (entry.raw === '') {
+          await registry.removeItem(field.key)
+          continue
+        }
+        if (entry.valueType !== 'json') {
+          await registry.retag(field.key, 'json')
+        }
+        continue
+      }
+      if (entry.valueType !== 'text') {
+        await registry.retag(field.key, 'text')
+      }
+    }
+  }
+
   return {
     subscribe(listener: () => void): () => void {
       listeners.add(listener)
@@ -189,7 +248,8 @@ function createFieldRegistryStore<T>(
     async read() {
       await registry.hydrate()
       await runLegacyMigration()
-      return mergeFromSnapshot(registry.snapshotSync())
+      await retagFieldTypes()
+      return mergeFromEntries(getRegistryCacheEntries(appId))
     },
 
     async write(store: T) {
@@ -198,9 +258,13 @@ function createFieldRegistryStore<T>(
       const snapshot = registry.snapshotSync() ?? {}
       const writes: RegistryBatchItem[] = []
       for (const field of fields) {
-        const serialized = field.serialize(field.read(store))
-        if (snapshot[field.key] !== serialized) {
-          writes.push({ key: field.key, value: serialized })
+        const encoded = encodedFieldValue(field, store)
+        if (snapshot[field.key] === encoded) {
+          continue
+        }
+        const item = fieldWriteItem(field, store)
+        if (item) {
+          writes.push(item)
         }
       }
       if (writes.length === 0) {
@@ -217,12 +281,13 @@ function createFieldRegistryStore<T>(
       if (!isRegistryHydrated(appId)) {
         return undefined
       }
-      return mergeFromSnapshot(registry.snapshotSync())
+      return mergeFromEntries(getRegistryCacheEntries(appId))
     },
 
     async hydrate() {
       await registry.hydrate()
       await runLegacyMigration()
+      await retagFieldTypes()
     },
 
     isHydrated() {
@@ -232,19 +297,18 @@ function createFieldRegistryStore<T>(
     async keys() {
       await registry.hydrate()
       await runLegacyMigration()
+      await retagFieldTypes()
       const snapshot = registry.snapshotSync() ?? {}
       return fields.map((field) => field.key).filter((key) => snapshot[key] !== undefined)
     },
   }
 }
 
-/**
- * 兼容模式：整份 store 序列化到单个 key（旧签名）。
- */
 function createLegacyRegistryStore<T>(
   options: Extract<RegistryStoreOptions<T>, { key: string }>,
 ): RegistryStore<T> {
   const { appId, key, serialize, deserialize, changedEventName } = options
+  const valueType = options.valueType ?? 'json'
   const registry = createAppRegistry(appId)
   const listeners = new Set<() => void>()
 
@@ -257,6 +321,19 @@ function createLegacyRegistryStore<T>(
     }
   }
 
+  async function retagIfNeeded(): Promise<void> {
+    const current = await registry.getType(key)
+    const raw = await registry.getText(key)
+    if (raw === undefined || current === valueType) {
+      return
+    }
+    if (valueType === 'json' && raw === '') {
+      await registry.removeItem(key)
+      return
+    }
+    await registry.retag(key, valueType)
+  }
+
   return {
     subscribe(listener: () => void): () => void {
       listeners.add(listener)
@@ -264,12 +341,18 @@ function createLegacyRegistryStore<T>(
     },
 
     async read() {
-      const raw = await registry.getItem(key)
-      return deserialize(raw)
+      await registry.hydrate()
+      await retagIfNeeded()
+      return deserialize(await registry.getText(key))
     },
 
     async write(store: T) {
-      await registry.setItem(key, serialize(store))
+      const raw = serialize(store)
+      if (valueType === 'json') {
+        await registry.setJson(key, JSON.parse(raw) as unknown)
+      } else {
+        await registry.setText(key, raw)
+      }
       notify()
     },
 
@@ -283,6 +366,7 @@ function createLegacyRegistryStore<T>(
 
     async hydrate() {
       await registry.hydrate()
+      await retagIfNeeded()
     },
 
     isHydrated() {
@@ -291,6 +375,7 @@ function createLegacyRegistryStore<T>(
 
     async keys() {
       await registry.hydrate()
+      await retagIfNeeded()
       const snapshot = registry.snapshotSync() ?? {}
       return snapshot[key] !== undefined ? [key] : []
     },

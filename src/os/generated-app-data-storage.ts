@@ -77,7 +77,7 @@ export async function saveGeneratedAppDataAsync(
     if (next === previous) {
       continue
     }
-    writes.push({ key, value: next })
+    writes.push(next === undefined ? { key, value: undefined } : { key, text: next })
   }
 
   if (writes.length === 0) {

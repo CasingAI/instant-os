@@ -27,35 +27,17 @@ const registryStore = createRegistryStore<StocksStore>({
     },
     {
       key: 'marketBoard',
+      valueType: 'json',
       read: (store) => store.marketBoard,
       write: (value, draft) => ({ ...draft, marketBoard: value }),
-      serialize: (value) => (value === undefined ? '' : JSON.stringify(value)),
-      deserialize: (raw) => {
-        if (!raw) {
-          return undefined
-        }
-        try {
-          return normalizeMarketBoard(JSON.parse(raw) as unknown)
-        } catch {
-          return undefined
-        }
-      },
+      normalize: normalizeMarketBoard,
     },
     {
       key: 'watchlist',
+      valueType: 'json',
       read: (store) => store.watchlist,
       write: (value, draft) => ({ ...draft, watchlist: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return []
-        }
-        try {
-          return normalizeWatchlist(JSON.parse(raw) as unknown)
-        } catch {
-          return []
-        }
-      },
+      normalize: normalizeWatchlist,
     },
     {
       key: 'activeWatchId',

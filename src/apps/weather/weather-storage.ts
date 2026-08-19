@@ -24,19 +24,10 @@ const registryStore = createRegistryStore<WeatherStore>({
     },
     {
       key: 'cities',
+      valueType: 'json',
       read: (store) => store.cities,
       write: (value, draft) => ({ ...draft, cities: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return []
-        }
-        try {
-          return normalizeCityEntries(JSON.parse(raw) as unknown)
-        } catch {
-          return []
-        }
-      },
+      normalize: normalizeCityEntries,
     },
     {
       key: 'activeCityId',

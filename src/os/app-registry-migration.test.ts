@@ -59,7 +59,9 @@ async function testBuiltinAppImportedAndLegacyKeyRemoved(): Promise<void> {
   const keys = await registry.keys()
   assert.ok(!keys.includes('store'), '旧 store 单键应被拆分为字段 key')
   assert.deepEqual(keys.sort(), ['cities', 'defaultDisplay', 'myLocationCityId', 'activeCityId'].sort(), 'weather 字段 key 已生成')
-  assert.equal(await registry.getItem('defaultDisplay'), 'my-location', '默认值被写入 defaultDisplay 字段')
+  assert.equal(await registry.getText('defaultDisplay'), 'my-location', '默认值被写入 defaultDisplay 字段')
+  assert.equal(await registry.getType('defaultDisplay'), 'text')
+  assert.equal(await registry.getType('cities'), 'json')
 }
 
 async function testEmptyKeysNotImported(): Promise<void> {
@@ -71,7 +73,7 @@ async function testEmptyKeysNotImported(): Promise<void> {
   assert.ok(result.skipped.includes('calendar'))
 
   const registry = createAppRegistry('calendar')
-  assert.equal(await registry.getItem('store'), undefined)
+  assert.equal(await registry.getText('store'), undefined)
 }
 
 async function testGeneratedAppSnapshotImportedPerKey(): Promise<void> {
@@ -87,8 +89,10 @@ async function testGeneratedAppSnapshotImportedPerKey(): Promise<void> {
   assert.equal(store.has(`${GENERATED_APP_DATA_KEY_PREFIX}gen:abc`), false)
 
   const registry = createAppRegistry('gen:abc')
-  assert.equal(await registry.getItem('theme'), 'dark')
-  assert.equal(await registry.getItem('notes'), 'hello')
+  assert.equal(await registry.getText('theme'), 'dark')
+  assert.equal(await registry.getText('notes'), 'hello')
+  assert.equal(await registry.getType('theme'), 'text', '生成应用键类型为 text')
+  assert.equal(await registry.getType('notes'), 'text')
 }
 
 async function testIdempotentSkipWhenRegistryHasData(): Promise<void> {
@@ -96,7 +100,7 @@ async function testIdempotentSkipWhenRegistryHasData(): Promise<void> {
   const store = installLocalStorageStub()
   // 先有注册表数据（模拟应用已打开写入）
   const registry = createAppRegistry('weather')
-  await registry.setItem('store', JSON.stringify({
+  await registry.setText('store', JSON.stringify({
     myLocationCityId: 'beijing',
     defaultDisplay: 'my-location',
     cities: [{ id: 'beijing', name: '北京', region: undefined, weather: undefined }],
@@ -111,9 +115,11 @@ async function testIdempotentSkipWhenRegistryHasData(): Promise<void> {
   assert.equal(store.has(DEVICE_STORAGE_KEYS.weather), false)
 
   // 注册表原有数据不被旧 localStorage 覆盖，且旧 store 会被拆分为字段 key
-  assert.equal(await registry.getItem('store'), undefined, '旧 store 单键已拆分清除')
-  assert.equal(await registry.getItem('myLocationCityId'), 'beijing', '注册表数据保留为字段 key')
-  assert.deepEqual(JSON.parse((await registry.getItem('cities')) ?? '[]'), [{ id: 'beijing', name: '北京' }])
+  assert.equal(await registry.getText('store'), undefined, '旧 store 单键已拆分清除')
+  assert.equal(await registry.getText('myLocationCityId'), 'beijing', '注册表数据保留为字段 key')
+  assert.equal(await registry.getType('myLocationCityId'), 'text')
+  assert.equal(await registry.getType('cities'), 'json')
+  assert.deepEqual(JSON.parse((await registry.getText('cities')) ?? '[]'), [{ id: 'beijing', name: '北京' }])
 }
 
 async function testIcodeStoreKeyMigratedToProjects(): Promise<void> {
@@ -130,7 +136,8 @@ async function testIcodeStoreKeyMigratedToProjects(): Promise<void> {
   const keys = await registry.keys()
   assert.ok(!keys.includes('store'), '旧 store 单键应被拆分为 projects 字段 key')
   assert.ok(keys.includes('projects'), 'projects 字段 key 已生成')
-  assert.equal(await registry.getItem('projects'), JSON.stringify([{ id: 'p1' }]))
+  assert.equal(await registry.getText('projects'), JSON.stringify([{ id: 'p1' }]))
+  assert.equal(await registry.getType('projects'), 'json')
 }
 
 async function testLegacyDataFilesDeleted(): Promise<void> {

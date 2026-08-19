@@ -22,19 +22,10 @@ const registryStore = createRegistryStore<CalendarStore>({
   fields: [
     {
       key: 'digestsByMonth',
+      valueType: 'json',
       read: (store) => store.digestsByMonth,
       write: (value, draft) => ({ ...draft, digestsByMonth: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return {}
-        }
-        try {
-          return normalizeDigestsByMonth(JSON.parse(raw) as unknown)
-        } catch {
-          return {}
-        }
-      },
+      normalize: normalizeDigestsByMonth,
     },
   ],
   changedEventName: CALENDAR_STORE_CHANGED_EVENT,

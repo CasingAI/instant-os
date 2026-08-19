@@ -95,7 +95,7 @@ async function testDeserializeNormalizes(): Promise<void> {
   const store = makeStore('registry-store-normalize')
   // 直接写脏数据，读时走 deserialize 归一化
   const { createAppRegistry } = await import('./app-registry.ts')
-  await createAppRegistry('registry-store-normalize').setItem('store', '{"items":"not-array"}')
+  await createAppRegistry('registry-store-normalize').setText('store', '{"items":"not-array"}')
   const value = await store.read()
   assert.deepEqual(value.items, [], '非数组 items 归一化为空数组')
 
@@ -168,20 +168,10 @@ function makeFieldStore(appId: string, changedEventName?: string) {
       },
       {
         key: 'items',
+        valueType: 'json',
         read: (store) => store.items,
         write: (value, current) => ({ ...current, items: value }),
-        serialize: JSON.stringify,
-        deserialize: (raw) => {
-          if (!raw) {
-            return []
-          }
-          try {
-            const parsed = JSON.parse(raw)
-            return Array.isArray(parsed) ? parsed : []
-          } catch {
-            return []
-          }
-        },
+        normalize: (raw) => (Array.isArray(raw) ? raw : []),
       },
     ],
     changedEventName,
@@ -224,7 +214,7 @@ async function testFieldMigratesFromLegacyStore(): Promise<void> {
   await resetState()
   // 模拟旧版：直接把整份 JSON 写到 'store' key
   const { createAppRegistry } = await import('./app-registry.ts')
-  await createAppRegistry('registry-store-field-migrate').setItem(
+  await createAppRegistry('registry-store-field-migrate').setText(
     'store',
     JSON.stringify({ items: ['x', 'y'], name: 'legacy' }),
   )
@@ -258,7 +248,7 @@ async function testFieldReadSyncMerges(): Promise<void> {
 async function testFieldCleansLegacyKeyFromMemory(): Promise<void> {
   await resetState()
   const { createAppRegistry } = await import('./app-registry.ts')
-  await createAppRegistry('registry-store-field-clean').setItem(
+  await createAppRegistry('registry-store-field-clean').setText(
     'store',
     JSON.stringify({ items: ['a'], name: 'n' }),
   )
@@ -268,8 +258,38 @@ async function testFieldCleansLegacyKeyFromMemory(): Promise<void> {
   await store.write({ items: ['b'], name: 'n2' })
   // 写后 legacyKey 不应再残留（内存与 DB 均已删除）
   const registry = createAppRegistry('registry-store-field-clean')
-  assert.equal(await registry.getItem('store'), undefined, '旧 store key 已被清除')
+  assert.equal(await registry.getText('store'), undefined, '旧 store key 已被清除')
   assert.deepEqual(await store.read(), { items: ['b'], name: 'n2' })
+}
+
+async function testFieldJsonWriteIsTyped(): Promise<void> {
+  await resetState()
+  const store = makeFieldStore('registry-store-json-type')
+  await store.write({ items: ['a'], name: 'n' })
+  const { createAppRegistry } = await import('./app-registry.ts')
+  const registry = createAppRegistry('registry-store-json-type')
+  assert.equal(await registry.getType('items'), 'json')
+  assert.equal(await registry.getType('name'), 'text')
+  assert.deepEqual(await registry.getJson('items'), ['a'])
+  assert.equal(await registry.getText('name'), 'n')
+}
+
+async function testFieldRetagsUntypedWithoutRewritingRaw(): Promise<void> {
+  await resetState()
+  const raw = '[ "keep" , "order" ]'
+  const { registryDbPut } = await import('./app-registry-db.ts')
+  await registryDbPut('registry-store-retag', 'items', raw)
+  await registryDbPut('registry-store-retag', 'name', 'hello')
+  __resetRegistryCacheForTest()
+
+  const store = makeFieldStore('registry-store-retag')
+  await store.read()
+  const { createAppRegistry } = await import('./app-registry.ts')
+  const registry = createAppRegistry('registry-store-retag')
+  assert.equal(await registry.getType('items'), 'json')
+  assert.equal(await registry.getType('name'), 'text')
+  assert.equal(await registry.getText('items'), raw, '打标不改 raw 字节')
+  assert.equal(await registry.getText('name'), 'hello')
 }
 
 async function main(): Promise<void> {
@@ -284,6 +304,8 @@ async function main(): Promise<void> {
     testFieldMigratesFromLegacyStore,
     testFieldReadSyncMerges,
     testFieldCleansLegacyKeyFromMemory,
+    testFieldJsonWriteIsTyped,
+    testFieldRetagsUntypedWithoutRewritingRaw,
   ]
   for (const test of cases) {
     await test()

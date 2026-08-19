@@ -85,35 +85,17 @@ const registryStore = createRegistryStore<BooksIndexStore>({
   fields: [
     {
       key: 'library',
+      valueType: 'json',
       read: (store) => store.library,
       write: (value, draft) => ({ ...draft, library: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return []
-        }
-        try {
-          return normalizeLibrary(JSON.parse(raw))
-        } catch {
-          return []
-        }
-      },
+      normalize: normalizeLibrary,
     },
     {
       key: 'catalog',
+      valueType: 'json',
       read: (store) => store.catalog,
       write: (value, draft) => ({ ...draft, catalog: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return []
-        }
-        try {
-          return normalizeCatalog(JSON.parse(raw))
-        } catch {
-          return []
-        }
-      },
+      normalize: normalizeCatalog,
     },
     {
       key: 'catalogGeneratedAt',
@@ -124,19 +106,10 @@ const registryStore = createRegistryStore<BooksIndexStore>({
     },
     {
       key: 'readingProgress',
+      valueType: 'json',
       read: (store) => store.readingProgress,
       write: (value, draft) => ({ ...draft, readingProgress: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return {}
-        }
-        try {
-          return normalizeReadingProgress(JSON.parse(raw))
-        } catch {
-          return {}
-        }
-      },
+      normalize: normalizeReadingProgress,
     },
   ],
   finalize: reconcileInterruptedBookGenerations,

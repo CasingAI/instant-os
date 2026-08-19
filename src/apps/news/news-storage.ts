@@ -110,35 +110,17 @@ const registryStore = createRegistryStore<NewsStore>({
   fields: [
     {
       key: 'articles',
+      valueType: 'json',
       read: (store) => store.articles,
       write: (value, draft) => ({ ...draft, articles: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return []
-        }
-        try {
-          return normalizeArticles(JSON.parse(raw))
-        } catch {
-          return []
-        }
-      },
+      normalize: normalizeArticles,
     },
     {
       key: 'commentThreads',
+      valueType: 'json',
       read: (store) => store.commentThreads,
       write: (value, draft) => ({ ...draft, commentThreads: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return {}
-        }
-        try {
-          return normalizeCommentThreads(JSON.parse(raw))
-        } catch {
-          return {}
-        }
-      },
+      normalize: normalizeCommentThreads,
     },
   ],
   changedEventName: 'instant-os:news-store-changed',

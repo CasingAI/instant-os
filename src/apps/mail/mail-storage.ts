@@ -61,35 +61,17 @@ const registryStore = createRegistryStore<MailStore>({
     },
     {
       key: 'userAddress',
+      valueType: 'json',
       read: (store) => store.userAddress,
       write: (value, draft) => ({ ...draft, userAddress: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return USER_ADDRESS
-        }
-        try {
-          return normalizeUserAddress(JSON.parse(raw))
-        } catch {
-          return USER_ADDRESS
-        }
-      },
+      normalize: normalizeUserAddress,
     },
     {
       key: 'threads',
+      valueType: 'json',
       read: (store) => store.threads,
       write: (value, draft) => ({ ...draft, threads: value }),
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        if (!raw) {
-          return []
-        }
-        try {
-          return normalizeThreads(JSON.parse(raw))
-        } catch {
-          return []
-        }
-      },
+      normalize: normalizeThreads,
     },
   ],
 })

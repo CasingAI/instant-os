@@ -5,9 +5,11 @@
  * - 粗粒度按需 hydrate：首次访问某应用的任意 key 时整包读入内存
  * - 同步内存缓存 + 异步 IndexedDB 落盘（写失败回滚内存并抛错）
  * - 单应用 5 MB 配额（与 localStorage 设备容量一致）
+ * - 值仍是字符串，valueType 区分 text / json；旧记录缺省为 untyped
  * - createGlobalRegistry() 仅供注册表应用：可读 / 删任意命名空间，不允许写入
  */
 import {
+  entryValueType,
   registryDbClearApp,
   registryDbDelete,
   registryDbGet,
@@ -17,7 +19,11 @@ import {
   registryDbPut,
   utf8ByteLength,
   type RegistryEntry,
+  type RegistryStoredValueType,
+  type RegistryValueType,
 } from './app-registry-db.ts'
+
+export type { RegistryStoredValueType, RegistryValueType } from './app-registry-db.ts'
 
 export const APP_REGISTRY_QUOTA_BYTES = 5 * 1024 * 1024
 
@@ -38,11 +44,27 @@ export class RegistryWriteError extends Error {
   }
 }
 
-type AppCache = Map<string, string>
+export class RegistryTypeError extends Error {
+  constructor(appId: string, key: string, actual: RegistryValueType) {
+    super(`注册表键不是 JSON 类型：${appId} / ${key}（${actual}）`)
+    this.name = 'RegistryTypeError'
+  }
+}
+
+type CacheEntry = {
+  raw: string
+  valueType: RegistryValueType
+}
+
+type AppCache = Map<string, CacheEntry>
 
 const cache = new Map<string, AppCache>()
 const hydrated = new Set<string>()
 const hydratePromises = new Map<string, Promise<void>>()
+
+function cacheEntryFromRecord(entry: RegistryEntry): CacheEntry {
+  return { raw: entry.value, valueType: entryValueType(entry) }
+}
 
 export async function hydrateAppRegistry(appId: string): Promise<void> {
   if (hydrated.has(appId)) {
@@ -55,9 +77,9 @@ export async function hydrateAppRegistry(appId: string): Promise<void> {
 
   const promise = (async () => {
     const entries = await registryDbListEntries(appId)
-    const map = new Map<string, string>()
+    const map = new Map<string, CacheEntry>()
     for (const entry of entries) {
-      map.set(entry.key, entry.value)
+      map.set(entry.key, cacheEntryFromRecord(entry))
     }
     cache.set(appId, map)
     hydrated.add(appId)
@@ -80,8 +102,8 @@ function requireHydrated(appId: string): AppCache {
 
 function usedBytesOfMap(map: AppCache): number {
   let total = 0
-  for (const value of map.values()) {
-    total += utf8ByteLength(value)
+  for (const entry of map.values()) {
+    total += utf8ByteLength(entry.raw)
   }
   return total
 }
@@ -93,8 +115,23 @@ export function getRegistryCacheSnapshot(appId: string): Record<string, string> 
     return undefined
   }
   const snapshot: Record<string, string> = {}
-  for (const [key, value] of map) {
-    snapshot[key] = value
+  for (const [key, entry] of map) {
+    snapshot[key] = entry.raw
+  }
+  return snapshot
+}
+
+/** 同步读带类型的内存快照；未 hydrate 返回 undefined */
+export function getRegistryCacheEntries(
+  appId: string,
+): Record<string, CacheEntry> | undefined {
+  const map = cache.get(appId)
+  if (!map) {
+    return undefined
+  }
+  const snapshot: Record<string, CacheEntry> = {}
+  for (const [key, entry] of map) {
+    snapshot[key] = { ...entry }
   }
   return snapshot
 }
@@ -117,18 +154,80 @@ export function __resetRegistryCacheForTest(): void {
   hydratePromises.clear()
 }
 
+function stringifyJson(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  const encoded = JSON.stringify(value)
+  return encoded === undefined ? undefined : encoded
+}
+
+async function writeRaw(
+  appId: string,
+  key: string,
+  value: string,
+  valueType: RegistryStoredValueType,
+): Promise<void> {
+  const map = requireHydrated(appId)
+  const previous = map.get(key)
+  const projected =
+    usedBytesOfMap(map) - utf8ByteLength(previous?.raw ?? '') + utf8ByteLength(value)
+  if (projected > APP_REGISTRY_QUOTA_BYTES) {
+    throw new RegistryQuotaExceededError(appId)
+  }
+
+  const next: CacheEntry = { raw: value, valueType }
+  map.set(key, next)
+  try {
+    await registryDbPut(appId, key, value, valueType)
+  } catch (error) {
+    if (previous === undefined) {
+      map.delete(key)
+    } else {
+      map.set(key, previous)
+    }
+    if (error instanceof RegistryQuotaExceededError) {
+      throw error
+    }
+    throw new RegistryWriteError(appId, key, error)
+  }
+}
+
+async function deleteKey(appId: string, key: string): Promise<void> {
+  const map = requireHydrated(appId)
+  if (!map.has(key)) {
+    return
+  }
+  const previous = map.get(key)
+  map.delete(key)
+  try {
+    await registryDbDelete(appId, key)
+  } catch (error) {
+    const restored = await registryDbGet(appId, key).catch(() => undefined)
+    if (restored) {
+      map.set(key, cacheEntryFromRecord(restored))
+    } else if (previous) {
+      map.set(key, previous)
+    }
+    throw new RegistryWriteError(appId, key, error)
+  }
+}
+
 export type AppRegistry = {
-  getItem(key: string): Promise<string | undefined>
+  getText(key: string): Promise<string | undefined>
   /** 失败时抛 RegistryQuotaExceededError / RegistryWriteError */
-  setItem(key: string, value: string): Promise<void>
+  setText(key: string, value: string): Promise<void>
+  getJson(key: string): Promise<unknown>
+  /** 失败时抛 RegistryQuotaExceededError / RegistryWriteError；undefined 删除该键 */
+  setJson(key: string, value: unknown): Promise<void>
+  getType(key: string): Promise<RegistryValueType | undefined>
+  /** 保留 raw，仅改类型标签（内部应用字段惰性打标） */
+  retag(key: string, valueType: RegistryStoredValueType): Promise<void>
   removeItem(key: string): Promise<void>
   keys(): Promise<string[]>
   clear(): Promise<void>
-  /** 内存缓存当前字节（不触发 IndexedDB） */
   usedBytesSync(): number
-  /** 内存快照（未 hydrate 返回 undefined） */
   snapshotSync(): Record<string, string> | undefined
-  /** 强制 hydrate（幂等） */
   hydrate(): Promise<void>
 }
 
@@ -144,40 +243,65 @@ export function createAppRegistry(appId: string): AppRegistry {
   }
 
   return {
-    async getItem(key) {
+    async getText(key) {
       assertKey(key)
       await hydrateAppRegistry(appId)
-      const map = requireHydrated(appId)
-      return map.has(key) ? map.get(key) : undefined
+      return requireHydrated(appId).get(key)?.raw
     },
 
-    async setItem(key, value) {
+    async setText(key, value) {
       assertKey(key)
       if (typeof value !== 'string') {
         throw new TypeError('注册表 value 必须为 string')
       }
       await hydrateAppRegistry(appId)
-      const map = requireHydrated(appId)
+      await writeRaw(appId, key, value, 'text')
+    },
 
-      const previous = map.get(key)
-      const projected =
-        usedBytesOfMap(map) - utf8ByteLength(previous ?? '') + utf8ByteLength(value)
-      if (projected > APP_REGISTRY_QUOTA_BYTES) {
-        throw new RegistryQuotaExceededError(appId)
+    async getJson(key) {
+      assertKey(key)
+      await hydrateAppRegistry(appId)
+      const entry = requireHydrated(appId).get(key)
+      if (!entry) {
+        return undefined
       }
+      if (entry.valueType !== 'json') {
+        throw new RegistryTypeError(appId, key, entry.valueType)
+      }
+      return JSON.parse(entry.raw) as unknown
+    },
 
-      map.set(key, value)
+    async setJson(key, value) {
+      assertKey(key)
+      await hydrateAppRegistry(appId)
+      const encoded = stringifyJson(value)
+      if (encoded === undefined) {
+        await deleteKey(appId, key)
+        return
+      }
+      await writeRaw(appId, key, encoded, 'json')
+    },
+
+    async getType(key) {
+      assertKey(key)
+      await hydrateAppRegistry(appId)
+      return requireHydrated(appId).get(key)?.valueType
+    },
+
+    async retag(key, valueType) {
+      assertKey(key)
+      await hydrateAppRegistry(appId)
+      const map = requireHydrated(appId)
+      const entry = map.get(key)
+      if (!entry || entry.valueType === valueType) {
+        return
+      }
+      const next: CacheEntry = { raw: entry.raw, valueType }
+      map.set(key, next)
       try {
-        await registryDbPut(appId, key, value)
+        await registryDbPut(appId, key, entry.raw, valueType, Date.now())
       } catch (error) {
-        if (previous === undefined) {
-          map.delete(key)
-        } else {
-          map.set(key, previous)
-        }
-        if (error instanceof RegistryQuotaExceededError) {
-          throw error
-        }
+        map.set(key, entry)
         throw new RegistryWriteError(appId, key, error)
       }
     },
@@ -185,32 +309,16 @@ export function createAppRegistry(appId: string): AppRegistry {
     async removeItem(key) {
       assertKey(key)
       await hydrateAppRegistry(appId)
-      const map = requireHydrated(appId)
-      if (!map.has(key)) {
-        return
-      }
-      map.delete(key)
-      try {
-        await registryDbDelete(appId, key)
-      } catch (error) {
-        // 删除失败时恢复内存；应用数据仍在，最坏情况是重复出现
-        const raw = await registryDbGet(appId, key).catch(() => undefined)
-        if (raw !== undefined) {
-          map.set(key, raw)
-        }
-        throw new RegistryWriteError(appId, key, error)
-      }
+      await deleteKey(appId, key)
     },
 
     async keys() {
       await hydrateAppRegistry(appId)
-      const map = requireHydrated(appId)
-      return Array.from(map.keys())
+      return Array.from(requireHydrated(appId).keys())
     },
 
     async clear() {
       await hydrateAppRegistry(appId)
-      // 先同步清空内存（后续 hydrate 短路，不会读回旧数据），再异步清 IndexedDB
       cache.set(appId, new Map())
       await registryDbClearApp(appId)
     },
@@ -229,11 +337,10 @@ export function createAppRegistry(appId: string): AppRegistry {
   }
 }
 
-export type RegistryBatchItem = {
-  key: string
-  /** undefined 表示删除该 key */
-  value: string | undefined
-}
+export type RegistryBatchItem =
+  | { key: string; value: undefined }
+  | { key: string; text: string }
+  | { key: string; json: unknown }
 
 export type RegistryBatchFailure = {
   key: string
@@ -241,8 +348,21 @@ export type RegistryBatchFailure = {
   error: RegistryQuotaExceededError | RegistryWriteError
 }
 
+function batchNextRaw(item: RegistryBatchItem): {
+  raw: string | undefined
+  valueType: RegistryStoredValueType
+} {
+  if ('text' in item) {
+    return { raw: item.text, valueType: 'text' }
+  }
+  if ('json' in item) {
+    return { raw: stringifyJson(item.json), valueType: 'json' }
+  }
+  return { raw: undefined, valueType: 'text' }
+}
+
 /**
- * 批量应用一个应用的变更（生成应用桥用）。
+ * 批量应用一个应用的变更（生成应用桥 / 字段 store 用）。
  * 逐 key 顺序应用：配额预检基于当前内存态，某个 key 失败不影响后续 key 继续写入；
  * 失败的 key 回滚内存旧值并返回，调用方负责把错误回传给写入方。
  */
@@ -253,7 +373,7 @@ export async function applyRegistryBatch(
   await hydrateAppRegistry(appId)
   const map = requireHydrated(appId)
 
-  const previousByKey = new Map<string, string | undefined>()
+  const previousByKey = new Map<string, CacheEntry | undefined>()
   for (const item of items) {
     previousByKey.set(item.key, map.get(item.key))
   }
@@ -261,31 +381,31 @@ export async function applyRegistryBatch(
   const failures: RegistryBatchFailure[] = []
   for (const item of items) {
     const previous = previousByKey.get(item.key)
-    const isDelete = item.value === undefined
+    const next = batchNextRaw(item)
     const newBytes =
       usedBytesOfMap(map) -
-      utf8ByteLength(previous ?? '') +
-      utf8ByteLength(item.value ?? '')
+      utf8ByteLength(previous?.raw ?? '') +
+      utf8ByteLength(next.raw ?? '')
     if (newBytes > APP_REGISTRY_QUOTA_BYTES) {
       failures.push({
         key: item.key,
-        previous,
+        previous: previous?.raw,
         error: new RegistryQuotaExceededError(appId),
       })
       continue
     }
 
-    if (isDelete) {
+    if (next.raw === undefined) {
       map.delete(item.key)
     } else {
-      map.set(item.key, item.value!)
+      map.set(item.key, { raw: next.raw, valueType: next.valueType })
     }
 
     try {
-      if (isDelete) {
+      if (next.raw === undefined) {
         await registryDbDelete(appId, item.key)
       } else {
-        await registryDbPut(appId, item.key, item.value!)
+        await registryDbPut(appId, item.key, next.raw, next.valueType)
       }
     } catch (error) {
       if (previous === undefined) {
@@ -295,7 +415,7 @@ export async function applyRegistryBatch(
       }
       failures.push({
         key: item.key,
-        previous,
+        previous: previous?.raw,
         error: new RegistryWriteError(appId, item.key, error),
       })
     }
@@ -312,9 +432,7 @@ export type GlobalNamespaceInfo = {
 }
 
 export type GlobalRegistry = {
-  /** 全部命名空间（只含非空命名空间）概要 */
   listNamespaces(): Promise<GlobalNamespaceInfo[]>
-  /** 某命名空间全部条目（管理面板逐 key 查看） */
   listNamespaceEntries(appId: string): Promise<RegistryEntry[]>
   getItem(appId: string, key: string): Promise<string | undefined>
   removeItem(appId: string, key: string): Promise<void>
@@ -327,7 +445,6 @@ export type GlobalRegistry = {
  */
 export function createGlobalRegistry(): GlobalRegistry {
   const invalidateMemory = (appId: string): void => {
-    // 管理面板删除后，若该应用已 hydrate，同步内存态避免陈旧数据
     if (hydrated.has(appId)) {
       cache.delete(appId)
       hydrated.delete(appId)
@@ -358,7 +475,8 @@ export function createGlobalRegistry(): GlobalRegistry {
     },
 
     async getItem(appId, key) {
-      return registryDbGet(appId, key)
+      const entry = await registryDbGet(appId, key)
+      return entry?.value
     },
 
     async removeItem(appId, key) {
