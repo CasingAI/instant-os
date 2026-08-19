@@ -3,7 +3,6 @@ import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import { isDesktopFolderId } from '../../os/desktop-folder-types.ts'
 import {
-  getDefaultDesktopIconOrder,
   getDefaultLauncherLayout,
   loadLauncherLayout,
   reconcilePinnedDockItemIds,
@@ -48,12 +47,13 @@ export function ResetSettingsView({ onBack }: ResetSettingsViewProps) {
     const installedDock = collectInstalled(current.pinnedDockItemIds)
 
     const ok = saveLauncherLayout({
+      layoutVersion: defaults.layoutVersion,
       pinnedDockItemIds: reconcilePinnedDockItemIds(
         [...defaults.pinnedDockItemIds, ...installedDock],
-        [],
+        defaults.desktopFolders,
       ),
-      desktopIconOrder: [...getDefaultDesktopIconOrder(), ...installedDesktop],
-      desktopFolders: [],
+      desktopIconOrder: [...defaults.desktopIconOrder, ...installedDesktop],
+      desktopFolders: defaults.desktopFolders,
     })
 
     setConfirmOpen(false)
@@ -70,7 +70,7 @@ export function ResetSettingsView({ onBack }: ResetSettingsViewProps) {
         <section class="settings__section">
           <h2 class="settings__section-title">还原</h2>
           <p class="settings__section-footnote">
-            将桌面图标顺序、桌面文件夹与程序坞固定项恢复为出厂默认状态。
+            将桌面图标顺序、程序坞固定项恢复为出厂默认，并把开发工具收进默认文件夹。
           </p>
 
           <div class="settings__actions">
@@ -82,7 +82,7 @@ export function ResetSettingsView({ onBack }: ResetSettingsViewProps) {
               还原桌面布局
             </button>
             <p class="settings__hint">
-              此操作将删除所有桌面文件夹，并重置桌面图标顺序与程序坞固定项；你安装的应用及其图标会保留。操作不可撤销。
+              此操作会重置桌面图标顺序与程序坞固定项，并恢复「开发工具」默认文件夹；你安装的应用及其图标会保留。操作不可撤销。
             </p>
           </div>
 
@@ -117,7 +117,7 @@ export function ResetSettingsView({ onBack }: ResetSettingsViewProps) {
                   确定要还原桌面布局吗？
                 </h3>
                 <p class="settings__sheet-message">
-                  桌面图标顺序与程序坞固定项将恢复为默认，所有桌面文件夹将被删除；你安装的应用会保留。此操作不可撤销。
+                  桌面图标顺序与程序坞固定项将恢复为默认，并重建「开发工具」文件夹；你安装的应用会保留。此操作不可撤销。
                 </p>
               </div>
             </div>

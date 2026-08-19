@@ -59,7 +59,10 @@ import { AttuneBenchIcon } from '../apps/attunebench/attunebench-icon.tsx'
 import { withAppIconDecoration } from '../icons/app-icon-decoration.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
-import type { AppDefinition, BuiltinAppId } from './types.ts'
+import type { AppDefinition, AppIconDecorationConfig, BuiltinAppId } from './types.ts'
+
+const AI_RIBBON: AppIconDecorationConfig = { ribbon: { label: 'AI' } }
+const DEV_SLEEVE: AppIconDecorationConfig = { sleeve: { label: '开发中' } }
 
 function withAbout(app: AppDefinition): AppDefinition {
   return {
@@ -76,6 +79,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: MarketplaceIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'browser',
@@ -83,6 +87,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: BrowserIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'chromo',
@@ -90,6 +95,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: ChromoIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'page-devtools',
@@ -99,6 +105,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     dockWhenRunning: true,
     desktop: false,
     multiWindow: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'webview',
@@ -108,6 +115,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     dockWhenRunning: true,
     desktop: false,
     multiWindow: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'mail',
@@ -115,6 +123,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: MailIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'news',
@@ -122,6 +131,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: NewsIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'books',
@@ -129,6 +139,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: BooksIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'music',
@@ -150,6 +161,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: WeatherIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'calendar',
@@ -157,6 +169,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: CalendarIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'stocks',
@@ -164,6 +177,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: StocksIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'translate',
@@ -171,6 +185,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: TranslateIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'catgpt',
@@ -178,6 +193,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: CatGptIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'produde',
@@ -185,6 +201,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: ProdudeIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'gomoku',
@@ -200,6 +217,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: SpeechIcon,
     dock: false,
     desktop: false,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'photos',
@@ -207,6 +225,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: PhotosIcon,
     dock: false,
     desktop: false,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'files',
@@ -236,6 +255,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: PagesIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'preview',
@@ -250,6 +270,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: VscodeIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'scene3d-lab',
@@ -257,6 +278,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: Scene3dLabIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'model-vision',
@@ -264,6 +286,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: ModelVisionIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'icode',
@@ -271,6 +294,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: ICodeIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'registry',
@@ -324,6 +348,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: PackagesIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'archive-utility',
@@ -355,6 +380,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: GithubDesktopIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'help',
@@ -377,6 +403,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: SimulatedTerminalIcon,
     dock: false,
     desktop: false,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'virtual-js',
@@ -384,6 +411,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: VirtualJsIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'ui-kit',
@@ -391,6 +419,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: UiKitIcon,
     dock: false,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'srml-demo',
@@ -398,6 +427,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: SrmlDemoIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'llm-playground',
@@ -405,6 +435,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: LlmPlaygroundIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'attunebench',
@@ -412,6 +443,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: AttuneBenchIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'welcome',
