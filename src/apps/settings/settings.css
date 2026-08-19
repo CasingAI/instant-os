@@ -1598,7 +1598,7 @@
 .settings__actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-end;
   gap: 10px 14px;
   margin-top: 18px;
@@ -1612,6 +1612,10 @@
   margin: 0;
   max-width: none;
   text-align: left;
+}
+
+.settings__actions .settings__btn {
+  flex-shrink: 0;
 }
 
 .settings__actions--inline {

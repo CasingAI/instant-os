@@ -97,6 +97,9 @@ export function FilesStorageView({ onBack, onOpenSpaceSniffer }: FilesStorageVie
           </div>
 
           <div class="settings__actions settings__actions--inline">
+            <p class="settings__hint">
+              临时文件长期保留；清理仅删除本次系统启动之前创建的目录，不影响当前运行中的终端。
+            </p>
             <button type="button" class="settings__btn" onClick={onOpenSpaceSniffer}>
               在空间嗅探中查看
             </button>
@@ -110,13 +113,10 @@ export function FilesStorageView({ onBack, onOpenSpaceSniffer }: FilesStorageVie
             </button>
           </div>
           {clearStatus ? (
-            <p class="settings__section-subtitle" role="status">
+            <p class="settings__section-footnote" role="status">
               {clearStatus}
             </p>
           ) : null}
-          <p class="settings__section-subtitle">
-            临时文件长期保留；清理仅删除本次系统启动之前创建的目录，不影响当前运行中的终端。
-          </p>
         </section>
       </div>
     </div>
