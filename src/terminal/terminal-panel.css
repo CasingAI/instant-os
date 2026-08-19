@@ -269,6 +269,17 @@
   padding: 0;
 }
 
+.terminal-panel__complete-hint {
+  flex: none;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--terminal-muted);
+  user-select: none;
+  pointer-events: none;
+}
+
 .terminal-panel__input:disabled {
   opacity: 0.55;
 }

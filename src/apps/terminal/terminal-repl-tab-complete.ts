@@ -1,6 +1,6 @@
 /**
- * InstantREPL Tab 补全：解析末尾标识符链，在 QuickJS 里只读扫属性。
- * 对齐 Node REPL：唯一填入；多候选先拉公共前缀，已是公共前缀则列出。
+ * InstantREPL Tab 补全：按光标处标识符链，在 QuickJS 里只读扫属性。
+ * 多候选时填入当前项并在输入框旁提示，再按 Tab 循环切换。
  */
 
 export const HOST_REPL_DOT_COMMANDS = ['.reset'] as const
@@ -9,19 +9,26 @@ export type ReplCompletionTarget = {
   /** 空字符串表示从 globalThis 补全 */
   objectExpr: string
   prefix: string
-  /** 草稿中 prefix 的起始下标（替换点） */
+  /** 草稿中被替换片段的起始下标 */
   from: number
+  /** 草稿中被替换片段的结束下标（不含） */
+  to: number
 }
 
-export type ReplTabCompleteResult = {
-  nextDraft: string
-  candidates?: string[]
+export type ReplCompletionCycle = {
+  head: string
+  tail: string
+  prefix: string
+  matches: string[]
+  index: number
 }
 
 const IDENT = /[A-Za-z_$][\w$]*$/
 const IDENT_CHAIN = /[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/
+const IDENT_CONTINUE = /[A-Za-z0-9_$]/
+const TRAILING_SKIP = /[\s)\]}]/
 
-/** 客侧：沿标识符链安全取值后列出可点属性（不含 getter 展开、不含 `__` 内部键）。 */
+/** 客侧：沿标识符链安全取值后列出可点属性（不含 getter 展开、不含 `__` / constructor / Object.prototype）。 */
 const REPL_COMPLETION_GUEST_SOURCE = `function (parts) {
   function hasGetter(desc) {
     return desc && typeof desc.get === 'function';
@@ -64,11 +71,12 @@ const REPL_COMPLETION_GUEST_SOURCE = `function (parts) {
       return [];
     }
   }
+  var objectProto = Object.prototype;
   var names = [];
   var seen = Object.create(null);
   var walk = current;
   var depth = 0;
-  while (walk != null && depth < 24) {
+  while (walk != null && walk !== objectProto && depth < 24) {
     var own;
     try {
       own = Object.getOwnPropertyNames(walk);
@@ -79,6 +87,7 @@ const REPL_COMPLETION_GUEST_SOURCE = `function (parts) {
       var n = own[j];
       if (seen[n]) continue;
       seen[n] = true;
+      if (n === 'constructor') continue;
       if (n.length >= 2 && n.charAt(0) === '_' && n.charAt(1) === '_') continue;
       if (/^[0-9]+$/.test(n)) continue;
       if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(n)) continue;
@@ -96,19 +105,27 @@ const REPL_COMPLETION_GUEST_SOURCE = `function (parts) {
   return names;
 }`
 
-function commonPrefix(values: string[]): string {
-  if (values.length === 0) return ''
-  let prefix = values[0] ?? ''
-  for (let index = 1; index < values.length; index += 1) {
-    const value = values[index] ?? ''
-    let end = 0
-    while (end < prefix.length && end < value.length && prefix[end] === value[end]) {
-      end += 1
-    }
-    prefix = prefix.slice(0, end)
-    if (!prefix) break
+function clampCursor(line: string, cursor: number): number {
+  if (cursor < 0) return 0
+  if (cursor > line.length) return line.length
+  return cursor
+}
+
+/** 光标在 `)` 等闭合符上时，回退到前面的标识符再补全。 */
+function skipTrailingClosers(line: string, cursor: number): number {
+  let pos = clampCursor(line, cursor)
+  while (pos > 0 && TRAILING_SKIP.test(line.charAt(pos - 1))) {
+    pos -= 1
   }
-  return prefix
+  return pos
+}
+
+function extendIdentEnd(line: string, pos: number): number {
+  let to = pos
+  while (to < line.length && IDENT_CONTINUE.test(line.charAt(to))) {
+    to += 1
+  }
+  return to
 }
 
 function filterByPrefix(candidates: readonly string[], prefix: string): string[] {
@@ -134,76 +151,118 @@ function parseMemberObjectExpr(objectPart: string): string | undefined {
   return objectExpr
 }
 
-/**
- * 解析当前行末尾的 `ident` 或 `a.b.c`（只允许 Identifier + `.`）。
- * 含调用 / `[]` / `?.` 的对象表达式返回 undefined。
- */
-export function parseReplCompletionTarget(line: string): ReplCompletionTarget | undefined {
-  if (line.length === 0) {
-    return { objectExpr: '', prefix: '', from: 0 }
+function parseFromLeft(left: string, pos: number, to: number): ReplCompletionTarget | undefined {
+  if (left.length === 0) {
+    return { objectExpr: '', prefix: '', from: pos, to }
   }
 
-  const identMatch = line.match(IDENT)
+  const identMatch = left.match(IDENT)
   if (identMatch) {
     const prefix = identMatch[0] ?? ''
-    const from = line.length - prefix.length
-    const left = line.slice(0, from)
-    if (left.endsWith('.')) {
-      const objectExpr = parseMemberObjectExpr(left.slice(0, -1))
+    const from = pos - prefix.length
+    const before = left.slice(0, from)
+    if (before.endsWith('.')) {
+      const objectExpr = parseMemberObjectExpr(before.slice(0, -1))
       if (objectExpr === undefined) return undefined
-      return { objectExpr, prefix, from }
+      return { objectExpr, prefix, from, to }
     }
-    if (from > 0 && /[A-Za-z0-9_$]/.test(line.charAt(from - 1))) {
+    if (from > 0 && /[A-Za-z0-9_$]/.test(left.charAt(from - 1))) {
       return undefined
     }
-    return { objectExpr: '', prefix, from }
+    return { objectExpr: '', prefix, from, to }
   }
 
-  if (line.endsWith('.')) {
-    const objectExpr = parseMemberObjectExpr(line.slice(0, -1))
+  if (left.endsWith('.')) {
+    const objectExpr = parseMemberObjectExpr(left.slice(0, -1))
     if (objectExpr === undefined) return undefined
-    return { objectExpr, prefix: '', from: line.length }
+    return { objectExpr, prefix: '', from: pos, to }
   }
 
   return undefined
 }
 
-export function isHostDotCommandLine(line: string): boolean {
-  return /^\s*\.\w*$/.test(line)
+/**
+ * 解析光标处的 `ident` 或 `a.b.c`（只允许 Identifier + `.`）。
+ * `console.log(glo)` 光标在 `glo` 后或行尾 `)` 上都能识别。
+ */
+export function parseReplCompletionTarget(
+  line: string,
+  cursor: number = line.length,
+): ReplCompletionTarget | undefined {
+  const pos = skipTrailingClosers(line, cursor)
+  const to = extendIdentEnd(line, pos)
+  return parseFromLeft(line.slice(0, pos), pos, to)
 }
 
-export function completeHostDotCommands(line: string): ReplTabCompleteResult {
-  const match = line.match(/^(\s*)(\.\w*)$/)
-  if (!match) return { nextDraft: line }
-  const indent = match[1] ?? ''
-  const token = match[2] ?? '.'
-  return applyReplCompletion(line, indent.length, token, HOST_REPL_DOT_COMMANDS)
+export function parseHostDotTarget(
+  line: string,
+  cursor: number = line.length,
+): ReplCompletionTarget | undefined {
+  const pos = skipTrailingClosers(line, cursor)
+  const left = line.slice(0, pos)
+  const match = left.match(/^(\s*)(\.\w*)$/)
+  if (!match) return undefined
+  const prefix = match[2] ?? '.'
+  const from = (match[1] ?? '').length
+  return { objectExpr: '', prefix, from, to: extendIdentEnd(line, pos) }
+}
+
+export function isHostDotCommandLine(line: string, cursor: number = line.length): boolean {
+  return parseHostDotTarget(line, cursor) !== undefined
+}
+
+export function draftFromReplCompletionCycle(cycle: ReplCompletionCycle): string {
+  const name = cycle.matches[cycle.index] ?? ''
+  return `${cycle.head}${name}${cycle.tail}`
+}
+
+export function caretFromReplCompletionCycle(cycle: ReplCompletionCycle): number {
+  const name = cycle.matches[cycle.index] ?? ''
+  return cycle.head.length + name.length
+}
+
+export function formatReplCompletionHint(cycle: ReplCompletionCycle): string {
+  if (cycle.matches.length <= 1) return ''
+  const rest = cycle.matches.filter((_, index) => index !== cycle.index)
+  const shown = rest.slice(0, 6)
+  const extra = rest.length > shown.length ? ' …' : ''
+  return `${cycle.index + 1}/${cycle.matches.length}  ${shown.join('  ')}${extra}`
+}
+
+export function stepReplCompletionCycle(
+  cycle: ReplCompletionCycle,
+  direction: 1 | -1,
+): ReplCompletionCycle {
+  const len = cycle.matches.length
+  if (len === 0) return cycle
+  const next = (cycle.index + direction + len) % len
+  return { ...cycle, index: next }
+}
+
+export function cycleMatchesDraft(cycle: ReplCompletionCycle, draft: string): boolean {
+  return draftFromReplCompletionCycle(cycle) === draft
+}
+
+export function createReplCompletionCycle(
+  line: string,
+  target: ReplCompletionTarget,
+  names: readonly string[],
+  direction: 1 | -1,
+): ReplCompletionCycle | undefined {
+  const matches = filterByPrefix(names, target.prefix)
+  if (matches.length === 0) return undefined
+  const index = direction === -1 ? matches.length - 1 : 0
+  return {
+    head: line.slice(0, target.from),
+    tail: line.slice(target.to),
+    prefix: target.prefix,
+    matches,
+    index,
+  }
 }
 
 /** 生成在 guest 里 eval 的 IIFE；`objectExpr` 须已通过 parse（纯标识符链）。 */
 export function buildReplCompletionEval(objectExpr: string): string {
   const parts = objectExpr === '' ? [] : objectExpr.split('.')
   return `(${REPL_COMPLETION_GUEST_SOURCE})(${JSON.stringify(parts)})`
-}
-
-export function applyReplCompletion(
-  draft: string,
-  from: number,
-  prefix: string,
-  names: readonly string[],
-): ReplTabCompleteResult {
-  const matches = filterByPrefix(names, prefix)
-  if (matches.length === 0) {
-    return { nextDraft: draft }
-  }
-  if (matches.length === 1) {
-    const only = matches[0]
-    if (only === undefined) return { nextDraft: draft }
-    return { nextDraft: `${draft.slice(0, from)}${only}` }
-  }
-  const shared = commonPrefix(matches)
-  if (shared.length > prefix.length) {
-    return { nextDraft: `${draft.slice(0, from)}${shared}` }
-  }
-  return { nextDraft: draft, candidates: matches }
 }

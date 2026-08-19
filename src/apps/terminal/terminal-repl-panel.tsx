@@ -22,11 +22,17 @@ import './terminal-repl-shell.css'
 import { formatTerminalReplValue } from './terminal-repl-format.ts'
 import { wrapTerminalProgramEval } from './terminal-repl-program-eval.ts'
 import {
-  applyReplCompletion,
   buildReplCompletionEval,
-  completeHostDotCommands,
-  isHostDotCommandLine,
+  caretFromReplCompletionCycle,
+  createReplCompletionCycle,
+  cycleMatchesDraft,
+  draftFromReplCompletionCycle,
+  formatReplCompletionHint,
+  HOST_REPL_DOT_COMMANDS,
+  parseHostDotTarget,
   parseReplCompletionTarget,
+  stepReplCompletionCycle,
+  type ReplCompletionCycle,
 } from './terminal-repl-tab-complete.ts'
 import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
@@ -220,6 +226,8 @@ export function TerminalReplPanel({
   const justSubmittedRef = useRef(false)
   const completingRef = useRef(false)
   const tabCompletingRef = useRef(false)
+  const completeCycleRef = useRef<ReplCompletionCycle | undefined>(undefined)
+  const caretRef = useRef<number | undefined>(undefined)
   const workspaceRootRef = useRef(workspaceRoot)
   workspaceRootRef.current = workspaceRoot
   const fsModeRef = useRef(fsMode)
@@ -239,6 +247,7 @@ export function TerminalReplPanel({
   const [booting, setBooting] = useState(true)
   const [cwd, setCwd] = useState(workspaceRoot)
   const [bootError, setBootError] = useState<string | undefined>(undefined)
+  const [completeHint, setCompleteHint] = useState('')
 
   const nextLineId = useCallback(() => {
     lineSeqRef.current += 1
@@ -256,6 +265,11 @@ export function TerminalReplPanel({
 
   const focusInput = useCallback(() => {
     inputRef.current?.focus()
+  }, [])
+
+  const clearCompletion = useCallback(() => {
+    completeCycleRef.current = undefined
+    setCompleteHint('')
   }, [])
 
   const syncConsoleFromInstance = useCallback((instance: QuickJsInstance) => {
@@ -774,13 +788,24 @@ export function TerminalReplPanel({
     historyRef.current = [...history, trimmed].slice(-200)
   }, [])
 
-  const applyDraft = useCallback((value: string) => {
+  const applyDraft = useCallback((value: string, caret?: number) => {
     draftRef.current = value
+    caretRef.current = caret
     setDraft(value)
     if (inputRef.current) {
       inputRef.current.value = value
+      if (caret !== undefined) {
+        inputRef.current.setSelectionRange(caret, caret)
+      }
     }
   }, [])
+
+  useEffect(() => {
+    const caret = caretRef.current
+    const input = inputRef.current
+    if (caret === undefined || !input) return
+    input.setSelectionRange(caret, caret)
+  }, [draft])
 
   const clearDraft = useCallback(() => {
     applyDraft('')
@@ -793,17 +818,19 @@ export function TerminalReplPanel({
     historyDraftRef.current = ''
     justSubmittedRef.current = true
     imeGuardUntilRef.current = Date.now() + 150
+    clearCompletion()
     clearDraft()
     void runCode(line, { source: 'user' })
     window.setTimeout(() => {
       justSubmittedRef.current = false
     }, 150)
-  }, [clearDraft, rememberCommand, runCode])
+  }, [clearCompletion, clearDraft, rememberCommand, runCode])
 
   const browseHistory = useCallback(
     (direction: 'older' | 'newer') => {
       const history = historyRef.current
       if (history.length === 0) return
+      clearCompletion()
 
       let index = historyIndexRef.current
       if (direction === 'older') {
@@ -828,60 +855,80 @@ export function TerminalReplPanel({
       historyIndexRef.current = index
       applyDraft(history[index] ?? '')
     },
+    [applyDraft, clearCompletion],
+  )
+
+  const applyCompletionCycle = useCallback(
+    (cycle: ReplCompletionCycle) => {
+      completeCycleRef.current = cycle
+      applyDraft(draftFromReplCompletionCycle(cycle), caretFromReplCompletionCycle(cycle))
+      setCompleteHint(formatReplCompletionHint(cycle))
+    },
     [applyDraft],
   )
 
-  const applyTabComplete = useCallback(async () => {
-    if (completingRef.current) return
-    const instance = instanceRef.current
-    if (
-      instance === undefined ||
-      instance.getSnapshot().destroyed ||
-      instance.getSnapshot().busy
-    ) {
-      return
-    }
-
-    completingRef.current = true
-    tabCompletingRef.current = true
-    try {
+  const applyTabComplete = useCallback(
+    async (direction: 1 | -1) => {
       const draft = draftRef.current
-      if (isHostDotCommandLine(draft)) {
-        const result = completeHostDotCommands(draft)
-        if (result.nextDraft !== draft) {
-          applyDraft(result.nextDraft)
-        }
-        if (result.candidates && result.candidates.length > 0) {
-          appendLine({ kind: 'info', text: result.candidates.join('  ') })
-        }
+      const existing = completeCycleRef.current
+      if (existing && cycleMatchesDraft(existing, draft)) {
+        applyCompletionCycle(stepReplCompletionCycle(existing, direction))
+        focusInput()
         return
       }
 
-      const target = parseReplCompletionTarget(draft)
-      if (target === undefined) return
+      if (completingRef.current) return
+      const instance = instanceRef.current
+      if (
+        instance === undefined ||
+        instance.getSnapshot().destroyed ||
+        instance.getSnapshot().busy
+      ) {
+        return
+      }
 
-      const evalResult = await instance.eval(buildReplCompletionEval(target.objectExpr), {
-        silent: true,
-        timeoutMs: 100,
-        waitUntilIdle: false,
-      })
-      if (!evalResult.ok || !Array.isArray(evalResult.value)) return
-      const names = evalResult.value.filter((item): item is string => typeof item === 'string')
-      const result = applyReplCompletion(draft, target.from, target.prefix, names)
-      if (result.nextDraft !== draft) {
-        applyDraft(result.nextDraft)
+      const cursor = inputRef.current?.selectionStart ?? draft.length
+      const hostTarget = parseHostDotTarget(draft, cursor)
+      if (hostTarget) {
+        const cycle = createReplCompletionCycle(draft, hostTarget, HOST_REPL_DOT_COMMANDS, direction)
+        if (cycle) applyCompletionCycle(cycle)
+        else clearCompletion()
+        focusInput()
+        return
       }
-      if (result.candidates && result.candidates.length > 0) {
-        appendLine({ kind: 'info', text: result.candidates.join('  ') })
+
+      const target = parseReplCompletionTarget(draft, cursor)
+      if (target === undefined) {
+        clearCompletion()
+        return
       }
-    } catch {
-      // 补全失败当作无候选
-    } finally {
-      tabCompletingRef.current = false
-      completingRef.current = false
-      focusInput()
-    }
-  }, [appendLine, applyDraft, focusInput])
+
+      completingRef.current = true
+      tabCompletingRef.current = true
+      try {
+        const evalResult = await instance.eval(buildReplCompletionEval(target.objectExpr), {
+          silent: true,
+          timeoutMs: 100,
+          waitUntilIdle: false,
+        })
+        if (!evalResult.ok || !Array.isArray(evalResult.value)) {
+          clearCompletion()
+          return
+        }
+        const names = evalResult.value.filter((item): item is string => typeof item === 'string')
+        const cycle = createReplCompletionCycle(draft, target, names, direction)
+        if (cycle) applyCompletionCycle(cycle)
+        else clearCompletion()
+      } catch {
+        clearCompletion()
+      } finally {
+        tabCompletingRef.current = false
+        completingRef.current = false
+        focusInput()
+      }
+    },
+    [applyCompletionCycle, clearCompletion, focusInput],
+  )
 
   const promptLabel = `node ${cwd}>`
   const panelClass = ['terminal-panel', className].filter(Boolean).join(' ')
@@ -996,6 +1043,8 @@ export function TerminalReplPanel({
           }}
           onInput={(event) => {
             const value = (event.target as HTMLInputElement).value
+            caretRef.current = undefined
+            clearCompletion()
             if (justSubmittedRef.current && !imeComposingRef.current) {
               clearDraft()
               return
@@ -1015,7 +1064,12 @@ export function TerminalReplPanel({
               if (composing) return
               event.preventDefault()
               if (booting || bootError !== undefined || busy) return
-              void applyTabComplete()
+              void applyTabComplete(event.shiftKey ? -1 : 1)
+              return
+            }
+            if (event.key === 'Escape' && completeHint) {
+              event.preventDefault()
+              clearCompletion()
               return
             }
             if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
@@ -1036,6 +1090,11 @@ export function TerminalReplPanel({
             }
           }}
         />
+        {completeHint ? (
+          <span class="terminal-panel__complete-hint" title={completeHint}>
+            {completeHint}
+          </span>
+        ) : undefined}
         {busy ? (
           <button
             type="button"

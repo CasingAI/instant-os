@@ -8,11 +8,16 @@ import { filesMkdir, filesRemove, filesStat } from '../files/files-api.ts'
 import { createQuickJsInstance } from '../../quickjs/quickjs-instance.ts'
 import type { InstantShellHost } from '../../terminal/instant-shell/instant-shell-types.ts'
 import {
-  applyReplCompletion,
   buildReplCompletionEval,
-  completeHostDotCommands,
+  caretFromReplCompletionCycle,
+  createReplCompletionCycle,
+  draftFromReplCompletionCycle,
+  formatReplCompletionHint,
+  HOST_REPL_DOT_COMMANDS,
   isHostDotCommandLine,
+  parseHostDotTarget,
   parseReplCompletionTarget,
+  stepReplCompletionCycle,
 } from './terminal-repl-tab-complete.ts'
 
 const ROOT = '/user/trepl-tab-complete'
@@ -54,48 +59,69 @@ function testParse(): void {
     objectExpr: '',
     prefix: 'ins',
     from: 0,
+    to: 3,
   })
   assert.deepEqual(parseReplCompletionTarget('instant.'), {
     objectExpr: 'instant',
     prefix: '',
     from: 'instant.'.length,
+    to: 'instant.'.length,
   })
   assert.deepEqual(parseReplCompletionTarget('instant.op'), {
     objectExpr: 'instant',
     prefix: 'op',
     from: 'instant.'.length,
+    to: 'instant.op'.length,
   })
   assert.deepEqual(parseReplCompletionTarget('foo(instant.git.cl'), {
     objectExpr: 'instant.git',
     prefix: 'cl',
     from: 'foo(instant.git.'.length,
+    to: 'foo(instant.git.cl'.length,
+  })
+  const insideCall = 'console.log(glo)'
+  const gloFrom = insideCall.indexOf('glo')
+  assert.deepEqual(parseReplCompletionTarget(insideCall), {
+    objectExpr: '',
+    prefix: 'glo',
+    from: gloFrom,
+    to: gloFrom + 3,
+  })
+  assert.deepEqual(parseReplCompletionTarget(insideCall, gloFrom + 3), {
+    objectExpr: '',
+    prefix: 'glo',
+    from: gloFrom,
+    to: gloFrom + 3,
   })
   assert.equal(parseReplCompletionTarget('foo().bar'), undefined)
   assert.equal(parseReplCompletionTarget('foo?.bar'), undefined)
   console.log('ok: parseReplCompletionTarget')
 }
 
-function testApply(): void {
-  const from = 'instant.'.length
-  const unique = applyReplCompletion('instant.op', from, 'op', ['openApp'])
-  assert.equal(unique.nextDraft, 'instant.openApp')
-  assert.equal(unique.candidates, undefined)
-
-  const shared = applyReplCompletion('instant.op', from, 'op', ['openApp', 'openPath'])
-  assert.equal(shared.nextDraft, 'instant.open')
-  assert.equal(shared.candidates, undefined)
-
-  const listed = applyReplCompletion('instant.open', from, 'open', ['openApp', 'openPath'])
-  assert.equal(listed.nextDraft, 'instant.open')
-  assert.deepEqual(listed.candidates, ['openApp', 'openPath'])
-  console.log('ok: applyReplCompletion')
+function testCycle(): void {
+  const line = 'console.log(glo)'
+  const target = parseReplCompletionTarget(line)
+  assert.ok(target)
+  const cycle = createReplCompletionCycle(line, target!, ['global', 'globalThis'], 1)
+  assert.ok(cycle)
+  assert.equal(draftFromReplCompletionCycle(cycle!), 'console.log(global)')
+  assert.equal(caretFromReplCompletionCycle(cycle!), 'console.log(global'.length)
+  const next = stepReplCompletionCycle(cycle!, 1)
+  assert.equal(draftFromReplCompletionCycle(next), 'console.log(globalThis)')
+  const back = stepReplCompletionCycle(next, -1)
+  assert.equal(draftFromReplCompletionCycle(back), 'console.log(global)')
+  assert.ok(formatReplCompletionHint(cycle!).includes('1/2'))
+  console.log('ok: completion cycle')
 }
 
 function testHostDot(): void {
   assert.equal(isHostDotCommandLine('.re'), true)
   assert.equal(isHostDotCommandLine('instant.re'), false)
-  const result = completeHostDotCommands('.re')
-  assert.equal(result.nextDraft, '.reset')
+  const target = parseHostDotTarget('.re')
+  assert.ok(target)
+  const cycle = createReplCompletionCycle('.re', target!, HOST_REPL_DOT_COMMANDS, 1)
+  assert.ok(cycle)
+  assert.equal(draftFromReplCompletionCycle(cycle!), '.reset')
   console.log('ok: host dot commands')
 }
 
@@ -118,14 +144,16 @@ async function testInstantAndUserObject(): Promise<void> {
     const names = instantNames.ok ? (instantNames.value as string[]) : []
     assert.ok(names.includes('openApp'), `missing openApp: ${names.join(',')}`)
     assert.ok(names.includes('openPath'), `missing openPath: ${names.join(',')}`)
+    assert.ok(!names.includes('constructor'), `constructor should be hidden: ${names.join(',')}`)
 
-    const applied = applyReplCompletion(
+    const applied = createReplCompletionCycle(
       'instant.op',
-      'instant.'.length,
-      'op',
+      { objectExpr: 'instant', prefix: 'op', from: 'instant.'.length, to: 'instant.op'.length },
       names,
+      1,
     )
-    assert.equal(applied.nextDraft, 'instant.open')
+    assert.ok(applied)
+    assert.equal(draftFromReplCompletionCycle(applied!), 'instant.openApp')
 
     const defined = await instance.eval('var box = { zed: 1 }')
     assert.equal(defined.ok, true, defined.ok ? '' : defined.error)
@@ -136,8 +164,15 @@ async function testInstantAndUserObject(): Promise<void> {
     assert.equal(boxNames.ok, true, boxNames.ok ? '' : boxNames.error)
     const boxList = boxNames.ok ? (boxNames.value as string[]) : []
     assert.ok(boxList.includes('zed'), `missing zed: ${boxList.join(',')}`)
-    const boxApplied = applyReplCompletion('box.z', 'box.'.length, 'z', boxList)
-    assert.equal(boxApplied.nextDraft, 'box.zed')
+    assert.ok(!boxList.includes('constructor'), `constructor should be hidden: ${boxList.join(',')}`)
+    const boxApplied = createReplCompletionCycle(
+      'box.z',
+      { objectExpr: 'box', prefix: 'z', from: 'box.'.length, to: 'box.z'.length },
+      boxList,
+      1,
+    )
+    assert.ok(boxApplied)
+    assert.equal(draftFromReplCompletionCycle(boxApplied!), 'box.zed')
   } finally {
     instance.destroy()
   }
@@ -169,7 +204,7 @@ async function testSilentSkipsJournal(): Promise<void> {
 
 async function main(): Promise<void> {
   testParse()
-  testApply()
+  testCycle()
   testHostDot()
   await testInstantAndUserObject()
   await testSilentSkipsJournal()
