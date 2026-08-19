@@ -70,31 +70,16 @@
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-}
-
-.registry__wide-stack__page--detail {
-  z-index: 0;
-  transition: transform 0.35s ease-in-out;
-}
-
-.registry__wide-stack__page--editor {
-  z-index: 1;
-  transform: translateX(100%);
-  transition: transform 0.35s ease-in-out;
-}
-
-.registry__wide-stack--editor .registry__wide-stack__page--detail {
-  transform: translateX(-30%);
   pointer-events: none;
+  transition: transform 0.35s ease-in-out;
 }
 
-.registry__wide-stack--editor .registry__wide-stack__page--editor {
-  transform: translateX(0);
+.registry__wide-stack__page.is-active {
+  pointer-events: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .registry__wide-stack__page--detail,
-  .registry__wide-stack__page--editor {
+  .registry__wide-stack__page {
     transition: none;
   }
 }
@@ -174,7 +159,13 @@
   grid-template-columns: minmax(0, 1fr) max-content max-content;
 }
 
-.registry__key-list > .settings__list-body {
+.registry__node-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.registry__key-list > .settings__list-body,
+.registry__node-list > .settings__list-body {
   display: contents;
 }
 
@@ -239,6 +230,13 @@
 
 .registry__entry-row .settings__row-size {
   padding-left: 8px;
+}
+
+.registry__entry-row--node .settings__row-size {
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .registry__entry-row .settings__row-action {

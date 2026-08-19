@@ -16,6 +16,26 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { KeychainNavStack, useKeychainNavStack } from '../keychain/keychain-nav-stack.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
+import {
+  formatNodeForEditor,
+  getAtPath,
+  isJsonContainer,
+  jsonKindLabel,
+  jsonNodeKind,
+  jsonOpenMode,
+  listJsonChildren,
+  longestValidPrefix,
+  nodeByteLength,
+  parseEditorDraft,
+  parseJsonValue,
+  pathTitle,
+  setAtPath,
+  summarizeJson,
+  utf8Length,
+  type JsonChild,
+  type JsonNodeKind,
+  type JsonPath,
+} from './registry-json-path.ts'
 import '../../ui/ios-nav-back.css'
 import '../keychain/keychain.css'
 import '../settings/settings.css'
@@ -23,11 +43,21 @@ import './registry.css'
 
 const APP_ID = 'registry'
 const DATE_TIME_LOCALE = 'zh-CN'
+const PAGE_ROOT = 'root'
+const PAGE_KEYS = 'keys'
+const PAGE_EDIT = 'edit'
+const WIDE_STACK_MS = 380
 
-type Screen = 'root' | 'detail' | 'editor'
+function browsePageId(depth: number): string {
+  return `b:${depth}`
+}
 
-function utf8Length(value: string): number {
-  return new TextEncoder().encode(value).length
+function parseBrowseDepth(page: string): number | undefined {
+  if (!page.startsWith('b:')) {
+    return undefined
+  }
+  const depth = Number(page.slice(2))
+  return Number.isInteger(depth) && depth >= 0 ? depth : undefined
 }
 
 function appLabel(appId: string): string {
@@ -48,13 +78,6 @@ function formatTimestamp(timestamp: number): string {
   return new Date(timestamp).toLocaleString(DATE_TIME_LOCALE)
 }
 
-function truncateValue(value: string, max = 180): string {
-  if (value.length <= max) {
-    return value
-  }
-  return `${value.slice(0, max)}…`
-}
-
 function valueTypeBadgeLabel(entry: RegistryEntry): string {
   const type = entryValueType(entry)
   if (type === 'json') {
@@ -68,36 +91,21 @@ function valueTypeBadgeLabel(entry: RegistryEntry): string {
 
 function summarizeEntryValue(entry: RegistryEntry): string {
   if (entryValueType(entry) !== 'json') {
-    return truncateValue(entry.value)
+    return summarizeJson(entry.value)
   }
-  try {
-    return truncateValue(JSON.stringify(JSON.parse(entry.value) as unknown))
-  } catch {
-    return truncateValue(entry.value)
+  const parsed = parseJsonValue(entry.value)
+  if (!parsed.ok) {
+    return summarizeJson(entry.value)
   }
+  return summarizeJson(parsed.value)
 }
 
-function formatEntryForEditor(entry: RegistryEntry): string {
+function parsedJsonRoot(entry: RegistryEntry): unknown | undefined {
   if (entryValueType(entry) !== 'json') {
-    return entry.value
-  }
-  try {
-    return JSON.stringify(JSON.parse(entry.value) as unknown, null, 2)
-  } catch {
-    return entry.value
-  }
-}
-
-function jsonDraftError(draft: string): string | undefined {
-  try {
-    JSON.parse(draft)
     return undefined
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return error.message
-    }
-    return 'JSON 格式无效'
   }
+  const parsed = parseJsonValue(entry.value)
+  return parsed.ok ? parsed.value : undefined
 }
 
 function writeErrorMessage(error: unknown): string {
@@ -111,15 +119,206 @@ function sortedNamespaces(namespaces: GlobalNamespaceInfo[]): GlobalNamespaceInf
   return [...namespaces].sort((left, right) => right.bytes - left.bytes)
 }
 
-/** 与 `.settings` 面板纵向渐变 (#ececec → #d8d8d8) 对齐 */
 function settingsPanelColorAt(ratio: number): string {
   const t = Math.min(1, Math.max(0, ratio))
-  const channel = (top: number, bottom: number) =>
-    Math.round(top + (bottom - top) * t)
+  const channel = (top: number, bottom: number) => Math.round(top + (bottom - top) * t)
   const r = channel(0xec, 0xd8)
   const g = channel(0xec, 0xd8)
   const b = channel(0xec, 0xd8)
   return `rgb(${r}, ${g}, ${b})`
+}
+
+type DrillState = {
+  selectedKey: string | undefined
+  jsonPath: JsonPath
+  editorOpen: boolean
+}
+
+const EMPTY_DRILL: DrillState = {
+  selectedKey: undefined,
+  jsonPath: [],
+  editorOpen: false,
+}
+
+function parentPageId(drill: DrillState, entry: RegistryEntry | undefined): string {
+  if (drill.editorOpen) {
+    const root = entry ? parsedJsonRoot(entry) : undefined
+    const node = root !== undefined ? getAtPath(root, drill.jsonPath) : undefined
+    if (drill.jsonPath.length === 0) {
+      if (entry && jsonOpenMode(entry.value, entryValueType(entry)) === 'browse') {
+        return browsePageId(0)
+      }
+      return PAGE_KEYS
+    }
+    if (isJsonContainer(node)) {
+      return browsePageId(drill.jsonPath.length)
+    }
+    return browsePageId(drill.jsonPath.length - 1)
+  }
+  if (!drill.selectedKey || drill.jsonPath.length === 0) {
+    return PAGE_KEYS
+  }
+  return browsePageId(drill.jsonPath.length - 1)
+}
+
+function poppedDrill(drill: DrillState, entry: RegistryEntry | undefined): DrillState {
+  if (drill.editorOpen) {
+    const root = entry ? parsedJsonRoot(entry) : undefined
+    const node = root !== undefined ? getAtPath(root, drill.jsonPath) : undefined
+    if (drill.jsonPath.length === 0) {
+      if (entry && jsonOpenMode(entry.value, entryValueType(entry)) === 'browse') {
+        return { ...drill, editorOpen: false }
+      }
+      return EMPTY_DRILL
+    }
+    if (isJsonContainer(node)) {
+      return { ...drill, editorOpen: false }
+    }
+    return { ...drill, jsonPath: drill.jsonPath.slice(0, -1), editorOpen: false }
+  }
+  if (!drill.selectedKey) {
+    return drill
+  }
+  if (drill.jsonPath.length === 0) {
+    return EMPTY_DRILL
+  }
+  return { ...drill, jsonPath: drill.jsonPath.slice(0, -1) }
+}
+
+function currentNarrowPage(selectedAppId: string | undefined, drill: DrillState): string {
+  if (!selectedAppId) {
+    return PAGE_ROOT
+  }
+  if (!drill.selectedKey) {
+    return PAGE_KEYS
+  }
+  if (drill.editorOpen) {
+    return PAGE_EDIT
+  }
+  return browsePageId(drill.jsonPath.length)
+}
+
+type EditorKind = JsonNodeKind | 'raw'
+
+type ResolvedEditor = {
+  title: string
+  initial: string
+  kind: EditorKind
+  node: unknown
+}
+
+function resolveEditor(
+  entry: RegistryEntry,
+  path: JsonPath,
+): ResolvedEditor | 'invalid-path' {
+  const type = entryValueType(entry)
+  if (type !== 'json') {
+    if (path.length > 0) {
+      return 'invalid-path'
+    }
+    return {
+      title: entry.key,
+      initial: entry.value,
+      kind: 'raw',
+      node: entry.value,
+    }
+  }
+
+  const parsed = parseJsonValue(entry.value)
+  if (!parsed.ok) {
+    if (path.length > 0) {
+      return 'invalid-path'
+    }
+    return {
+      title: entry.key,
+      initial: entry.value,
+      kind: 'object',
+      node: entry.value,
+    }
+  }
+
+  const node = getAtPath(parsed.value, path)
+  if (path.length > 0 && node === undefined) {
+    return 'invalid-path'
+  }
+  return {
+    title: pathTitle(entry.key, path, parsed.value),
+    initial: formatNodeForEditor(node),
+    kind: jsonNodeKind(node),
+    node,
+  }
+}
+
+function editorDraftError(kind: EditorKind, draft: string): string | undefined {
+  if (kind === 'raw' || kind === 'string') {
+    return undefined
+  }
+  const parsed = parseEditorDraft(kind, draft)
+  return parsed.ok ? undefined : parsed.error
+}
+
+type WideFrame =
+  | { kind: 'keys'; id: string; appId: string }
+  | { kind: 'browse'; id: string; appId: string; key: string; path: JsonPath }
+  | { kind: 'edit'; id: string; appId: string; key: string; path: JsonPath }
+
+function buildWideFrames(
+  appId: string | undefined,
+  drill: DrillState,
+  entry: RegistryEntry | undefined,
+): WideFrame[] {
+  if (!appId) {
+    return []
+  }
+  const frames: WideFrame[] = [{ kind: 'keys', id: `keys:${appId}`, appId }]
+  if (!drill.selectedKey || !entry) {
+    return frames
+  }
+  const containerKey = jsonOpenMode(entry.value, entryValueType(entry)) === 'browse'
+  if (!containerKey) {
+    if (drill.editorOpen) {
+      frames.push({
+        id: `edit:${entry.key}`,
+        kind: 'edit',
+        appId,
+        key: entry.key,
+        path: [],
+      })
+    }
+    return frames
+  }
+
+  const root = parsedJsonRoot(entry)
+  frames.push({
+    id: `browse:${entry.key}`,
+    kind: 'browse',
+    appId,
+    key: entry.key,
+    path: [],
+  })
+  for (let index = 0; index < drill.jsonPath.length; index += 1) {
+    const prefix = drill.jsonPath.slice(0, index + 1)
+    const node = root !== undefined ? getAtPath(root, prefix) : undefined
+    if (isJsonContainer(node)) {
+      frames.push({
+        id: `browse:${entry.key}:${prefix.join('\0')}`,
+        kind: 'browse',
+        appId,
+        key: entry.key,
+        path: prefix,
+      })
+    }
+  }
+  if (drill.editorOpen) {
+    frames.push({
+      id: `edit:${entry.key}:${drill.jsonPath.join('\0')}`,
+      kind: 'edit',
+      appId,
+      key: entry.key,
+      path: drill.jsonPath,
+    })
+  }
+  return frames
 }
 
 type NamespaceListProps = {
@@ -343,8 +542,7 @@ function RegistryDetailPane({
             </div>
           )}
           <p class="settings__section-footnote">
-            内置应用按字段拆分为独立 key（cities / sessions / articles 等），便于单独查看、编辑与删除；
-            生成应用则每个键独立存储。删除或修改后，该应用下次读取会使用新值。
+            JSON 对象与数组可逐级展开；文本与叶子值点进去编辑。删除仍只作用于整个注册表键。
           </p>
         </section>
       </div>
@@ -369,9 +567,87 @@ function RegistryDetailEmpty() {
   )
 }
 
-type RegistryValuePaneProps = {
-  entry: RegistryEntry
+type RegistryBrowsePaneProps = {
+  title: string
   backLabel: string
+  footnote: string
+  nodes: JsonChild[]
+  onBack: () => void
+  onOpenChild: (key: string) => void
+  onEditJson: () => void
+}
+
+function RegistryBrowsePane({
+  title,
+  backLabel,
+  footnote,
+  nodes,
+  onBack,
+  onOpenChild,
+  onEditJson,
+}: RegistryBrowsePaneProps) {
+  return (
+    <>
+      <div class="settings__nav settings__nav--titled">
+        <div class="settings__nav-bar">
+          <IosNavBackButton label={backLabel} onClick={onBack} />
+          <h1 class="settings__nav-heading">{title}</h1>
+          <div class="settings__nav-trailing">
+            <button type="button" class="settings__btn settings__btn--default" onClick={onEditJson}>
+              编辑 JSON
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="settings__content settings__content--compact">
+        <section class="settings__section">
+          <p class="settings__section-footnote">{footnote}</p>
+          {nodes.length === 0 ? (
+            <div class="settings__box settings__empty">此节点暂无子项</div>
+          ) : (
+            <div class="settings__list registry__node-list">
+              <div class="settings__list-head registry__list-head">
+                <span>键</span>
+                <span>值</span>
+              </div>
+              <div class="settings__list-body">
+                {nodes.map((child) => (
+                  <div class="registry__entry-row registry__entry-row--node" key={child.key}>
+                    <button
+                      type="button"
+                      class="settings__row settings__row--button registry__entry-open"
+                      onClick={() => onOpenChild(child.key)}
+                    >
+                      <span class="settings__row-name">
+                        <span class="registry__row-meta">
+                          <span class="registry__row-key-line">
+                            <span class="settings__row-key">{child.label}</span>
+                            <span class="settings__row-badge">{jsonKindLabel(child.kind)}</span>
+                          </span>
+                        </span>
+                      </span>
+                      <span class="settings__disclosure" aria-hidden="true">
+                        <ForwardIcon size={13} />
+                      </span>
+                    </button>
+                    <span class="settings__row-size">{child.summary}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </>
+  )
+}
+
+type RegistryValuePaneProps = {
+  title: string
+  backLabel: string
+  footnote: string
+  initial: string
+  kind: EditorKind
   saving: boolean
   onBack: () => void
   onSave: (draft: string) => void | Promise<void>
@@ -379,20 +655,18 @@ type RegistryValuePaneProps = {
 }
 
 function RegistryValuePane({
-  entry,
+  title,
   backLabel,
+  footnote,
+  initial,
+  kind,
   saving,
   onBack,
   onSave,
   onDirtyChange,
 }: RegistryValuePaneProps) {
-  const initial = useMemo(
-    () => formatEntryForEditor(entry),
-    [entry.appId, entry.key, entry.value, entry.valueType, entry.updatedAt],
-  )
   const [draft, setDraft] = useState(initial)
-  const isJson = entryValueType(entry) === 'json'
-  const parseError = isJson ? jsonDraftError(draft) : undefined
+  const parseError = editorDraftError(kind, draft)
   const dirty = draft !== initial
   const canSave = dirty && !saving && parseError === undefined
 
@@ -410,7 +684,7 @@ function RegistryValuePane({
       <div class="settings__nav settings__nav--titled">
         <div class="settings__nav-bar">
           <IosNavBackButton label={backLabel} onClick={onBack} />
-          <h1 class="settings__nav-heading">{entry.key}</h1>
+          <h1 class="settings__nav-heading">{title}</h1>
           <div class="settings__nav-trailing">
             <button
               type="button"
@@ -424,10 +698,7 @@ function RegistryValuePane({
         </div>
       </div>
       <div class="settings__content settings__content--compact registry__value-content">
-        <p class="settings__section-footnote">
-          {valueTypeBadgeLabel(entry)} · {formatStorageSize(utf8Length(entry.value))} · 更新于{' '}
-          {formatTimestamp(entry.updatedAt)}
-        </p>
+        <p class="settings__section-footnote">{footnote}</p>
         {parseError ? <p class="registry__value-error">{parseError}</p> : undefined}
         <textarea
           class="registry__value-textarea"
@@ -459,16 +730,19 @@ export function RegistryApp() {
   const [loading, setLoading] = useState(true)
   const [selectedAppId, setSelectedAppId] = useState<string | undefined>(undefined)
   const [detailAppId, setDetailAppId] = useState<string | undefined>(undefined)
-  const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined)
+  const [drill, setDrill] = useState<DrillState>(EMPTY_DRILL)
   const [entries, setEntries] = useState<RegistryEntry[]>([])
   const [entriesLoading, setEntriesLoading] = useState(false)
   const [deletingKey, setDeletingKey] = useState<string | undefined>(undefined)
   const [clearing, setClearing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [wideHeldEntry, setWideHeldEntry] = useState<RegistryEntry | undefined>(undefined)
-  const [wideEditorShown, setWideEditorShown] = useState(false)
+  const [heldFrames, setHeldFrames] = useState<WideFrame[]>([])
+  const [wideIndex, setWideIndex] = useState(0)
   const entriesCacheRef = useRef(new Map<string, RegistryEntry[]>())
   const hasDisplayedDetailRef = useRef(false)
+  const heldFramesRef = useRef<WideFrame[]>([])
+  const wideAppRef = useRef<string | undefined>(undefined)
+  const prevLiveLenRef = useRef(0)
 
   const {
     page: screen,
@@ -479,7 +753,7 @@ export function RegistryApp() {
     navigate: navigateTo,
     handleMotionEnd: handleStackMotionEnd,
     setPage: setPageSilent,
-  } = useKeychainNavStack<Screen>('root')
+  } = useKeychainNavStack<string>(PAGE_ROOT)
 
   const applyDisplayedEntries = useCallback((appId: string, next: RegistryEntry[]) => {
     entriesCacheRef.current.set(appId, next)
@@ -518,14 +792,10 @@ export function RegistryApp() {
     })
   }, [modal])
 
-  const closeEditorView = useCallback(() => {
+  const resetDrill = useCallback((next: DrillState = EMPTY_DRILL) => {
     editorDirtyRef.current = false
-    if (narrowLayout) {
-      navigateTo('detail', 'pop', () => setSelectedKey(undefined))
-      return
-    }
-    setSelectedKey(undefined)
-  }, [narrowLayout, navigateTo])
+    setDrill(next)
+  }, [])
 
   useEffect(() => {
     void reloadNamespaces()
@@ -608,29 +878,77 @@ export function RegistryApp() {
     if (namespaces.some((namespace) => namespace.appId === selectedAppId)) {
       return
     }
-    setSelectedKey(undefined)
-    editorDirtyRef.current = false
+    resetDrill()
     if (narrowLayout) {
       setSelectedAppId(undefined)
-      setPageSilent('root')
+      setPageSilent(PAGE_ROOT)
       return
     }
     setSelectedAppId(sortedNamespaces(namespaces)[0]?.appId)
-  }, [loading, namespaces, selectedAppId, narrowLayout, setPageSilent])
+  }, [loading, namespaces, selectedAppId, narrowLayout, resetDrill, setPageSilent])
+
+  const selectedEntry = drill.selectedKey
+    ? entries.find((entry) => entry.key === drill.selectedKey)
+    : undefined
 
   useEffect(() => {
-    if (!selectedKey) {
+    if (!drill.selectedKey) {
       return
     }
-    if (entries.some((entry) => entry.key === selectedKey)) {
+    if (!selectedEntry) {
+      resetDrill()
+      if (narrowLayout && screen !== PAGE_ROOT && screen !== PAGE_KEYS) {
+        setPageSilent(PAGE_KEYS)
+      }
       return
     }
-    setSelectedKey(undefined)
-    editorDirtyRef.current = false
-    if (narrowLayout && screen === 'editor') {
-      setPageSilent('detail')
+
+    if (drill.jsonPath.length === 0 && !drill.editorOpen) {
+      if (jsonOpenMode(selectedEntry.value, entryValueType(selectedEntry)) === 'edit') {
+        resetDrill({ selectedKey: drill.selectedKey, jsonPath: [], editorOpen: true })
+        if (narrowLayout) {
+          setPageSilent(PAGE_EDIT)
+        }
+      }
+      return
     }
-  }, [entries, narrowLayout, screen, selectedKey, setPageSilent])
+
+    const root = parsedJsonRoot(selectedEntry)
+    if (root === undefined) {
+      if (drill.jsonPath.length > 0) {
+        resetDrill({ selectedKey: drill.selectedKey, jsonPath: [], editorOpen: true })
+        if (narrowLayout) {
+          setPageSilent(PAGE_EDIT)
+        }
+      }
+      return
+    }
+
+    if (drill.jsonPath.length > 0 && getAtPath(root, drill.jsonPath) === undefined) {
+      const valid = longestValidPrefix(root, drill.jsonPath)
+      const node = getAtPath(root, valid)
+      if (isJsonContainer(node) || valid.length === 0) {
+        resetDrill({
+          selectedKey: drill.selectedKey,
+          jsonPath: valid,
+          editorOpen: false,
+        })
+        if (narrowLayout) {
+          setPageSilent(browsePageId(valid.length))
+        }
+        return
+      }
+      const parent = valid.slice(0, -1)
+      resetDrill({
+        selectedKey: drill.selectedKey,
+        jsonPath: parent,
+        editorOpen: false,
+      })
+      if (narrowLayout) {
+        setPageSilent(browsePageId(parent.length))
+      }
+    }
+  }, [drill, narrowLayout, resetDrill, screen, selectedEntry, setPageSilent])
 
   useLayoutEffect(() => {
     if (!layoutReady) {
@@ -642,22 +960,19 @@ export function RegistryApp() {
       prevNarrowLayoutRef.current = narrowLayout
       return
     }
-
-    prevNarrowLayoutRef.current = narrowLayout
-
-    if (!previous && narrowLayout) {
-      if (selectedKey) {
-        setPageSilent('editor')
-      } else if (selectedAppId !== undefined) {
-        setPageSilent('detail')
-      }
+    if (previous === narrowLayout) {
       return
     }
 
-    if (!narrowLayout) {
-      setPageSilent('root')
+    prevNarrowLayoutRef.current = narrowLayout
+
+    if (narrowLayout) {
+      setPageSilent(currentNarrowPage(selectedAppId, drill))
+      return
     }
-  }, [layoutReady, narrowLayout, selectedAppId, selectedKey, setPageSilent])
+
+    setPageSilent(PAGE_ROOT)
+  }, [drill, layoutReady, narrowLayout, selectedAppId, setPageSilent])
 
   const syncCaretPos = useCallback(() => {
     if (narrowLayout) {
@@ -686,7 +1001,7 @@ export function RegistryApp() {
 
   useLayoutEffect(() => {
     syncCaretPos()
-  }, [syncCaretPos, selectedAppId, namespaces, loading, narrowLayout, selectedKey])
+  }, [syncCaretPos, selectedAppId, namespaces, loading, narrowLayout, drill])
 
   useEffect(() => {
     const listPane = listPaneRef.current
@@ -720,7 +1035,7 @@ export function RegistryApp() {
       observer?.disconnect()
       window.removeEventListener('resize', syncCaretPos)
     }
-  }, [syncCaretPos, selectedAppId, namespaces, narrowLayout, selectedKey])
+  }, [syncCaretPos, selectedAppId, namespaces, narrowLayout, drill])
 
   const handleDeleteKey = async (key: string) => {
     if (!selectedAppId || deletingKey !== undefined) {
@@ -734,11 +1049,10 @@ export function RegistryApp() {
         entriesCacheRef.current.set(selectedAppId, next)
         return next
       })
-      if (selectedKey === key) {
-        setSelectedKey(undefined)
-        editorDirtyRef.current = false
+      if (drill.selectedKey === key) {
+        resetDrill()
         if (narrowLayout) {
-          setPageSilent('detail')
+          setPageSilent(PAGE_KEYS)
         }
       }
       await reloadNamespaces({ silent: true })
@@ -756,12 +1070,9 @@ export function RegistryApp() {
       await createGlobalRegistry().clearNamespace(selectedAppId)
       entriesCacheRef.current.set(selectedAppId, [])
       setEntries([])
-      setSelectedKey(undefined)
-      editorDirtyRef.current = false
-      if (narrowLayout) {
-        if (screen === 'editor') {
-          setPageSilent('detail')
-        }
+      resetDrill()
+      if (narrowLayout && screen !== PAGE_ROOT && screen !== PAGE_KEYS) {
+        setPageSilent(PAGE_KEYS)
       }
       await reloadNamespaces({ silent: true })
     } finally {
@@ -785,17 +1096,68 @@ export function RegistryApp() {
     await handleClearNamespace()
   }
 
-  const handleSaveEntry = async (entry: RegistryEntry, draft: string) => {
+  const retreatInvalidPath = (entry: RegistryEntry) => {
+    const root = parsedJsonRoot(entry)
+    if (root === undefined) {
+      resetDrill({ selectedKey: entry.key, jsonPath: [], editorOpen: true })
+      if (narrowLayout) {
+        setPageSilent(PAGE_EDIT)
+      }
+      return
+    }
+    const valid = longestValidPrefix(root, drill.jsonPath)
+    const node = getAtPath(root, valid)
+    if (isJsonContainer(node) || valid.length === 0) {
+      resetDrill({ selectedKey: entry.key, jsonPath: valid, editorOpen: false })
+      if (narrowLayout) {
+        setPageSilent(browsePageId(valid.length))
+      }
+      return
+    }
+    const parent = valid.slice(0, -1)
+    resetDrill({ selectedKey: entry.key, jsonPath: parent, editorOpen: false })
+    if (narrowLayout) {
+      setPageSilent(browsePageId(parent.length))
+    }
+  }
+
+  const handleSaveEntry = async (
+    entry: RegistryEntry,
+    path: JsonPath,
+    kind: EditorKind,
+    draft: string,
+  ) => {
     if (!selectedAppId || saving) {
       return
     }
     setSaving(true)
     try {
       const registry = createGlobalRegistry()
-      if (entryValueType(entry) === 'json') {
-        await registry.setJson(selectedAppId, entry.key, JSON.parse(draft) as unknown)
-      } else {
+      if (kind === 'raw' && entryValueType(entry) !== 'json') {
         await registry.setText(selectedAppId, entry.key, draft)
+      } else {
+        const decoded = parseEditorDraft(kind === 'raw' ? 'object' : kind, draft)
+        if (!decoded.ok) {
+          throw new Error(decoded.error)
+        }
+        if (path.length === 0) {
+          await registry.setJson(selectedAppId, entry.key, decoded.value)
+        } else {
+          const parsed = parseJsonValue(entry.value)
+          if (!parsed.ok) {
+            throw new Error('当前键已不是有效 JSON')
+          }
+          const next = setAtPath(parsed.value, path, decoded.value)
+          if (next === undefined) {
+            await modal.alert({
+              title: '保存失败',
+              message: '该路径已不存在，可能被其他更改移动或删除。',
+            })
+            retreatInvalidPath(entry)
+            return
+          }
+          await registry.setJson(selectedAppId, entry.key, next)
+        }
       }
       const next = await registry.listNamespaceEntries(selectedAppId)
       applyDisplayedEntries(selectedAppId, next)
@@ -810,37 +1172,85 @@ export function RegistryApp() {
     }
   }
 
-  const openEntry = (key: string) => {
-    setSelectedKey(key)
+  const applyPop = (entry: RegistryEntry | undefined) => {
+    resetDrill(poppedDrill(drill, entry))
+  }
+
+  const goBackFromDrill = async () => {
+    if (drill.editorOpen && !(await confirmDiscard())) {
+      return
+    }
+    const entry = selectedEntry
     if (narrowLayout) {
-      navigateTo('editor', 'push')
+      navigateTo(parentPageId(drill, entry), 'pop', () => applyPop(entry))
+      return
+    }
+    applyPop(entry)
+  }
+
+  const openEntry = (key: string) => {
+    const entry = entries.find((item) => item.key === key)
+    if (!entry) {
+      return
+    }
+    if (jsonOpenMode(entry.value, entryValueType(entry)) === 'browse') {
+      setDrill({ selectedKey: key, jsonPath: [], editorOpen: false })
+      if (narrowLayout) {
+        navigateTo(browsePageId(0), 'push')
+      }
+      return
+    }
+    setDrill({ selectedKey: key, jsonPath: [], editorOpen: true })
+    if (narrowLayout) {
+      navigateTo(PAGE_EDIT, 'push')
     }
   }
 
-  const closeEditor = async () => {
-    if (!(await confirmDiscard())) {
+  const openChild = (entry: RegistryEntry, path: JsonPath, childKey: string) => {
+    const root = parsedJsonRoot(entry)
+    if (root === undefined) {
       return
     }
-    closeEditorView()
+    const nextPath = [...path, childKey]
+    const node = getAtPath(root, nextPath)
+    if (isJsonContainer(node)) {
+      setDrill({ selectedKey: entry.key, jsonPath: nextPath, editorOpen: false })
+      if (narrowLayout) {
+        navigateTo(browsePageId(nextPath.length), 'push')
+      }
+      return
+    }
+    setDrill({ selectedKey: entry.key, jsonPath: nextPath, editorOpen: true })
+    if (narrowLayout) {
+      navigateTo(PAGE_EDIT, 'push')
+    }
+  }
+
+  const openEditJson = (entry: RegistryEntry, path: JsonPath) => {
+    setDrill({ selectedKey: entry.key, jsonPath: path, editorOpen: true })
+    if (narrowLayout) {
+      navigateTo(PAGE_EDIT, 'push')
+    }
   }
 
   const selectNamespace = useCallback(
     (appId: string) => {
       const switchTo = async () => {
-        if (selectedKey && appId !== selectedAppId) {
-          if (!(await confirmDiscard())) {
+        if (appId !== selectedAppId) {
+          if (drill.editorOpen && !(await confirmDiscard())) {
             return
           }
-          setSelectedKey(undefined)
-          editorDirtyRef.current = false
+          resetDrill()
         }
         setSelectedAppId(appId)
         const cached = entriesCacheRef.current.get(appId)
         if (cached) {
           applyDisplayedEntries(appId, cached)
         }
-        if (narrowLayout) {
-          navigateTo('detail', 'push')
+        if (narrowLayout && appId !== selectedAppId) {
+          navigateTo(PAGE_KEYS, 'push')
+        } else if (narrowLayout && !selectedAppId) {
+          navigateTo(PAGE_KEYS, 'push')
         }
       }
       void switchTo()
@@ -848,20 +1258,20 @@ export function RegistryApp() {
     [
       applyDisplayedEntries,
       confirmDiscard,
+      drill.editorOpen,
       narrowLayout,
       navigateTo,
+      resetDrill,
       selectedAppId,
-      selectedKey,
     ],
   )
 
   const closeDetail = useCallback(() => {
-    navigateTo('root', 'pop', () => {
+    navigateTo(PAGE_ROOT, 'pop', () => {
       setSelectedAppId(undefined)
-      setSelectedKey(undefined)
-      editorDirtyRef.current = false
+      resetDrill()
     })
-  }, [navigateTo])
+  }, [navigateTo, resetDrill])
 
   const menuBar = useMemo<MenuDefinition[]>(() => {
     return [
@@ -888,23 +1298,88 @@ export function RegistryApp() {
   const displayedLoading =
     Boolean(selectedAppId) &&
     (narrowLayout ? detailAppId !== selectedAppId : !detailAppId && entriesLoading)
-  const selectedEntry = selectedKey
-    ? displayedEntries.find((entry) => entry.key === selectedKey)
-    : undefined
+
+  const liveFrames = useMemo(
+    () => buildWideFrames(displayedAppId, drill, selectedEntry),
+    [displayedAppId, drill, selectedEntry],
+  )
+
+  useLayoutEffect(() => {
+    heldFramesRef.current = heldFrames
+  }, [heldFrames])
+
+  useLayoutEffect(() => {
+    if (narrowLayout) {
+      return
+    }
+    const previous = heldFramesRef.current
+    const appChanged = wideAppRef.current !== selectedAppId
+    wideAppRef.current = selectedAppId
+    const prevLen = prevLiveLenRef.current
+    const nextLen = liveFrames.length
+
+    if (appChanged || Math.abs(nextLen - prevLen) > 1 || previous.length === 0) {
+      prevLiveLenRef.current = nextLen
+      setHeldFrames(liveFrames)
+      setWideIndex(Math.max(0, nextLen - 1))
+      return
+    }
+
+    if (nextLen >= prevLen) {
+      setHeldFrames(liveFrames)
+      return
+    }
+
+    setWideIndex(Math.max(0, nextLen - 1))
+    const timer = window.setTimeout(() => {
+      prevLiveLenRef.current = nextLen
+      setHeldFrames(liveFrames)
+    }, WIDE_STACK_MS)
+    return () => window.clearTimeout(timer)
+  }, [liveFrames, narrowLayout, selectedAppId])
 
   useEffect(() => {
     if (narrowLayout) {
       return
     }
-    if (selectedEntry) {
-      setWideHeldEntry(selectedEntry)
-      setWideEditorShown(true)
-      return
+    if (heldFrames.length > prevLiveLenRef.current) {
+      prevLiveLenRef.current = heldFrames.length
+      setWideIndex(heldFrames.length - 1)
     }
-    setWideEditorShown(false)
-    const timer = window.setTimeout(() => setWideHeldEntry(undefined), 380)
-    return () => window.clearTimeout(timer)
-  }, [narrowLayout, selectedEntry])
+  }, [heldFrames, narrowLayout])
+
+  const findEntry = (appId: string, key: string): RegistryEntry | undefined => {
+    if (appId === displayedAppId) {
+      return displayedEntries.find((item) => item.key === key) ?? selectedEntry
+    }
+    return entriesCacheRef.current.get(appId)?.find((item) => item.key === key)
+  }
+
+  const browseBackLabel = (entry: RegistryEntry, path: JsonPath): string => {
+    if (path.length === 0) {
+      return appLabel(entry.appId)
+    }
+    const root = parsedJsonRoot(entry)
+    if (root === undefined) {
+      return entry.key
+    }
+    return pathTitle(entry.key, path.slice(0, -1), root)
+  }
+
+  const editorBackLabel = (entry: RegistryEntry, path: JsonPath, kind: EditorKind): string => {
+    if (kind === 'raw' && path.length === 0) {
+      return appLabel(entry.appId)
+    }
+    const root = parsedJsonRoot(entry)
+    if (root === undefined) {
+      return appLabel(entry.appId)
+    }
+    const node = getAtPath(root, path)
+    if (isJsonContainer(node) || path.length === 0) {
+      return pathTitle(entry.key, path, root)
+    }
+    return pathTitle(entry.key, path.slice(0, -1), root)
+  }
 
   const renderDetailPane = (appId: string, showBack: boolean) => (
     <RegistryDetailPane
@@ -922,27 +1397,84 @@ export function RegistryApp() {
     />
   )
 
-  const renderEditorPane = (appId: string, entry: RegistryEntry) => (
-    <RegistryValuePane
-      key={`${appId}:${entry.key}`}
-      entry={entry}
-      backLabel={appLabel(appId)}
-      saving={saving}
-      onBack={() => void closeEditor()}
-      onSave={(draft) => handleSaveEntry(entry, draft)}
-      onDirtyChange={handleDirtyChange}
-    />
-  )
+  const renderBrowsePane = (entry: RegistryEntry, path: JsonPath) => {
+    const root = parsedJsonRoot(entry)
+    const node = root !== undefined ? getAtPath(root, path) : undefined
+    const nodes = isJsonContainer(node) ? listJsonChildren(node) : []
+    const title = root !== undefined ? pathTitle(entry.key, path, root) : entry.key
+    const kind = jsonNodeKind(node)
+    return (
+      <RegistryBrowsePane
+        title={title}
+        backLabel={browseBackLabel(entry, path)}
+        footnote={`${jsonKindLabel(kind)} · ${nodes.length} 项`}
+        nodes={nodes}
+        onBack={() => void goBackFromDrill()}
+        onOpenChild={(childKey) => openChild(entry, path, childKey)}
+        onEditJson={() => openEditJson(entry, path)}
+      />
+    )
+  }
 
-  const renderPage = (target: Screen) => {
-    if (target === 'editor') {
-      if (!selectedAppId || !selectedEntry) {
+  const renderEditorPane = (entry: RegistryEntry, path: JsonPath) => {
+    const resolved = resolveEditor(entry, path)
+    if (resolved === 'invalid-path') {
+      return (
+        <>
+          <div class="settings__nav settings__nav--titled">
+            <div class="settings__nav-bar">
+              <IosNavBackButton label="返回" onClick={() => void goBackFromDrill()} />
+              <h1 class="settings__nav-heading">{entry.key}</h1>
+              <span class="settings__nav-trailing" aria-hidden="true" />
+            </div>
+          </div>
+          <div class="settings__content settings__content--compact">
+            <div class="settings__box settings__empty">该路径已不存在</div>
+          </div>
+        </>
+      )
+    }
+    const kindLabel =
+      resolved.kind === 'raw' ? valueTypeBadgeLabel(entry) : jsonKindLabel(resolved.kind)
+    const bytes =
+      resolved.kind === 'raw' ? utf8Length(entry.value) : nodeByteLength(resolved.node)
+    return (
+      <RegistryValuePane
+        key={`${entry.appId}:${entry.key}:${path.join('\0')}`}
+        title={resolved.title}
+        backLabel={editorBackLabel(entry, path, resolved.kind)}
+        footnote={`${kindLabel} · ${formatStorageSize(bytes)} · 更新于 ${formatTimestamp(entry.updatedAt)}`}
+        initial={resolved.initial}
+        kind={resolved.kind}
+        saving={saving}
+        onBack={() => void goBackFromDrill()}
+        onSave={(draft) => handleSaveEntry(entry, path, resolved.kind, draft)}
+        onDirtyChange={handleDirtyChange}
+      />
+    )
+  }
+
+  const renderBrowseAtDepth = (depth: number) => {
+    if (!selectedAppId || !selectedEntry) {
+      return null
+    }
+    return renderBrowsePane(selectedEntry, drill.jsonPath.slice(0, depth))
+  }
+
+  const renderPage = (target: string) => {
+    if (target === PAGE_EDIT) {
+      if (!selectedEntry) {
         return null
       }
-      return renderEditorPane(selectedAppId, selectedEntry)
+      return renderEditorPane(selectedEntry, drill.jsonPath)
     }
 
-    if (target === 'detail') {
+    const browseDepth = parseBrowseDepth(target)
+    if (browseDepth !== undefined) {
+      return renderBrowseAtDepth(browseDepth)
+    }
+
+    if (target === PAGE_KEYS) {
       if (!selectedAppId) {
         return null
       }
@@ -954,9 +1486,27 @@ export function RegistryApp() {
         namespaces={namespaces}
         loading={loading}
         onSelect={selectNamespace}
-        footnote="点击命名空间可查看字段级键条目；点击键可查看并编辑其内容。"
+        footnote="点击命名空间可查看字段级键条目；JSON 可逐级展开，叶子可编辑。"
       />
     )
+  }
+
+  const renderWideFrame = (frame: WideFrame) => {
+    if (frame.kind === 'keys') {
+      return renderDetailPane(frame.appId, false)
+    }
+    const entry = findEntry(frame.appId, frame.key)
+    if (!entry) {
+      return (
+        <div class="settings__content settings__content--compact">
+          <div class="settings__box settings__empty">该键已不存在</div>
+        </div>
+      )
+    }
+    if (frame.kind === 'browse') {
+      return renderBrowsePane(entry, frame.path)
+    }
+    return renderEditorPane(entry, frame.path)
   }
 
   const renderWideDetail = () => {
@@ -968,24 +1518,31 @@ export function RegistryApp() {
       )
     }
 
-    const editorEntry = selectedEntry ?? wideHeldEntry
-    const editorOpen = wideEditorShown && Boolean(editorEntry)
+    const frames = heldFrames.length > 0 ? heldFrames : liveFrames
+    const active = Math.min(wideIndex, Math.max(0, frames.length - 1))
     return (
-      <div
-        class={
-          editorOpen
-            ? 'registry__wide-stack registry__wide-stack--editor'
-            : 'registry__wide-stack'
-        }
-      >
-        <div class="settings registry__wide-stack__page registry__wide-stack__page--detail">
-          {renderDetailPane(displayedAppId, false)}
-        </div>
-        {editorEntry ? (
-          <div class="settings registry__wide-stack__page registry__wide-stack__page--editor">
-            {renderEditorPane(displayedAppId, editorEntry)}
+      <div class="registry__wide-stack">
+        {frames.map((frame, index) => (
+          <div
+            key={frame.id}
+            class={
+              index === active
+                ? 'settings registry__wide-stack__page is-active'
+                : 'settings registry__wide-stack__page'
+            }
+            style={{
+              transform:
+                index === active
+                  ? 'translateX(0)'
+                  : index < active
+                    ? 'translateX(-30%)'
+                    : 'translateX(100%)',
+              zIndex: index,
+            }}
+          >
+            {renderWideFrame(frame)}
           </div>
-        ) : undefined}
+        ))}
       </div>
     )
   }
@@ -1026,7 +1583,7 @@ export function RegistryApp() {
               selectedAppId={selectedAppId}
               selectedRowRef={selectedRowRef}
               onSelect={selectNamespace}
-              footnote="点击应用可在右侧查看注册表键；点击键可编辑其内容。"
+              footnote="点击应用可在右侧查看注册表键；JSON 可逐级展开。"
             />
           </div>
           <div ref={detailPanelRef} class="registry__detail-pane">
