@@ -10,6 +10,7 @@ import { isGeneratedAppId } from '../../os/types.ts'
 import {
   DEVICE_CAPACITY_BYTES,
   findManagedApp,
+  getManagedAppTotalBytes,
   getStorageSummary,
   loadDataStorageBreakdown,
   buildSystemSpaceBreakdown,
@@ -24,6 +25,7 @@ import { SafariUsageView } from './safari-usage-view.tsx'
 import { ModelCacheView } from './model-cache-view.tsx'
 import { AppsStorageView } from './apps-storage-view.tsx'
 import { OtherStorageView } from './other-storage-view.tsx'
+import { DataOtherStorageView } from './data-other-storage-view.tsx'
 import { EventLogStorageView } from './event-log-storage-view.tsx'
 import { FilesStorageView } from './files-storage-view.tsx'
 import { DisplayView } from './display-view.tsx'
@@ -266,11 +268,13 @@ export function SettingsApp() {
     view === 'app-detail' ||
     view === 'apps-storage' ||
     view === 'other-storage' ||
+    view === 'data-other-storage' ||
     view === 'legacy-storage' ||
     view === 'event-log-storage' ||
     view === 'files-storage'
   const showAppsStorage = view === 'apps-storage'
   const showOtherStorage = view === 'other-storage'
+  const showDataOtherStorage = view === 'data-other-storage'
   const showEventLogStorage = view === 'event-log-storage'
   const showFilesStorage = view === 'files-storage'
   const showAppDetail = view === 'app-detail' && selectedApp
@@ -412,6 +416,7 @@ export function SettingsApp() {
           onSelectApp={(appId) => setRoute({ view: 'app-detail', appId, from: 'usage' })}
           onOpenAppsStorage={() => setRoute({ view: 'apps-storage' })}
           onOpenOtherStorage={() => setRoute({ view: 'other-storage' })}
+          onOpenDataOtherStorage={() => setRoute({ view: 'data-other-storage' })}
           onOpenLegacyStorage={() => setRoute({ view: 'legacy-storage' })}
           onOpenEventLogStorage={() => setRoute({ view: 'event-log-storage' })}
           onOpenFilesStorage={() => setRoute({ view: 'files-storage' })}
@@ -436,6 +441,14 @@ export function SettingsApp() {
         <OtherStorageView
           totalBytes={summary.otherBytes}
           onBack={() => setRoute({ view: 'usage' })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showDataOtherStorage} keep={showDataOtherStorage}>
+        <DataOtherStorageView
+          totalBytes={summary.dataOtherBytes}
+          onBack={() => setRoute({ view: 'usage' })}
+          onOpenSpaceSniffer={() => openApp('space-sniffer')}
         />
       </SettingsKeepLayer>
 
@@ -628,6 +641,7 @@ type UsageViewProps = {
   onSelectApp: (appId: BuiltinAppId | GeneratedAppId) => void
   onOpenAppsStorage: () => void
   onOpenOtherStorage: () => void
+  onOpenDataOtherStorage: () => void
   onOpenLegacyStorage: () => void
   onOpenEventLogStorage: () => void
   onOpenFilesStorage: () => void
@@ -639,10 +653,6 @@ type StorageMeterSegment = {
   bytes: number
   color: string
   free?: boolean
-}
-
-function residualBytes(usedBytes: number, attributedBytes: number): number {
-  return Math.max(0, usedBytes - attributedBytes)
 }
 
 function StorageMeter({
@@ -701,6 +711,7 @@ function UsageView({
   onSelectApp,
   onOpenAppsStorage,
   onOpenOtherStorage,
+  onOpenDataOtherStorage,
   onOpenLegacyStorage,
   onOpenEventLogStorage,
   onOpenFilesStorage,
@@ -718,21 +729,12 @@ function UsageView({
     { id: 'free', label: '剩余', bytes: systemBreakdown.availableBytes, color: '#d4d4d4', free: true },
   ]
 
-  const dataAttributedBytes =
-    summary.safariCacheBytes +
-    summary.booksDataBytes +
-    summary.appDataBytes +
-    summary.aiUsageBytes +
-    summary.aiEventLogBytes +
-    summary.folderIconSnapshotsBytes +
-    summary.modelVisionBytes +
-    summary.filesBytes
-  const dataOtherBytes = residualBytes(summary.dataUsedBytes, dataAttributedBytes)
+  const dataOtherBytes = summary.dataOtherBytes
   const dataSegments: StorageMeterSegment[] = [
     { id: 'safari-cache', label: '网页浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
     { id: 'books-data', label: '图书章节', bytes: summary.booksDataBytes, color: '#34c759' },
     { id: 'files', label: '文件', bytes: summary.filesBytes, color: '#007aff' },
-    { id: 'app-data', label: '应用目录', bytes: summary.appDataBytes, color: '#4a90e2' },
+    { id: 'app-data', label: '应用', bytes: summary.appDataBytes, color: '#4a90e2' },
     { id: 'ai-usage', label: 'AI 用量', bytes: summary.aiUsageBytes, color: '#af52de' },
     { id: 'event-log', label: '事件日志', bytes: summary.aiEventLogBytes, color: '#ff2d55' },
     {
@@ -837,9 +839,10 @@ function UsageView({
                     onClick={onOpenFilesStorage}
                   />
                   <StorageCategoryRow
-                    label="应用目录"
+                    label="应用"
                     bytes={summary.appDataBytes}
                     hint="各应用 /Applications 下的 Data 与 Contents"
+                    onClick={onOpenAppsStorage}
                   />
                   <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
                   <StorageCategoryRow
@@ -862,6 +865,7 @@ function UsageView({
                     label="其他"
                     bytes={dataOtherBytes}
                     hint="未归入已知分类的数据空间占用"
+                    onClick={onOpenDataOtherStorage}
                   />
                 </div>
               </div>
@@ -870,23 +874,11 @@ function UsageView({
 
           <section class="settings__section">
           <h2 class="settings__section-title">已安装的应用</h2>
-          <p class="settings__section-subtitle">按应用合计占用，点进应用查看明细</p>
+          <p class="settings__section-subtitle">点进应用查看明细</p>
           {summary.entries.length === 0 ? (
             <div class="settings__box settings__empty">暂无已安装应用</div>
           ) : (
-            <>
-              <div class="settings__list">
-                <div class="settings__list-body">
-                  <StorageCategoryRow
-                    label="占用分析"
-                    bytes={summary.appsTotalBytes}
-                    hint="按应用合计，含文稿与应用目录"
-                    onClick={onOpenAppsStorage}
-                  />
-                </div>
-              </div>
-              <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
-            </>
+            <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
             <p class="settings__section-footnote">
               系统空间存放配置与索引（上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间存放网页缓存、图书章节、文件、应用目录与注册表（上限{' '}
@@ -1020,8 +1012,6 @@ function appFilesLabel(appId: string): string {
       return '章节正文'
     case 'browser':
       return '网页缓存'
-    case 'files':
-      return '用户文件'
     case 'model-vision':
       return '识图结果'
     default:
@@ -1030,8 +1020,7 @@ function appFilesLabel(appId: string): string {
 }
 
 function AppListRow({ entry, onClick }: AppListRowProps) {
-  const totalBytes =
-    entry.appSizeBytes + entry.documentsBytes + entry.dataBytes + entry.versionHistoryBytes
+  const totalBytes = getManagedAppTotalBytes(entry)
 
   return (
     <button type="button" class="settings__row settings__row--button" onClick={onClick}>

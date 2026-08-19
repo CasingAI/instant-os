@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { hierarchy, treemap, treemapSquarify } from 'd3-hierarchy'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import type { ManagedAppEntry } from './app-storage.ts'
-import { getManagedAppTotalBytes } from './app-storage.ts'
+import { getManagedAppDirectoryBytes } from './app-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 
 const CHART_COLORS = [
@@ -59,7 +59,7 @@ function buildChartSlices(entries: ManagedAppEntry[]): ChartSlice[] {
   const appEntries = entries
     .map((entry) => ({
       entry,
-      bytes: getManagedAppTotalBytes(entry),
+      bytes: getManagedAppDirectoryBytes(entry),
     }))
     .filter((item) => item.bytes > 0)
     .sort((left, right) => right.bytes - left.bytes)
@@ -172,7 +172,7 @@ function StorageTreemap({ slices, onSelectSlice }: StorageTreemapProps) {
   if (slices.length === 0) {
     return (
       <div class="settings__treemap settings__treemap--empty" aria-label="暂无应用存储数据">
-        <p>暂无应用占用</p>
+        <p>暂无应用目录占用</p>
       </div>
     )
   }
@@ -263,8 +263,8 @@ export function AppsStorageView({ entries, onBack, onSelectApp }: AppsStorageVie
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section settings__section--fill">
-          <h2 class="settings__section-title">应用程序</h2>
-          <p class="settings__section-subtitle">各应用占用比例（文稿、应用目录与本体合计）</p>
+          <h2 class="settings__section-title">应用</h2>
+          <p class="settings__section-subtitle">各应用目录占「应用」分类的比例</p>
           <div class="settings__box settings__treemap-panel settings__treemap-panel--fill">
             <StorageTreemap slices={slices} onSelectSlice={handleSelectSlice} />
           </div>

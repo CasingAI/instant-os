@@ -432,7 +432,7 @@ export async function getStorageUsageSnapshot(): Promise<{
     },
     topApps,
     note:
-      `系统空间=配置与索引（约 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间=文件、应用目录、缓存与注册表（约 ${formatStorageSize(DATA_CAPACITY_BYTES)}）。应用占用是按应用合计（含注册表文稿），不是系统空间里的一类。注册表计入数据空间总上限，无单应用封顶。本工具只读，不能清理或卸载。账户/API Key 内容不可读。`,
+      `系统空间=配置与索引（约 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间=文件、应用目录与缓存（约 ${formatStorageSize(DATA_CAPACITY_BYTES)}）。数据空间「应用」只计各应用目录，占用分析按应用拆同一笔账，不含用户文件。用户文件在「文件」分类。应用文档在注册表，不计入系统空间。本工具只读，不能清理或卸载。账户/API Key 内容不可读。`,
   }
 }
 

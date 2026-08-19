@@ -48,6 +48,8 @@ export type ManagedAppEntry = {
   appSizeBytes: number
   documentsBytes: number
   dataBytes: number
+  /** /Applications 下 Data + Contents，数据空间「应用」分类按此项切开 */
+  appDirectoryBytes: number
   versionHistoryBytes: number
   removable: boolean
   icodeManaged?: boolean
@@ -58,6 +60,11 @@ export { buildSystemSpaceBreakdown }
 
 export function getManagedAppTotalBytes(entry: ManagedAppEntry): number {
   return entry.appSizeBytes + entry.documentsBytes + entry.dataBytes + entry.versionHistoryBytes
+}
+
+/** 数据空间「应用」占用：只计应用目录，不含用户文件、网页缓存、注册表文稿 */
+export function getManagedAppDirectoryBytes(entry: ManagedAppEntry): number {
+  return entry.appDirectoryBytes
 }
 
 function getSerializedByteSize(value: unknown): number {
@@ -174,6 +181,7 @@ export function buildManagedAppList(
     appSizeBytes: 0,
     documentsBytes: getBuiltinDocumentsBytes(app.id, registryBytesByApp),
     dataBytes: 0,
+    appDirectoryBytes: 0,
     versionHistoryBytes: 0,
     removable: false,
   }))
@@ -192,6 +200,7 @@ export function buildManagedAppList(
       appSizeBytes,
       documentsBytes,
       dataBytes: 0,
+      appDirectoryBytes: 0,
       versionHistoryBytes,
       removable: true,
       icodeManaged: app.icodeProjectId !== undefined || icodeProjectIds.has(app.id),
@@ -265,25 +274,31 @@ export function getStorageSummary(
   const dataAvailableBytes = Math.max(0, DATA_CAPACITY_BYTES - dataUsedBytes)
 
   const entriesWithData = entries.map((entry) => {
+    const appDirectoryBytes = dataStorage.appDataBytesByApp[entry.id] ?? 0
     if (entry.id === 'books') {
-      return { ...entry, dataBytes: booksDataBytes }
+      return { ...entry, dataBytes: booksDataBytes, appDirectoryBytes }
     }
     if (entry.id === 'browser') {
-      return { ...entry, dataBytes: safariCacheBytes }
+      return { ...entry, dataBytes: safariCacheBytes, appDirectoryBytes }
     }
     if (entry.id === 'model-vision') {
-      return { ...entry, dataBytes: modelVisionBytes }
+      return { ...entry, dataBytes: modelVisionBytes, appDirectoryBytes }
     }
-    if (entry.id === 'files') {
-      return { ...entry, dataBytes: filesBytesExcludingAppData }
-    }
-    return { ...entry, dataBytes: dataStorage.appDataBytesByApp[entry.id] ?? 0 }
+    return { ...entry, dataBytes: appDirectoryBytes, appDirectoryBytes }
   })
 
-  const appsTotalBytes = entriesWithData.reduce(
-    (total, entry) => total + getManagedAppTotalBytes(entry),
-    0,
-  )
+  const dataAttributedBytes =
+    safariCacheBytes +
+    booksDataBytes +
+    appDataBytes +
+    aiUsageBytes +
+    aiEventLogBytes +
+    folderIconSnapshotsBytes +
+    modelVisionBytes +
+    filesBytesExcludingAppData
+  const dataOtherBytes = Math.max(0, dataUsedBytes - dataAttributedBytes)
+  /** 占用分析合计 = 应用目录之和，与数据空间「应用」分类同一笔账 */
+  const appsTotalBytes = appDataBytes
 
   return {
     entries: entriesWithData,
@@ -304,6 +319,7 @@ export function getStorageSummary(
     folderIconSnapshotsBytes,
     modelVisionBytes,
     filesBytes: filesBytesExcludingAppData,
+    dataOtherBytes,
     legacyAppDataBytes,
     systemBytes: usedBytes,
   }

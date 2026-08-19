@@ -78,6 +78,7 @@ export type SettingsRoute =
   | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId; from?: 'usage' | 'apps-storage' }
   | { view: 'apps-storage' }
   | { view: 'other-storage' }
+  | { view: 'data-other-storage' }
   | { view: 'legacy-storage' }
   | { view: 'event-log-storage' }
   | { view: 'files-storage' }
@@ -245,6 +246,7 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
     case 'app-detail':
     case 'apps-storage':
     case 'other-storage':
+    case 'data-other-storage':
     case 'legacy-storage':
     case 'event-log-storage':
     case 'files-storage':
