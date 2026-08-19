@@ -2886,6 +2886,10 @@
     grid-template-columns: 1fr auto;
     gap: 10px;
   }
+
+  .settings__row.settings__row--model-cache {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
 }
 
 /* News management nested rows */
@@ -3007,6 +3011,42 @@
 .settings__row-badge--warn {
   background: rgba(255, 149, 0, 0.14);
   color: #b36b00;
+}
+
+.settings__row.settings__row--model-cache {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 44px;
+  padding: 8px 12px 8px 10px;
+}
+
+.settings__row--model-cache .settings__row-name {
+  min-width: 0;
+}
+
+.settings__row--model-cache .settings__row-name > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__row--model-cache .settings__row-badge {
+  flex-shrink: 0;
+}
+
+.settings__row-model-cache-meta {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--settings-row-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__row-model-cache-meta--error {
+  color: var(--settings-error);
 }
 
 .settings__btn--danger {

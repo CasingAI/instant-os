@@ -36,6 +36,29 @@ export const MDX_MODEL_URL = '/assets/mdx/models/UVR-MDX-NET-Inst_full_292.onnx'
 export const MDX_MODEL_LABEL = 'MDX-NET 人声增强（伴奏模型）'
 export const MDX_MODEL_BYTES = 66_759_214
 
+export type ModelCacheEntry = {
+  url: string
+  label: string
+  totalBytes: number
+}
+
+/** 设置「模型缓存」页与预缓存入口共用的清单。 */
+export const MODEL_CACHE_ENTRIES: readonly ModelCacheEntry[] = [
+  { url: DEMUCS_MODEL_URL, label: DEMUCS_MODEL_LABEL, totalBytes: DEMUCS_MODEL_BYTES },
+  { url: MDX_MODEL_URL, label: MDX_MODEL_LABEL, totalBytes: MDX_MODEL_BYTES },
+  { url: ZIPFORMER_MODEL_URL, label: ZIPFORMER_MODEL_LABEL, totalBytes: ZIPFORMER_MODEL_BYTES },
+  {
+    url: ZIPFORMER_EN_MODEL_URL,
+    label: ZIPFORMER_EN_MODEL_LABEL,
+    totalBytes: ZIPFORMER_EN_MODEL_BYTES,
+  },
+  {
+    url: SENSE_VOICE_MODEL_URL,
+    label: SENSE_VOICE_MODEL_LABEL,
+    totalBytes: SENSE_VOICE_MODEL_BYTES,
+  },
+]
+
 function cacheHandle(): Promise<Cache> {
   if (typeof caches === 'undefined') {
     return Promise.reject(new Error('CacheStorage 不可用（非安全上下文或浏览器不支持）'))
