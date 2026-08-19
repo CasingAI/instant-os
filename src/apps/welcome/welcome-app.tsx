@@ -28,11 +28,18 @@ import type { BuiltinAppId } from '../../os/types.ts'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
+import { KeychainNavStack, useKeychainNavStack } from '../keychain/keychain-nav-stack.tsx'
+import '../keychain/keychain.css'
+import '../settings/settings.css'
 import './welcome.css'
 
 const APP_ID = 'welcome' as const
 const LIST_ICON_SIZE = 36
 const HERO_ICON_SIZE = 112
+const HERO_ICON_SIZE_NARROW = Math.round(HERO_ICON_SIZE * (4 / 3))
+const HERO_ICON_SIZE_WIDE = Math.round(HERO_ICON_SIZE * 1.5)
+
+type WelcomePage = 'list' | 'detail'
 
 type AppIcon = ComponentType<{ size?: number }>
 
@@ -118,10 +125,12 @@ function previewBody(appId: BuiltinAppId, freeTier: boolean): string {
 function WelcomeHero({
   item,
   freeTier,
+  iconSize,
   onOpen,
 }: {
   item: WelcomeItem
   freeTier: boolean
+  iconSize: number
   onOpen: () => void
 }) {
   const Icon = item.Icon
@@ -131,7 +140,7 @@ function WelcomeHero({
         欢迎
       </span>
       <div class="welcome-app__hero-art" aria-hidden="true">
-        <Icon size={HERO_ICON_SIZE} />
+        <Icon size={iconSize} />
       </div>
       <div class="welcome-app__hero-copy">
         <h1 class="welcome-app__hero-title">{previewHeadline(item.appId)}</h1>
@@ -144,12 +153,70 @@ function WelcomeHero({
   )
 }
 
+function WelcomeAppList({
+  narrowLayout,
+  selectedId,
+  onSelect,
+}: {
+  narrowLayout: boolean
+  selectedId: BuiltinAppId
+  onSelect: (appId: BuiltinAppId) => void
+}) {
+  return (
+    <div class="welcome-app__sidebar">
+      {GROUPS.map((group) => (
+        <section key={group.id} class="welcome-app__group">
+          <h2 class="welcome-app__group-title">{group.title}</h2>
+          <div
+            class="welcome-app__items"
+            role={narrowLayout ? 'list' : 'listbox'}
+            aria-label={group.title}
+          >
+            {group.items.map(({ appId, Icon }) => {
+              const selectedItem = !narrowLayout && appId === selectedId
+              return (
+                <button
+                  key={appId}
+                  type="button"
+                  role={narrowLayout ? undefined : 'option'}
+                  aria-selected={narrowLayout ? undefined : selectedItem}
+                  class={`welcome-app__item${selectedItem ? ' welcome-app__item--selected' : ''}`}
+                  onClick={() => onSelect(appId)}
+                >
+                  <span class="welcome-app__item-icon" aria-hidden="true">
+                    <Icon size={LIST_ICON_SIZE} />
+                  </span>
+                  <span class="welcome-app__item-name">{itemLabel(appId)}</span>
+                  {narrowLayout ? (
+                    <span class="welcome-app__item-chevron" aria-hidden="true">
+                      <ForwardIcon size={13} />
+                    </span>
+                  ) : undefined}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
 export function WelcomeApp() {
   const { openApp } = useOs()
   const { hostRef, narrowLayout } = useAppNarrowLayout()
   const [freeTier, setFreeTier] = useState(() => isActiveProviderInstantFree())
   const [selectedId, setSelectedId] = useState<BuiltinAppId>('system-info')
-  const [detailOpen, setDetailOpen] = useState(false)
+  const {
+    page,
+    stack,
+    transition,
+    queuedTransition,
+    commitQueuedTransition,
+    navigate,
+    handleMotionEnd,
+    setPage,
+  } = useKeychainNavStack<WelcomePage>('list')
 
   useAppMenuBar(APP_ID, [])
 
@@ -158,6 +225,12 @@ export function WelcomeApp() {
       setFreeTier(isActiveProviderInstantFree())
     })
   }, [])
+
+  useEffect(() => {
+    if (!narrowLayout) {
+      setPage('list')
+    }
+  }, [narrowLayout, setPage])
 
   const selected = useMemo(() => findItem(selectedId) ?? ALL_ITEMS[0], [selectedId])
 
@@ -169,75 +242,91 @@ export function WelcomeApp() {
     (appId: BuiltinAppId) => {
       setSelectedId(appId)
       if (narrowLayout) {
-        setDetailOpen(true)
+        navigate('detail', 'push')
       }
     },
-    [narrowLayout],
+    [narrowLayout, navigate],
   )
 
-  const showNarrowDetail = narrowLayout && detailOpen
+  const handleBack = useCallback(() => {
+    navigate('list', 'pop')
+  }, [navigate])
+
+  const renderPage = useCallback(
+    (id: WelcomePage) => {
+      if (id === 'detail') {
+        return (
+          <>
+            <div class="settings__nav settings__nav--titled">
+              <div class="settings__nav-bar">
+                <IosNavBackButton label="欢迎中心" onClick={handleBack} />
+                <h1 class="settings__nav-heading">{itemLabel(selected.appId)}</h1>
+                <span class="settings__nav-trailing" aria-hidden="true" />
+              </div>
+            </div>
+            <div class="settings__content welcome-app__pane welcome-app__pane--hero">
+              <WelcomeHero
+                item={selected}
+                freeTier={freeTier}
+                iconSize={HERO_ICON_SIZE_NARROW}
+                onOpen={openSelected}
+              />
+            </div>
+          </>
+        )
+      }
+
+      return (
+        <>
+          <div class="settings__nav settings__nav--titled">
+            <div class="settings__nav-bar">
+              <span class="settings__nav-heading-spacer" aria-hidden="true" />
+              <h1 class="settings__nav-heading">欢迎中心</h1>
+              <span class="settings__nav-trailing" aria-hidden="true" />
+            </div>
+          </div>
+          <div class="settings__content welcome-app__pane">
+            <WelcomeAppList
+              narrowLayout
+              selectedId={selected.appId}
+              onSelect={handleSelect}
+            />
+          </div>
+        </>
+      )
+    },
+    [freeTier, handleBack, handleSelect, openSelected, selected],
+  )
 
   return (
     <div
       ref={hostRef}
-      class={`welcome-app${narrowLayout ? ' welcome-app--narrow' : ' welcome-app--wide'}${
-        showNarrowDetail ? ' welcome-app--detail' : ''
-      }`}
+      class={`welcome-app${narrowLayout ? ' welcome-app--narrow' : ' welcome-app--wide'}`}
     >
-      {showNarrowDetail ? (
-        <>
-          <div class="welcome-app__nav">
-            <IosNavBackButton label="欢迎中心" onClick={() => setDetailOpen(false)} />
-          </div>
-          <WelcomeHero item={selected} freeTier={freeTier} onOpen={openSelected} />
-        </>
+      {narrowLayout ? (
+        <KeychainNavStack
+          stack={stack}
+          page={page}
+          transition={transition}
+          queuedTransition={queuedTransition}
+          commitQueuedTransition={commitQueuedTransition}
+          onMotionEnd={handleMotionEnd}
+          renderPage={renderPage}
+          settingsClassName="welcome-app__page"
+        />
       ) : (
         <>
-          {narrowLayout ? (
-            <div class="welcome-app__nav">
-              <h1 class="welcome-app__nav-title">欢迎中心</h1>
-            </div>
-          ) : (
-            <WelcomeHero item={selected} freeTier={freeTier} onOpen={openSelected} />
-          )}
-          <div class="welcome-app__columns">
-            {GROUPS.map((group) => (
-              <section key={group.id} class="welcome-app__group">
-                <h2 class="welcome-app__group-title">{group.title}</h2>
-                <div
-                  class="welcome-app__items"
-                  role={narrowLayout ? 'list' : 'listbox'}
-                  aria-label={group.title}
-                >
-                  {group.items.map(({ appId, Icon }) => {
-                    const selectedItem = !narrowLayout && appId === selected.appId
-                    return (
-                      <button
-                        key={appId}
-                        type="button"
-                        role={narrowLayout ? undefined : 'option'}
-                        aria-selected={narrowLayout ? undefined : selectedItem}
-                        class={`welcome-app__item${
-                          selectedItem ? ' welcome-app__item--selected' : ''
-                        }`}
-                        onClick={() => handleSelect(appId)}
-                      >
-                        <span class="welcome-app__item-icon" aria-hidden="true">
-                          <Icon size={LIST_ICON_SIZE} />
-                        </span>
-                        <span class="welcome-app__item-name">{itemLabel(appId)}</span>
-                        {narrowLayout ? (
-                          <span class="welcome-app__item-chevron" aria-hidden="true">
-                            <ForwardIcon size={13} />
-                          </span>
-                        ) : undefined}
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
+          <WelcomeAppList
+            narrowLayout={false}
+            selectedId={selected.appId}
+            onSelect={handleSelect}
+          />
+          <WelcomeHero
+            item={selected}
+            freeTier={freeTier}
+            iconSize={HERO_ICON_SIZE_WIDE}
+            onOpen={openSelected}
+          />
         </>
       )}
     </div>
