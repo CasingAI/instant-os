@@ -33,6 +33,7 @@ import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.ts
 import { useDeviceBattery } from './use-device-battery.ts'
 import { useProxyServerConnection } from './use-proxy-server-connection.ts'
 import { openSettingsProxyServerView } from './proxy-server-settings-storage.ts'
+import { openTaskManager } from './task-manager-open.ts'
 import {
   getActiveCloudNetworkRequests,
   subscribeCloudNetworkRequests,
@@ -350,6 +351,7 @@ type MenuBarRightSectionProps = {
   activeNotificationCount: number
   onSelectWindow: (windowId: string) => void
   onOpenTaskManager: () => void
+  onOpenCloudServiceInfo: () => void
   onOpenCloudServiceSettings: () => void
 }
 
@@ -361,6 +363,7 @@ function MenuBarRightSection({
   activeNotificationCount,
   onSelectWindow,
   onOpenTaskManager,
+  onOpenCloudServiceInfo,
   onOpenCloudServiceSettings,
 }: MenuBarRightSectionProps) {
   const battery = useDeviceBattery()
@@ -416,7 +419,7 @@ function MenuBarRightSection({
             powProgress={powProgress}
             activeNetworkRequests={activeNetworkRequests}
             onOpenCloudServiceSettings={onOpenCloudServiceSettings}
-            onOpenTaskManager={onOpenTaskManager}
+            onOpenTaskManager={onOpenCloudServiceInfo}
           />
         )}
       </div>
@@ -771,9 +774,14 @@ export function MenuBar() {
   )
 
   const handleOpenTaskManager = useCallback(() => {
-    openApp('task-manager')
+    openTaskManager({ tab: 'programs' })
     closeMenu()
-  }, [closeMenu, openApp])
+  }, [closeMenu])
+
+  const handleOpenCloudServiceInfo = useCallback(() => {
+    openTaskManager({ tab: 'performance', category: 'proxy-server' })
+    closeMenu()
+  }, [closeMenu])
 
   const handleOpenCloudServiceSettings = useCallback(() => {
     openApp('settings')
@@ -879,6 +887,7 @@ export function MenuBar() {
         activeNotificationCount={activeNotificationCount}
         onSelectWindow={handleSelectWindow}
         onOpenTaskManager={handleOpenTaskManager}
+        onOpenCloudServiceInfo={handleOpenCloudServiceInfo}
         onOpenCloudServiceSettings={handleOpenCloudServiceSettings}
       />
     </header>

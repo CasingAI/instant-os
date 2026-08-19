@@ -136,7 +136,7 @@ export function BatteryStatusPanel({
         class="menu-bar__popover-more"
         onClick={onOpenTaskManager}
       >
-        打开性能监视器
+        查看信息
       </button>
     </MenuBarPopover>
   )
@@ -260,10 +260,10 @@ export function CloudServiceStatusPanel({
 
         <div class="cloud-panel__actions">
           <button type="button" class="cloud-panel__action" onClick={onOpenCloudServiceSettings}>
-            云服务设置…
+            云服务设置
           </button>
           <button type="button" class="cloud-panel__action" onClick={onOpenTaskManager}>
-            打开性能监视器
+            查看信息
           </button>
         </div>
       </div>

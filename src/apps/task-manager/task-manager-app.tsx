@@ -17,6 +17,11 @@ import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { useDevExtApps } from '../../os/dev-ext-apps-context.tsx'
 import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
+import {
+  consumePendingOpenTaskManager,
+  OPEN_TASK_MANAGER_EVENT,
+  type TaskManagerOpenTarget,
+} from '../../os/task-manager-open.ts'
 import type { AppId, WindowState } from '../../os/types.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import {
@@ -26,7 +31,7 @@ import {
   type WorkerHeapReport,
 } from '../../os/worker-heap-reports.ts'
 import { restartWorkerService } from '../../os/service-supervisor.ts'
-import { TaskManagerPerformancePanel } from './task-manager-performance-panel.tsx'
+import { TaskManagerPerformancePanel, type PerfCategory } from './task-manager-performance-panel.tsx'
 import {
   formatSampleIntervalLabel,
   SPEED_SAMPLE_INTERVALS,
@@ -143,6 +148,7 @@ export function TaskManagerApp() {
   const { isAppUnresponsive } = useGeneratedAppHeartbeat()
   const definition = getAppDefinition(APP_ID)
   const [tab, setTab] = useState<TaskManagerTab>('programs')
+  const [perfCategory, setPerfCategory] = useState<PerfCategory>('ai')
   const [sampleIntervalSec, setSampleIntervalSec] = useState<SpeedSampleIntervalSec>(1)
   const [liveByActor, setLiveByActor] = useState<Map<string, LiveAppActivity>>(() => new Map())
   const [workerServices, setWorkerServices] = useState<WorkerHeapReport[]>(() =>
@@ -156,6 +162,29 @@ export function TaskManagerApp() {
   const refreshLiveActivity = useCallback(() => {
     setLiveByActor(collectLiveAppActivity())
   }, [])
+
+  const applyOpenTarget = useCallback((target: TaskManagerOpenTarget) => {
+    setTab(target.tab)
+    if (target.tab === 'performance') {
+      setPerfCategory(target.category)
+    }
+  }, [])
+
+  useEffect(() => {
+    const pendingTarget = consumePendingOpenTaskManager()
+    if (pendingTarget) {
+      applyOpenTarget(pendingTarget)
+    }
+
+    const handleOpen = (event: Event) => {
+      consumePendingOpenTaskManager()
+      const detail = (event as CustomEvent<TaskManagerOpenTarget>).detail
+      applyOpenTarget(detail ?? { tab: 'programs' })
+    }
+
+    window.addEventListener(OPEN_TASK_MANAGER_EVENT, handleOpen)
+    return () => window.removeEventListener(OPEN_TASK_MANAGER_EVENT, handleOpen)
+  }, [applyOpenTarget])
 
   const refreshWorkerServices = useCallback(() => {
     setWorkerServices(listWorkerHeapReports().filter((service) => service.status !== 'stopped'))
@@ -532,6 +561,8 @@ export function TaskManagerApp() {
           aria-hidden={tab !== 'performance'}
         >
           <TaskManagerPerformancePanel
+            category={perfCategory}
+            onCategoryChange={setPerfCategory}
             sampleIntervalSec={sampleIntervalSec}
             series={speedSeries}
             fpsSeries={systemMetrics.fpsSeries}

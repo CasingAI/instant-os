@@ -69,9 +69,9 @@ type ChartPadding = {
   left: number
 }
 
-type FixedPerfCategory = 'ai' | 'fps' | 'memory' | 'proxy-server'
-type DiskPerfCategory = `disk:${FilesIoContainerId}`
-type PerfCategory = FixedPerfCategory | DiskPerfCategory
+export type FixedPerfCategory = 'ai' | 'fps' | 'memory' | 'proxy-server'
+export type DiskPerfCategory = `disk:${FilesIoContainerId}`
+export type PerfCategory = FixedPerfCategory | DiskPerfCategory
 
 const PERF_CATEGORIES: { id: FixedPerfCategory; label: string }[] = [
   { id: 'ai', label: 'AI 输出' },
@@ -103,6 +103,8 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
 }
 
 type TaskManagerPerformancePanelProps = {
+  category: PerfCategory
+  onCategoryChange: (category: PerfCategory) => void
   sampleIntervalSec: SpeedSampleIntervalSec
   series: SpeedSeriesPoint[]
   fpsSeries: MetricSeriesPoint[]
@@ -131,6 +133,8 @@ function formatHeapClusterLabel(cluster: MemoryHeapCluster, index: number, total
 }
 
 export function TaskManagerPerformancePanel({
+  category,
+  onCategoryChange,
   sampleIntervalSec,
   series,
   fpsSeries,
@@ -147,7 +151,6 @@ export function TaskManagerPerformancePanel({
   filesIoContainers,
   filesIoRecentOperations,
 }: TaskManagerPerformancePanelProps) {
-  const [category, setCategory] = useState<PerfCategory>('ai')
   const [records, setRecords] = useState<AiEventLogRecord[]>([])
 
   const latestHeap = memory.display
@@ -168,11 +171,11 @@ export function TaskManagerPerformancePanel({
     if (!isDiskCategory(category)) return
     if (selectedDiskContainer) return
     if (filesIoContainers.length === 0) {
-      setCategory('ai')
+      onCategoryChange('ai')
       return
     }
-    setCategory(toDiskCategory(filesIoContainers[0]!.id))
-  }, [category, selectedDiskContainer, filesIoContainers])
+    onCategoryChange(toDiskCategory(filesIoContainers[0]!.id))
+  }, [category, onCategoryChange, selectedDiskContainer, filesIoContainers])
 
   const diskRecentOperations = useMemo((): FilesIoOperationRecord[] => {
     if (!selectedDiskContainer) return []
@@ -399,7 +402,7 @@ export function TaskManagerPerformancePanel({
                 type="button"
                 class={`task-manager__perf-nav-item${active ? ' task-manager__perf-nav-item--active' : ''}`}
                 aria-pressed={active}
-                onClick={() => setCategory(item.id)}
+                onClick={() => onCategoryChange(item.id)}
               >
                 <span class="task-manager__perf-nav-label">{item.label}</span>
                 <span class="task-manager__perf-nav-value">{value}</span>
@@ -432,7 +435,7 @@ export function TaskManagerPerformancePanel({
                     type="button"
                     class={`task-manager__perf-nav-item${active ? ' task-manager__perf-nav-item--active' : ''}`}
                     aria-pressed={active}
-                    onClick={() => setCategory(id)}
+                    onClick={() => onCategoryChange(id)}
                   >
                     <span class="task-manager__perf-nav-label">{container.label}</span>
                     <span class="task-manager__perf-nav-value">

@@ -167,7 +167,7 @@ export function MenuBarVolumePanel() {
       ) : null}
 
       <button type="button" class="menu-bar__popover-more" onClick={openSettingsSoundsView}>
-        打开声音设置…
+        打开声音设置
       </button>
     </MenuBarPopover>
   )
