@@ -29,6 +29,19 @@ const EDGE_DIRECTIONS: ResizeDirection[] = ['n', 's', 'e', 'w']
 const CORNER_DIRECTIONS: ResizeDirection[] = ['nw', 'ne', 'sw', 'se']
 import './window-frame.css'
 
+function Flip3dCastShadow({ hidden }: { hidden?: boolean }) {
+  const { flip3dShadowReveal } = useOs()
+  if (hidden || (flip3dShadowReveal !== 'hold' && flip3dShadowReveal !== 'fade')) {
+    return undefined
+  }
+  return (
+    <div
+      class={`window-frame__cast-shadow${flip3dShadowReveal === 'fade' ? ' window-frame__cast-shadow--in' : ''}`}
+      aria-hidden="true"
+    />
+  )
+}
+
 type WindowFrameProps = {
   window: WindowState
 }
@@ -228,6 +241,7 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
             : undefined
         }
       >
+        {showAsWindowFrame ? <Flip3dCastShadow hidden={inFlip3d || showMinimizeVisual} /> : undefined}
         <div class={showAsWindowFrame ? 'window-frame__chrome' : 'windowless-app-host__chrome'}>
           {showAsWindowFrame ? (
             <header class="window-frame__titlebar" onPointerDown={onTitlebarPointerDown}>
@@ -443,6 +457,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
           focusWindow(window.id)
         }}
       >
+        <Flip3dCastShadow hidden={inFlip3d || isAnchored || window.fullscreen || showMinimizeVisual} />
         <div class="window-frame__chrome">
           <header
             class="window-frame__titlebar"
@@ -543,6 +558,7 @@ export function WindowManager() {
     flip3dEntering,
     flip3dOrder,
     flip3dGhosts,
+    flip3dShadowReveal,
     cycleFlip3d,
     dismissFlip3dGhostFrame,
     exitFlip3d,
@@ -579,7 +595,7 @@ export function WindowManager() {
 
   return (
     <div
-      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}${inFlip3dScene ? ' window-manager--flip3d' : ''}${flip3dEntering ? ' window-manager--flip3d-enter' : ''}${flip3dRestoring ? ' window-manager--flip3d-restore' : ''}`}
+      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}${inFlip3dScene ? ' window-manager--flip3d' : ''}${flip3dEntering ? ' window-manager--flip3d-enter' : ''}${flip3dRestoring ? ' window-manager--flip3d-restore' : ''}${flip3dShadowReveal === 'hold' ? ' window-manager--flip3d-shadow-hold' : ''}${flip3dShadowReveal === 'fade' ? ' window-manager--flip3d-shadow-fade' : ''}${flip3dShadowReveal === 'settle' ? ' window-manager--flip3d-shadow-settle' : ''}`}
       aria-live="polite"
       style={
         inFlip3dScene

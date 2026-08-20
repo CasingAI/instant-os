@@ -13,6 +13,9 @@ export const FLIP3D_FLIGHT_OUT_MS = 160
 /** 连按时最多保留几个假窗，避免 DOM 堆起来拖死主线程 */
 export const FLIP3D_MAX_GHOSTS = 4
 
+/** 退出叠层落地后，桌面阴影淡入（3D 变换下 box-shadow 几乎不绘） */
+export const FLIP3D_SHADOW_IN_MS = 420
+
 export type Flip3dEnterResult = 'entered' | 'already-active' | 'empty'
 
 export type Flip3dGhost = {

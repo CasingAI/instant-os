@@ -61,3 +61,4 @@ workers/model-gateway/.wrangler/
 
 # 临时测试残留
 dummy-non-existing-folder/
+/.wrangler

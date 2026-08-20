@@ -24,6 +24,7 @@ import {
   cycleFlip3dOrder,
   dismissFlip3dGhost,
   FLIP3D_RESTORE_MS,
+  FLIP3D_SHADOW_IN_MS,
   listFlip3dWindowIds,
   peeledFlip3dWindowId,
   type Flip3dEnterResult,
@@ -62,6 +63,7 @@ type OsContextValue = {
   flip3dOrder: string[]
   flip3dSnapIds: string[]
   flip3dGhosts: Flip3dGhost[]
+  flip3dShadowReveal: 'off' | 'hold' | 'fade' | 'settle'
   enterFlip3d: () => Flip3dEnterResult
   cycleFlip3d: (delta: 1 | -1) => void
   dismissFlip3dGhostFrame: (ghostId: string) => void
@@ -320,6 +322,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const [flip3dOrder, setFlip3dOrder] = useState<string[]>([])
   const [flip3dSnapIds, setFlip3dSnapIds] = useState<string[]>([])
   const [flip3dGhosts, setFlip3dGhosts] = useState<Flip3dGhost[]>([])
+  const [flip3dShadowReveal, setFlip3dShadowReveal] = useState<'off' | 'hold' | 'fade' | 'settle'>(
+    'off',
+  )
   const flip3dActiveRef = useRef(false)
   const flip3dOrderRef = useRef<string[]>([])
   const flip3dAnimGenRef = useRef(0)
@@ -416,9 +421,44 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     const timer = window.setTimeout(() => {
       setFlip3dRestoring(false)
       setFlip3dOrder([])
+      setFlip3dShadowReveal('hold')
     }, FLIP3D_RESTORE_MS + 80)
     return () => window.clearTimeout(timer)
   }, [flip3dRestoring])
+
+  useLayoutEffect(() => {
+    if (flip3dShadowReveal !== 'hold') {
+      return
+    }
+    let inner = 0
+    const outer = window.requestAnimationFrame(() => {
+      inner = window.requestAnimationFrame(() => {
+        setFlip3dShadowReveal('fade')
+      })
+    })
+    return () => {
+      window.cancelAnimationFrame(outer)
+      window.cancelAnimationFrame(inner)
+    }
+  }, [flip3dShadowReveal])
+
+  useEffect(() => {
+    if (flip3dShadowReveal !== 'fade') {
+      return
+    }
+    const timer = window.setTimeout(() => setFlip3dShadowReveal('settle'), FLIP3D_SHADOW_IN_MS)
+    return () => window.clearTimeout(timer)
+  }, [flip3dShadowReveal])
+
+  useLayoutEffect(() => {
+    if (flip3dShadowReveal !== 'settle') {
+      return
+    }
+    const frame = window.requestAnimationFrame(() => {
+      setFlip3dShadowReveal('off')
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [flip3dShadowReveal])
 
   const enterFlip3d = useCallback((): Flip3dEnterResult => {
     if (flip3dActiveRef.current) {
@@ -436,6 +476,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     clearFlip3dGhosts()
     setFlip3dSnapIds([])
     setFlip3dRestoring(false)
+    setFlip3dShadowReveal('off')
     applyFlip3dOrder(ids)
     // 保持 enter 过渡直到第一次切换/退出。到点改时长会把快结束的动画重开一截，末尾就会顿一下。
     setFlip3dEntering(true)
@@ -1357,6 +1398,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       flip3dOrder,
       flip3dSnapIds,
       flip3dGhosts,
+      flip3dShadowReveal,
       enterFlip3d,
       cycleFlip3d,
       dismissFlip3dGhostFrame,
@@ -1392,7 +1434,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       revealWindowlessPanel,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, flip3dActive, flip3dRestoring, flip3dEntering, flip3dOrder, flip3dSnapIds, flip3dGhosts, enterFlip3d, cycleFlip3d, dismissFlip3dGhostFrame, exitFlip3d, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, flip3dActive, flip3dRestoring, flip3dEntering, flip3dOrder, flip3dSnapIds, flip3dGhosts, flip3dShadowReveal, enterFlip3d, cycleFlip3d, dismissFlip3dGhostFrame, exitFlip3d, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])
