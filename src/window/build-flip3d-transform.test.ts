@@ -9,6 +9,9 @@ import {
   FLIP3D_CAMERA_YAW_DEG,
   FLIP3D_PERSPECTIVE_PX,
   FLIP3D_SCALE_WIDTH_MAX_RATIO,
+  FLIP3D_Z_BASE,
+  buildFlip3dBackEnterTransform,
+  buildFlip3dFlyOutTransform,
   buildFlip3dTransform,
   computeFlip3dFlyOutLayout,
   computeFlip3dLayout,
@@ -17,6 +20,8 @@ import {
   flip3dWindowScale,
   hitTestFlip3dWindowId,
   projectFlip3dQuad,
+  resolveFlip3dFlightMotion,
+  resolveFlip3dGhostMotion,
 } from './build-flip3d-transform.ts'
 import {
   bringFlip3dWindowToFront,
@@ -28,7 +33,9 @@ import {
   isFlip3dEligibleWindow,
   listFlip3dWindowIds,
   peeledFlip3dWindowId,
+  resolveFlip3dExitOrder,
   resolveFlip3dVisual,
+  syncFlip3dBaseOrder,
 } from './flip3d.ts'
 import type { WindowState } from '../os/types.ts'
 
@@ -146,20 +153,18 @@ function testPeeledWindowAndGhosts(): void {
   assert.equal(peeledFlip3dWindowId(['a', 'b', 'c'], -1), 'c')
   assert.equal(peeledFlip3dWindowId(['only'], 1), undefined)
   const windowA = makeWindow('a', { title: 'A', x: 10, y: 20, width: 400, height: 300 })
-  const first = createFlip3dGhost(windowA, 1, 'g1')
-  const second = createFlip3dGhost(windowA, 1, 'g2')
+  const first = createFlip3dGhost(windowA, -1, 'g1')
+  const second = createFlip3dGhost(windowA, -1, 'g2')
   assert.equal(first.windowId, 'a')
-  assert.equal(second.windowId, 'a')
+  assert.equal(second.direction, -1)
   assert.notEqual(first.id, second.id)
-  const both = [first, second]
-  assert.equal(both.length, 2)
   assert.deepEqual(
-    dismissFlip3dGhost(both, 'g1').map((ghost) => ghost.id),
+    dismissFlip3dGhost([first, second], 'g1').map((ghost) => ghost.id),
     ['g2'],
   )
   let stacked: ReturnType<typeof createFlip3dGhost>[] = []
   for (let i = 0; i < FLIP3D_MAX_GHOSTS + 3; i++) {
-    stacked = appendFlip3dGhost(stacked, createFlip3dGhost(windowA, 1, `g-${i}`))
+    stacked = appendFlip3dGhost(stacked, createFlip3dGhost(windowA, -1, `g-${i}`))
   }
   assert.equal(stacked.length, FLIP3D_MAX_GHOSTS)
   assert.equal(stacked[0]?.id, `g-${3}`)
@@ -174,6 +179,18 @@ function testBringToFront(): void {
   console.log('ok: flip3d bring to front')
 }
 
+function testExitOrderKeepsBaseRelativeOrder(): void {
+  const base = ['a', 'b', 'c', 'd']
+  assert.deepEqual(resolveFlip3dExitOrder(base, 'c'), ['c', 'a', 'b', 'd'])
+  assert.deepEqual(resolveFlip3dExitOrder(base, 'a'), ['a', 'b', 'c', 'd'])
+  assert.deepEqual(resolveFlip3dExitOrder(base, undefined), ['a', 'b', 'c', 'd'])
+  const cycled = cycleFlip3dOrder(cycleFlip3dOrder(base, 1), 1)
+  assert.deepEqual(cycled, ['c', 'd', 'a', 'b'])
+  assert.notDeepEqual(resolveFlip3dExitOrder(base, 'c'), cycled)
+  assert.deepEqual(syncFlip3dBaseOrder(['a', 'b', 'c'], new Set(['c', 'a', 'e'])), ['a', 'c', 'e'])
+  console.log('ok: flip3d exit order keeps base relative order')
+}
+
 function testCycleVisual(): void {
   const order = ['a', 'b', 'c']
   const front = resolveFlip3dVisual(order, 'a')
@@ -181,6 +198,7 @@ function testCycleVisual(): void {
   assert.equal(front?.rank, 0)
   assert.equal(back?.rank, 2)
   assert.equal(front?.skipTransition, false)
+  assert.equal(front?.opacity, 1)
   const cycled = cycleFlip3dOrder(order, 1)
   const peeled = peeledFlip3dWindowId(order, 1)
   assert.equal(peeled, 'a')
@@ -190,8 +208,10 @@ function testCycleVisual(): void {
   assert.equal(resolveFlip3dVisual(cycled, 'a', [peeled!])?.skipTransition, true)
   assert.equal(resolveFlip3dVisual(cycled, 'a', [peeled!])?.fromBack, true)
   assert.equal(resolveFlip3dVisual(cycled, 'a', [peeled!])?.opacity, 0)
+  assert.equal(resolveFlip3dVisual(cycled, 'a', cycled)?.fromBack, false)
+  assert.equal(resolveFlip3dVisual(cycled, 'a', cycled)?.skipTransition, true)
+  assert.equal(resolveFlip3dVisual(cycled, 'a', cycled)?.opacity, 1)
   assert.equal(resolveFlip3dVisual(cycled, 'b', [peeled!])?.skipTransition, false)
-  assert.equal(resolveFlip3dVisual(cycled, 'b', [peeled!])?.fromBack, false)
   assert.equal(resolveFlip3dVisual(cycled, 'c', [peeled!])?.skipTransition, false)
   const reversed = cycleFlip3dOrder(order, -1)
   const reversePeeled = peeledFlip3dWindowId(order, -1)
@@ -199,6 +219,7 @@ function testCycleVisual(): void {
   assert.equal(resolveFlip3dVisual(reversed, 'c', [reversePeeled!])?.rank, 0)
   assert.equal(resolveFlip3dVisual(reversed, 'c', [reversePeeled!])?.fromBack, false)
   assert.equal(resolveFlip3dVisual(reversed, 'c', [reversePeeled!])?.skipTransition, true)
+  assert.equal(resolveFlip3dVisual(reversed, 'c', [reversePeeled!])?.opacity, 1)
   console.log('ok: flip3d cycle visual')
 }
 
@@ -217,6 +238,34 @@ function testBackEnterStartsBehindLast(): void {
   assert.ok(enter.slotY < last.slotY, '入场起点应比最后一层更靠上')
   assert.ok(enter.slotZ < last.slotZ, '入场起点应比最后一层更远')
   console.log('ok: flip3d back enter starts behind last')
+}
+
+function testGhostBackExitRecedes(): void {
+  const count = 3
+  const lastRank = 2
+  const backExit = resolveFlip3dGhostMotion(BOUNDS, -1, VIEWPORT, count)
+  assert.equal(backExit.fromTransform, buildFlip3dTransform(BOUNDS, lastRank, VIEWPORT, count))
+  assert.equal(backExit.toTransform, buildFlip3dBackEnterTransform(BOUNDS, VIEWPORT, count))
+  assert.ok(backExit.zIndex < FLIP3D_Z_BASE - lastRank, '队尾退出应叠在新的最后一层后面')
+  console.log('ok: flip3d ghost back exit recedes')
+}
+
+function testFlightMotionUsesLiveWindowPath(): void {
+  const count = 3
+  const flyOut = resolveFlip3dFlightMotion(BOUNDS, 1, VIEWPORT, count)
+  assert.equal(flyOut.fromTransform, buildFlip3dTransform(BOUNDS, 0, VIEWPORT, count))
+  assert.equal(flyOut.toTransform, buildFlip3dFlyOutTransform(BOUNDS, VIEWPORT, count))
+  assert.equal(flyOut.fromOpacity, 1)
+  assert.equal(flyOut.toOpacity, 0)
+  assert.equal(flyOut.zIndex, FLIP3D_Z_BASE + 80)
+
+  const flyIn = resolveFlip3dFlightMotion(BOUNDS, -1, VIEWPORT, count)
+  assert.equal(flyIn.fromTransform, buildFlip3dFlyOutTransform(BOUNDS, VIEWPORT, count))
+  assert.equal(flyIn.toTransform, buildFlip3dTransform(BOUNDS, 0, VIEWPORT, count))
+  assert.equal(flyIn.fromOpacity, 1)
+  assert.equal(flyIn.toOpacity, 1)
+  assert.equal(flyIn.zIndex, FLIP3D_Z_BASE + 80)
+  console.log('ok: flip3d flight motion uses live window path')
 }
 
 function quadCentroid(quad: { x: number; y: number }[]): { x: number; y: number } {
@@ -278,9 +327,12 @@ function main(): void {
   testCycleOrder()
   testPeeledWindowAndGhosts()
   testBringToFront()
+  testExitOrderKeepsBaseRelativeOrder()
   testCycleVisual()
   testFlyOutGoesRight()
   testBackEnterStartsBehindLast()
+  testGhostBackExitRecedes()
+  testFlightMotionUsesLiveWindowPath()
   testHitTestSelectsExposedBackWindow()
   testEligibleWindows()
   console.log('all flip3d tests passed')

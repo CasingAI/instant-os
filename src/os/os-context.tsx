@@ -28,9 +28,19 @@ import {
   FLIP3D_SHADOW_IN_MS,
   listFlip3dWindowIds,
   peeledFlip3dWindowId,
+  resolveFlip3dExitOrder,
+  syncFlip3dBaseOrder,
   type Flip3dEnterResult,
+  type Flip3dFlight,
   type Flip3dGhost,
 } from '../window/flip3d.ts'
+import { resolveFlip3dFlightMotion } from '../window/build-flip3d-transform.ts'
+import {
+  captureFlip3dWindowSnapshot,
+  clearFlip3dGhostSnapshots,
+  storeFlip3dGhostSnapshot,
+  takeFlip3dGhostSnapshot,
+} from '../window/flip3d-ghost-snapshot.ts'
 import {
   Flip3dProvider,
   type Flip3dShadowReveal,
@@ -312,16 +322,22 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const [flip3dActive, setFlip3dActive] = useState(false)
   const [flip3dRestoring, setFlip3dRestoring] = useState(false)
   const [flip3dEntering, setFlip3dEntering] = useState(false)
+  const [flip3dExitArmed, setFlip3dExitArmed] = useState(false)
   const [flip3dOrder, setFlip3dOrder] = useState<string[]>([])
   const [flip3dSnapIds, setFlip3dSnapIds] = useState<string[]>([])
+  const [flip3dFlight, setFlip3dFlight] = useState<Flip3dFlight | undefined>(undefined)
   const [flip3dGhosts, setFlip3dGhosts] = useState<Flip3dGhost[]>([])
   const [flip3dShadowReveal, setFlip3dShadowReveal] = useState<Flip3dShadowReveal>(
     'off',
   )
   const flip3dActiveRef = useRef(false)
   const flip3dOrderRef = useRef<string[]>([])
+  const flip3dBaseOrderRef = useRef<string[]>([])
+  const flip3dExitingRef = useRef(false)
   const flip3dAnimGenRef = useRef(0)
   const flip3dCycleTimerRef = useRef<number | undefined>(undefined)
+  const flip3dFlightRef = useRef<Flip3dFlight | undefined>(undefined)
+  const flip3dFlightSeqRef = useRef(0)
   const flip3dGhostSeqRef = useRef(0)
   const pendingFlip3dShadowRef = useRef(false)
 
@@ -337,7 +353,13 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     flip3dOrderRef.current = flip3dOrder
   }, [flip3dOrder])
 
+  const clearFlip3dFlight = useCallback(() => {
+    flip3dFlightRef.current = undefined
+    setFlip3dFlight(undefined)
+  }, [])
+
   const clearFlip3dGhosts = useCallback(() => {
+    clearFlip3dGhostSnapshots()
     setFlip3dGhosts([])
   }, [])
 
@@ -393,19 +415,43 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   }, [])
 
   const startFlip3dRestore = useCallback((focusId?: string) => {
-    if (!flip3dActiveRef.current) {
+    if (!flip3dActiveRef.current || flip3dExitingRef.current) {
       return
     }
+    flip3dExitingRef.current = true
     bumpFlip3dAnim()
+    clearFlip3dFlight()
     clearFlip3dGhosts()
-    setFlip3dSnapIds([])
     setFlip3dEntering(false)
-    if (focusId) {
-      raiseWindow(focusId)
+    const selectedId = focusId ?? flip3dOrderRef.current[0]
+    const live = new Set(flip3dOrderRef.current)
+    const base = syncFlip3dBaseOrder(flip3dBaseOrderRef.current, live)
+    flip3dBaseOrderRef.current = base
+    const resting = resolveFlip3dExitOrder(base, selectedId)
+    applyFlip3dOrder(resting)
+    setFlip3dSnapIds(resting)
+    if (selectedId) {
+      raiseWindow(selectedId)
     }
-    setFlip3dActive(false)
-    setFlip3dRestoring(true)
-  }, [bumpFlip3dAnim, clearFlip3dGhosts, raiseWindow])
+    setFlip3dExitArmed(true)
+  }, [applyFlip3dOrder, bumpFlip3dAnim, clearFlip3dFlight, clearFlip3dGhosts, raiseWindow])
+
+  useLayoutEffect(() => {
+    if (!flip3dExitArmed) {
+      return
+    }
+    const gen = flip3dAnimGenRef.current
+    const frame = window.requestAnimationFrame(() => {
+      if (gen !== flip3dAnimGenRef.current) {
+        return
+      }
+      setFlip3dExitArmed(false)
+      setFlip3dSnapIds([])
+      setFlip3dActive(false)
+      setFlip3dRestoring(true)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [flip3dExitArmed])
 
   useEffect(() => {
     if (!flip3dRestoring) {
@@ -413,6 +459,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     }
     const timer = window.setTimeout(() => {
       pendingFlip3dShadowRef.current = true
+      flip3dExitingRef.current = false
       setFlip3dRestoring(false)
       setFlip3dOrder([])
     }, FLIP3D_RESTORE_MS)
@@ -480,24 +527,39 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     }
     closeOpenDesktopFolder()
     bumpFlip3dAnim()
+    clearFlip3dFlight()
     clearFlip3dGhosts()
     setFlip3dSnapIds([])
     pendingFlip3dShadowRef.current = false
+    flip3dExitingRef.current = false
+    setFlip3dExitArmed(false)
     setFlip3dRestoring(false)
     setFlip3dShadowReveal('off')
+    flip3dBaseOrderRef.current = ids
     applyFlip3dOrder(ids)
     // 保持 enter 过渡直到第一次切换/退出。到点改时长会把快结束的动画重开一截，末尾就会顿一下。
     setFlip3dEntering(true)
     setFlip3dActive(true)
     return 'entered'
-  }, [applyFlip3dOrder, bumpFlip3dAnim, clearFlip3dGhosts, startDesktopRestore])
+  }, [applyFlip3dOrder, bumpFlip3dAnim, clearFlip3dFlight, clearFlip3dGhosts, startDesktopRestore])
+
+  const finishFlip3dFlight = useCallback((flightId: string) => {
+    if (flip3dFlightRef.current?.id !== flightId) {
+      return
+    }
+    const windowId = flip3dFlightRef.current.windowId
+    flip3dFlightRef.current = undefined
+    setFlip3dFlight(undefined)
+    setFlip3dSnapIds([windowId])
+  }, [])
 
   const dismissFlip3dGhostFrame = useCallback((ghostId: string) => {
+    takeFlip3dGhostSnapshot(ghostId)
     setFlip3dGhosts((current) => dismissFlip3dGhost(current, ghostId))
   }, [])
 
   useLayoutEffect(() => {
-    if (flip3dSnapIds.length === 0) {
+    if (flip3dSnapIds.length === 0 || flip3dExitArmed) {
       return
     }
     let inner = 0
@@ -513,7 +575,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   }, [flip3dSnapIds])
 
   const cycleFlip3d = useCallback((delta: 1 | -1) => {
-    if (!flip3dActiveRef.current) {
+    if (!flip3dActiveRef.current || flip3dExitingRef.current) {
       return
     }
     setFlip3dEntering(false)
@@ -523,16 +585,48 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       return
     }
     const peeled = windowsRef.current.find((window) => window.id === peeledId)
+    const interruptedId = flip3dFlightRef.current?.windowId
     if (peeled) {
-      flip3dGhostSeqRef.current += 1
-      setFlip3dGhosts((current) =>
-        appendFlip3dGhost(
-          current,
-          createFlip3dGhost(peeled, delta, `flip3d-ghost-${flip3dGhostSeqRef.current}`),
-        ),
+      flip3dFlightSeqRef.current += 1
+      const viewport = { width: window.innerWidth, height: window.innerHeight }
+      const motion = resolveFlip3dFlightMotion(
+        { x: peeled.x, y: peeled.y, width: peeled.width, height: peeled.height },
+        delta,
+        viewport,
+        order.length,
       )
+      const flight: Flip3dFlight = {
+        id: `flip3d-flight-${flip3dFlightSeqRef.current}`,
+        windowId: peeled.id,
+        direction: delta,
+        ...motion,
+      }
+      flip3dFlightRef.current = flight
+      setFlip3dFlight(flight)
+    } else {
+      flip3dFlightRef.current = undefined
+      setFlip3dFlight(undefined)
     }
-    setFlip3dSnapIds([peeledId])
+    if (peeled && delta === -1) {
+      flip3dGhostSeqRef.current += 1
+      const ghost = createFlip3dGhost(peeled, delta, `flip3d-ghost-${flip3dGhostSeqRef.current}`)
+      const snapshot = captureFlip3dWindowSnapshot(peeled.id)
+      if (snapshot) {
+        storeFlip3dGhostSnapshot(ghost.id, snapshot)
+      }
+      setFlip3dGhosts((current) => {
+        const stacked = appendFlip3dGhost(current, ghost)
+        for (const old of current) {
+          if (!stacked.some((item) => item.id === old.id)) {
+            takeFlip3dGhostSnapshot(old.id)
+          }
+        }
+        return stacked
+      })
+    }
+    setFlip3dSnapIds(
+      interruptedId && interruptedId !== peeledId ? [interruptedId] : [],
+    )
     applyFlip3dOrder(cycleFlip3dOrder(order, delta))
   }, [applyFlip3dOrder])
 
@@ -573,6 +667,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       return
     }
     const liveIds = new Set(listFlip3dWindowIds(windows))
+    flip3dBaseOrderRef.current = syncFlip3dBaseOrder(flip3dBaseOrderRef.current, liveIds)
     setFlip3dOrder((current) => {
       const next = current.filter((id) => liveIds.has(id))
       if (next.length === current.length && next.every((id, index) => id === current[index])) {
@@ -580,9 +675,21 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       }
       return next
     })
+    if (flip3dFlightRef.current && !liveIds.has(flip3dFlightRef.current.windowId)) {
+      flip3dFlightRef.current = undefined
+      setFlip3dFlight(undefined)
+    }
     setFlip3dGhosts((current) => {
       const next = current.filter((ghost) => liveIds.has(ghost.windowId))
-      return next.length === current.length ? current : next
+      if (next.length === current.length) {
+        return current
+      }
+      for (const old of current) {
+        if (!next.some((ghost) => ghost.id === old.id)) {
+          takeFlip3dGhostSnapshot(old.id)
+        }
+      }
+      return next
     })
   }, [windows, flip3dActive])
 
@@ -1456,10 +1563,20 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       flip3dEntering,
       flip3dOrder,
       flip3dSnapIds,
+      flip3dFlight,
+      finishFlip3dFlight,
       flip3dGhosts,
       dismissFlip3dGhostFrame,
     }),
-    [dismissFlip3dGhostFrame, flip3dEntering, flip3dGhosts, flip3dOrder, flip3dSnapIds],
+    [
+      dismissFlip3dGhostFrame,
+      finishFlip3dFlight,
+      flip3dEntering,
+      flip3dFlight,
+      flip3dGhosts,
+      flip3dOrder,
+      flip3dSnapIds,
+    ],
   )
 
   return (

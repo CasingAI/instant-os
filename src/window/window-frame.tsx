@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren, JSX } from 'preact'
+import { flip3dWheelDelta, useWheelStepGesture } from '../desktop/use-wheel-step-gesture.ts'
 import { useOs } from '../os/os-context.tsx'
 import { useFullscreenChromeReveal } from '../os/fullscreen-chrome-reveal-context.tsx'
 import type { WindowState } from '../os/types.ts'
@@ -12,7 +13,7 @@ import {
   FLIP3D_PERSPECTIVE_PX,
   FLIP3D_Z_BASE,
 } from './build-flip3d-transform.ts'
-import { resolveFlip3dVisual } from './flip3d.ts'
+import { FLIP3D_FLIGHT_OUT_MS, resolveFlip3dVisual } from './flip3d.ts'
 import { Flip3dGhostFrame } from './flip3d-ghost-frame.tsx'
 import { useFlip3dLayers, useFlip3dScene, useFlip3dShadowReveal } from './flip3d-context.tsx'
 import { DesktopRevealPeekLayer } from './desktop-reveal-peek-layer.tsx'
@@ -48,25 +49,73 @@ type WindowFrameProps = {
 
 function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
   const { flip3dActive, flip3dRestoring, exitFlip3d } = useFlip3dScene()
-  const { flip3dEntering, flip3dOrder, flip3dSnapIds } = useFlip3dLayers()
+  const { flip3dEntering, flip3dOrder, flip3dSnapIds, flip3dFlight, finishFlip3dFlight } =
+    useFlip3dLayers()
   const visual = resolveFlip3dVisual(flip3dOrder, windowId, flip3dSnapIds)
+  const flight = flip3dFlight?.windowId === windowId ? flip3dFlight : undefined
+  const frameRef = useRef<HTMLElement>(null)
+  const finishFlightRef = useRef(finishFlip3dFlight)
+  finishFlightRef.current = finishFlip3dFlight
   const inFlip3d = (flip3dActive || flip3dRestoring) && visual !== undefined
   const viewport = { width: window.innerWidth, height: window.innerHeight }
   const count = Math.max(flip3dOrder.length, 1)
-  const transform =
-    flip3dActive && visual
+  const transform = flight
+    ? flight.fromTransform
+    : flip3dActive && visual
       ? visual.fromBack
         ? buildFlip3dBackEnterTransform(bounds, viewport, count)
         : buildFlip3dTransform(bounds, visual.rank, viewport, count)
       : undefined
-  const zIndex = flip3dActive && visual ? FLIP3D_Z_BASE - visual.rank : undefined
+  const zIndex = flight
+    ? flight.zIndex
+    : flip3dActive && visual
+      ? FLIP3D_Z_BASE - visual.rank
+      : undefined
+
+  useLayoutEffect(() => {
+    if (!flight) {
+      return
+    }
+    const node = frameRef.current
+    if (!node) {
+      return
+    }
+
+    let done = false
+    const animation = node.animate(
+      [
+        { transform: flight.fromTransform, opacity: flight.fromOpacity },
+        { transform: flight.toTransform, opacity: flight.toOpacity },
+      ],
+      {
+        duration: FLIP3D_FLIGHT_OUT_MS,
+        easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
+        fill: 'forwards',
+      },
+    )
+    const finish = () => {
+      if (done) {
+        return
+      }
+      done = true
+      finishFlightRef.current(flight.id)
+    }
+    const fallback = window.setTimeout(finish, FLIP3D_FLIGHT_OUT_MS)
+    void animation.finished.then(finish).catch(() => {})
+    return () => {
+      window.clearTimeout(fallback)
+      animation.cancel()
+    }
+  }, [flight])
+
   return {
+    frameRef,
     inFlip3d,
     transform,
     zIndex,
-    opacity: visual?.opacity,
+    opacity: flight?.fromOpacity ?? visual?.opacity,
     skipTransition: Boolean(
-      visual?.skipTransition && flip3dActive && !flip3dEntering && !flip3dRestoring,
+      flight || (visual?.skipTransition && flip3dActive && !flip3dEntering && !flip3dRestoring),
     ),
     selectWindow: () => exitFlip3d(windowId),
   }
@@ -103,6 +152,7 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
     [window.x, window.y, window.width, window.height],
   )
   const {
+    frameRef: flip3dFrameRef,
     inFlip3d,
     transform: flip3dTransform,
     zIndex: flip3dZIndex,
@@ -190,6 +240,8 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
     <>
       {dragging && <SnapPreview target={snapPreview} />}
       <section
+        ref={flip3dFrameRef}
+        data-flip3d-window={window.id}
         class={
           showAsWindowFrame
             ? `window-frame${isDialogChrome ? ' window-frame--dialog' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}`
@@ -318,6 +370,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     [window.x, window.y, window.width, window.height],
   )
   const {
+    frameRef: flip3dFrameRef,
     inFlip3d,
     transform: flip3dTransform,
     zIndex: flip3dZIndex,
@@ -410,6 +463,8 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     <>
       {dragging && <SnapPreview target={snapPreview} />}
       <section
+        ref={flip3dFrameRef}
+        data-flip3d-window={window.id}
         class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
         aria-hidden={showMinimizeVisual || isClosing ? true : undefined}
         style={{
@@ -568,6 +623,12 @@ export function WindowManager() {
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [cycleFlip3d, exitFlip3d, flip3dActive])
+
+  useWheelStepGesture(
+    flip3dActive,
+    (event) => flip3dWheelDelta(event.deltaX, event.deltaY),
+    cycleFlip3d,
+  )
 
   const onScenePointerDown = flip3dActive
     ? (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {

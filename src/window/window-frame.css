@@ -156,13 +156,11 @@
 
 .window-frame--flip3d-ghost {
   pointer-events: none;
-  transition:
-    opacity 0.16s cubic-bezier(0.22, 0.61, 0.36, 1),
-    transform 0.16s cubic-bezier(0.22, 0.61, 0.36, 1);
+  overflow: hidden;
 }
 
-.window-frame__content--flip3d-ghost {
-  background: transparent;
+.window-frame__ghost-snapshot {
+  display: contents;
 }
 
 .window-frame--flip3d .window-frame__chrome,

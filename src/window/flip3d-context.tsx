@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact'
 import { createContext } from 'preact'
 import { useContext } from 'preact/hooks'
-import type { Flip3dEnterResult, Flip3dGhost } from './flip3d.ts'
+import type { Flip3dEnterResult, Flip3dFlight, Flip3dGhost } from './flip3d.ts'
 
 export type Flip3dShadowReveal = 'off' | 'hold' | 'fade' | 'settle'
 
@@ -17,6 +17,8 @@ export type Flip3dLayersValue = {
   flip3dEntering: boolean
   flip3dOrder: string[]
   flip3dSnapIds: string[]
+  flip3dFlight: Flip3dFlight | undefined
+  finishFlip3dFlight: (flightId: string) => void
   flip3dGhosts: Flip3dGhost[]
   dismissFlip3dGhostFrame: (ghostId: string) => void
 }

@@ -2,18 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { isDesktopPageWheelHit } from './is-desktop-page-wheel-hit.ts'
 import { isDesktopEmptyPointerTarget } from './run-desktop-click-action.ts'
 import { DESKTOP_EMPTY_HOLD_MS } from './use-desktop-empty-press.ts'
+import { horizontalWheelDelta, useWheelStepGesture } from './use-wheel-step-gesture.ts'
 
 const SNAP_RATIO = 0.18
 const TAP_THRESHOLD = 8
-const WHEEL_PAGE_THRESHOLD = 40
-/** 切页后的最短间隔，避开同一甩动前半段的连触发。 */
-const WHEEL_MIN_LOCK_MS = 220
-/** 低于此值视为波谷，之后的新冲量可连续翻页。 */
-const WHEEL_SETTLE_DELTA = 12
-/** 波谷之后，单次 |deltaX| 达到此值视为下一次滑动。 */
-const WHEEL_REFIRE_IMPULSE = 28
-/** 完全停歇后重置手势状态。 */
-const WHEEL_GESTURE_END_MS = 140
 
 type PagerSession = {
   startX: number
@@ -81,12 +73,6 @@ export function useDesktopPagePager(
     onEmptyTapRef.current = onEmptyTap
   }, [onEmptyTap])
 
-  const wheelAccumRef = useRef(0)
-  const wheelLockedRef = useRef(false)
-  const wheelSeenSettleRef = useRef(false)
-  const wheelLockAtRef = useRef(0)
-  const wheelIdleTimerRef = useRef<number | undefined>(undefined)
-
   useEffect(() => {
     currentPageRef.current = currentPage
   }, [currentPage])
@@ -138,98 +124,23 @@ export function useDesktopPagePager(
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [enabled, goToPage, keyboardNavEnabled, pageCount])
 
-  useEffect(() => {
-    if (!enabled || !wheelNavEnabled || pageCount <= 1) {
-      return
-    }
-
-    const resetWheelGesture = () => {
-      wheelAccumRef.current = 0
-      wheelLockedRef.current = false
-      wheelSeenSettleRef.current = false
-      wheelLockAtRef.current = 0
-      if (wheelIdleTimerRef.current !== undefined) {
-        window.clearTimeout(wheelIdleTimerRef.current)
-        wheelIdleTimerRef.current = undefined
-      }
-    }
-
-    const armWheelGestureEnd = () => {
-      if (wheelIdleTimerRef.current !== undefined) {
-        window.clearTimeout(wheelIdleTimerRef.current)
-      }
-      wheelIdleTimerRef.current = window.setTimeout(() => {
-        wheelLockedRef.current = false
-        wheelSeenSettleRef.current = false
-        wheelAccumRef.current = 0
-        wheelIdleTimerRef.current = undefined
-      }, WHEEL_GESTURE_END_MS)
-    }
-
-    const fireWheelPage = (direction: 1 | -1) => {
-      wheelAccumRef.current = 0
-      wheelLockedRef.current = true
-      wheelSeenSettleRef.current = false
-      wheelLockAtRef.current = performance.now()
-      goToPage(currentPageRef.current + direction)
-    }
-
-    const onWheel = (event: WheelEvent) => {
-      if (event.defaultPrevented || event.ctrlKey) {
-        return
-      }
-      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) {
-        return
+  useWheelStepGesture(
+    enabled && wheelNavEnabled && pageCount > 1,
+    (event) => {
+      const delta = horizontalWheelDelta(event.deltaX, event.deltaY)
+      if (delta === 0) {
+        return 0
       }
       const hit = document.elementFromPoint(event.clientX, event.clientY) ?? event.target
       if (!isDesktopPageWheelHit(hit)) {
-        return
+        return 0
       }
-
-      // 阻止触控板横向滑动触发浏览器前进/后退。
-      event.preventDefault()
-      armWheelGestureEnd()
-
-      const deltaX = event.deltaX
-      const absDeltaX = Math.abs(deltaX)
-
-      if (wheelLockedRef.current) {
-        // 大力一滑的惯性会持续高 delta：等出现波谷后，新的冲量才算下一次滑动。
-        if (performance.now() - wheelLockAtRef.current < WHEEL_MIN_LOCK_MS) {
-          return
-        }
-        if (absDeltaX <= WHEEL_SETTLE_DELTA) {
-          wheelSeenSettleRef.current = true
-          return
-        }
-        if (wheelSeenSettleRef.current && absDeltaX >= WHEEL_REFIRE_IMPULSE) {
-          fireWheelPage(deltaX > 0 ? 1 : -1)
-        }
-        return
-      }
-
-      if (
-        wheelAccumRef.current !== 0 &&
-        Math.sign(deltaX) !== 0 &&
-        Math.sign(deltaX) !== Math.sign(wheelAccumRef.current)
-      ) {
-        wheelAccumRef.current = 0
-      }
-
-      wheelAccumRef.current += deltaX
-      if (Math.abs(wheelAccumRef.current) < WHEEL_PAGE_THRESHOLD) {
-        return
-      }
-
-      fireWheelPage(wheelAccumRef.current > 0 ? 1 : -1)
-    }
-
-    window.addEventListener('wheel', onWheel, { capture: true, passive: false })
-    return () => {
-      window.removeEventListener('wheel', onWheel, { capture: true })
-      resetWheelGesture()
-    }
-  }, [enabled, goToPage, pageCount, wheelNavEnabled])
+      return delta
+    },
+    (direction) => {
+      goToPage(currentPageRef.current + direction)
+    },
+  )
 
   const translateX = -currentPage * pagerWidth + dragOffset
 

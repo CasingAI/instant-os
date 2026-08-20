@@ -7,10 +7,10 @@ export const FLIP3D_RESTORE_MS = 520
 /** 进入叠层：从桌面位收到扇面 */
 export const FLIP3D_ENTER_MS = 520
 
-/** 假窗窗框飞出/飞入 */
+/** 绕圈那一扇真窗飞出/飞入 */
 export const FLIP3D_FLIGHT_OUT_MS = 160
 
-/** 连按时最多保留几个假窗，避免 DOM 堆起来拖死主线程 */
+/** 连按时最多保留几个队尾替身，避免 DOM 堆起来拖死主线程 */
 export const FLIP3D_MAX_GHOSTS = 4
 
 /** 退出叠层落地后，桌面阴影淡入（3D 变换下 box-shadow 几乎不绘） */
@@ -18,6 +18,19 @@ export const FLIP3D_SHADOW_IN_MS = 420
 
 export type Flip3dEnterResult = 'entered' | 'already-active' | 'empty'
 
+/** 被掀走的真窗自己播这段位姿；队列已经换成新 rank。 */
+export type Flip3dFlight = {
+  id: string
+  windowId: string
+  direction: 1 | -1
+  fromTransform: string
+  toTransform: string
+  fromOpacity: number
+  toOpacity: number
+  zIndex: number
+}
+
+/** 反向切时留在队尾的替身：真窗已经去飞入，队尾还要播退出。 */
 export type Flip3dGhost = {
   id: string
   windowId: string
@@ -30,7 +43,7 @@ export type Flip3dGhost = {
 export type Flip3dVisual = {
   rank: number
   skipTransition: boolean
-  /** 绕到队尾的那一帧：先停在更后一层再淡入，避免硬切出现 */
+  /** 正向飞完落到队尾：先停在更后一层再淡入 */
   fromBack: boolean
   opacity: number
 }
@@ -119,7 +132,32 @@ export function bringFlip3dWindowToFront(order: readonly string[], windowId: str
   return [windowId, ...order.slice(0, index), ...order.slice(index + 1)]
 }
 
-/** 活窗视觉位只看队列。绕到队尾的那扇先停在后一层再入场，其余滑过去。 */
+/** 退出叠层：只把选中的那扇提到队头，其余保持进入前的相对顺序。 */
+export function resolveFlip3dExitOrder(
+  baseOrder: readonly string[],
+  selectedId: string | undefined,
+): string[] {
+  if (!selectedId) {
+    return [...baseOrder]
+  }
+  return bringFlip3dWindowToFront(baseOrder, selectedId)
+}
+
+/** 叠层期间窗口开关：保住进入时的相对顺序，新窗接到队尾。 */
+export function syncFlip3dBaseOrder(
+  baseOrder: readonly string[],
+  liveIds: ReadonlySet<string>,
+): string[] {
+  const kept = baseOrder.filter((id) => liveIds.has(id))
+  for (const id of liveIds) {
+    if (!kept.includes(id)) {
+      kept.push(id)
+    }
+  }
+  return kept
+}
+
+/** 活窗视觉位只看队列。正向绕到队尾的先停在后一层再入场；反向飞入由 Flip3dFlight 驱动。 */
 export function resolveFlip3dVisual(
   order: readonly string[],
   windowId: string,
@@ -129,11 +167,11 @@ export function resolveFlip3dVisual(
   if (index < 0) {
     return undefined
   }
-  const wrapping = snapIds.includes(windowId)
+  const wrapping = snapIds.length === 1 && snapIds[0] === windowId
   const fromBack = wrapping && order.length > 1 && index === order.length - 1
   return {
     rank: index,
-    skipTransition: wrapping,
+    skipTransition: snapIds.includes(windowId),
     fromBack,
     opacity: fromBack ? 0 : 1,
   }

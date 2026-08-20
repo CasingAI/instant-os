@@ -189,6 +189,59 @@ export function buildFlip3dBackEnterTransform(
   return formatFlip3dTransform(computeFlip3dBackEnterLayout(bounds, viewport, count), bounds.x, bounds.y)
 }
 
+/** 反向：队尾替身再退一层淡出。正向飞出走真窗，不走这条。 */
+export function resolveFlip3dGhostMotion(
+  bounds: WindowBounds,
+  direction: 1 | -1,
+  viewport: Flip3dViewport,
+  count: number,
+): { fromTransform: string; toTransform: string; zIndex: number } {
+  if (direction === 1) {
+    return {
+      fromTransform: buildFlip3dTransform(bounds, 0, viewport, count),
+      toTransform: buildFlip3dFlyOutTransform(bounds, viewport, count),
+      zIndex: FLIP3D_Z_BASE + 80,
+    }
+  }
+  const lastRank = Math.max(count - 1, 0)
+  return {
+    fromTransform: buildFlip3dTransform(bounds, lastRank, viewport, count),
+    toTransform: buildFlip3dBackEnterTransform(bounds, viewport, count),
+    zIndex: FLIP3D_Z_BASE - count,
+  }
+}
+
+/** 正向：队头真窗带着内容往右飞出；反向：队尾真窗从右侧飞入队头。 */
+export function resolveFlip3dFlightMotion(
+  bounds: WindowBounds,
+  direction: 1 | -1,
+  viewport: Flip3dViewport,
+  count: number,
+): {
+  fromTransform: string
+  toTransform: string
+  fromOpacity: number
+  toOpacity: number
+  zIndex: number
+} {
+  if (direction === 1) {
+    return {
+      fromTransform: buildFlip3dTransform(bounds, 0, viewport, count),
+      toTransform: buildFlip3dFlyOutTransform(bounds, viewport, count),
+      fromOpacity: 1,
+      toOpacity: 0,
+      zIndex: FLIP3D_Z_BASE + 80,
+    }
+  }
+  return {
+    fromTransform: buildFlip3dFlyOutTransform(bounds, viewport, count),
+    toTransform: buildFlip3dTransform(bounds, 0, viewport, count),
+    fromOpacity: 1,
+    toOpacity: 1,
+    zIndex: FLIP3D_Z_BASE + 80,
+  }
+}
+
 export type Flip3dPoint = { x: number; y: number }
 
 type Flip3dVec3 = { x: number; y: number; z: number }
