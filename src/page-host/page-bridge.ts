@@ -16,6 +16,32 @@ export type ChromoClickPayload = {
   text?: string
 }
 
+export type ChromoContextMenuPayload = {
+  x: number
+  y: number
+  linkUrl?: string
+  imageUrl?: string
+  selection?: string
+}
+
+export function parseChromoContextMenuPayload(value: unknown): ChromoContextMenuPayload | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+  const record = value as Record<string, unknown>
+  const x = typeof record.x === 'number' ? record.x : Number(record.x)
+  const y = typeof record.y === 'number' ? record.y : Number(record.y)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return undefined
+  }
+  const linkUrl = typeof record.linkUrl === 'string' && record.linkUrl.trim() ? record.linkUrl.trim() : undefined
+  const imageUrl =
+    typeof record.imageUrl === 'string' && record.imageUrl.trim() ? record.imageUrl.trim() : undefined
+  const selection =
+    typeof record.selection === 'string' && record.selection.trim() ? record.selection : undefined
+  return { x, y, linkUrl, imageUrl, selection }
+}
+
 export type ChromoLocationPayload = {
   ts: number
   method: string
@@ -263,6 +289,7 @@ export type ChromoBridgeHandlers = {
   }) => void
   onError?: (payload: ChromoErrorPayload) => void
   onClick?: (payload: ChromoClickPayload) => void
+  onContextMenu?: (payload: ChromoContextMenuPayload) => void
   onLocation?: (payload: ChromoLocationPayload) => void
   onHistory?: (payload: ChromoHistoryPayload) => void
 }
@@ -407,6 +434,43 @@ function rejectRpc(waiter: PendingRpc, error: Error) {
   waiter.reject(error)
 }
 
+function isWindowSource(source: MessageEventSource | null): source is Window {
+  return source !== null && typeof source === 'object' && 'frames' in source
+}
+
+function isDescendantWindow(source: Window, root: Window): boolean {
+  if (source === root) {
+    return true
+  }
+  try {
+    const frames = root.frames
+    for (let i = 0; i < frames.length; i++) {
+      const child = frames[i]
+      if (child && isDescendantWindow(source, child)) {
+        return true
+      }
+    }
+  } catch {
+    return false
+  }
+  return false
+}
+
+function isMessageFromViewer(event: MessageEvent, iframe: HTMLIFrameElement): boolean {
+  const root = iframe.contentWindow
+  if (!root || !isWindowSource(event.source)) {
+    return false
+  }
+  if (event.source === root) {
+    return true
+  }
+  try {
+    return isDescendantWindow(event.source, root)
+  } catch {
+    return false
+  }
+}
+
 export function createChromoBridge(
   iframe: HTMLIFrameElement,
   handlers: ChromoBridgeHandlers,
@@ -517,7 +581,7 @@ export function createChromoBridge(
   }
 
   const onMessage = (event: MessageEvent) => {
-    if (event.source !== iframe.contentWindow) {
+    if (!isMessageFromViewer(event, iframe)) {
       return
     }
 
@@ -643,6 +707,13 @@ export function createChromoBridge(
       case 'VC_CLICK':
         handlers.onClick?.(payload as ChromoClickPayload)
         break
+      case 'VC_CONTEXTMENU': {
+        const parsed = parseChromoContextMenuPayload(payload)
+        if (parsed) {
+          handlers.onContextMenu?.(parsed)
+        }
+        break
+      }
       case 'VC_LOCATION':
         handlers.onLocation?.(payload as ChromoLocationPayload)
         break

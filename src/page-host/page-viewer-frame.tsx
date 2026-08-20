@@ -14,6 +14,7 @@ import {
   type ChromoBridge,
   type ChromoBridgeHandlers,
   type ChromoClickPayload,
+  type ChromoContextMenuPayload,
   type ChromoConsoleReadResult,
   type ChromoErrorPayload,
   type ChromoHistoryPayload,
@@ -87,6 +88,7 @@ export type ChromoViewerHandle = {
   listSiteCacheKeys: ChromoBridge['listSiteCacheKeys']
   deleteSiteCache: ChromoBridge['deleteSiteCache']
   isReady: () => boolean
+  getFrameRect: () => DOMRect | undefined
 }
 
 type ChromoViewerFrameProps = {
@@ -105,8 +107,10 @@ type ChromoViewerFrameProps = {
   onNetworkUpdated?: ChromoBridgeHandlers['onNetworkUpdated']
   onError?: (payload: ChromoErrorPayload) => void
   onClick?: (payload: ChromoClickPayload) => void
+  onContextMenu?: (payload: ChromoContextMenuPayload) => void
   onLocation?: (payload: ChromoLocationPayload) => void
   onHistory?: (payload: ChromoHistoryPayload) => void
+  zoom?: number
 }
 
 export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFrameProps>(
@@ -125,8 +129,10 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       onNetworkUpdated,
       onError,
       onClick,
+      onContextMenu,
       onLocation,
       onHistory,
+      zoom = 1,
     },
     ref,
   ) {
@@ -162,6 +168,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     const onNetworkUpdatedRef = useRef(onNetworkUpdated)
     const onErrorRef = useRef(onError)
     const onClickRef = useRef(onClick)
+    const onContextMenuRef = useRef(onContextMenu)
     const onLocationRef = useRef(onLocation)
     const onHistoryRef = useRef(onHistory)
 
@@ -174,6 +181,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     onNetworkUpdatedRef.current = onNetworkUpdated
     onErrorRef.current = onError
     onClickRef.current = onClick
+    onContextMenuRef.current = onContextMenu
     onLocationRef.current = onLocation
     onHistoryRef.current = onHistory
 
@@ -201,6 +209,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
           onNetworkUpdated: (payload) => onNetworkUpdatedRef.current?.(payload),
           onError: (payload) => onErrorRef.current?.(payload),
           onClick: (payload) => onClickRef.current?.(payload),
+          onContextMenu: (payload) => onContextMenuRef.current?.(payload),
           onLocation: (payload) => onLocationRef.current?.(payload),
           onHistory: (payload) => onHistoryRef.current?.(payload),
         },
@@ -440,9 +449,25 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         isReady() {
           return bridgeRef.current?.isReady() ?? false
         },
+        getFrameRect() {
+          return iframeRef.current?.getBoundingClientRect()
+        },
       }),
       [],
     )
+
+    const zoomed = Number.isFinite(zoom) && zoom > 0 && Math.abs(zoom - 1) >= 0.001
+    const zoomStyle = zoomed
+      ? {
+          transform: `scale(${zoom})`,
+          transformOrigin: '0 0',
+          width: `${100 / zoom}%`,
+          height: `${100 / zoom}%`,
+          inset: 'auto',
+          top: 0,
+          left: 0,
+        }
+      : undefined
 
     if (!viewerUrl) {
       return (
@@ -467,10 +492,13 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       <iframe
         key={viewerEpoch}
         ref={iframeRef}
-        class={['chromo__viewer', active ? '' : 'chromo__viewer--hidden'].filter(Boolean).join(' ')}
+        class={['chromo__viewer', active ? '' : 'chromo__viewer--hidden', zoomed ? 'chromo__viewer--zoomed' : '']
+          .filter(Boolean)
+          .join(' ')}
         src={viewerUrl}
         title="Chromo WebView"
         sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+        style={zoomStyle}
       />
     )
   },

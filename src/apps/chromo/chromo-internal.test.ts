@@ -9,6 +9,7 @@ import {
   normalizeChromoInternalUrl,
   parseChromoInternalPage,
   shouldIgnoreChromoViewerNavigation,
+  canUseChromoPageChrome,
 } from './chromo-internal.ts'
 
 function testNormalizeKeepsAllowedPages(): void {
@@ -43,7 +44,17 @@ function testIgnoreViewerNavForInternalPages(): void {
   console.log('ok: ignore viewer nav for internal pages')
 }
 
+function testPageChromeUnavailableOnInternalAndNewTab(): void {
+  assert.equal(canUseChromoPageChrome('browser://settings', true), false)
+  assert.equal(canUseChromoPageChrome('browser://history'), false)
+  assert.equal(canUseChromoPageChrome('', true), false)
+  assert.equal(canUseChromoPageChrome('https://example.com/', false), false)
+  assert.equal(canUseChromoPageChrome('https://example.com/', true), true)
+  console.log('ok: page chrome disabled on internal pages and new tab')
+}
+
 testNormalizeKeepsAllowedPages()
 testRejectUnknownInternalUrls()
 testIgnoreViewerNavForInternalPages()
+testPageChromeUnavailableOnInternalAndNewTab()
 console.log('chromo-internal tests passed')

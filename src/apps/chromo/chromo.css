@@ -547,6 +547,73 @@
   background: #fff;
 }
 
+.chromo-findbar {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.chromo-findbar__input {
+  width: 180px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.chromo-findbar__status {
+  min-width: 64px;
+  font-size: 12px;
+  color: #5f6368;
+  white-space: nowrap;
+}
+
+.chromo-findbar__btn {
+  width: 28px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: #3c4043;
+  cursor: pointer;
+}
+
+.chromo-findbar__btn:hover:not(:disabled) {
+  background: #f1f3f4;
+}
+
+.chromo-findbar__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chromo-findbar__btn--close {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.chromo__zoom-indicator {
+  min-width: 48px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #3c4043;
+}
+
 .chromo__viewer {
   position: absolute;
   inset: 0;
@@ -556,9 +623,10 @@
   background: #fff;
 }
 
-.chromo__viewer--hidden {
-  visibility: hidden;
-  pointer-events: none;
+.chromo__viewer--zoomed {
+  inset: auto;
+  top: 0;
+  left: 0;
 }
 
 .chromo__page-fault {

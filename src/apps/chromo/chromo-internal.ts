@@ -50,6 +50,11 @@ export function isChromoInternalUrl(input: string): boolean {
   return Boolean(parseChromoInternalPage(input))
 }
 
+/** 内部页 / 新标签没有 viewer 文档，查找、缩放、另存、右键等页内能力不可用。 */
+export function canUseChromoPageChrome(url: string, ready = true): boolean {
+  return Boolean(url && !isChromoInternalUrl(url) && ready)
+}
+
 /** Viewer 空白页/旧页事件不得覆盖 browser:// 内部页。 */
 export function shouldIgnoreChromoViewerNavigation(
   tabUrl: string,

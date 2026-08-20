@@ -25,6 +25,11 @@ type AdaptiveActionMenuProps = {
   onClose: () => void
   mount?: AdaptiveActionMenuMount
   cancelLabel?: string
+  /**
+   * 右键菜单：等本次指针抬起后再允许点外部关闭。
+   * 触摸板按住右键时，松开常会再合成一次 pointerdown/click，否则菜单会闪一下就没。
+   */
+  dismissAfterPointerUp?: boolean
 }
 
 function handleAction(item: Extract<AdaptiveActionMenuLeafItem, { type: 'action' }>, onClose: () => void) {
@@ -129,16 +134,43 @@ function AdaptiveActionMenuDropdown({
   anchor,
   mount,
   onClose,
+  dismissAfterPointerUp = false,
 }: {
   items: AdaptiveActionMenuItem[]
   anchor: { x: number; y: number }
   mount: AdaptiveActionMenuMount
   onClose: () => void
+  dismissAfterPointerUp?: boolean
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    let allowDismiss = !dismissAfterPointerUp
+    let enableTimer = 0
+
+    const enableDismiss = () => {
+      allowDismiss = true
+      window.clearTimeout(enableTimer)
+    }
+
+    const scheduleEnable = () => {
+      window.clearTimeout(enableTimer)
+      enableTimer = window.setTimeout(enableDismiss, 120)
+    }
+
+    if (dismissAfterPointerUp) {
+      window.addEventListener('pointerup', scheduleEnable, true)
+    } else {
+      scheduleEnable()
+    }
+
     const handlePointerDown = (event: PointerEvent) => {
+      if (!allowDismiss) {
+        return
+      }
+      if (event.button !== 0) {
+        return
+      }
       if (!menuRef.current?.contains(event.target as Node)) {
         onClose()
       }
@@ -151,6 +183,9 @@ function AdaptiveActionMenuDropdown({
     }
 
     const handleScroll = () => {
+      if (!allowDismiss) {
+        return
+      }
       onClose()
     }
 
@@ -158,11 +193,13 @@ function AdaptiveActionMenuDropdown({
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('scroll', handleScroll, true)
     return () => {
+      window.clearTimeout(enableTimer)
+      window.removeEventListener('pointerup', scheduleEnable, true)
       window.removeEventListener('pointerdown', handlePointerDown)
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('scroll', handleScroll, true)
     }
-  }, [onClose])
+  }, [dismissAfterPointerUp, onClose])
 
   useLayoutEffect(() => {
     const menu = menuRef.current
@@ -322,6 +359,7 @@ export function AdaptiveActionMenu({
   onClose,
   mount = 'contained',
   cancelLabel = '取消',
+  dismissAfterPointerUp = false,
 }: AdaptiveActionMenuProps) {
   const { mounted, exiting } = useOverlayPresence(open)
   const contentSnapshotRef = useRef<{ title: string; items: AdaptiveActionMenuItem[] }>({
@@ -368,7 +406,13 @@ export function AdaptiveActionMenu({
   }
 
   const content = (
-    <AdaptiveActionMenuDropdown items={items} anchor={anchor} mount={mount} onClose={onClose} />
+    <AdaptiveActionMenuDropdown
+      items={items}
+      anchor={anchor}
+      mount={mount}
+      onClose={onClose}
+      dismissAfterPointerUp={dismissAfterPointerUp}
+    />
   )
 
   if (mount === 'portal') {

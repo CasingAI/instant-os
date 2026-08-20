@@ -14,13 +14,15 @@ import { useOs } from '../../os/os-context.tsx'
 import { useFullscreenChromeReveal } from '../../os/fullscreen-chrome-reveal-context.tsx'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
+import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import {
   displayUrl,
   hostnameFromUrl,
   isStartPageUrl,
   pageTitleFromUrl,
 } from '../browser/normalize-browser-url.ts'
-import type { ChromoConsoleEntry, ChromoNetworkEntry, ChromoScreenshotOptions } from './chromo-bridge.ts'
+import type { ChromoConsoleEntry, ChromoContextMenuPayload, ChromoNetworkEntry, ChromoScreenshotOptions } from './chromo-bridge.ts'
 import { CHROMO_DEFAULT_NEW_TAB_URL } from './chromo-config.ts'
 import {
   resolveNavIntent,
@@ -78,6 +80,7 @@ import {
   normalizeChromoInternalUrl,
   parseChromoInternalPage,
   shouldIgnoreChromoViewerNavigation,
+  canUseChromoPageChrome,
   type ChromoInternalPage,
 } from './chromo-internal.ts'
 import { ChromoNewTabPage } from './chromo-new-tab-page.tsx'
@@ -94,6 +97,30 @@ import { ChromoTabBar, type ChromoTabSummary } from './chromo-tab-bar.tsx'
 import { ChromoMoreIcon, ChromoSparkleIcon, ChromoStarIcon } from './chromo-toolbar-icons.tsx'
 import { ChromoViewerFrame, type ChromoViewerHandle } from './chromo-viewer-frame.tsx'
 import type { ChromoApplicationApi } from './chromo-application-panel.tsx'
+import { ChromoPageFindBar } from './chromo-page-find-bar.tsx'
+import {
+  buildChromoFindSearchEval,
+  buildChromoFindStepEval,
+  CHROMO_FIND_CLEAR_SCRIPT,
+  parseChromoFindResult,
+} from './chromo-page-find.ts'
+import { CHROMO_PAGE_CHROME_INJECT_SCRIPT } from './chromo-page-chrome-inject.ts'
+import {
+  CHROMO_DEFAULT_ZOOM,
+  formatChromoZoom,
+  nextChromoZoom,
+} from './chromo-page-zoom.ts'
+import { base64JpegToPdf } from './chromo-export-pdf.ts'
+import {
+  CHROMO_SERIALIZE_PAGE_SCRIPT,
+  formatSavePageSummary,
+  parsePageSerializeResult,
+  sanitizePageFileBaseName,
+  saveImageUrlToPath,
+  saveSerializedPageToPath,
+  suggestedSaveNameFromUrl,
+  writeUniqueFile,
+} from './chromo-save-page.ts'
 import './chromo.css'
 
 function makeChromoApplicationApi(
@@ -166,6 +193,7 @@ type ChromoTab = {
   vConsoleError?: string
   /** Extensions：Viewer 内置 Debug Panel（绿色「调」） */
   debugPanelEnabled: boolean
+  zoom: number
 }
 
 /** DevTools 可用：viewer 已启动且目标 URL 已知（不等整页 load 完成）。 */
@@ -249,6 +277,7 @@ function createChromoTab(initialUrl = ''): ChromoTab {
     vConsoleEnabled: false,
     vConsoleBusy: false,
     debugPanelEnabled: false,
+    zoom: CHROMO_DEFAULT_ZOOM,
   }
 }
 
@@ -366,6 +395,25 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const [bookmarkContextMenu, setBookmarkContextMenu] = useState<ChromoBookmarkContextRequest>()
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [moreMenuAnchor, setMoreMenuAnchor] = useState<{ x: number; y: number }>()
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findCount, setFindCount] = useState(0)
+  const [findIndex, setFindIndex] = useState(-1)
+  const [findBusy, setFindBusy] = useState(false)
+  const [findError, setFindError] = useState<string | undefined>()
+  const [findFocusEpoch, setFindFocusEpoch] = useState(0)
+  const [pageContextMenu, setPageContextMenu] = useState<
+    { x: number; y: number; tabId: string; payload: ChromoContextMenuPayload } | undefined
+  >()
+  const modal = useWindowModal()
+  const { showSystemOpenDialog, dialog: saveDialog } = useSystemOpenDialog()
+  const findTimerRef = useRef<number | undefined>(undefined)
+  const savingRef = useRef(false)
+  const ignoreViewerClickUntilRef = useRef(0)
+  const findQueryRef = useRef(findQuery)
+  findQueryRef.current = findQuery
+  const findOpenRef = useRef(findOpen)
+  findOpenRef.current = findOpen
 
   const viewerRefs = useRef<Record<string, RefObject<ChromoViewerHandle>>>({})
   const tabsRef = useRef(tabs)
@@ -736,6 +784,276 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       return viewer.screenshot(options)
     },
     [activeTab, getViewerRef],
+  )
+
+  const isViewerPage = useCallback((tab: ChromoTab | undefined) => {
+    return canUseChromoPageChrome(tab?.url ?? '', Boolean(tab?.ready))
+  }, [])
+
+  const injectPageChrome = useCallback(
+    (tabId: string) => {
+      const viewer = getViewerRef(tabId).current
+      if (!viewer?.isReady()) {
+        return
+      }
+      void viewer.evalInPage(CHROMO_PAGE_CHROME_INJECT_SCRIPT).catch(() => undefined)
+    },
+    [getViewerRef],
+  )
+
+  const closeFind = useCallback(() => {
+    if (findTimerRef.current !== undefined) {
+      window.clearTimeout(findTimerRef.current)
+      findTimerRef.current = undefined
+    }
+    setFindOpen(false)
+    setFindError(undefined)
+    const tab = tabsRef.current.find((entry) => entry.id === activeTabIdRef.current)
+    if (isViewerPage(tab)) {
+      const viewer = getViewerRef(tab!.id).current
+      void viewer?.evalInPage(CHROMO_FIND_CLEAR_SCRIPT).catch(() => undefined)
+    }
+  }, [getViewerRef, isViewerPage])
+
+  const runFindSearch = useCallback(
+    async (query: string, tabId?: string) => {
+      const tab = tabsRef.current.find((entry) => entry.id === (tabId ?? activeTabIdRef.current))
+      if (!isViewerPage(tab)) {
+        setFindCount(0)
+        setFindIndex(-1)
+        setFindError(undefined)
+        return
+      }
+      const viewer = getViewerRef(tab!.id).current
+      if (!viewer?.isReady()) {
+        return
+      }
+      setFindBusy(true)
+      try {
+        await viewer.evalInPage(CHROMO_PAGE_CHROME_INJECT_SCRIPT)
+        const result = parseChromoFindResult(await viewer.evalInPage(buildChromoFindSearchEval(query)))
+        setFindCount(result.count)
+        setFindIndex(result.index)
+        setFindError(result.error)
+      } catch (error) {
+        setFindCount(0)
+        setFindIndex(-1)
+        setFindError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setFindBusy(false)
+      }
+    },
+    [getViewerRef, isViewerPage],
+  )
+
+  const scheduleFindSearch = useCallback(
+    (query: string) => {
+      setFindQuery(query)
+      if (findTimerRef.current !== undefined) {
+        window.clearTimeout(findTimerRef.current)
+      }
+      findTimerRef.current = window.setTimeout(() => {
+        findTimerRef.current = undefined
+        void runFindSearch(query)
+      }, 160)
+    },
+    [runFindSearch],
+  )
+
+  const stepFind = useCallback(
+    async (direction: 'next' | 'prev') => {
+      const tab = tabsRef.current.find((entry) => entry.id === activeTabIdRef.current)
+      if (!isViewerPage(tab) || !findQuery) {
+        return
+      }
+      const viewer = getViewerRef(tab!.id).current
+      if (!viewer?.isReady()) {
+        return
+      }
+      try {
+        const result = parseChromoFindResult(await viewer.evalInPage(buildChromoFindStepEval(direction)))
+        setFindCount(result.count)
+        setFindIndex(result.index)
+        setFindError(result.error)
+      } catch (error) {
+        setFindError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [findQuery, getViewerRef, isViewerPage],
+  )
+
+  const openFind = useCallback(() => {
+    const tab = tabsRef.current.find((entry) => entry.id === activeTabIdRef.current)
+    if (!isViewerPage(tab)) {
+      return
+    }
+    setFindOpen(true)
+    setFindFocusEpoch((epoch) => epoch + 1)
+    setPageContextMenu(undefined)
+    setAddressFocused(false)
+    omniboxInputRef.current?.blur()
+    if (findQuery) {
+      void runFindSearch(findQuery)
+    }
+  }, [findQuery, isViewerPage, runFindSearch])
+
+  useEffect(() => {
+    if (!findOpenRef.current) {
+      return
+    }
+    const tab = tabsRef.current.find((entry) => entry.id === activeTabId)
+    if (!tab?.url || isChromoInternalUrl(tab.url)) {
+      closeFind()
+      return
+    }
+    const query = findQueryRef.current
+    if (query && tab.ready) {
+      void runFindSearch(query, tab.id)
+    }
+  }, [activeTabId, closeFind, runFindSearch])
+
+  const changeZoom = useCallback(
+    (direction: 1 | -1 | 0) => {
+      const tab = tabsRef.current.find((entry) => entry.id === activeTabIdRef.current)
+      if (!tab?.url || isChromoInternalUrl(tab.url)) {
+        return
+      }
+      updateTab(tab.id, (entry) => ({
+        ...entry,
+        zoom: direction === 0 ? CHROMO_DEFAULT_ZOOM : nextChromoZoom(entry.zoom, direction),
+      }))
+    },
+    [updateTab],
+  )
+
+  const pickSavePath = useCallback(
+    async (options: { defaultFileName: string; acceptExtensions: string[]; title: string }) => {
+      return showSystemOpenDialog({
+        intent: 'save',
+        title: options.title,
+        defaultFileName: options.defaultFileName,
+        acceptExtensions: options.acceptExtensions,
+        initialPath: '/user/Downloads',
+      })
+    },
+    [showSystemOpenDialog],
+  )
+
+  const saveCurrentPage = useCallback(async () => {
+    const tab = tabsRef.current.find((entry) => entry.id === activeTabIdRef.current)
+    if (!isViewerPage(tab) || savingRef.current) {
+      return
+    }
+    const viewer = getViewerRef(tab!.id).current
+    if (!viewer?.isReady()) {
+      await modal.alert({ title: '无法另存网页', message: '网页尚未就绪' })
+      return
+    }
+    const defaultName = `${sanitizePageFileBaseName(tab!.title || 'page')}.html`
+    const dest = await pickSavePath({
+      title: '另存网页',
+      defaultFileName: defaultName,
+      acceptExtensions: ['html', 'htm'],
+    })
+    if (!dest) {
+      return
+    }
+    savingRef.current = true
+    try {
+      const serialized = parsePageSerializeResult(await viewer.evalInPage(CHROMO_SERIALIZE_PAGE_SCRIPT))
+      const summary = await saveSerializedPageToPath(dest, serialized)
+      const extra =
+        summary.skipped > 0 || summary.failed > 0 ? `\n\n${formatSavePageSummary(summary)}` : ''
+      if (extra) {
+        await modal.alert({ title: '已另存网页', message: formatSavePageSummary(summary) })
+      }
+    } catch (error) {
+      await modal.alert({
+        title: '无法另存网页',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      savingRef.current = false
+    }
+  }, [getViewerRef, isViewerPage, modal, pickSavePath])
+
+  const exportCurrentPagePdf = useCallback(async () => {
+    const tab = tabsRef.current.find((entry) => entry.id === activeTabIdRef.current)
+    if (!isViewerPage(tab) || savingRef.current) {
+      return
+    }
+    const viewer = getViewerRef(tab!.id).current
+    if (!viewer?.isReady()) {
+      await modal.alert({ title: '无法导出 PDF', message: '网页尚未就绪' })
+      return
+    }
+    const dest = await pickSavePath({
+      title: '导出 PDF',
+      defaultFileName: `${sanitizePageFileBaseName(tab!.title || 'page')}.pdf`,
+      acceptExtensions: ['pdf'],
+    })
+    if (!dest) {
+      return
+    }
+    savingRef.current = true
+    try {
+      const shot = await viewer.screenshot({ format: 'jpeg', quality: 0.85, fullPage: true })
+      const pdf = base64JpegToPdf(shot.data, shot.width, shot.height)
+      await writeUniqueFile(dest, pdf, 'application/pdf')
+    } catch (error) {
+      await modal.alert({
+        title: '无法导出 PDF',
+        message: `${error instanceof Error ? error.message : String(error)}\n\n这是整页截图 PDF，不能选文字。超长页可能因截图超时或尺寸限制失败。`,
+      })
+    } finally {
+      savingRef.current = false
+    }
+  }, [getViewerRef, isViewerPage, modal, pickSavePath])
+
+  const saveImageFromUrl = useCallback(
+    async (imageUrl: string) => {
+      if (savingRef.current) {
+        return
+      }
+      const dest = await pickSavePath({
+        title: '保存图片',
+        defaultFileName: suggestedSaveNameFromUrl(imageUrl, 'image', 'png'),
+        acceptExtensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'],
+      })
+      if (!dest) {
+        return
+      }
+      savingRef.current = true
+      try {
+        const tab = tabsRef.current.find((entry) => entry.id === activeTabIdRef.current)
+        const viewer = tab ? getViewerRef(tab.id).current : undefined
+        await saveImageUrlToPath(dest, imageUrl, viewer?.isReady() ? (code) => viewer.evalInPage(code) : undefined)
+      } catch (error) {
+        await modal.alert({
+          title: '无法保存图片',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        savingRef.current = false
+      }
+    },
+    [getViewerRef, modal, pickSavePath],
+  )
+
+  const handlePageContextMenu = useCallback(
+    (tabId: string, payload: ChromoContextMenuPayload) => {
+      const viewer = getViewerRef(tabId).current
+      const rect = viewer?.getFrameRect()
+      const tab = tabsRef.current.find((entry) => entry.id === tabId)
+      const zoom = tab?.zoom ?? 1
+      const x = (rect?.left ?? 0) + payload.x * zoom
+      const y = (rect?.top ?? 0) + payload.y * zoom
+      ignoreViewerClickUntilRef.current = performance.now() + 700
+      setMoreMenuOpen(false)
+      setBookmarkContextMenu(undefined)
+      setPageContextMenu({ x, y, tabId, payload })
+    },
+    [getViewerRef],
   )
 
   const pullConsoleDelta = useCallback(
@@ -1611,6 +1929,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     bookmarksOverflowOpen ||
     moreMenuOpen ||
     bookmarkContextMenu !== undefined ||
+    pageContextMenu !== undefined ||
+    findOpen ||
     Boolean(activeTab?.devtoolsOpen || activeTab?.devtoolsUndocked)
 
   const activeDevtoolsOpen = Boolean(activeTab?.devtoolsOpen && !activeTab?.devtoolsUndocked)
@@ -1633,6 +1953,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const showProgress = Boolean(activeTab?.loading && !isChromoInternalUrl(activeTab.url))
   const activeInternalPage = activeTab ? parseChromoInternalPage(activeTab.url) : undefined
   const chromoFocused = Boolean(parentWindowId && activeWindowId === parentWindowId)
+  const canUsePageChrome = isViewerPage(activeTab)
+  const activeZoom = activeTab?.zoom ?? CHROMO_DEFAULT_ZOOM
 
   const moreMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
     return [
@@ -1659,6 +1981,28 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onClick: () => openInternalPage('history'),
       },
       { type: 'action', label: '设置', onClick: () => openInternalPage('settings') },
+      { type: 'separator' },
+      {
+        type: 'action',
+        label: '查找…',
+        shortcut: '⌘F',
+        disabled: !canUsePageChrome,
+        onClick: openFind,
+      },
+      {
+        type: 'action',
+        label: '另存为…',
+        shortcut: '⌘S',
+        disabled: !canUsePageChrome,
+        onClick: () => void saveCurrentPage(),
+      },
+      {
+        type: 'action',
+        label: '导出 PDF…',
+        shortcut: '⌘P',
+        disabled: !canUsePageChrome,
+        onClick: () => void exportCurrentPagePdf(),
+      },
       { type: 'separator' },
       {
         type: 'action',
@@ -1692,10 +2036,14 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     addTab,
     bookmarksBarVisible,
     canBookmarkPage,
+    canUsePageChrome,
     copyCurrentPageUrl,
     currentBookmarked,
+    exportCurrentPagePdf,
+    openFind,
     openInternalPage,
     reload,
+    saveCurrentPage,
     sidebarOpen,
     toggleBookmarkForCurrentPage,
     toggleBookmarksBar,
@@ -1730,6 +2078,134 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     ]
   }, [addTab, bookmarkContextMenu, bumpBookmarksRevision, navigateActive])
 
+  const pageContextMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
+    if (!pageContextMenu) {
+      return []
+    }
+    const { payload } = pageContextMenu
+    const items: AdaptiveActionMenuItem[] = []
+    if (payload.selection) {
+      items.push({
+        type: 'action',
+        label: '复制',
+        onClick: () => void navigator.clipboard?.writeText(payload.selection!),
+      })
+    }
+    if (payload.linkUrl) {
+      items.push(
+        {
+          type: 'action',
+          label: '在新标签页中打开',
+          onClick: () => addTab(payload.linkUrl),
+        },
+        {
+          type: 'action',
+          label: '在后台新标签页中打开',
+          onClick: () => addTab(payload.linkUrl, { activate: false }),
+        },
+        {
+          type: 'action',
+          label: '复制链接',
+          onClick: () => void navigator.clipboard?.writeText(payload.linkUrl!),
+        },
+      )
+    }
+    if (payload.imageUrl) {
+      if (items.length > 0) {
+        items.push({ type: 'separator' })
+      }
+      items.push(
+        {
+          type: 'action',
+          label: '在新标签页中打开图片',
+          onClick: () => addTab(payload.imageUrl),
+        },
+        {
+          type: 'action',
+          label: '保存图片…',
+          onClick: () => void saveImageFromUrl(payload.imageUrl!),
+        },
+        {
+          type: 'action',
+          label: '复制图片地址',
+          onClick: () => void navigator.clipboard?.writeText(payload.imageUrl!),
+        },
+      )
+    }
+    if (items.length > 0) {
+      items.push({ type: 'separator' })
+    }
+    items.push(
+      {
+        type: 'action',
+        label: '后退',
+        disabled: !activeTab?.canGoBack,
+        onClick: goBack,
+      },
+      {
+        type: 'action',
+        label: '前进',
+        disabled: !activeTab?.canGoForward,
+        onClick: goForward,
+      },
+      {
+        type: 'action',
+        label: '重新加载',
+        onClick: reload,
+      },
+      { type: 'separator' },
+      {
+        type: 'action',
+        label: '另存为…',
+        disabled: !canUsePageChrome,
+        onClick: () => void saveCurrentPage(),
+      },
+      {
+        type: 'action',
+        label: '导出 PDF…',
+        disabled: !canUsePageChrome,
+        onClick: () => void exportCurrentPagePdf(),
+      },
+      {
+        type: 'action',
+        label: '查找…',
+        disabled: !canUsePageChrome,
+        onClick: openFind,
+      },
+      {
+        type: 'action',
+        label: '复制页面地址',
+        disabled: !activeTab?.url,
+        onClick: copyCurrentPageUrl,
+      },
+      {
+        type: 'action',
+        label: currentBookmarked ? '取消书签' : '添加书签',
+        disabled: !canBookmarkPage,
+        onClick: toggleBookmarkForCurrentPage,
+      },
+    )
+    return items
+  }, [
+    activeTab?.canGoBack,
+    activeTab?.canGoForward,
+    activeTab?.url,
+    addTab,
+    canBookmarkPage,
+    canUsePageChrome,
+    copyCurrentPageUrl,
+    currentBookmarked,
+    exportCurrentPagePdf,
+    goBack,
+    goForward,
+    openFind,
+    pageContextMenu,
+    reload,
+    saveCurrentPage,
+    saveImageFromUrl,
+    toggleBookmarkForCurrentPage,
+  ])
+
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindowEntry = windows.find((window) => window.appId === 'chromo' && !window.minimized)
 
@@ -1749,6 +2225,21 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             shortcut: '⌘W',
             disabled: !activeTab,
             onClick: () => activeTab && closeTab(activeTab.id),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '另存为…',
+            shortcut: '⌘S',
+            disabled: !canUsePageChrome,
+            onClick: () => void saveCurrentPage(),
+          },
+          {
+            type: 'action',
+            label: '导出 PDF…',
+            shortcut: '⌘P',
+            disabled: !canUsePageChrome,
+            onClick: () => void exportCurrentPagePdf(),
           },
           { type: 'separator' },
           {
@@ -1832,6 +2323,35 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
           { type: 'separator' },
           {
             type: 'action',
+            label: '查找…',
+            shortcut: '⌘F',
+            disabled: !canUsePageChrome,
+            onClick: openFind,
+          },
+          {
+            type: 'action',
+            label: '放大',
+            shortcut: '⌘+',
+            disabled: !canUsePageChrome,
+            onClick: () => changeZoom(1),
+          },
+          {
+            type: 'action',
+            label: '缩小',
+            shortcut: '⌘-',
+            disabled: !canUsePageChrome,
+            onClick: () => changeZoom(-1),
+          },
+          {
+            type: 'action',
+            label: '实际大小',
+            shortcut: '⌘0',
+            disabled: !canUsePageChrome || activeZoom === CHROMO_DEFAULT_ZOOM,
+            onClick: () => changeZoom(0),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
             label: activeDevtoolsActive ? '关闭开发者工具' : '开发者工具',
             shortcut: '⌥⌘I',
             onClick: toggleDevTools,
@@ -1853,17 +2373,23 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   }, [
     activeDevtoolsActive,
     activeTab,
+    activeZoom,
     addTab,
     bookmarksBarVisible,
     canBookmarkPage,
+    canUsePageChrome,
+    changeZoom,
     closeTab,
     closeWindowsForApp,
     clearBrowsingHistory,
     currentBookmarked,
+    exportCurrentPagePdf,
     goBack,
     goForward,
+    openFind,
     openInternalPage,
     reload,
+    saveCurrentPage,
     showProgress,
     sidebarOpen,
     stopLoading,
@@ -1884,11 +2410,67 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       if (event.isComposing) {
         return
       }
+      const inFindBar =
+        event.target instanceof Element && Boolean(event.target.closest('.chromo-findbar'))
+      if (event.key === 'Escape') {
+        if (pageContextMenu) {
+          setPageContextMenu(undefined)
+          event.preventDefault()
+          return
+        }
+        if (findOpen) {
+          closeFind()
+          event.preventDefault()
+        }
+        return
+      }
       const meta = event.metaKey || event.ctrlKey
       if (!meta) {
         return
       }
       const key = event.key.toLowerCase()
+      if (key === 'f' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        openFind()
+        return
+      }
+      if (key === 'g' && !event.altKey) {
+        event.preventDefault()
+        if (!findOpen) {
+          openFind()
+        }
+        void stepFind(event.shiftKey ? 'prev' : 'next')
+        return
+      }
+      if (inFindBar && (key === 'l' || key === 'k')) {
+        event.preventDefault()
+        return
+      }
+      if (key === 's' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        void saveCurrentPage()
+        return
+      }
+      if (key === 'p' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        void exportCurrentPagePdf()
+        return
+      }
+      if ((key === '=' || key === '+') && !event.altKey) {
+        event.preventDefault()
+        changeZoom(1)
+        return
+      }
+      if (key === '-' && !event.altKey) {
+        event.preventDefault()
+        changeZoom(-1)
+        return
+      }
+      if (key === '0' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        changeZoom(0)
+        return
+      }
       if (key === 't' && !event.shiftKey && !event.altKey) {
         event.preventDefault()
         addTab()
@@ -1947,13 +2529,21 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   }, [
     activeTab,
     addTab,
+    changeZoom,
     chromoFocused,
+    closeFind,
     closeTab,
+    exportCurrentPagePdf,
+    findOpen,
     focusOmnibox,
     goBack,
     goForward,
+    openFind,
     openInternalPage,
+    pageContextMenu,
     reload,
+    saveCurrentPage,
+    stepFind,
     toggleBookmarkForCurrentPage,
     toggleBookmarksBar,
     toggleDevTools,
@@ -2119,6 +2709,17 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
           </form>
 
           <div class="chromo__actions">
+            {canUsePageChrome && Math.abs(activeZoom - CHROMO_DEFAULT_ZOOM) >= 0.001 ? (
+              <button
+                type="button"
+                class="chromo__btn chromo__zoom-indicator"
+                onClick={() => changeZoom(0)}
+                title="恢复实际大小"
+                aria-label={`缩放 ${formatChromoZoom(activeZoom)}，点击恢复实际大小`}
+              >
+                {formatChromoZoom(activeZoom)}
+              </button>
+            ) : null}
             <button
               type="button"
               class={['chromo__btn', sidebarOpen ? 'chromo__btn--active' : '']
@@ -2184,6 +2785,20 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
               .join(' ')}
           >
             <main class="chromo__viewport">
+              {findOpen && canUsePageChrome ? (
+                <ChromoPageFindBar
+                  query={findQuery}
+                  count={findCount}
+                  index={findIndex}
+                  busy={findBusy}
+                  error={findError}
+                  focusEpoch={findFocusEpoch}
+                  onQueryChange={scheduleFindSearch}
+                  onNext={() => void stepFind('next')}
+                  onPrev={() => void stepFind('prev')}
+                  onClose={closeFind}
+                />
+              ) : null}
               {activeTab?.pageFault && (
                 <ChromoPageFaultView
                   fault={activeTab.pageFault}
@@ -2235,12 +2850,14 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
               active={
                 tab.id === activeTabId && Boolean(tab.url) && !isChromoInternalUrl(tab.url)
               }
+              zoom={tab.zoom}
               onReady={() => {
                 updateTab(tab.id, (entry) => ({
                   ...entry,
                   ready: true,
                   bootstrapped: entry.url ? true : entry.bootstrapped,
                 }))
+                injectPageChrome(tab.id)
                 const current = tabsRef.current.find((entry) => entry.id === tab.id)
                 // Re-apply after viewer remount / VC_READY (bridge state resets).
                 if (current?.debugPanelEnabled) {
@@ -2266,6 +2883,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 if (shouldIgnoreViewerEvent(tab.id)) {
                   return
                 }
+                setPageContextMenu(undefined)
                 updateTab(tab.id, (entry) => ({
                   ...entry,
                   loading: true,
@@ -2338,6 +2956,10 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   void pullConsoleDelta(tab.id)
                   void pullNetworkDelta(tab.id)
                   reinjectVConsoleIfEnabled(tab.id)
+                  injectPageChrome(tab.id)
+                  if (findOpen && tab.id === activeTabIdRef.current && findQuery) {
+                    void runFindSearch(findQuery, tab.id)
+                  }
                 }, 300)
               }}
               onLoadFailed={(payload) => {
@@ -2400,6 +3022,9 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
               }}
               onLocation={({ url, method, httpMethod, formBody, formFiles, formEnctype, target }) => {
                 if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
+                if (performance.now() < ignoreViewerClickUntilRef.current) {
                   return
                 }
                 const intent = resolveNavIntent(
@@ -2480,6 +3105,10 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 if (shouldIgnoreViewerEvent(tab.id)) {
                   return
                 }
+                if (performance.now() < ignoreViewerClickUntilRef.current) {
+                  return
+                }
+                setPageContextMenu(undefined)
                 const intent = resolveNavIntent(
                   { kind: 'CLICK', href, target, url: href },
                   { currentUrl: tab.url },
@@ -2499,6 +3128,12 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   delete clickNavigateTimersRef.current[tab.id]
                   navigateTab(tab.id, href)
                 }, 150)
+              }}
+              onContextMenu={(payload) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
+                handlePageContextMenu(tab.id, payload)
               }}
                 />
               ))}
@@ -2622,8 +3257,22 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             : undefined
         }
         mount="portal"
+        dismissAfterPointerUp
         onClose={() => setBookmarkContextMenu(undefined)}
       />
+
+      <AdaptiveActionMenu
+        open={pageContextMenu !== undefined}
+        title="Chromo"
+        items={pageContextMenuItems}
+        narrowLayout={narrowLayout}
+        anchor={pageContextMenu ? { x: pageContextMenu.x, y: pageContextMenu.y } : undefined}
+        mount="portal"
+        dismissAfterPointerUp
+        onClose={() => setPageContextMenu(undefined)}
+      />
+
+      {saveDialog}
     </div>
   )
 }

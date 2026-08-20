@@ -38,12 +38,16 @@ import {
   listDirectory,
   listFilesLocations,
   resolveFilesAbsolutePath,
+  resolveNodeByAbsolutePath,
   resolvePathNodes,
 } from '../apps/files/files-vfs.ts'
+import { ensureUserSpecialFolders } from '../apps/files/files-user-special.ts'
 import { FilesNodeIcon } from '../apps/files/files-node-icon.tsx'
+import { buildSaveDialogPath, sanitizeSaveFileName, splitSuggestedSavePath } from './system-save-path.ts'
 import './system-open-dialog.css'
 
 export type SystemOpenDialogSelectionMode = 'file' | 'folder'
+export type SystemOpenDialogIntent = 'open' | 'save'
 
 export type SystemOpenDialogOptions = {
   title?: string
@@ -61,6 +65,12 @@ export type SystemOpenDialogOptions = {
   createMimeType?: string
   /** 选择目标；默认 file */
   selectionMode?: SystemOpenDialogSelectionMode
+  /** 打开已有文件，或指定存储路径（不创建文件）。默认 open */
+  intent?: SystemOpenDialogIntent
+  /** intent=save 时的默认文件名 */
+  defaultFileName?: string
+  /** 打开时定位到该目录（或文件所在目录）；save 默认 /user/Downloads */
+  initialPath?: string
   /**
    * @deprecated 打开对话框一律挂在系统浮层，不再随 App 窗口伸缩。
    */
@@ -84,6 +94,8 @@ type FormatFilterMode = 'accepted' | 'all'
 
 const DEFAULT_FILE_DIALOG_TITLE = '打开文件'
 const DEFAULT_FOLDER_DIALOG_TITLE = '选择文件夹'
+const DEFAULT_SAVE_DIALOG_TITLE = '存储'
+const DEFAULT_SAVE_INITIAL_PATH = '/user/Downloads'
 const DEFAULT_DIALOG_WIDTH = 560
 const DEFAULT_DIALOG_HEIGHT = 440
 const MIN_DIALOG_WIDTH = 360
@@ -167,6 +179,10 @@ function toCreateFileName(baseName: string, extension: string): string {
   return `${trimmed}.${ext}`
 }
 
+function fallbackSaveFileName(extension?: string): string {
+  return extension ? `untitled.${extension}` : 'untitled'
+}
+
 function sameNavPoint(a: NavPoint, b: NavPoint): boolean {
   return a.locationId === b.locationId && a.folderId === b.folderId
 }
@@ -199,6 +215,16 @@ function SystemOpenDialogBrowser({
   const selectionMode: SystemOpenDialogSelectionMode =
     options.selectionMode === 'folder' ? 'folder' : 'file'
   const folderMode = selectionMode === 'folder'
+  const saveMode = !folderMode && options.intent === 'save'
+  const saveDefaultExtension = useMemo(() => {
+    if (!saveMode) return undefined
+    const fromName = options.defaultFileName
+      ? fileNameExtension(options.defaultFileName)
+      : undefined
+    if (fromName) return fromName
+    const first = options.acceptExtensions?.[0]
+    return first ? normalizeFileExtension(first) : undefined
+  }, [options.acceptExtensions, options.defaultFileName, saveMode])
 
   const configuredAccept = useMemo(() => {
     if (folderMode) return undefined
@@ -212,7 +238,7 @@ function SystemOpenDialogBrowser({
   const createInitialText = options.createInitialText ?? ''
   const createInitialBytes = options.createInitialBytes
   const createMimeType = options.createMimeType ?? 'application/octet-stream'
-  const allowCreate = !folderMode && options.allowCreate === true
+  const allowCreate = !folderMode && !saveMode && options.allowCreate === true
   const canCreateTextExtension =
     createExtension === 'txt' || createExtension === 'md' || createExtension === 'markdown'
   const canCreateBinaryExtension = createExtension === 'pages'
@@ -241,6 +267,11 @@ function SystemOpenDialogBrowser({
   const [optionsDraft, setOptionsDraft] = useState<FormatFilterMode>('accepted')
   const [dragActive, setDragActive] = useState(false)
   const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
+  const [saveFileName, setSaveFileName] = useState(
+    () => options.defaultFileName?.trim() || fallbackSaveFileName(saveDefaultExtension),
+  )
+  const needsNavBoot = saveMode || Boolean(options.initialPath)
+  const [navBooted, setNavBooted] = useState(!needsNavBoot)
 
   historyIndexRef.current = historyIndex
 
@@ -256,6 +287,11 @@ function SystemOpenDialogBrowser({
   const canOpen = folderMode
     ? selected === undefined || selected.kind === 'folder'
     : selected?.kind === 'file'
+  const canSave =
+    saveMode &&
+    locationWritable &&
+    canCreateHere &&
+    Boolean(sanitizeSaveFileName(saveFileName, saveDefaultExtension))
   const canGoBackInHistory = historyIndex > 0
   const canGoForward = historyIndex < history.length - 1
   const canLeaveBrowserStack = narrowLayout && stackedBrowserOpen && !canGoBackInHistory
@@ -301,6 +337,58 @@ function SystemOpenDialogBrowser({
   }, [refreshLocations])
 
   useEffect(() => {
+    if (!needsNavBoot) {
+      return
+    }
+
+    let cancelled = false
+    const boot = async () => {
+      if (saveMode) {
+        await ensureUserSpecialFolders().catch(() => undefined)
+      }
+
+      const rawPath = (options.initialPath?.trim() || (saveMode ? DEFAULT_SAVE_INITIAL_PATH : '')) || ''
+      if (!rawPath) {
+        if (!cancelled) setNavBooted(true)
+        return
+      }
+
+      const split = splitSuggestedSavePath(rawPath)
+      if (split.fileName && !options.defaultFileName) {
+        setSaveFileName(split.fileName)
+      }
+
+      try {
+        const folderNode = await resolveNodeByAbsolutePath(split.folderHint)
+        if (cancelled) return
+        if (folderNode?.kind === 'folder') {
+          const point = { locationId: folderNode.locationId, folderId: folderNode.id }
+          setLocationId(point.locationId)
+          setFolderId(point.folderId)
+          setSelectedId(undefined)
+          setHistory([point])
+          setHistoryIndex(0)
+        } else if (split.folderHint === '/user' || split.folderHint === '/user/') {
+          setLocationId('local')
+          setFolderId(undefined)
+          setSelectedId(undefined)
+        }
+      } catch {
+        // keep default /user root
+      }
+
+      if (!cancelled) setNavBooted(true)
+    }
+
+    void boot()
+    return () => {
+      cancelled = true
+    }
+    // 仅在打开时定位一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
     if (locations.length === 0) return
     if (!locations.some((item) => item.id === locationId)) {
       setLocationId('local')
@@ -317,8 +405,9 @@ function SystemOpenDialogBrowser({
   }, [refreshLocations])
 
   useEffect(() => {
+    if (!navBooted) return
     void refresh()
-  }, [refresh])
+  }, [navBooted, refresh])
 
   useEffect(() => {
     const node = rootRef.current
@@ -467,8 +556,11 @@ function SystemOpenDialogBrowser({
         return
       }
       setSelectedId(node.id)
+      if (saveMode) {
+        setSaveFileName(node.name)
+      }
     },
-    [enterFolder, folderMode],
+    [enterFolder, folderMode, saveMode],
   )
 
   const handleItemDoubleClick = useCallback(
@@ -478,12 +570,41 @@ function SystemOpenDialogBrowser({
         return
       }
       if (folderMode) return
+      if (saveMode) {
+        setSaveFileName(node.name)
+        return
+      }
       void pickNodePath(node)
     },
-    [enterFolder, folderMode, pickNodePath],
+    [enterFolder, folderMode, pickNodePath, saveMode],
   )
 
+  const handleSave = useCallback(async () => {
+    if (!saveMode || !canSave) return
+    try {
+      const folderPath = currentFolder
+        ? await resolveFilesAbsolutePath(currentFolder)
+        : filesLocationPathRoot(locationId)
+      onPick(buildSaveDialogPath(folderPath, saveFileName, saveDefaultExtension))
+    } catch (err) {
+      await modal.alert({ title: '无法存储', message: formatError(err), themeColor: THEME })
+    }
+  }, [
+    canSave,
+    currentFolder,
+    locationId,
+    modal,
+    onPick,
+    saveDefaultExtension,
+    saveFileName,
+    saveMode,
+  ])
+
   const handleOpen = useCallback(() => {
+    if (saveMode) {
+      void handleSave()
+      return
+    }
     if (folderMode) {
       if (selected?.kind === 'folder') {
         void pickNodePath(selected)
@@ -498,7 +619,7 @@ function SystemOpenDialogBrowser({
     }
     if (!selected || selected.kind !== 'file') return
     void pickNodePath(selected)
-  }, [currentFolder, folderMode, locationId, onPick, pickNodePath, selected])
+  }, [currentFolder, folderMode, handleSave, locationId, onPick, pickNodePath, saveMode, selected])
 
   const handleDragOver = useCallback(
     (event: DragEvent) => {
@@ -745,50 +866,108 @@ function SystemOpenDialogBrowser({
           )}
         </div>
 
-        <footer class="system-open-dialog__footer">
-          <div class="system-open-dialog__footer-start">
-            {allowCreate ? (
-              <button
-                type="button"
-                class="system-open-dialog__btn"
-                disabled={!canCreateHere || busy}
-                onClick={() => void handleCreate()}
-              >
-                新建
-              </button>
-            ) : undefined}
-            {canChooseFormats ? (
-              <button
-                type="button"
-                class="system-open-dialog__btn"
-                disabled={busy}
-                onClick={openOptions}
-              >
-                选项
-              </button>
-            ) : undefined}
-            {!allowCreate && !canChooseFormats ? (
-              <span class="system-open-dialog__footer-spacer" />
-            ) : undefined}
-          </div>
-          <div class="system-open-dialog__footer-end">
-            <button
-              type="button"
-              class="system-open-dialog__btn"
-              disabled={busy}
-              onClick={onClose}
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              class="system-open-dialog__btn system-open-dialog__btn--primary"
-              disabled={!canOpen || busy}
-              onClick={handleOpen}
-            >
-              打开
-            </button>
-          </div>
+        <footer class={`system-open-dialog__footer${saveMode ? ' system-open-dialog__footer--save' : ''}`}>
+          {saveMode ? (
+            <>
+              <label class="system-open-dialog__filename">
+                <span class="system-open-dialog__filename-label">名称</span>
+                <input
+                  type="text"
+                  class="system-open-dialog__filename-input"
+                  value={saveFileName}
+                  spellcheck={false}
+                  aria-label="文件名"
+                  onInput={(event) => {
+                    setSaveFileName((event.currentTarget as HTMLInputElement).value)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void handleSave()
+                    }
+                  }}
+                />
+              </label>
+              <div class="system-open-dialog__footer-actions">
+                {canChooseFormats ? (
+                  <button
+                    type="button"
+                    class="system-open-dialog__btn"
+                    disabled={busy}
+                    onClick={openOptions}
+                  >
+                    选项
+                  </button>
+                ) : (
+                  <span class="system-open-dialog__footer-spacer" />
+                )}
+                <div class="system-open-dialog__footer-end">
+                  <button
+                    type="button"
+                    class="system-open-dialog__btn"
+                    disabled={busy}
+                    onClick={onClose}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    class="system-open-dialog__btn system-open-dialog__btn--primary"
+                    disabled={!canSave || busy}
+                    onClick={handleOpen}
+                  >
+                    存储
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div class="system-open-dialog__footer-start">
+                {allowCreate ? (
+                  <button
+                    type="button"
+                    class="system-open-dialog__btn"
+                    disabled={!canCreateHere || busy}
+                    onClick={() => void handleCreate()}
+                  >
+                    新建
+                  </button>
+                ) : undefined}
+                {canChooseFormats ? (
+                  <button
+                    type="button"
+                    class="system-open-dialog__btn"
+                    disabled={busy}
+                    onClick={openOptions}
+                  >
+                    选项
+                  </button>
+                ) : undefined}
+                {!allowCreate && !canChooseFormats ? (
+                  <span class="system-open-dialog__footer-spacer" />
+                ) : undefined}
+              </div>
+              <div class="system-open-dialog__footer-end">
+                <button
+                  type="button"
+                  class="system-open-dialog__btn"
+                  disabled={busy}
+                  onClick={onClose}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  class="system-open-dialog__btn system-open-dialog__btn--primary"
+                  disabled={!canOpen || busy}
+                  onClick={handleOpen}
+                >
+                  打开
+                </button>
+              </div>
+            </>
+          )}
         </footer>
       </div>
 
@@ -879,7 +1058,11 @@ function SystemOpenDialogPanel({
 }) {
   const title =
     options.title ??
-    (options.selectionMode === 'folder' ? DEFAULT_FOLDER_DIALOG_TITLE : DEFAULT_FILE_DIALOG_TITLE)
+    (options.intent === 'save'
+      ? DEFAULT_SAVE_DIALOG_TITLE
+      : options.selectionMode === 'folder'
+        ? DEFAULT_FOLDER_DIALOG_TITLE
+        : DEFAULT_FILE_DIALOG_TITLE)
   const [bounds, setBounds] = useState<WindowBounds>(() => centeredDialogBounds())
   const boundsRef = useRef(bounds)
   boundsRef.current = bounds
