@@ -19,6 +19,7 @@ import { OsProvider } from './os-context.tsx'
 import { FullscreenChromeRevealProvider } from './fullscreen-chrome-reveal-context.tsx'
 import { ImmersiveDesktopBackdrop } from './immersive-desktop-backdrop.tsx'
 import { StartupItemsBootstrap } from './startup-items-bootstrap.tsx'
+import { prefetchAppLoaders } from '../window/window-app-load.ts'
 import { useWallpaper } from './use-wallpaper.ts'
 import { Flip3dQueryBootstrap } from '../window/flip3d-query-bootstrap.tsx'
 import { WindowManager } from '../window/window-frame.tsx'
@@ -36,6 +37,16 @@ function OsShellContent() {
 
   useEffect(() => {
     void scanMountPermissionsNeedingPrompt()
+  }, [])
+
+  useEffect(() => {
+    const warm = () => prefetchAppLoaders()
+    if (typeof requestIdleCallback === 'function') {
+      const id = requestIdleCallback(warm, { timeout: 2500 })
+      return () => cancelIdleCallback(id)
+    }
+    const timer = window.setTimeout(warm, 800)
+    return () => window.clearTimeout(timer)
   }, [])
 
   return (

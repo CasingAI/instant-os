@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact'
 import { createContext } from 'preact'
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { persistWindowSize, resolveWindowDimensions } from '../window/window-bounds-storage.ts'
+import { prefetchWindowApp } from '../window/window-app-load.ts'
 import { getFullscreenBounds, getMaximizedBounds } from '../window/window-metrics.ts'
 import {
   MIN_DIALOG_WINDOW_HEIGHT,
@@ -603,6 +604,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       throw new Error(`未找到应用: ${appId}`)
     }
 
+    prefetchWindowApp(appId)
+
     /** @deprecated 模拟终端已弃用，此 terminalAction 注入逻辑保留仅为过渡，后续移除 */
     if (appId === 'simulated-terminal' && options?.terminalAction) {
       enqueueTerminalPendingAction(options.terminalAction)
@@ -861,6 +864,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   )
 
   const openGeneratedApp = useCallback((appId: GeneratedAppId, title: string) => {
+    prefetchWindowApp(appId)
     startDesktopRestore()
     closeOpenDesktopFolder()
 
@@ -890,6 +894,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   }, [startDesktopRestore])
 
   const openExtApp = useCallback((appId: ExtAppId, title: string) => {
+    prefetchWindowApp(appId)
     startDesktopRestore()
     closeOpenDesktopFolder()
 
