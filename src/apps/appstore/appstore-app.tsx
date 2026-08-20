@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import { MarketplaceSearch } from './appstore-search.tsx'
@@ -17,8 +14,7 @@ type MarketplaceTab = 'discover' | 'installed'
 type MarketplaceScreen = 'main' | 'search' | 'detail'
 
 export function MarketplaceApp() {
-  const { windows, closeWindowsForApp, minimizeWindow } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { windows } = useOs()
   const {
     listings,
     installedApps,
@@ -99,33 +95,7 @@ export function MarketplaceApp() {
     clearPendingMarketplaceDetail,
   ])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'appstore' && !window.minimized)
-
-    return [
-      {
-        label: '应用集市',
-        items: [
-          ...aboutAppMenuPrefix('关于应用集市', () => showBuiltinAbout('appstore')),
-          {
-            type: 'action',
-            label: '隐藏应用集市',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出应用集市',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('appstore'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('appstore', menuBar)
+  useAppMenuBar('appstore', [])
 
   const getPendingBySlug = (slug: string) =>
     pendingInstalls.find((item) => item.listing.slug === slug)

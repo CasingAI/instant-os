@@ -1,7 +1,4 @@
-import {
-  DEVICE_STORAGE_KEYS,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
+import { createRegistryStore } from '../../os/registry-store.ts'
 import type {
   CalendarDayMarker,
   CalendarMarkerKind,
@@ -9,7 +6,6 @@ import type {
   CalendarStore,
 } from './calendar-types.ts'
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.calendar
 const MARKER_KINDS = new Set<CalendarMarkerKind>([
   'holiday',
   'solar-term',
@@ -18,6 +14,36 @@ const MARKER_KINDS = new Set<CalendarMarkerKind>([
 ])
 
 export const CALENDAR_STORE_CHANGED_EVENT = 'instant-os:calendar-store-changed'
+
+const registryStore = createRegistryStore<CalendarStore>({
+  appId: 'calendar',
+  defaultValue: emptyStore,
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'digestsByMonth',
+      valueType: 'json',
+      read: (store) => store.digestsByMonth,
+      write: (value, draft) => ({ ...draft, digestsByMonth: value }),
+      normalize: normalizeDigestsByMonth,
+    },
+  ],
+  changedEventName: CALENDAR_STORE_CHANGED_EVENT,
+})
+
+function normalizeDigestsByMonth(raw: unknown): Record<string, CalendarMonthDigest> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return {}
+  }
+  const digestsByMonth: Record<string, CalendarMonthDigest> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const digest = normalizeMonthDigest(value)
+    if (digest) {
+      digestsByMonth[key] = digest
+    }
+  }
+  return digestsByMonth
+}
 
 function emptyStore(): CalendarStore {
   return { digestsByMonth: {} }
@@ -79,75 +105,38 @@ function normalizeMonthDigest(raw: unknown): CalendarMonthDigest | undefined {
   }
 }
 
-function normalizeStore(raw: unknown): CalendarStore {
-  if (!raw || typeof raw !== 'object') {
-    return emptyStore()
-  }
-  const record = raw as Record<string, unknown>
-  const digestsByMonth: Record<string, CalendarMonthDigest> = {}
-  if (record.digestsByMonth && typeof record.digestsByMonth === 'object') {
-    for (const [key, value] of Object.entries(
-      record.digestsByMonth as Record<string, unknown>,
-    )) {
-      const digest = normalizeMonthDigest(value)
-      if (digest) {
-        digestsByMonth[key] = digest
-      }
-    }
-  }
-  return { digestsByMonth }
+export function subscribeCalendarStore(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-function emitChanged(): void {
-  window.dispatchEvent(new Event(CALENDAR_STORE_CHANGED_EVENT))
+export async function readCalendarStore(): Promise<CalendarStore> {
+  return registryStore.read()
 }
 
-export function readCalendarStore(): CalendarStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    return normalizeStore(JSON.parse(raw) as unknown)
-  } catch {
-    return emptyStore()
-  }
+export async function writeCalendarStore(store: CalendarStore): Promise<void> {
+  await registryStore.write(store)
 }
 
-export function writeCalendarStore(store: CalendarStore): void {
-  writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
-  emitChanged()
+export async function getMonthDigest(
+  monthKey: string,
+): Promise<CalendarMonthDigest | undefined> {
+  const store = await readCalendarStore()
+  return store.digestsByMonth[monthKey]
 }
 
-export function getMonthDigest(monthKey: string): CalendarMonthDigest | undefined {
-  return readCalendarStore().digestsByMonth[monthKey]
-}
-
-export function saveMonthDigest(digest: CalendarMonthDigest): CalendarStore {
-  const store = readCalendarStore()
+export async function saveMonthDigest(digest: CalendarMonthDigest): Promise<void> {
+  const store = await readCalendarStore()
   const next: CalendarStore = {
     digestsByMonth: {
       ...store.digestsByMonth,
       [digest.monthKey]: digest,
     },
   }
-  writeCalendarStore(next)
-  return next
+  await writeCalendarStore(next)
 }
 
-export function clearCalendarStore(): CalendarStore {
-  const next = emptyStore()
-  writeCalendarStore(next)
-  return next
-}
-
-export function getCalendarStorageBytes(): number {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? new TextEncoder().encode(raw).length : 0
-  } catch {
-    return 0
-  }
+export async function clearCalendarStore(): Promise<void> {
+  await writeCalendarStore(emptyStore())
 }
 
 export function createMarkerId(): string {

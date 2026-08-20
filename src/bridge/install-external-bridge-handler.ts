@@ -4,7 +4,6 @@
  * 【实验性 · 未完成】外链应用平台仍是未完成的实验特性；行为与协议可能继续变动。
  */
 import { hasOpenAiApiKey, readDefaultModelFriendlyName } from '../ai/openai-config.ts'
-import { handleGeneratedAppAiRequest } from '../apps/generated/handle-generated-app-ai-request.ts'
 import { isGeneratedAppAiRequestMessage } from '../apps/generated/generated-app-ai-types.ts'
 import {
   hasBridgeStorageAccess,
@@ -261,10 +260,13 @@ export function installExternalBridgeHandler(
       return
     }
 
-    void handleGeneratedAppAiRequest(
-      event.data,
-      event.source as ReplyTarget,
-      session.appName,
+    const appName = session.appName
+    void import('../apps/generated/handle-generated-app-ai-request.ts').then((mod) =>
+      mod.handleGeneratedAppAiRequest(
+        event.data,
+        event.source as ReplyTarget,
+        appName,
+      ),
     )
   }
 

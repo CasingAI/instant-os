@@ -1,7 +1,9 @@
 import type { ComponentType } from 'preact'
 import { createPortal } from 'preact/compat'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
+import { SYSTEM_LICENSE_PATH } from '../apps/browser/browser-file-document.ts'
 import { getFloatingOverlayRoot } from '../ui/floating-overlay-root.ts'
+import { useOs } from './os-context.tsx'
 import './about-os-dialog.css'
 
 export type AboutAppLink = {
@@ -47,6 +49,8 @@ function AboutThisDeviceDialog({
   closing,
   dialogId,
 }: AboutAppDialogProps & { dialogId: string }) {
+  const { openApp } = useOs()
+
   return (
     <div class={`about-os-backdrop${closing ? ' about-os-backdrop--closing' : ''}`} role="presentation" onClick={onClose}>
       <div
@@ -105,6 +109,17 @@ function AboutThisDeviceDialog({
             </button>
           </div>
         )}
+        <a
+          class="about-os-dialog__license-link"
+          href={`file://${SYSTEM_LICENSE_PATH}`}
+          onClick={(event) => {
+            event.preventDefault()
+            openApp('browser', { documentId: SYSTEM_LICENSE_PATH })
+            onClose()
+          }}
+        >
+          许可证信息
+        </a>
       </div>
     </div>
   )

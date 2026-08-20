@@ -4,6 +4,30 @@
   pointer-events: none;
 }
 
+/* 无窗口应用宿主：预先落在最终面板坐标，不可见；展开时位置不变，只播进入动画 */
+.windowless-app-host {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  overflow: hidden;
+}
+
+.windowless-app-host__chrome,
+.windowless-app-host__content {
+  display: contents;
+}
+
+.windowless-app-host .window-modal-overlay-root {
+  pointer-events: none;
+}
+
+.window-frame__control:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
 .window-frame {
   position: absolute;
   display: flex;
@@ -16,6 +40,7 @@
   border: 1px solid rgba(0, 0, 0, 0.28);
   box-shadow:
     0 18px 40px rgba(0, 0, 0, 0.35),
+    0 0 0 rgba(0, 0, 0, 0),
     inset 0 1px 0 rgba(255, 255, 255, 0.65);
   pointer-events: auto;
   transition:
@@ -83,9 +108,162 @@
     transform 0.85s cubic-bezier(0.19, 1, 0.22, 1);
 }
 
+.window-manager--flip3d {
+  perspective: 1100px;
+  perspective-origin: 85% 38%;
+  transform-style: preserve-3d;
+  pointer-events: auto;
+}
+
+.window-manager__flip3d-scene {
+  display: block;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.window-manager--flip3d .window-manager__flip3d-scene {
+  transform-style: preserve-3d;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.window-frame--flip3d,
+.window-frame--flip3d.window-frame--active {
+  isolation: auto;
+  transform-style: preserve-3d;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+  cursor: pointer;
+  /* 3D 层上的投影几乎不绘；.active 的桌面阴影也不能留着，否则落地会整段闪出。 */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition:
+    box-shadow 0.15s ease,
+    opacity 0.16s cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 0.16s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.window-manager--flip3d-enter .window-frame--flip3d {
+  transition:
+    box-shadow 0.52s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.52s cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 0.52s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.window-frame--flip3d-instant {
+  transition: none !important;
+}
+
+.window-frame--flip3d-ghost {
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.window-frame__ghost-snapshot {
+  display: contents;
+}
+
+.window-frame--flip3d .window-frame__chrome,
+.window-frame--flip3d .window-frame__resize-layer {
+  pointer-events: none;
+}
+
+.window-frame--flip3d.window-frame--fullscreen,
+.window-frame--flip3d.window-frame--anchored {
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.window-manager--flip3d .window-frame--fullscreen-immersive .window-frame__titlebar,
+.window-manager--flip3d .window-frame--fullscreen-immersive.window-frame--chrome-revealed .window-frame__titlebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transform: none;
+  visibility: visible;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.window-manager--flip3d-restore .window-frame,
+.window-manager--flip3d-restore .window-frame--active {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition:
+    box-shadow 0.52s cubic-bezier(0.22, 1, 0.32, 1),
+    opacity 0.4s cubic-bezier(0.22, 1, 0.32, 1),
+    transform 0.52s cubic-bezier(0.22, 1, 0.32, 1);
+}
+
+.window-manager--flip3d-shadow-hold .window-frame,
+.window-manager--flip3d-shadow-hold .window-frame--active,
+.window-manager--flip3d-shadow-fade .window-frame,
+.window-manager--flip3d-shadow-fade .window-frame--active {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.window-manager--flip3d-shadow-hold .window-frame--anchored,
+.window-manager--flip3d-shadow-hold .window-frame--fullscreen,
+.window-manager--flip3d-shadow-fade .window-frame--anchored,
+.window-manager--flip3d-shadow-fade .window-frame--fullscreen {
+  box-shadow: none;
+}
+
+.window-manager--flip3d-shadow-hold .window-frame {
+  transition: none;
+}
+
+.window-frame__cast-shadow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+}
+
+.window-frame--active > .window-frame__cast-shadow {
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.42);
+}
+
+.window-frame__cast-shadow--in {
+  opacity: 1;
+  transition: opacity 0.42s cubic-bezier(0.22, 1, 0.32, 1);
+}
+
+.window-frame--anchored > .window-frame__cast-shadow,
+.window-frame--fullscreen > .window-frame__cast-shadow,
+.window-frame--minimized > .window-frame__cast-shadow {
+  opacity: 0;
+  transition: none;
+}
+
+.window-manager--flip3d-shadow-settle .window-frame {
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.35),
+    0 0 0 rgba(0, 0, 0, 0),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition: none !important;
+}
+
+.window-manager--flip3d-shadow-settle .window-frame--active {
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.window-manager--flip3d-shadow-settle .window-frame--anchored,
+.window-manager--flip3d-shadow-settle .window-frame--fullscreen {
+  box-shadow: none;
+}
+
 .window-frame--entering {
   animation: window-frame-open 0.26s cubic-bezier(0.19, 1, 0.22, 1) both;
   transform-origin: 50% 50%;
+  /* 进入时禁止 left/top 过渡，避免从旧坐标「飘」到目标位置 */
+  transition: box-shadow 0.15s ease !important;
 }
 
 .window-frame--closing {
@@ -139,6 +317,7 @@
 
 .window-frame--anchored {
   border-radius: 0;
+  box-shadow: none;
 }
 
 .window-frame--fullscreen {
@@ -185,6 +364,10 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.window-frame--anchored.window-frame--active {
+  box-shadow: none;
+}
+
 .window-frame__chrome {
   display: flex;
   flex-direction: column;
@@ -197,9 +380,9 @@
 
 .window-frame__titlebar {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 74px 1fr 74px;
   align-items: center;
-  gap: 12px;
+  gap: 0;
   height: 34px;
   padding: 0 12px;
   background: linear-gradient(180deg, #e8e8e8 0%, #d4d4d4 100%);
@@ -208,6 +391,10 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+}
+
+.window-frame--dialog .window-frame__titlebar {
+  grid-template-columns: 40px 1fr 40px;
 }
 
 .window-frame--dragging .window-frame__titlebar {
@@ -308,12 +495,33 @@
 }
 
 .window-frame__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: center;
   font-size: 13px;
   font-weight: 600;
   color: #444;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
-  margin-right: 74px;
+}
+
+.window-frame__title-prefix {
+  font-weight: 500;
+  color: #8a8a8a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.window-frame__title-trailing {
+  justify-self: end;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .window-frame__content {
@@ -323,6 +531,7 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   container-type: inline-size;
   container-name: app-window;
 }
@@ -418,6 +627,97 @@
   cursor: se-resize;
 }
 
+.window-app-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.window-app-body__content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.window-app-body__content > * {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.window-app-body__splash {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0;
+  padding: 24px;
+  box-sizing: border-box;
+  background: #f5f5f7;
+  color: #555;
+  font-size: 13px;
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+
+.window-app-body__splash--exiting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.window-app-body__splash--static {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+}
+
+.window-app-body__splash-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.window-app-body__splash-icon > * {
+  width: 100%;
+  height: 100%;
+}
+
+.window-app-body__splash p,
+.window-app-body__splash-name {
+  margin: 0;
+  text-align: center;
+}
+
+.window-app-body__splash-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.window-app-body__retry {
+  appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 6px;
+  background: #f7f7f7;
+  padding: 6px 14px;
+  font: inherit;
+  color: #222;
+  cursor: pointer;
+}
+
+.window-app-body__retry:hover {
+  background: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .window-frame {
     transition-duration: 0.01ms !important;
@@ -426,5 +726,9 @@
   .window-frame--entering,
   .window-frame--closing {
     animation-duration: 0.01ms !important;
+  }
+
+  .window-app-body__splash {
+    transition-duration: 0.01ms !important;
   }
 }

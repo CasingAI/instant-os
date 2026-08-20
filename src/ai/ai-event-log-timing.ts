@@ -135,16 +135,16 @@ export function formatTokensPerSecond(rate: number | undefined): string {
     return '—'
   }
   if (rate >= 10_000) {
-    return `${Math.round(rate / 1000)}k tok/s`
+    return `${Math.round(rate / 1000)}k tps`
   }
   if (rate >= 1000) {
     const k = rate / 1000
-    return `${k >= 10 || Number.isInteger(k) ? Math.round(k) : k.toFixed(1)}k tok/s`
+    return `${k >= 10 || Number.isInteger(k) ? Math.round(k) : k.toFixed(1)}k tps`
   }
   if (rate >= 100) {
-    return `${Math.round(rate)} tok/s`
+    return `${Math.round(rate)} tps`
   }
-  return `${rate.toFixed(1)} tok/s`
+  return `${rate.toFixed(1)} tps`
 }
 
 export function formatCharsPerSecond(rate: number | undefined): string {

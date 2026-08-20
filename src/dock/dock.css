@@ -4,7 +4,7 @@
   right: 0;
   bottom: 0;
   z-index: 900;
-  height: var(--dock-reserve, 96px);
+  height: var(--dock-reserve, 80px);
   padding: 0;
   transition:
     opacity 0.28s ease,
@@ -40,7 +40,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: calc(14px * var(--dock-scale, 1));
+  padding-bottom: calc(6px * var(--dock-scale, 1));
   pointer-events: none;
 }
 
@@ -50,7 +50,7 @@
   gap: calc(10px * var(--dock-scale, 1));
   padding:
     calc(8px * var(--dock-scale, 1))
-    calc(16px * var(--dock-scale, 1))
+    calc(8px * var(--dock-scale, 1))
     calc(10px * var(--dock-scale, 1));
   border-radius: calc(18px * var(--dock-scale, 1));
   background: rgba(20, 20, 20, 0.42);
@@ -103,6 +103,12 @@
   background: rgba(255, 255, 255, 0.28);
 }
 
+.dock__pin-slot {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(10px * var(--dock-scale, 1));
+}
+
 .dock__item {
   position: relative;
   display: flex;
@@ -151,13 +157,48 @@
   }
 }
 
-.dock__item:active {
+/* Scale the glyph only — scaling the item shrinks hit-testing and drops corner clicks. */
+.dock__item:active .dock__icon {
   transform: translateY(-2px) scale(0.95);
+}
+
+.dock--reordering .dock__item:hover {
+  transform: none;
+}
+
+.dock--reordering .dock__item:active .dock__icon {
+  transform: none;
+}
+
+.dock--reordering .dock__item:hover .dock__tooltip {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.dock__item--dragging {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dock__drag-ghost {
+  position: fixed;
+  z-index: 950;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  transform: scale(1.08);
+}
+
+.dock__drag-ghost .app-icon-tile__tile,
+.dock__drag-ghost .desktop-folder-icon {
+  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.4));
 }
 
 .dock__icon {
   position: relative;
   display: inline-flex;
+  transition: transform 0.18s ease;
 }
 
 .dock__icon .app-icon-tile__tile {

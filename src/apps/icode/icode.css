@@ -775,68 +775,6 @@
   padding: 8px 10px 6px;
 }
 
-.icode__segmented {
-  display: flex;
-  gap: 0;
-  padding: 2px;
-  border: 1px solid #888;
-  border-radius: 5px;
-  background: linear-gradient(180deg, #d4d4d4 0%, #ebebeb 100%);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.18);
-}
-
-.icode__segment {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  border-radius: 3px;
-  padding: 5px 4px;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  color: #444;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-  background: transparent;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.icode__segment--active {
-  color: #fff;
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
-  background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    0 1px 1px rgba(0, 0, 0, 0.12);
-}
-
-.icode__segment--dirty:not(.icode__segment--active)::after {
-  content: '';
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-left: 3px;
-  border-radius: 50%;
-  background: #ff9500;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.65);
-  vertical-align: 2px;
-}
-
-.icode__segment-badge {
-  display: inline-block;
-  margin-left: 2px;
-  padding: 0 4px;
-  border-radius: 8px;
-  font-size: 9px;
-  font-weight: 700;
-  color: #fff;
-  background: #ff3b30;
-  text-shadow: none;
-  vertical-align: 1px;
-}
-
 .icode__tab-body {
   flex: 1;
   min-height: 0;

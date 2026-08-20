@@ -67,7 +67,7 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
         <SafariHistoryView onHistoryChange={onHistoryChange} />
 
         <section class="settings__section">
-          <h2 class="settings__section-title">网络浏览器总用量</h2>
+          <h2 class="settings__section-title">网页浏览器总用量</h2>
           <div class="settings__box">
             <dl class="settings__form-row">
               <dt>累计 Tokens</dt>
@@ -76,6 +76,10 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
             <dl class="settings__form-row">
               <dt>输入 Tokens</dt>
               <dd>{formatTokenCount(usage.totalPromptTokens)}</dd>
+            </dl>
+            <dl class="settings__form-row">
+              <dt>缓存输入 Tokens</dt>
+              <dd>{formatTokenCount(usage.totalCachedPromptTokens)}</dd>
             </dl>
             <dl class="settings__form-row">
               <dt>输出 Tokens</dt>
@@ -91,7 +95,7 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
         <section class="settings__section">
           <h2 class="settings__section-title">按域名统计</h2>
           {domains.length === 0 ? (
-            <div class="settings__box settings__empty">暂无网络浏览器网页生成记录</div>
+            <div class="settings__box settings__empty">暂无网页浏览器网页生成记录</div>
           ) : (
             <div class="settings__list">
               <div class="settings__list-head settings__list-head--tokens">

@@ -10,14 +10,17 @@ import {
 } from '../../ai/ai-thinking.ts'
 import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
+import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import { buildScene3dBuilderPrompt } from '../../assets/3d/scene3d-prompt-sections.ts'
 import type { TokenUsageSnapshot } from '../browser/browser-token-usage.ts'
 import {
   buildLiveTokenUsage,
-  estimatePromptTokens,
+  estimatePromptTokensAsync,
   finalizeTokenUsage,
+  prepareTokenEstimation,
+  resolveUsageEstimated,
   type LiveTokenUsage,
 } from '../browser/estimate-token-usage.ts'
 
@@ -103,24 +106,6 @@ function progressFromTextLength(textLength: number, generating: boolean): number
   return PROGRESS_START + ratio * (PROGRESS_CAP - PROGRESS_START)
 }
 
-type OpenAIUsage = {
-  prompt_tokens?: number
-  completion_tokens?: number
-  total_tokens?: number
-}
-
-function snapshotFromUsage(usage: OpenAIUsage | undefined): TokenUsageSnapshot | undefined {
-  if (!usage) {
-    return undefined
-  }
-
-  return {
-    promptTokens: usage.prompt_tokens ?? 0,
-    completionTokens: usage.completion_tokens ?? 0,
-    totalTokens: usage.total_tokens ?? 0,
-  }
-}
-
 export function buildScene3dUserMessage(userPrompt: string, physicsEnabled = false): string {
   const physicsLabel = physicsEnabled ? ' · Rapier 物理已启用' : ''
   return `运行时：Three.js${physicsLabel}\n\n用户场景描述：\n${userPrompt.trim()}`
@@ -150,7 +135,8 @@ export async function generateScene3dHtmlStreaming(
   const physicsEnabled = options.physicsEnabled === true
   const systemPrompt = buildScene3dBuilderPrompt(physicsEnabled)
   const userMessage = buildScene3dUserMessage(userPrompt, physicsEnabled)
-  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userMessage, model)
+  await prepareTokenEstimation(model)
+  const promptTokenEstimate = await estimatePromptTokensAsync(systemPrompt, userMessage, model)
 
   let reasoningText = ''
   let contentText = ''
@@ -203,7 +189,7 @@ export async function generateScene3dHtmlStreaming(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage },
     ],
-    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
   })
 
   emit(true)
@@ -223,7 +209,7 @@ export async function generateScene3dHtmlStreaming(
     for await (const chunk of stream) {
       streamStarted = true
       if (chunk.usage) {
-        usage = snapshotFromUsage(chunk.usage)
+        usage = snapshotFromOpenAiUsage(chunk.usage)
       }
 
       const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
@@ -254,7 +240,7 @@ export async function generateScene3dHtmlStreaming(
       finishAiEventLogSession(logSession, usageContext, {
         response: formatStreamEventResponse(reasoningText, contentText),
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'error',
         errorMessage: 'AI 未返回任何 3D 页面内容',
       })
@@ -273,11 +259,11 @@ export async function generateScene3dHtmlStreaming(
     )
     const html = extractScene3dHtmlFromAiText(contentText)
     const rawText = formatScene3dRawOutput(reasoningText, contentText)
-    recordAiTokenUsage(usageContext, usage)
+    recordAiTokenUsage(usageContext, usage, model)
     finishAiEventLogSession(logSession, usageContext, {
       response: formatStreamEventResponse(reasoningText, contentText),
       usage,
-      usageEstimated: !usage,
+      usageEstimated: resolveUsageEstimated(Boolean(usage), model),
       status: 'success',
     })
 
@@ -299,7 +285,7 @@ export async function generateScene3dHtmlStreaming(
       finishAiEventLogSession(logSession, usageContext, {
         response: snapshot.response,
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
       })

@@ -1,0 +1,66 @@
+/* 包管理 — 根壳用系统 `.settings`；此处只保留业务布局差异 */
+
+.packages-app__header {
+  display: flex;
+  align-items: center;
+}
+
+.packages-app__tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+.packages-app__section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.packages-app__section-head-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.packages-app__section-head .settings__section-title {
+  margin-bottom: 4px;
+}
+
+.packages-app__section-head .settings__section-subtitle {
+  margin: 0;
+}
+
+.packages-app__section-head .settings__btn {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.packages-app .settings__actions--inline {
+  margin-top: 12px;
+  margin-bottom: 2px;
+  justify-content: flex-start;
+  gap: 8px 10px;
+}
+
+.packages-app__list-head--nav {
+  grid-template-columns: minmax(0, 1fr) minmax(5.5rem, 0.42fr) 18px;
+}
+
+.packages-app__list-head--nav span:nth-child(2) {
+  text-align: right;
+}
+
+.packages-app__detail-deps-title {
+  margin-top: 18px;
+}
+
+.packages-app__path {
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.packages-app__row--selected:not(:hover):not(:active) {
+  background: rgba(47, 135, 226, 0.12);
+}

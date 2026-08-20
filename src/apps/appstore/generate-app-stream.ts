@@ -1,7 +1,7 @@
 import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
-import { estimatePromptTokens } from '../browser/estimate-token-usage.ts'
+import { estimatePromptTokens, prepareTokenEstimation, resolveUsageEstimated } from '../browser/estimate-token-usage.ts'
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import {
   buildThinkingRequestExtras,
@@ -13,7 +13,12 @@ import {
 import { setPendingInstallStream } from '../../os/pending-install-stream.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
-import { forEachStreamChunk, isStreamAbortError, raceWithAbortSignal } from '../../ai/stream-abort.ts'
+import {
+  createChatCompletionStream,
+  forEachStreamChunk,
+  isStreamAbortError,
+  raceWithAbortSignal,
+} from '../../ai/stream-abort.ts'
 import {
   buildApp3dSystemPromptExtension,
   resolveApp3dGenerationOptions,
@@ -22,6 +27,10 @@ import {
   buildAppAiSystemPromptExtension,
   resolveAppAiGenerationOptions,
 } from './app-ai-generation-prompt.ts'
+import {
+  buildAppFilesSystemPromptExtension,
+  resolveAppFilesGenerationOptions,
+} from './app-files-generation-prompt.ts'
 import {
   buildAppGenerationPrompt,
   type AppGenerationContext,
@@ -80,6 +89,7 @@ function buildAppGenerationSystemPrompt(
   const existingHtml = context.update?.existingHtml
   const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(listing, context.detail, existingHtml)
   const { isAi } = resolveAppAiGenerationOptions(listing, context.detail, existingHtml)
+  const { isFiles } = resolveAppFilesGenerationOptions(listing, context.detail, existingHtml)
 
   const extensions: string[] = []
   if (is3d) {
@@ -87,6 +97,9 @@ function buildAppGenerationSystemPrompt(
   }
   if (isAi) {
     extensions.push(buildAppAiSystemPromptExtension())
+  }
+  if (isFiles) {
+    extensions.push(buildAppFilesSystemPromptExtension())
   }
 
   if (extensions.length === 0) {
@@ -111,6 +124,7 @@ export function measureAppGenerationContextPayload(
   const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
   const userPrompt = buildAppGenerationPrompt(listing, context)
   const model = mergeOpenAiConfig().defaultModel
+  void prepareTokenEstimation(model)
   return {
     characters: systemPrompt.length + userPrompt.length + 8,
     tokens: estimatePromptTokens(systemPrompt, userPrompt, model),
@@ -179,6 +193,7 @@ export async function generateAppHtmlStreaming(
 
   const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
   const userPrompt = buildAppGenerationPrompt(listing, context)
+  await prepareTokenEstimation(model)
   const thinkingEnabled = resolveAppGenerationThinkingEnabled(
     config.providerId,
     config.thinkingEnabled,
@@ -186,17 +201,20 @@ export async function generateAppHtmlStreaming(
   )
 
   const stream = await raceWithAbortSignal(
-    client.chat.completions.create({
-      model,
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
-      ...(options.signal ? { signal: options.signal } : {}),
-    }),
+    createChatCompletionStream(
+      client,
+      {
+        model,
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, config.defaultModel),
+      },
+      options.signal,
+    ),
     options.signal,
   )
 
@@ -293,11 +311,11 @@ export async function generateAppHtmlStreaming(
     )
   } catch (error) {
     if (isStreamAbortError(error, options.signal)) {
-      recordAiTokenUsage(usageContext, usage)
+      recordAiTokenUsage(usageContext, usage, model)
       finishAiEventLogSession(logSession, usageContext, {
         response: formatStreamEventResponse(reasoningText, contentText),
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'aborted',
       })
     } else {
@@ -306,7 +324,7 @@ export async function generateAppHtmlStreaming(
         finishAiEventLogSession(logSession, usageContext, {
           response: snapshot.response,
           usage,
-          usageEstimated: !usage,
+          usageEstimated: resolveUsageEstimated(Boolean(usage), model),
           status: 'error',
           errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
         })
@@ -319,7 +337,7 @@ export async function generateAppHtmlStreaming(
     finishAiEventLogSession(logSession, usageContext, {
       response: formatStreamEventResponse(reasoningText, contentText),
       usage,
-      usageEstimated: !usage,
+      usageEstimated: resolveUsageEstimated(Boolean(usage), model),
       status: 'error',
       errorMessage: 'AI 未返回任何代码',
     })
@@ -328,11 +346,11 @@ export async function generateAppHtmlStreaming(
 
   emit(true)
 
-  recordAiTokenUsage(usageContext, usage)
+  recordAiTokenUsage(usageContext, usage, model)
   finishAiEventLogSession(logSession, usageContext, {
     response: formatStreamEventResponse(reasoningText, contentText),
     usage,
-    usageEstimated: !usage,
+    usageEstimated: resolveUsageEstimated(Boolean(usage), model),
     status: 'success',
   })
 

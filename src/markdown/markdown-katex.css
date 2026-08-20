@@ -1,0 +1,15 @@
+/* 各 Markdown 渲染根下的 KaTeX 通用布局 */
+.katex-display {
+  margin: 0.65em 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+
+.katex {
+  font-size: 1.05em;
+  text-align: left;
+  /* 跟随宿主文字色，深色主题下不会仍是纯黑 */
+  color: inherit;
+}

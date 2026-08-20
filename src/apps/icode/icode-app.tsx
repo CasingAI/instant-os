@@ -4,9 +4,8 @@ import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
 import { ICodeIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from '../../os/experimental-settings-storage.ts'
 import { isGeneratedAppStorageMessage } from '../../os/generated-app-data-storage.ts'
 import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-context.tsx'
@@ -22,6 +21,8 @@ import type { GeneratedAppId } from '../../os/types.ts'
 import {
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
+  APP_CAPABILITY_TAG_FILES,
+  APP_CAPABILITY_TAG_TERMINAL,
   filterAppCapabilityTags,
   hasAppCapabilityTag,
 } from '../appstore/app-capability-tags.ts'
@@ -64,6 +65,8 @@ import {
   resolveUniqueCopyName,
 } from './icode-publish.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
+import { installGeneratedAppFilesHandler } from '../generated/install-generated-app-files-handler.ts'
+import { installGeneratedAppTerminalHandler } from '../generated/install-generated-app-terminal-handler.ts'
 import { injectGeneratedAppHeartbeatBridge } from '../generated/inject-generated-app-heartbeat-bridge.ts'
 import { useGeneratedHtmlIframe } from '../generated/use-generated-html-iframe.ts'
 import { prepareIcodePreviewHtml } from './prepare-icode-preview-html.ts'
@@ -71,8 +74,10 @@ import {
   createInternalProject,
   getInternalProject,
   loadInternalProjects,
+  loadInternalProjectsSync,
   previewAppIdForInternal,
   removeInternalProject,
+  subscribeInternalProjects,
   updateInternalProject,
 } from './icode-storage.ts'
 import { appendConsoleEntry, isIcodeConsoleMessage } from './icode-console.ts'
@@ -94,7 +99,7 @@ import { useIcodeNarrowLayout } from './icode-layout.ts'
 import { appDataRecordsEqual } from './icode-app-data-value.ts'
 import { IcodeMonacoEditor } from './icode-monaco-editor.tsx'
 import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
-import { WindowModal } from '../../window/window-modal.tsx'
+import { WindowModal, type WindowModalAction } from '../../window/window-modal.tsx'
 import { WindowModalTheme } from '../../window/window-modal-context.tsx'
 import './icode.css'
 
@@ -187,9 +192,13 @@ function mergeDraftIntoSession(session: EditorSession, draftHtml: string, codeDi
   return { ...session, html: draftHtml }
 }
 
-function sessionToInternalProject(session: EditorSession, draftHtml: string, codeDirty: boolean): ICodeInternalProject {
+async function sessionToInternalProject(
+  session: EditorSession,
+  draftHtml: string,
+  codeDirty: boolean,
+): Promise<ICodeInternalProject> {
   const merged = mergeDraftIntoSession(session, draftHtml, codeDirty)
-  const stored = getInternalProject(session.projectId)
+  const stored = await getInternalProject(session.projectId)
   const now = osNowMs()
   return {
     id: session.projectId,
@@ -217,8 +226,7 @@ function icodePreviewHeartbeatWindowId(projectId: string): string {
 }
 
 export function ICodeApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, bypassAppCloseGuard } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle, closeWindowsForApp, bypassAppCloseGuard } = useOs()
   const { installedApps, syncAppFromIcode, getAppDataRevision, uninstallApp, pendingIcodeProjectId, clearPendingIcodeProject } = useGeneratedApps()
 
   const [projectRevision, setProjectRevision] = useState(0)
@@ -288,14 +296,14 @@ export function ICodeApp() {
     isWindowFrozen,
   } = useGeneratedAppHeartbeat()
 
-  const internalProjects = useMemo(() => loadInternalProjects(), [projectRevision])
+  const internalProjects = useMemo(() => loadInternalProjectsSync(), [projectRevision])
 
   const syncPlaceholderToDesktop = useCallback(
-    (project: ICodeInternalProject): boolean => {
+    async (project: ICodeInternalProject): Promise<boolean> => {
       const appId = resolvePublishAppId(project)
       const linkedProject = project.linkedAppId ? project : { ...project, linkedAppId: appId }
       if (!project.linkedAppId) {
-        updateInternalProject(project.id, { linkedAppId: appId })
+        await updateInternalProject(project.id, { linkedAppId: appId })
       }
       return syncAppFromIcode(buildIcodePlaceholderSyncInput(linkedProject))
     },
@@ -303,11 +311,11 @@ export function ICodeApp() {
   )
 
   const publishProjectToDesktop = useCallback(
-    (project: ICodeInternalProject): boolean => {
+    async (project: ICodeInternalProject): Promise<boolean> => {
       const appId = resolvePublishAppId(project)
       const linkedProject = project.linkedAppId ? project : { ...project, linkedAppId: appId }
       if (!project.linkedAppId) {
-        updateInternalProject(project.id, { linkedAppId: appId })
+        await updateInternalProject(project.id, { linkedAppId: appId })
       }
       return syncAppFromIcode(buildIcodeSyncInput(linkedProject))
     },
@@ -315,14 +323,14 @@ export function ICodeApp() {
   )
 
   const ensureDesktopPlaceholder = useCallback(
-    (project: ICodeInternalProject): ICodeInternalProject => {
+    async (project: ICodeInternalProject): Promise<ICodeInternalProject> => {
       const appId = resolvePublishAppId(project)
       if (installedApps.some((app) => app.id === appId)) {
         return project
       }
 
-      syncPlaceholderToDesktop(project)
-      return getInternalProject(project.id) ?? project
+      await syncPlaceholderToDesktop(project)
+      return (await getInternalProject(project.id)) ?? project
     },
     [installedApps, syncPlaceholderToDesktop],
   )
@@ -334,29 +342,56 @@ export function ICodeApp() {
     }
     migratedProjectsRef.current = true
 
-    let changed = false
-    for (const project of loadInternalProjects()) {
-      const appId = resolvePublishAppId(project)
-      let current = project
-      if (!project.linkedAppId) {
-        const patched = updateInternalProject(project.id, { linkedAppId: appId })
-        if (patched) {
-          current = patched
+    let alive = true
+    void (async () => {
+      const projects = await loadInternalProjects()
+
+      let changed = false
+      for (const project of projects) {
+        if (!alive) {
+          break
+        }
+
+        const appId = resolvePublishAppId(project)
+        let current = project
+        if (!project.linkedAppId) {
+          const patched = await updateInternalProject(project.id, { linkedAppId: appId })
+          if (patched) {
+            current = patched
+            changed = true
+          }
+        }
+
+        const installed = installedApps.find((app) => app.id === resolvePublishAppId(current))
+        if (!installed) {
+          await syncPlaceholderToDesktop(current)
           changed = true
         }
       }
 
-      const installed = installedApps.find((app) => app.id === resolvePublishAppId(current))
-      if (!installed) {
-        syncPlaceholderToDesktop(current)
-        changed = true
+      if (alive && changed) {
+        setProjectRevision((value) => value + 1)
       }
-    }
+    })()
 
-    if (changed) {
-      setProjectRevision((value) => value + 1)
+    return () => {
+      alive = false
     }
   }, [installedApps, syncPlaceholderToDesktop])
+
+  useEffect(() => {
+    let alive = true
+    void loadInternalProjects().then(() => {
+      if (alive) {
+        setProjectRevision((value) => value + 1)
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  useEffect(() => subscribeInternalProjects(() => setProjectRevision((value) => value + 1)), [])
 
   const previewAppId = session ? previewAppIdForSession(session) : undefined
   const previewHeartbeatWindowId = session ? icodePreviewHeartbeatWindowId(session.projectId) : undefined
@@ -365,7 +400,9 @@ export function ICodeApp() {
   const codeDirty = session !== undefined && draftHtml !== session.html
   const dataDirty = Boolean(session && !appDataRecordsEqual(draftAppData, session.appData))
   const currentDraft = session ? draftFromSession(session, draftHtml, codeDirty) : undefined
-  const storedProject = session ? getInternalProject(session.projectId) : undefined
+  const storedProject = session
+    ? loadInternalProjectsSync().find((p) => p.id === session.projectId)
+    : undefined
   const publishDirty =
     Boolean(session && publishedSnapshot && currentDraft) &&
     isPublishDirty(currentDraft!, publishedSnapshot!)
@@ -521,10 +558,22 @@ export function ICodeApp() {
       runtimeAppId,
       previewBootstrapDataRef.current,
       previewAppId,
-      processIsolated,
+      {
+        processIsolated,
+        enableFiles: hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES),
+        enableTerminal: hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_TERMINAL),
+      },
     )
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, previewAppId, previewHeartbeatWindowId)
-  }, [previewAppId, previewEpoch, previewHeartbeatWindowId, processIsolated, runtimeAppId, session?.html])
+  }, [
+    previewAppId,
+    previewEpoch,
+    previewHeartbeatWindowId,
+    processIsolated,
+    runtimeAppId,
+    session?.html,
+    session?.tags,
+  ])
 
   const previewRemountKey = previewAppId
     ? `${previewAppId}-${previewEpoch}-${processIsolated ? 'iso' : 'std'}`
@@ -610,6 +659,38 @@ export function ICodeApp() {
         iframeRef.current?.contentWindow ?? previewWindowRef.current ?? undefined,
     })
   }, [runtimeAppId, session?.name])
+
+  useEffect(() => {
+    if (!runtimeAppId || !session) {
+      return
+    }
+    if (!hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES)) {
+      return
+    }
+
+    return installGeneratedAppFilesHandler({
+      appId: runtimeAppId,
+      getContentWindow: () =>
+        iframeRef.current?.contentWindow ?? previewWindowRef.current ?? undefined,
+      isAllowed: () => hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES),
+    })
+  }, [runtimeAppId, session])
+
+  useEffect(() => {
+    if (!runtimeAppId || !session) {
+      return
+    }
+    if (!hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_TERMINAL)) {
+      return
+    }
+
+    return installGeneratedAppTerminalHandler({
+      appId: runtimeAppId,
+      getContentWindow: () =>
+        iframeRef.current?.contentWindow ?? previewWindowRef.current ?? undefined,
+      isAllowed: () => hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_TERMINAL),
+    })
+  }, [runtimeAppId, session])
 
   useEffect(() => {
     if (!runtimeAppId || !previewAppId) {
@@ -757,9 +838,13 @@ export function ICodeApp() {
   }, [editorTab, session?.chat, session?.projectId, generating])
 
   const saveDraftInternal = useCallback(
-    (next: EditorSession, draftHtmlValue: string, codeDirtyFlag: boolean) => {
-      const project = sessionToInternalProject(next, draftHtmlValue, codeDirtyFlag)
-      const updated = updateInternalProject(project.id, {
+    async (
+      next: EditorSession,
+      draftHtmlValue: string,
+      codeDirtyFlag: boolean,
+    ): Promise<ICodeInternalProject | undefined> => {
+      const project = await sessionToInternalProject(next, draftHtmlValue, codeDirtyFlag)
+      const updated = await updateInternalProject(project.id, {
         name: project.name,
         description: project.description,
         category: project.category,
@@ -776,20 +861,24 @@ export function ICodeApp() {
         return undefined
       }
 
-      return ensureDesktopPlaceholder(updated)
+      return await ensureDesktopPlaceholder(updated)
     },
     [ensureDesktopPlaceholder],
   )
 
   const publishSessionDraft = useCallback(
-    (next: EditorSession, draftHtmlValue: string, codeDirtyFlag: boolean): boolean => {
-      const saved = saveDraftInternal(next, draftHtmlValue, codeDirtyFlag)
+    async (
+      next: EditorSession,
+      draftHtmlValue: string,
+      codeDirtyFlag: boolean,
+    ): Promise<boolean> => {
+      const saved = await saveDraftInternal(next, draftHtmlValue, codeDirtyFlag)
       if (!saved) {
         setError('保存草稿失败，请检查存储空间')
         return false
       }
 
-      if (!publishProjectToDesktop(saved)) {
+      if (!(await publishProjectToDesktop(saved))) {
         setError('发布失败，请检查存储空间')
         return false
       }
@@ -883,19 +972,19 @@ export function ICodeApp() {
     setClosePromptOpen(false)
   }, [])
 
-  const completePendingNavigation = useCallback(() => {
+  const completePendingNavigation = useCallback(async (): Promise<void> => {
     const intent = closeIntentRef.current
     closeIntentRef.current = { type: 'list' }
     setClosePromptOpen(false)
     setClosePromptMode('close')
 
     if (intent.type === 'open') {
-      const stored = getInternalProject(intent.projectId)
+      const stored = await getInternalProject(intent.projectId)
       if (!stored) {
         return
       }
 
-      const project = ensureDesktopPlaceholder(stored)
+      const project = await ensureDesktopPlaceholder(stored)
       const nextSession = sessionFromInternal(project)
       setSession(nextSession)
       setPublishedSnapshot(
@@ -920,7 +1009,7 @@ export function ICodeApp() {
   const requestCloseEditor = useCallback(() => {
     closeIntentRef.current = { type: 'list' }
     if (!session) {
-      completePendingNavigation()
+      void completePendingNavigation()
       return
     }
 
@@ -930,7 +1019,7 @@ export function ICodeApp() {
       return
     }
 
-    completePendingNavigation()
+    void completePendingNavigation()
   }, [completePendingNavigation, hasDraftToSave, session])
 
   const requestCloseWindow = useCallback(() => {
@@ -950,30 +1039,30 @@ export function ICodeApp() {
 
   useAppCloseGuard('icode', requestCloseWindow)
 
-  const dismissNavigateAwayPrompt = useCallback(() => {
+  const dismissNavigateAwayPrompt = useCallback((): void => {
     closeIntentRef.current = { type: 'list' }
     setClosePromptMode('close')
     setClosePromptOpen(false)
   }, [])
 
-  const confirmCloseDiscard = useCallback(() => {
-    completePendingNavigation()
+  const confirmCloseDiscard = useCallback((): void => {
+    void completePendingNavigation()
   }, [completePendingNavigation])
 
-  const confirmCloseSaveDraft = useCallback(() => {
+  const confirmCloseSaveDraft = useCallback(async (): Promise<void> => {
     if (session) {
-      saveDraftInternal(session, draftHtml, codeDirty)
+      await saveDraftInternal(session, draftHtml, codeDirty)
     }
-    completePendingNavigation()
+    await completePendingNavigation()
   }, [codeDirty, completePendingNavigation, draftHtml, saveDraftInternal, session])
 
   const closePromptActions = useMemo(
-    () => [
+    (): WindowModalAction[] => [
       {
         key: 'save',
         label: closePromptMode === 'switch' ? '保存并打开' : '保存并关闭',
         tone: 'primary' as const,
-        onClick: confirmCloseSaveDraft,
+        onClick: () => void confirmCloseSaveDraft(),
       },
       {
         key: 'discard',
@@ -1009,12 +1098,12 @@ export function ICodeApp() {
     setClearChatPromptOpen(false)
   }, [session])
 
-  const onSaveDraft = useCallback(() => {
+  const onSaveDraft = useCallback(async () => {
     if (!session) {
       return
     }
 
-    const saved = saveDraftInternal(session, draftHtml, codeDirty)
+    const saved = await saveDraftInternal(session, draftHtml, codeDirty)
     if (!saved) {
       setError('保存失败，请检查存储空间')
       return
@@ -1026,12 +1115,12 @@ export function ICodeApp() {
     setError(undefined)
   }, [codeDirty, draftHtml, saveDraftInternal, session])
 
-  const onPublish = useCallback(() => {
+  const onPublish = useCallback(async () => {
     if (!session) {
       return
     }
 
-    if (!publishSessionDraft(session, draftHtml, codeDirty)) {
+    if (!(await publishSessionDraft(session, draftHtml, codeDirty))) {
       return
     }
 
@@ -1044,13 +1133,13 @@ export function ICodeApp() {
   const closeEditor = requestCloseEditor
 
   const openInternalDirect = useCallback(
-    (projectId: string) => {
-      const stored = getInternalProject(projectId)
+    async (projectId: string): Promise<void> => {
+      const stored = await getInternalProject(projectId)
       if (!stored) {
         return
       }
 
-      const project = ensureDesktopPlaceholder(stored)
+      const project = await ensureDesktopPlaceholder(stored)
       const nextSession = sessionFromInternal(project)
       setSession(nextSession)
       setPublishedSnapshot(
@@ -1063,8 +1152,8 @@ export function ICodeApp() {
   )
 
   const requestOpenInternal = useCallback(
-    (projectId: string) => {
-      if (!getInternalProject(projectId)) {
+    async (projectId: string): Promise<void> => {
+      if (!(await getInternalProject(projectId))) {
         return
       }
 
@@ -1073,7 +1162,7 @@ export function ICodeApp() {
       }
 
       if (!session) {
-        openInternalDirect(projectId)
+        await openInternalDirect(projectId)
         return
       }
 
@@ -1084,7 +1173,7 @@ export function ICodeApp() {
         return
       }
 
-      openInternalDirect(projectId)
+      await openInternalDirect(projectId)
     },
     [hasDraftToSave, openInternalDirect, session],
   )
@@ -1096,11 +1185,11 @@ export function ICodeApp() {
 
     const projectId = pendingIcodeProjectId
     clearPendingIcodeProject()
-    requestOpenInternal(projectId)
+    void requestOpenInternal(projectId)
   }, [pendingIcodeProjectId, requestOpenInternal, clearPendingIcodeProject])
 
-  const requestDeleteProject = useCallback((projectId: string) => {
-    const project = getInternalProject(projectId)
+  const requestDeleteProject = useCallback(async (projectId: string) => {
+    const project = await getInternalProject(projectId)
     if (!project) {
       return
     }
@@ -1122,14 +1211,14 @@ export function ICodeApp() {
     setDeleteLinkedAppToo(false)
   }, [])
 
-  const confirmDeleteProject = useCallback(() => {
+  const confirmDeleteProject = useCallback(async () => {
     if (!deleteTarget) {
       return
     }
 
     const linkedAppId = deleteLinkedAppToo ? deleteTarget.linkedAppId : undefined
 
-    const removed = removeInternalProject(deleteTarget.projectId)
+    const removed = await removeInternalProject(deleteTarget.projectId)
     if (!removed) {
       setError('删除失败，项目可能已被移除')
       closeDeleteProjectModal()
@@ -1153,20 +1242,20 @@ export function ICodeApp() {
   }, [closeDeleteProjectModal, deleteLinkedAppToo, deleteTarget, session?.projectId, uninstallApp])
 
   const importFromInstalled = useCallback(
-    (record: GeneratedAppRecord) => {
+    async (record: GeneratedAppRecord) => {
       const importName = resolveUniqueCopyName(record.name, installedApps, internalProjects)
 
-      const imported = createInternalProject(importName, record.description)
-      updateInternalProject(imported.id, {
+      const imported = await createInternalProject(importName, record.description)
+      await updateInternalProject(imported.id, {
         html: record.html,
         appData: loadFormalAppData(record.id),
         iconEmoji: record.iconEmoji,
         themeColor: record.themeColor,
         tags: record.tags ?? [],
       })
-      const synced = getInternalProject(imported.id)
-      if (!synced || !syncPlaceholderToDesktop(synced)) {
-        removeInternalProject(imported.id)
+      const synced = await getInternalProject(imported.id)
+      if (!synced || !(await syncPlaceholderToDesktop(synced))) {
+        await removeInternalProject(imported.id)
         setError('导入失败，请检查存储空间')
         return
       }
@@ -1174,17 +1263,17 @@ export function ICodeApp() {
       setProjectRevision((value) => value + 1)
       setShowImportPicker(false)
       setError(undefined)
-      requestOpenInternal(imported.id)
+      void requestOpenInternal(imported.id)
     },
     [installedApps, internalProjects, requestOpenInternal, syncPlaceholderToDesktop],
   )
 
-  const exportCurrentProject = useCallback(() => {
+  const exportCurrentProject = useCallback(async () => {
     if (!session) {
       return
     }
 
-    const project = getInternalProject(session.projectId)
+    const project = await getInternalProject(session.projectId)
     if (!project) {
       return
     }
@@ -1208,7 +1297,11 @@ export function ICodeApp() {
 
   const importBundle = useCallback(
     async (bundle: ICodeExportBundle) => {
-      const registerImportedProject = (importName: string, description: string, patch: Parameters<typeof updateInternalProject>[1]) => {
+      const registerImportedProject = async (
+        importName: string,
+        description: string,
+        patch: Parameters<typeof updateInternalProject>[1],
+      ): Promise<ICodeInternalProject | undefined> => {
         const conflict = findProjectNameConflict(installedApps, internalProjects, importName)
         if (conflict) {
           setImportAlert({
@@ -1218,11 +1311,11 @@ export function ICodeApp() {
           return undefined
         }
 
-        const imported = createInternalProject(importName, description)
-        updateInternalProject(imported.id, patch)
-        const synced = getInternalProject(imported.id)
-        if (!synced || !syncPlaceholderToDesktop(synced)) {
-          removeInternalProject(imported.id)
+        const imported = await createInternalProject(importName, description)
+        await updateInternalProject(imported.id, patch)
+        const synced = await getInternalProject(imported.id)
+        if (!synced || !(await syncPlaceholderToDesktop(synced))) {
+          await removeInternalProject(imported.id)
           setImportAlert({
             title: '无法导入程序包',
             message: '导入失败，请检查存储空间',
@@ -1232,7 +1325,7 @@ export function ICodeApp() {
 
         setProjectRevision((value) => value + 1)
         setImportAlert(undefined)
-        requestOpenInternal(imported.id)
+        void requestOpenInternal(imported.id)
         return imported
       }
 
@@ -1247,7 +1340,7 @@ export function ICodeApp() {
           return
         }
 
-        registerImportedProject(project.name, project.description, {
+        await registerImportedProject(project.name, project.description, {
           html: project.html,
           appData: bundle.appData,
           chat: project.chat ?? [],
@@ -1269,7 +1362,7 @@ export function ICodeApp() {
         tags?: AppCapabilityTag[]
       }
 
-      registerImportedProject(`${formalProject.name}（导入）`, formalProject.description, {
+      await registerImportedProject(`${formalProject.name}（导入）`, formalProject.description, {
         html: formalProject.html,
         appData: bundle.appData,
         iconEmoji: formalProject.iconEmoji,
@@ -1299,7 +1392,7 @@ export function ICodeApp() {
     [importBundle],
   )
 
-  const onCreateProject = useCallback(() => {
+  const onCreateProject = useCallback(async () => {
     const trimmedName = newProjectName.trim()
     if (!trimmedName) {
       setError('请输入项目名称')
@@ -1312,9 +1405,9 @@ export function ICodeApp() {
       return
     }
 
-    const project = createInternalProject(newProjectName, newProjectDescription)
-    if (!syncPlaceholderToDesktop(project)) {
-      removeInternalProject(project.id)
+    const project = await createInternalProject(newProjectName, newProjectDescription)
+    if (!(await syncPlaceholderToDesktop(project))) {
+      await removeInternalProject(project.id)
       setError('创建失败，请检查存储空间')
       return
     }
@@ -1324,7 +1417,7 @@ export function ICodeApp() {
     setNewProjectName('')
     setNewProjectDescription('')
     setError(undefined)
-    requestOpenInternal(project.id)
+    void requestOpenInternal(project.id)
   }, [
     installedApps,
     internalProjects,
@@ -1440,7 +1533,7 @@ export function ICodeApp() {
     setError(undefined)
 
     try {
-      const project = getInternalProject(activeSession.projectId)
+      const project = await getInternalProject(activeSession.projectId)
       if (!project) {
         throw new Error('内部项目不存在')
       }
@@ -1632,21 +1725,19 @@ export function ICodeApp() {
   )
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'icode' && !window.minimized)
-
     const fileItems = session
       ? [
           {
             type: 'action' as const,
             label: '保存草稿',
             shortcut: '⌘S',
-            onClick: onSaveDraft,
+            onClick: () => void onSaveDraft(),
           },
           {
             type: 'action' as const,
             label: '发布到桌面',
             shortcut: '⇧⌘P',
-            onClick: onPublish,
+            onClick: () => void onPublish(),
           },
           { type: 'separator' as const },
           {
@@ -1658,7 +1749,7 @@ export function ICodeApp() {
           {
             type: 'action' as const,
             label: '导出程序包…',
-            onClick: exportCurrentProject,
+            onClick: () => void exportCurrentProject(),
           },
           {
             type: 'action' as const,
@@ -1684,36 +1775,13 @@ export function ICodeApp() {
         label: '文件',
         items: fileItems,
       },
-      {
-        label: 'iCode',
-        items: [
-          ...aboutAppMenuPrefix('关于 iCode', () => showBuiltinAbout('icode')),
-          {
-            type: 'action',
-            label: '隐藏 iCode',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出 iCode',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('icode'),
-          },
-        ],
-      },
     ]
   }, [
     closeEditor,
-    closeWindowsForApp,
     exportCurrentProject,
-    minimizeWindow,
     onPublish,
     onSaveDraft,
     session,
-    showBuiltinAbout,
-    windows,
   ])
 
   useAppMenuBar('icode', menuBar)
@@ -1736,7 +1804,7 @@ export function ICodeApp() {
           key: 'delete',
           label: '删除',
           tone: 'danger',
-          onClick: confirmDeleteProject,
+          onClick: () => void confirmDeleteProject(),
         },
       ]}
     >
@@ -1837,7 +1905,7 @@ export function ICodeApp() {
                       key={project.id}
                       type="button"
                       class="icode__row"
-                      onClick={() => requestOpenInternal(project.id)}
+                      onClick={() => void requestOpenInternal(project.id)}
                     >
                       <span class="icode__row-icon" aria-hidden="true">
                         <GeneratedAppIcon
@@ -1900,7 +1968,7 @@ export function ICodeApp() {
                 key={app.id}
                 type="button"
                 class="icode__row"
-                onClick={() => importFromInstalled(app)}
+                onClick={() => void importFromInstalled(app)}
               >
                 <span class="icode__row-icon" aria-hidden="true">
                   <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={36} />
@@ -1942,7 +2010,7 @@ export function ICodeApp() {
               label: '创建并打开',
               tone: 'primary',
               disabled: !newProjectName.trim(),
-              onClick: onCreateProject,
+              onClick: () => void onCreateProject(),
             },
           ]}
         >
@@ -2037,7 +2105,7 @@ export function ICodeApp() {
                   type="button"
                   class="icode__button icode__button--secondary icode__nav-save"
                   disabled={!hasDraftToSave}
-                  onClick={onSaveDraft}
+                  onClick={() => void onSaveDraft()}
                 >
                   保存
                 </button>
@@ -2045,7 +2113,7 @@ export function ICodeApp() {
                   type="button"
                   class="icode__button icode__button--primary icode__nav-publish"
                   disabled={!publishDirty}
-                  onClick={onPublish}
+                  onClick={() => void onPublish()}
                 >
                   发布
                 </button>
@@ -2111,56 +2179,22 @@ export function ICodeApp() {
 
           <aside class="icode__panel">
             <div class="icode__segmented-wrap">
-              <div class="icode__segmented" role="tablist" aria-label="调试面板">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'chat'}
-                  class={`icode__segment${editorTab === 'chat' ? ' icode__segment--active' : ''}`}
-                  onClick={() => setEditorTab('chat')}
-                >
-                  对话
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'source'}
-                  class={`icode__segment${editorTab === 'source' ? ' icode__segment--active' : ''}${codeDirty ? ' icode__segment--dirty' : ''}`}
-                  onClick={() => setEditorTab('source')}
-                >
-                  源码
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'config'}
-                  class={`icode__segment${editorTab === 'config' ? ' icode__segment--active' : ''}`}
-                  onClick={() => setEditorTab('config')}
-                >
-                  配置
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'data'}
-                  class={`icode__segment${editorTab === 'data' ? ' icode__segment--active' : ''}${dataDirty ? ' icode__segment--dirty' : ''}`}
-                  onClick={() => setEditorTab('data')}
-                >
-                  数据
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'console'}
-                  class={`icode__segment${editorTab === 'console' ? ' icode__segment--active' : ''}`}
-                  onClick={() => setEditorTab('console')}
-                >
-                  日志
-                  {consoleLogs.length > 0 && (
-                    <span class="icode__segment-badge">{consoleLogs.length}</span>
-                  )}
-                </button>
-              </div>
+              <SegmentedControl
+                value={editorTab}
+                ariaLabel="调试面板"
+                items={[
+                  { id: 'chat', label: '对话' },
+                  { id: 'source', label: '源码', dirty: codeDirty },
+                  { id: 'config', label: '配置' },
+                  { id: 'data', label: '数据', dirty: dataDirty },
+                  {
+                    id: 'console',
+                    label: '日志',
+                    badge: consoleLogs.length > 0 ? consoleLogs.length : undefined,
+                  },
+                ]}
+                onChange={setEditorTab}
+              />
             </div>
 
             <div class="icode__tab-body">
@@ -2408,6 +2442,46 @@ export function ICodeApp() {
                           }}
                         />
                       </div>
+                      <div class="icode__config-toggle-row">
+                        <div class="icode__config-toggle-copy">
+                          <strong>文件访问能力</strong>
+                          <span>AI 可以在他编写的 App 中通过 InstantOS.files 读写系统文件</span>
+                        </div>
+                        <IosSwitch
+                          label="启用文件模块"
+                          checked={hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES)}
+                          onChange={(enabled) => {
+                            const baseTags = filterAppCapabilityTags(session.tags)
+                            const tags = enabled
+                              ? [
+                                  ...baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_FILES),
+                                  APP_CAPABILITY_TAG_FILES,
+                                ]
+                              : baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_FILES)
+                            updateSessionMeta({ tags })
+                          }}
+                        />
+                      </div>
+                      <div class="icode__config-toggle-row">
+                        <div class="icode__config-toggle-copy">
+                          <strong>终端能力</strong>
+                          <span>AI 可以在他编写的 App 中通过 InstantOS.terminal 使用系统终端会话</span>
+                        </div>
+                        <IosSwitch
+                          label="启用终端模块"
+                          checked={hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_TERMINAL)}
+                          onChange={(enabled) => {
+                            const baseTags = filterAppCapabilityTags(session.tags)
+                            const tags = enabled
+                              ? [
+                                  ...baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_TERMINAL),
+                                  APP_CAPABILITY_TAG_TERMINAL,
+                                ]
+                              : baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_TERMINAL)
+                            updateSessionMeta({ tags })
+                          }}
+                        />
+                      </div>
                     </div>
                   </section>
 
@@ -2421,7 +2495,7 @@ export function ICodeApp() {
                         <button
                           type="button"
                           class="icode__button icode__button--danger icode__button--block"
-                          onClick={() => requestDeleteProject(session.projectId)}
+                          onClick={() => void requestDeleteProject(session.projectId)}
                         >
                           删除此项目…
                         </button>

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
+import type { SpeechBlock } from '../../ai/speech-read-aloud.ts'
+import { useSpeechReadAloud } from '../../ai/use-speech-read-aloud.ts'
 import { BackIcon, ForwardIcon, ReloadIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { SpeechReadAloudBar } from '../../ui/speech-read-aloud-bar.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -22,6 +23,7 @@ import {
   formatEditionDateDetailLabel,
   getArticlesForDate,
   readNewsStore,
+  subscribeNewsStore,
 } from './news-storage.ts'
 import { NewsCommentsSection } from './news-comments-section.tsx'
 import {
@@ -31,6 +33,35 @@ import {
 } from './news-edition-request.ts'
 import type { NewsArticle, NewsStore } from './news-types.ts'
 import './news.css'
+
+const NEWS_SPEECH_USAGE = {
+  actor: 'news',
+  behavior: 'read-aloud',
+  behaviorLabel: '朗读',
+} as const
+
+function articleBodyParagraphs(body: string): string[] {
+  return body
+    .split('\n')
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+function articleToSpeechBlocks(article: NewsArticle): SpeechBlock[] {
+  const blocks: SpeechBlock[] = []
+  const title = article.title.trim()
+  const lead = article.lead.trim()
+  if (title) {
+    blocks.push({ id: 'title', text: title })
+  }
+  if (lead) {
+    blocks.push({ id: 'lead', text: lead })
+  }
+  articleBodyParagraphs(article.body).forEach((paragraph, index) => {
+    blocks.push({ id: `body-${index}`, text: paragraph })
+  })
+  return blocks
+}
 
 const READER_PLACEHOLDERS = [
   { headline: '今日新闻，好心情', subline: '在左侧选一篇报道，慢慢品读' },
@@ -87,11 +118,10 @@ function NewsReaderPlaceholder({ editionDate }: { editionDate: string }) {
 }
 
 export function NewsApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
 
-  const [store, setStore] = useState<NewsStore>(() => readNewsStore())
+  const [store, setStore] = useState<NewsStore | undefined>(undefined)
   const [editionDate, setEditionDate] = useState<string>(() => getTodayEditionDate())
   const [selectedId, setSelectedId] = useState<string | undefined>()
   const [stackedReaderOpen, setStackedReaderOpen] = useState(false)
@@ -107,7 +137,10 @@ export function NewsApp() {
   const generateLockRef = useRef(false)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
 
-  const articlesForDay = useMemo(() => getArticlesForDate(store, editionDate), [store, editionDate])
+  const articlesForDay = useMemo(
+    () => (store ? getArticlesForDate(store, editionDate) : []),
+    [store, editionDate],
+  )
 
   const streamingArticles = useMemo(() => {
     if (!isGenerating) return []
@@ -138,6 +171,18 @@ export function NewsApp() {
     }
     return listArticles.find((article) => article.id === selectedId)
   }, [listArticles, selectedId])
+
+  const readAloud = useSpeechReadAloud(NEWS_SPEECH_USAGE)
+  const { close: closeReadAloud } = readAloud
+  const speechBlocks = useMemo(
+    () => (selectedArticle ? articleToSpeechBlocks(selectedArticle) : []),
+    [selectedArticle],
+  )
+  const canStartSpeech = speechBlocks.length > 0
+
+  useEffect(() => {
+    closeReadAloud()
+  }, [selectedId, closeReadAloud])
 
   const generatingFromEmpty = isGenerating && baselineArticleIds.length === 0
   const showReaderThinkingOverlay =
@@ -174,12 +219,19 @@ export function NewsApp() {
 
   // 响应来自系统设置的删除等外部变更，立即同步本地状态
   useEffect(() => {
-    const onChanged = () => {
-      setStore(readNewsStore())
+    let alive = true
+    const load = () => {
+      readNewsStore().then((next) => {
+        if (alive) {
+          setStore(next)
+        }
+      })
     }
-    window.addEventListener('instant-os:news-store-changed', onChanged)
+    load()
+    const unsubscribe = subscribeNewsStore(load)
     return () => {
-      window.removeEventListener('instant-os:news-store-changed', onChanged)
+      alive = false
+      unsubscribe()
     }
   }, [])
 
@@ -216,16 +268,19 @@ export function NewsApp() {
       generateLockRef.current = true
       setGenerationFailed(false)
       setReasoningText('')
-      const baseline = getArticlesForDate(readNewsStore(), targetDate).map((article) => article.id)
+      const baseline = getArticlesForDate(await readNewsStore(), targetDate).map(
+        (article) => article.id,
+      )
       setBaselineArticleIds(baseline)
       setStreamingArticleIds([])
       setIsGenerating(true)
       const newArticleIdsInOrder: string[] = []
       try {
-        let fresh = readNewsStore()
+        let fresh = await readNewsStore()
         const seenTitles = new Set(
           getArticlesForDate(fresh, targetDate).map((article) => article.title),
         )
+        let writeChain: Promise<void> = Promise.resolve()
 
         await generateArticlesForDateStreaming(
           targetDate,
@@ -234,11 +289,14 @@ export function NewsApp() {
               return
             }
             seenTitles.add(article.title)
-            fresh = addArticles(fresh, [article])
             newArticleIdsInOrder.push(article.id)
-            setStore({ ...fresh })
-            setStreamingArticleIds([...newArticleIdsInOrder])
-            markArticleEntering(article.id)
+            writeChain = writeChain.then(async () => {
+              const next = await addArticles(fresh, [article])
+              fresh = next
+              setStore({ ...next })
+              setStreamingArticleIds([...newArticleIdsInOrder])
+              markArticleEntering(article.id)
+            })
           },
           {
             dayContext,
@@ -246,8 +304,15 @@ export function NewsApp() {
           },
         )
 
+        await writeChain
+
         if (newArticleIdsInOrder.length > 0) {
-          fresh = assignArticleListPositions(fresh, targetDate, newArticleIdsInOrder, baseline)
+          fresh = await assignArticleListPositions(
+            fresh,
+            targetDate,
+            newArticleIdsInOrder,
+            baseline,
+          )
           setStore({ ...fresh })
         } else {
           setGenerationFailed(true)
@@ -346,10 +411,10 @@ export function NewsApp() {
       skipAutoGenerateRef.current = false
       return
     }
-    if (articlesForDay.length === 0 && !isGenerating && !generationFailed) {
+    if (store && articlesForDay.length === 0 && !isGenerating && !generationFailed) {
       void handleGenerate()
     }
-  }, [articlesForDay.length, generationFailed, isGenerating, editionDate, handleGenerate])
+  }, [store, articlesForDay.length, generationFailed, isGenerating, editionDate, handleGenerate])
 
   useEffect(() => {
     if (!selectedId) {
@@ -361,22 +426,7 @@ export function NewsApp() {
   }, [listArticles, selectedId])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const win = windows.find((w) => w.appId === 'news' && !w.minimized)
     return [
-      {
-        label: '新闻',
-        items: [
-          ...aboutAppMenuPrefix('关于 新闻', () => showBuiltinAbout('news')),
-          {
-            type: 'action',
-            label: '隐藏新闻',
-            shortcut: '⌘H',
-            onClick: () => win && minimizeWindow(win.id),
-          },
-          { type: 'separator' },
-          { type: 'action', label: '退出新闻', shortcut: '⌘Q', onClick: () => closeWindowsForApp('news') },
-        ],
-      },
       {
         label: '日期',
         items: [
@@ -386,15 +436,53 @@ export function NewsApp() {
           { type: 'action', label: '回到今天', onClick: handleJumpToToday },
         ],
       },
+      {
+        label: '朗读',
+        items: [
+          {
+            type: 'action',
+            label: readAloud.isActive
+              ? '停止朗读'
+              : readAloud.panelOpen
+                ? '继续朗读'
+                : '朗读本文',
+            disabled: !canStartSpeech && !readAloud.panelOpen,
+            onClick: () => {
+              if (readAloud.isActive) {
+                readAloud.stop()
+                return
+              }
+              if (readAloud.panelOpen) {
+                readAloud.resume()
+                return
+              }
+              if (!canStartSpeech) {
+                return
+              }
+              readAloud.start(speechBlocks)
+            },
+          },
+          {
+            type: 'action',
+            label: '关闭朗读',
+            disabled: !readAloud.panelOpen,
+            onClick: () => readAloud.close(),
+          },
+        ],
+      },
     ]
   }, [
-    closeWindowsForApp,
+    canStartSpeech,
     handleJumpToToday,
     handleNextDay,
     handlePrevDay,
-    minimizeWindow,
-    showBuiltinAbout,
-    windows,
+    readAloud.close,
+    readAloud.isActive,
+    readAloud.panelOpen,
+    readAloud.resume,
+    readAloud.start,
+    readAloud.stop,
+    speechBlocks,
   ])
 
   useAppMenuBar('news', menuBar)
@@ -421,6 +509,14 @@ export function NewsApp() {
         <div class="news__row-title">{article.title}</div>
         <div class="news__row-lead">{article.lead}</div>
       </button>
+    )
+  }
+
+  if (!store) {
+    return (
+      <div class="news" ref={hostRef}>
+        <NewsLoadingState />
+      </div>
     )
   }
 
@@ -525,7 +621,13 @@ export function NewsApp() {
 
         <section class="news__reader">
           {selectedArticle ? (
-            <article class="news__article">
+            <>
+              {readAloud.panelOpen && (
+                <div class="news__article-speech">
+                  <SpeechReadAloudBar variant="news" controls={readAloud} />
+                </div>
+              )}
+              <article class="news__article">
               <header class="news__article-head">
                 <div class="news__article-meta">
                   <span class="news__article-cat">{selectedArticle.category}</span>
@@ -539,13 +641,28 @@ export function NewsApp() {
               </header>
 
               <div class="news__article-body">
-                {selectedArticle.body
-                  .split('\n')
-                  .filter((p) => p.trim().length > 0)
-                  .map((para, i) => (
-                    <p key={i}>{para}</p>
-                  ))}
+                {articleBodyParagraphs(selectedArticle.body).map((para, i) => (
+                  <p key={i}>{para}</p>
+                ))}
               </div>
+
+              {!readAloud.panelOpen && (
+                <div class="news__article-actions">
+                  <button
+                    type="button"
+                    class="news__btn"
+                    disabled={!canStartSpeech}
+                    onClick={() => {
+                      if (!canStartSpeech) {
+                        return
+                      }
+                      readAloud.start(speechBlocks)
+                    }}
+                  >
+                    朗读
+                  </button>
+                </div>
+              )}
 
               <NewsCommentsSection
                 article={selectedArticle}
@@ -553,6 +670,7 @@ export function NewsApp() {
                 onStoreChange={setStore}
               />
             </article>
+            </>
           ) : (
             <div
               class={[

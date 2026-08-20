@@ -1,0 +1,13 @@
+.monaco-dialog-host {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  /* 压过 .floating-overlay-root > *，避免关闭后全屏挡点击 */
+  pointer-events: none !important;
+}
+
+.monaco-dialog-host .window-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}

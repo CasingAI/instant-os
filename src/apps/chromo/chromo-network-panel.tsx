@@ -1,0 +1,958 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type {
+  ChromoNetworkEntry,
+  ChromoNetworkBodyReadResult,
+  ChromoNetworkBodyReadLinesOptions,
+  ChromoNetworkBodyReadLinesResult,
+  ChromoNetworkHotProbeResult,
+} from './chromo-bridge.ts'
+import { NetworkDetailDrawer } from './chromo-network-detail.tsx'
+import {
+  isNonPreviewableBinaryBody,
+  isPreviewableImageBody,
+  networkEntryName,
+} from './chromo-network-preview.ts'
+
+export { networkEntryName }
+
+/** Matches virtual-chromo MAX_LINES_PER_REQUEST */
+const NETWORK_BODY_LINES_PAGE = 500
+
+type ChromoNetworkPanelProps = {
+  entries: ChromoNetworkEntry[]
+  selectedId?: string
+  pageLoading?: boolean
+  pageError?: string
+  pageUrl?: string
+  disableNetworkCache?: boolean
+  onDisableNetworkCacheChange?: (disable: boolean) => void
+  preserveLog?: boolean
+  onPreserveLogChange?: (preserve: boolean) => void
+  onClear?: () => void
+  readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  readNetworkBodyLines?: (
+    entryId: string,
+    options?: ChromoNetworkBodyReadLinesOptions,
+  ) => Promise<ChromoNetworkBodyReadLinesResult>
+  probeNetworkHot?: (
+    method: string,
+    url: string,
+  ) => Promise<ChromoNetworkHotProbeResult>
+  onSelect: (entry: ChromoNetworkEntry) => void
+  onCloseDetail?: () => void
+}
+
+type NetworkSummary = {
+  completedCount: number
+  totalCount: number
+  totalBytes: number
+  pageStatus: string
+  loadDurationMs: number | null
+  hasPending: boolean
+}
+
+type NetworkSortColumn = 'name' | 'status' | 'waterfall' | 'duration' | 'size'
+type NetworkSortDirection = 'asc' | 'desc'
+type NetworkTypeFilter = 'all' | 'document' | 'script' | 'stylesheet' | 'xhr' | 'image' | 'font' | 'media' | 'websocket' | 'wasm' | 'other'
+type NetworkTypeCategory = Exclude<NetworkTypeFilter, 'all'>
+type NetworkCategorySelection =
+  | { mode: 'all' }
+  | { mode: 'types'; types: Set<NetworkTypeCategory> }
+
+const NETWORK_FILTERS_EXPANDED_KEY = 'chromo.network.filtersExpanded'
+
+const TYPE_FILTERS: { id: NetworkTypeFilter; label: string }[] = [
+  { id: 'all', label: '全部' },
+  { id: 'document', label: '文档' },
+  { id: 'script', label: '脚本' },
+  { id: 'stylesheet', label: '样式表' },
+  { id: 'xhr', label: 'Fetch/XHR' },
+  { id: 'image', label: '图片' },
+  { id: 'font', label: '字体' },
+  { id: 'media', label: '媒体' },
+  { id: 'websocket', label: 'WebSocket' },
+  { id: 'wasm', label: 'Wasm' },
+  { id: 'other', label: '其他' },
+]
+
+function readFiltersExpandedPref(): boolean {
+  try {
+    return localStorage.getItem(NETWORK_FILTERS_EXPANDED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeFiltersExpandedPref(expanded: boolean): void {
+  try {
+    localStorage.setItem(NETWORK_FILTERS_EXPANDED_KEY, expanded ? '1' : '0')
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function ClearNetworkIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.75" />
+      <path
+        d="M6.2 6.2l11.6 11.6"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+      />
+    </svg>
+  )
+}
+
+function FilterFunnelIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M3 4h18l-7 8.5V19l-4 2v-8.5L3 4z"
+      />
+    </svg>
+  )
+}
+
+const SORT_COLUMNS: { id: NetworkSortColumn; label: string }[] = [
+  { id: 'name', label: '名称' },
+  { id: 'status', label: '状态' },
+  { id: 'waterfall', label: '瀑布图' },
+  { id: 'duration', label: '耗时' },
+  { id: 'size', label: '大小' },
+]
+
+export function formatNetworkBytes(size: number): string {
+  if (!size) {
+    return '0 B'
+  }
+  if (size < 1024) {
+    return `${size} B`
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function computeNetworkSummary(
+  entries: ChromoNetworkEntry[],
+  pageLoading?: boolean,
+  pageError?: string,
+): NetworkSummary {
+  const totalCount = entries.length
+  const completedCount = entries.filter((entry) => !entry.pending).length
+  const totalBytes = entries.reduce((sum, entry) => sum + (entry.pending ? 0 : entry.size), 0)
+  const hasPending = entries.some((entry) => entry.pending)
+  const documentEntry = entries.find((entry) => normalizeNetworkType(entry.type) === 'document')
+
+  let pageStatus = '-'
+  if (pageError) {
+    pageStatus = '失败'
+  } else if (pageLoading || documentEntry?.pending) {
+    pageStatus = '加载中'
+  } else if (documentEntry) {
+    pageStatus = documentEntry.failed ? '失败' : String(documentEntry.status || '-')
+  } else if (hasPending) {
+    pageStatus = '加载中'
+  }
+
+  let loadDurationMs: number | null = null
+  if (entries.length > 0) {
+    let minTs = Number.POSITIVE_INFINITY
+    let maxEnd = 0
+    for (const entry of entries) {
+      minTs = Math.min(minTs, entry.ts)
+      if (!entry.pending) {
+        maxEnd = Math.max(maxEnd, entry.ts + entry.duration)
+      }
+    }
+    if (minTs !== Number.POSITIVE_INFINITY && maxEnd > minTs) {
+      loadDurationMs = maxEnd - minTs
+    }
+  }
+
+  return {
+    completedCount,
+    totalCount,
+    totalBytes,
+    pageStatus,
+    loadDurationMs,
+    hasPending,
+  }
+}
+
+function normalizeNetworkType(type: string): string {
+  return (type || 'other').toLowerCase()
+}
+
+function decodeNetworkBody(result: ChromoNetworkBodyReadResult): string {
+  if (result.encoding === 'text') {
+    return result.body
+  }
+  try {
+    const binary = atob(result.body)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+  } catch {
+    return '(binary body)'
+  }
+}
+
+function joinNetworkBodyLines(lines: string[]): string {
+  return lines.join('\n')
+}
+
+function bodyResultFromLines(
+  result: ChromoNetworkBodyReadLinesResult,
+): ChromoNetworkBodyReadResult {
+  return {
+    headers: result.headers,
+    body: '',
+    encoding: 'text',
+    status: result.status,
+  }
+}
+
+function rpcErrorCode(err: unknown): string | undefined {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as { code?: unknown }).code
+    return typeof code === 'string' ? code : undefined
+  }
+  return undefined
+}
+
+function entryMatchesTypeCategory(entry: ChromoNetworkEntry, filter: NetworkTypeCategory): boolean {
+  const type = normalizeNetworkType(entry.type)
+  if (filter === 'xhr') {
+    return type === 'xhr' || type === 'fetch'
+  }
+  if (filter === 'other') {
+    return !TYPE_FILTERS.some(
+      (item) =>
+        item.id !== 'all' &&
+        item.id !== 'other' &&
+        entryMatchesTypeCategory(entry, item.id as NetworkTypeCategory),
+    )
+  }
+  return type === filter
+}
+
+function matchesNetworkTypeSelection(
+  entry: ChromoNetworkEntry,
+  selection: NetworkCategorySelection,
+): boolean {
+  if (selection.mode === 'all') {
+    return true
+  }
+  for (const filter of selection.types) {
+    if (entryMatchesTypeCategory(entry, filter)) {
+      return true
+    }
+  }
+  return false
+}
+
+function isCategoryActive(
+  selection: NetworkCategorySelection,
+  id: NetworkTypeFilter,
+): boolean {
+  if (id === 'all') {
+    return selection.mode === 'all'
+  }
+  return selection.mode === 'types' && selection.types.has(id)
+}
+
+function toggleCategorySelection(
+  current: NetworkCategorySelection,
+  id: NetworkTypeFilter,
+  multi: boolean,
+): NetworkCategorySelection {
+  if (id === 'all') {
+    return { mode: 'all' }
+  }
+
+  if (current.mode === 'all') {
+    return { mode: 'types', types: new Set([id]) }
+  }
+
+  if (multi) {
+    const next = new Set(current.types)
+    if (next.has(id)) {
+      next.delete(id)
+    } else {
+      next.add(id)
+    }
+    if (next.size === 0) {
+      return { mode: 'all' }
+    }
+    return { mode: 'types', types: next }
+  }
+
+  // Plain click: radio-like — select only this type, or deselect back to all
+  if (current.types.size === 1 && current.types.has(id)) {
+    return { mode: 'all' }
+  }
+  return { mode: 'types', types: new Set([id]) }
+}
+
+function matchesNameFilter(entry: ChromoNetworkEntry, query: string): boolean {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) {
+    return true
+  }
+  const name = networkEntryName(entry.url).toLowerCase()
+  return name.includes(normalized) || entry.url.toLowerCase().includes(normalized)
+}
+
+function compareNetworkEntries(
+  a: ChromoNetworkEntry,
+  b: ChromoNetworkEntry,
+  column: NetworkSortColumn,
+  direction: NetworkSortDirection,
+): number {
+  let cmp = 0
+  switch (column) {
+    case 'name':
+      cmp = networkEntryName(a.url).localeCompare(networkEntryName(b.url), undefined, { sensitivity: 'base' })
+      break
+    case 'status':
+      cmp = (a.pending ? -1 : a.status || 0) - (b.pending ? -1 : b.status || 0)
+      break
+    case 'waterfall':
+      cmp = a.ts - b.ts
+      break
+    case 'duration':
+      cmp = a.duration - b.duration
+      break
+    case 'size':
+      cmp = a.size - b.size
+      break
+  }
+  return direction === 'asc' ? cmp : -cmp
+}
+
+function computeTimelineBounds(entries: ChromoNetworkEntry[]): { minTs: number; span: number } {
+  if (entries.length === 0) {
+    return { minTs: 0, span: 1 }
+  }
+  let minTs = Number.POSITIVE_INFINITY
+  let maxEnd = 0
+  for (const entry of entries) {
+    minTs = Math.min(minTs, entry.ts)
+    const end = entry.ts + (entry.pending ? Math.max(entry.duration, 40) : entry.duration)
+    maxEnd = Math.max(maxEnd, end)
+  }
+  return { minTs, span: Math.max(maxEnd - minTs, 1) }
+}
+
+function NetworkWaterfallBar({
+  entry,
+  minTs,
+  span,
+}: {
+  entry: ChromoNetworkEntry
+  minTs: number
+  span: number
+}) {
+  const left = ((entry.ts - minTs) / span) * 100
+  const width = entry.pending
+    ? Math.max(((Math.max(entry.duration, 40) / span) * 100), 1.5)
+    : Math.max((entry.duration / span) * 100, 1.5)
+
+  return (
+    <div class="chromo-network__waterfall" aria-hidden="true">
+      <span
+        class={[
+          'chromo-network__waterfall-bar',
+          entry.failed ? 'chromo-network__waterfall-bar--failed' : '',
+          entry.pending ? 'chromo-network__waterfall-bar--pending' : '',
+          entry.bypass ? 'chromo-network__waterfall-bar--bypass' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        style={{ left: `${left}%`, width: `${width}%` }}
+      />
+    </div>
+  )
+}
+
+function SortHeader({
+  column,
+  label,
+  activeColumn,
+  direction,
+  onSort,
+}: {
+  column: NetworkSortColumn
+  label: string
+  activeColumn: NetworkSortColumn
+  direction: NetworkSortDirection
+  onSort: (column: NetworkSortColumn) => void
+}) {
+  const active = activeColumn === column
+  return (
+    <th class={`chromo-network__th chromo-network__th--${column}`}>
+      <button
+        type="button"
+        class={['chromo-network__th-btn', active ? 'chromo-network__th-btn--active' : ''].filter(Boolean).join(' ')}
+        onClick={() => onSort(column)}
+      >
+        <span>{label}</span>
+        {active ? <span class="chromo-network__sort-indicator" aria-hidden="true">{direction === 'asc' ? '↑' : '↓'}</span> : null}
+      </button>
+    </th>
+  )
+}
+
+export function ChromoNetworkPanel({
+  entries,
+  selectedId,
+  pageLoading,
+  pageError,
+  pageUrl,
+  disableNetworkCache,
+  onDisableNetworkCacheChange,
+  preserveLog = false,
+  onPreserveLogChange,
+  onClear,
+  readNetworkBody,
+  readNetworkBodyLines,
+  probeNetworkHot,
+  onSelect,
+  onCloseDetail,
+}: ChromoNetworkPanelProps) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const [nameFilter, setNameFilter] = useState('')
+  const [categorySelection, setCategorySelection] = useState<NetworkCategorySelection>({
+    mode: 'all',
+  })
+  const [filtersExpanded, setFiltersExpanded] = useState(readFiltersExpandedPref)
+  const [sortColumn, setSortColumn] = useState<NetworkSortColumn>('waterfall')
+  const [sortDirection, setSortDirection] = useState<NetworkSortDirection>('asc')
+  const [bodyPreview, setBodyPreview] = useState('')
+  const [bodyResult, setBodyResult] = useState<ChromoNetworkBodyReadResult | null>(null)
+  const [bodyError, setBodyError] = useState('')
+  const [bodyLoading, setBodyLoading] = useState(false)
+  const [linesTotal, setLinesTotal] = useState(0)
+  const [linesLoadedTo, setLinesLoadedTo] = useState(0)
+  const [linesMode, setLinesMode] = useState(false)
+  const [linesLoadingMore, setLinesLoadingMore] = useState(false)
+
+  const selectedEntry = useMemo(
+    () => entries.find((entry) => entry.id === selectedId) ?? null,
+    [entries, selectedId],
+  )
+
+  const filteredEntries = useMemo(() => {
+    return entries.filter(
+      (entry) =>
+        matchesNameFilter(entry, nameFilter) &&
+        matchesNetworkTypeSelection(entry, categorySelection),
+    )
+  }, [entries, nameFilter, categorySelection])
+
+  const sortedEntries = useMemo(() => {
+    const next = [...filteredEntries]
+    next.sort((a, b) => compareNetworkEntries(a, b, sortColumn, sortDirection))
+    return next
+  }, [filteredEntries, sortColumn, sortDirection])
+
+  const timelineBounds = useMemo(() => computeTimelineBounds(entries), [entries])
+  const summary = useMemo(
+    () => computeNetworkSummary(entries, pageLoading, pageError),
+    [entries, pageLoading, pageError],
+  )
+  const originTs = useMemo(() => {
+    if (entries.length === 0) {
+      return Date.now()
+    }
+    let min = Number.POSITIVE_INFINITY
+    for (const entry of entries) {
+      const queued = entry.timing?.queuedAt ?? entry.ts
+      if (queued < min) {
+        min = queued
+      }
+    }
+    return min === Number.POSITIVE_INFINITY ? Date.now() : min
+  }, [entries])
+
+  const handleSort = useCallback(
+    (column: NetworkSortColumn) => {
+      if (sortColumn === column) {
+        setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+        return
+      }
+      setSortColumn(column)
+      setSortDirection(column === 'name' ? 'asc' : column === 'waterfall' ? 'asc' : 'desc')
+    },
+    [sortColumn],
+  )
+
+  const handleToggleFilters = useCallback(() => {
+    setFiltersExpanded((current) => {
+      const next = !current
+      writeFiltersExpandedPref(next)
+      return next
+    })
+  }, [])
+
+  const handleCategoryClick = useCallback(
+    (id: NetworkTypeFilter, event: { metaKey: boolean; ctrlKey: boolean }) => {
+      const multi = event.metaKey || event.ctrlKey
+      setCategorySelection((current) => toggleCategorySelection(current, id, multi))
+    },
+    [],
+  )
+
+  const shouldAutoScroll =
+    !nameFilter.trim() &&
+    categorySelection.mode === 'all' &&
+    sortColumn === 'waterfall' &&
+    sortDirection === 'asc'
+
+  useEffect(() => {
+    if (!shouldAutoScroll) {
+      return
+    }
+    const list = listRef.current
+    if (!list) {
+      return
+    }
+    list.scrollTop = list.scrollHeight
+  }, [entries.length, shouldAutoScroll])
+
+  const selectedHasBody = Boolean(selectedEntry?.hasBody)
+  const selectedPending = Boolean(selectedEntry?.pending)
+  const readNetworkBodyRef = useRef(readNetworkBody)
+  readNetworkBodyRef.current = readNetworkBody
+  const readNetworkBodyLinesRef = useRef(readNetworkBodyLines)
+  readNetworkBodyLinesRef.current = readNetworkBodyLines
+
+  const selectedEntryType = selectedEntry?.type || ''
+  const selectedEntryUrl = selectedEntry?.url || ''
+  const selectedEntryRef = useRef(selectedEntry)
+  selectedEntryRef.current = selectedEntry
+
+  useEffect(() => {
+    const readBody = readNetworkBodyRef.current
+    const readLines = readNetworkBodyLinesRef.current
+    const entryForGate = selectedEntryRef.current
+    if (!selectedId || (!readBody && !readLines)) {
+      setBodyPreview('')
+      setBodyResult(null)
+      setBodyError('')
+      setBodyLoading(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+      setLinesMode(false)
+      setLinesLoadingMore(false)
+      return
+    }
+    if (!selectedHasBody) {
+      setBodyPreview('')
+      setBodyResult(null)
+      setBodyError(selectedPending ? '请求进行中…' : '未缓存响应正文')
+      setBodyLoading(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+      setLinesMode(false)
+      setLinesLoadingMore(false)
+      return
+    }
+    if (entryForGate && isNonPreviewableBinaryBody(entryForGate)) {
+      setBodyPreview('')
+      setBodyResult(null)
+      setBodyError('')
+      setBodyLoading(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+      setLinesMode(false)
+      setLinesLoadingMore(false)
+      return
+    }
+
+    let cancelled = false
+    let requestId = 0
+
+    const applyBinaryBody = (result: ChromoNetworkBodyReadResult) => {
+      setBodyResult(result)
+      setLinesMode(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+      const contentType = result.headers['content-type'] || result.headers['Content-Type'] || ''
+      const entry = selectedEntryRef.current
+      // Image first — octet-stream + type=image must not fall through as binary placeholder.
+      if (entry && isPreviewableImageBody(entry, contentType)) {
+        setBodyPreview('')
+        return
+      }
+      if (entry && isNonPreviewableBinaryBody(entry, contentType)) {
+        setBodyPreview('')
+        return
+      }
+      setBodyPreview(decodeNetworkBody(result))
+    }
+
+    const applyLinesPage = (result: ChromoNetworkBodyReadLinesResult, append: boolean) => {
+      setBodyResult(bodyResultFromLines(result))
+      setLinesMode(true)
+      setLinesTotal(result.totalLines)
+      setLinesLoadedTo(result.toLine)
+      const chunk = joinNetworkBodyLines(result.lines)
+      if (append) {
+        setBodyPreview((prev) => {
+          if (!prev) return chunk
+          if (!chunk) return prev
+          return `${prev}\n${chunk}`
+        })
+      } else {
+        setBodyPreview(chunk)
+      }
+    }
+
+    const fetchBinary = () => {
+      if (!readBody) {
+        setBodyError('无法读取响应正文')
+        setBodyLoading(false)
+        return
+      }
+      const currentRequest = ++requestId
+      setBodyLoading(true)
+      setBodyError('')
+      setBodyPreview('')
+      setBodyResult(null)
+      setLinesMode(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+
+      readBody(selectedId)
+        .then((result) => {
+          if (cancelled || currentRequest !== requestId) return
+          applyBinaryBody(result)
+        })
+        .catch((err: unknown) => {
+          if (cancelled || currentRequest !== requestId) return
+          setBodyError(err instanceof Error ? err.message : String(err))
+        })
+        .finally(() => {
+          if (cancelled || currentRequest !== requestId) return
+          setBodyLoading(false)
+        })
+    }
+
+    const fetchLinesFirstPage = () => {
+      if (!readLines) {
+        fetchBinary()
+        return
+      }
+      const currentRequest = ++requestId
+      setBodyLoading(true)
+      setBodyError('')
+      setBodyPreview('')
+      setBodyResult(null)
+      setLinesMode(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+
+      readLines(selectedId, { fromLine: 0, toLine: NETWORK_BODY_LINES_PAGE })
+        .then((result) => {
+          if (cancelled || currentRequest !== requestId) return
+          applyLinesPage(result, false)
+          setBodyLoading(false)
+        })
+        .catch((err: unknown) => {
+          if (cancelled || currentRequest !== requestId) return
+          if (rpcErrorCode(err) === 'NETWORK_BODY_NOT_TEXT' && readBody) {
+            fetchBinary()
+            return
+          }
+          setBodyError(err instanceof Error ? err.message : String(err))
+          setBodyLoading(false)
+        })
+    }
+
+    if (entryForGate && isPreviewableImageBody(entryForGate)) {
+      fetchBinary()
+    } else {
+      fetchLinesFirstPage()
+    }
+
+    return () => {
+      cancelled = true
+      setBodyLoading(false)
+      setLinesLoadingMore(false)
+    }
+  }, [selectedId, selectedHasBody, selectedPending, selectedEntryType, selectedEntryUrl])
+
+  const handleLoadMoreLines = useCallback(() => {
+    const readLines = readNetworkBodyLinesRef.current
+    if (!selectedId || !readLines || !linesMode || linesLoadingMore || bodyLoading) {
+      return
+    }
+    if (linesLoadedTo >= linesTotal) {
+      return
+    }
+    setLinesLoadingMore(true)
+    setBodyError('')
+    const fromLine = linesLoadedTo
+    const toLine = Math.min(fromLine + NETWORK_BODY_LINES_PAGE, linesTotal)
+    readLines(selectedId, { fromLine, toLine })
+      .then((result) => {
+        setBodyResult(bodyResultFromLines(result))
+        setLinesTotal(result.totalLines)
+        setLinesLoadedTo(result.toLine)
+        const chunk = joinNetworkBodyLines(result.lines)
+        setBodyPreview((prev) => {
+          if (!prev) return chunk
+          if (!chunk) return prev
+          return `${prev}\n${chunk}`
+        })
+      })
+      .catch((err: unknown) => {
+        setBodyError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        setLinesLoadingMore(false)
+      })
+  }, [selectedId, linesMode, linesLoadingMore, bodyLoading, linesLoadedTo, linesTotal])
+
+  return (
+    <div
+      class={[
+        'chromo-network',
+        selectedEntry ? 'chromo-network--drawer-open' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      aria-label="网络"
+    >
+      <div class="chromo-network__toolbar">
+        <div class="chromo-network__toolbar-main" role="toolbar" aria-label="网络工具栏">
+          <div class="chromo-network__toolbar-left">
+            {onClear ? (
+              <button
+                type="button"
+                class="chromo-network__icon-btn"
+                onClick={onClear}
+                title="清空网络记录"
+                aria-label="清空网络记录"
+              >
+                <ClearNetworkIcon />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              class={[
+                'chromo-network__icon-btn',
+                filtersExpanded ? 'chromo-network__icon-btn--active' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={handleToggleFilters}
+              title="过滤器"
+              aria-label="过滤器"
+              aria-pressed={filtersExpanded}
+            >
+              <FilterFunnelIcon />
+            </button>
+          </div>
+          <div class="chromo-network__toolbar-right">
+            <label class="chromo-network__option">
+              <input
+                type="checkbox"
+                checked={preserveLog}
+                onChange={(event) =>
+                  onPreserveLogChange?.((event.currentTarget as HTMLInputElement).checked)
+                }
+              />
+              保留日志
+            </label>
+            <label class="chromo-network__option">
+              <input
+                type="checkbox"
+                checked={Boolean(disableNetworkCache)}
+                onChange={(event) =>
+                  onDisableNetworkCacheChange?.(
+                    (event.currentTarget as HTMLInputElement).checked,
+                  )
+                }
+              />
+              禁用缓存
+            </label>
+            <span class="chromo-network__count" aria-live="polite">
+              {sortedEntries.length}/{entries.length}
+            </span>
+          </div>
+        </div>
+        {filtersExpanded ? (
+          <div class="chromo-network__toolbar-filters" aria-label="网络过滤">
+            <input
+              type="search"
+              class="chromo-network__filter-name"
+              value={nameFilter}
+              placeholder="过滤名称或 URL"
+              onInput={(event) =>
+                setNameFilter((event.currentTarget as HTMLInputElement).value)
+              }
+              aria-label="名称过滤"
+            />
+            <div class="chromo-network__type-filters" role="group" aria-label="类型过滤">
+              {TYPE_FILTERS.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  class={[
+                    'chromo-network__type-btn',
+                    isCategoryActive(categorySelection, filter.id)
+                      ? 'chromo-network__type-btn--active'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-pressed={isCategoryActive(categorySelection, filter.id)}
+                  onClick={(event) => handleCategoryClick(filter.id, event)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div class="chromo-network__body">
+        <div class="chromo-network__table-wrap" ref={listRef}>
+        {sortedEntries.length === 0 ? (
+          <div class="chromo-network__empty">
+            {entries.length === 0 ? '子页面网络请求会显示在这里' : '没有匹配当前过滤条件的请求'}
+          </div>
+        ) : (
+          <table class="chromo-network__table">
+            <colgroup>
+              <col class="chromo-network__col chromo-network__col--name" />
+              <col class="chromo-network__col chromo-network__col--status" />
+              <col class="chromo-network__col chromo-network__col--waterfall" />
+              <col class="chromo-network__col chromo-network__col--duration" />
+              <col class="chromo-network__col chromo-network__col--size" />
+            </colgroup>
+            <thead class="chromo-network__thead">
+              <tr>
+                {SORT_COLUMNS.map((column) => (
+                  <SortHeader
+                    key={column.id}
+                    column={column.id}
+                    label={column.label}
+                    activeColumn={sortColumn}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                  />
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedEntries.map((entry) => (
+                <tr
+                  key={entry.id}
+                  class={[
+                    'chromo-network__row',
+                    entry.failed ? 'chromo-network__row--failed' : '',
+                    entry.bypass ? 'chromo-network__row--bypass' : '',
+                    entry.pending ? 'chromo-network__row--pending' : '',
+                    selectedId === entry.id ? 'chromo-network__row--selected' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => onSelect(entry)}
+                >
+                  <td class="chromo-network__cell chromo-network__cell--name">
+                    <div class="chromo-network__name-row">
+                      <span class="chromo-network__method">{entry.method || 'GET'}</span>
+                      <span class="chromo-network__name" title={entry.url}>
+                        {networkEntryName(entry.url)}
+                      </span>
+                      {entry.bypass ? <span class="chromo-network__badge">直连</span> : null}
+                      {entry.fromCache ? <span class="chromo-network__badge">缓存</span> : null}
+                      {entry.pending ? <span class="chromo-network__badge">进行中</span> : null}
+                    </div>
+                  </td>
+                  <td class="chromo-network__cell chromo-network__cell--status">
+                    <span class={['chromo-network__status', entry.failed ? 'chromo-network__status--failed' : ''].filter(Boolean).join(' ')}>
+                      {entry.pending
+                        ? '…'
+                        : entry.failed && !entry.status
+                          ? '（失败）'
+                          : entry.status || '-'}
+                    </span>
+                  </td>
+                  <td class="chromo-network__cell chromo-network__cell--waterfall">
+                    <NetworkWaterfallBar entry={entry} minTs={timelineBounds.minTs} span={timelineBounds.span} />
+                  </td>
+                  <td class="chromo-network__cell chromo-network__cell--duration">
+                    {entry.pending ? '进行中' : `${entry.duration} ms`}
+                  </td>
+                  <td class="chromo-network__cell chromo-network__cell--size">
+                    {entry.pending ? '-' : formatNetworkBytes(entry.size)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        </div>
+
+        {selectedEntry ? (
+          <NetworkDetailDrawer
+            entry={selectedEntry}
+            bodyResult={bodyResult}
+            bodyText={bodyPreview}
+            bodyLoading={bodyLoading}
+            bodyError={bodyError}
+            linesMode={linesMode}
+            linesTotal={linesTotal}
+            linesLoadedTo={linesLoadedTo}
+            linesLoadingMore={linesLoadingMore}
+            onLoadMoreLines={handleLoadMoreLines}
+            originTs={originTs}
+            pageUrl={pageUrl}
+            disableNetworkCache={disableNetworkCache}
+            entries={entries}
+            probeNetworkHot={probeNetworkHot}
+            onClose={() => onCloseDetail?.()}
+          />
+        ) : null}
+      </div>
+
+      <footer class="chromo-network__footer" aria-live="polite">
+        <span class="chromo-network__footer-item">
+          {summary.completedCount}/{summary.totalCount} 请求
+        </span>
+        <span class="chromo-network__footer-divider" aria-hidden="true">|</span>
+        <span class="chromo-network__footer-item">{formatNetworkBytes(summary.totalBytes)}</span>
+        <span class="chromo-network__footer-divider" aria-hidden="true">|</span>
+        <span
+          class={[
+            'chromo-network__footer-item',
+            summary.pageStatus === '失败' ? 'chromo-network__footer-item--failed' : '',
+            summary.pageStatus === '加载中' ? 'chromo-network__footer-item--loading' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          {summary.pageStatus}
+        </span>
+        <span class="chromo-network__footer-divider" aria-hidden="true">|</span>
+        <span class="chromo-network__footer-item">
+          {summary.loadDurationMs === null
+            ? '-'
+            : `${summary.loadDurationMs} ms${summary.hasPending ? '…' : ''}`}
+        </span>
+      </footer>
+    </div>
+  )
+}

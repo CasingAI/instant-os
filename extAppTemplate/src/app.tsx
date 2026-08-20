@@ -2,6 +2,8 @@ import { useEffect, useState } from 'preact/hooks'
 import appConfig from '../app.config.json'
 import packageJson from '../package.json'
 import { installInstantOsAiBridge } from './bridge/instant-os-ai-bridge.ts'
+import { installInstantOsFilesBridge } from './bridge/instant-os-files-bridge.ts'
+import { installInstantOsTerminalBridge } from './bridge/instant-os-terminal-bridge.ts'
 import {
   buildRuntimeManifest,
   logAppBoot,
@@ -42,6 +44,8 @@ export function App() {
   const [hostStatus, setHostStatus] = useState('启动中…')
   const manifest = buildRuntimeManifest()
   const hasAiTag = readAppTags().includes('ai')
+  const hasFilesTag = readAppTags().includes('files')
+  const hasTerminalTag = readAppTags().includes('terminal')
 
   useEffect(() => {
     logAppBoot()
@@ -62,6 +66,22 @@ export function App() {
 
     return installInstantOsAiBridge({ appId: config.id, debug: import.meta.env.DEV })
   }, [hasAiTag])
+
+  useEffect(() => {
+    if (!hasFilesTag) {
+      return
+    }
+
+    return installInstantOsFilesBridge({ appId: config.id })
+  }, [hasFilesTag])
+
+  useEffect(() => {
+    if (!hasTerminalTag) {
+      return
+    }
+
+    return installInstantOsTerminalBridge({ appId: config.id })
+  }, [hasTerminalTag])
 
   const handleSplashComplete = () => {
     notifyHostEnterProgram()

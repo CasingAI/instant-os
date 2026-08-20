@@ -1,20 +1,28 @@
 import type { TokenUsageSnapshot } from '../apps/browser/browser-token-usage.ts'
+import { cachedPromptTokensOf } from '../apps/browser/browser-token-usage.ts'
 import { osDayKey, osNowMs } from '../os/os-clock.ts'
 import {
   AI_TOKEN_USAGE_STORE,
-  DATA_CAPACITY_BYTES,
   DATA_META_STORE,
   DATA_STORAGE_CHANGED_EVENT,
   runDataStoreTransaction,
+  wouldExceedDataCapacity,
 } from '../os/device-data-storage.ts'
 import { resolveActorLabel, type AiUsageContext } from './ai-usage-context.ts'
+import {
+  cacheReadPromptTokensFromUsage,
+  rebuildModelCacheReadPromptTokens,
+  summaryNeedsCacheReadPromptRebuild,
+} from './ai-token-usage-cache-hit.ts'
 import type {
   ActorTokenUsage,
   AiTokenUsageRecord,
   AiUsageRequestRecord,
   BehaviorTokenUsage,
   DayTokenUsage,
+  ModelTokenUsage,
 } from './ai-token-usage-types.ts'
+import { UNKNOWN_AI_USAGE_MODEL } from './ai-token-usage-types.ts'
 
 const SUMMARY_KEY = '__summary__'
 const LEGACY_STORAGE_KEY = 'instant-os-ai-token-usage'
@@ -37,10 +45,12 @@ type AiUsageDbRecord = SummaryDbRecord | RequestDbRecord
 const EMPTY_RECORD: AiTokenUsageRecord = {
   totalPromptTokens: 0,
   totalCompletionTokens: 0,
+  totalCachedPromptTokens: 0,
   totalTokens: 0,
   requestCount: 0,
   byActor: {},
   byDay: {},
+  byModel: {},
 }
 
 let initPromise: Promise<void> | undefined
@@ -65,6 +75,7 @@ function normalizeBehavior(
     label: context.behaviorLabel ?? existing?.label ?? context.behavior,
     promptTokens: existing?.promptTokens ?? 0,
     completionTokens: existing?.completionTokens ?? 0,
+    cachedPromptTokens: existing?.cachedPromptTokens ?? 0,
     totalTokens: existing?.totalTokens ?? 0,
     requestCount: existing?.requestCount ?? 0,
   }
@@ -76,6 +87,7 @@ function normalizeActor(context: AiUsageContext, existing?: ActorTokenUsage): Ac
     label: context.actorLabel ?? existing?.label ?? resolveActorLabel(context.actor),
     promptTokens: existing?.promptTokens ?? 0,
     completionTokens: existing?.completionTokens ?? 0,
+    cachedPromptTokens: existing?.cachedPromptTokens ?? 0,
     totalTokens: existing?.totalTokens ?? 0,
     requestCount: existing?.requestCount ?? 0,
     byBehavior: existing?.byBehavior ?? {},
@@ -87,6 +99,24 @@ function normalizeDay(day: string, existing?: DayTokenUsage): DayTokenUsage {
     day,
     promptTokens: existing?.promptTokens ?? 0,
     completionTokens: existing?.completionTokens ?? 0,
+    cachedPromptTokens: existing?.cachedPromptTokens ?? 0,
+    totalTokens: existing?.totalTokens ?? 0,
+    requestCount: existing?.requestCount ?? 0,
+  }
+}
+
+function resolveUsageModelKey(model: string | undefined): string {
+  const trimmed = model?.trim()
+  return trimmed ? trimmed : UNKNOWN_AI_USAGE_MODEL
+}
+
+function normalizeModel(model: string, existing?: ModelTokenUsage): ModelTokenUsage {
+  return {
+    model,
+    promptTokens: existing?.promptTokens ?? 0,
+    completionTokens: existing?.completionTokens ?? 0,
+    cachedPromptTokens: existing?.cachedPromptTokens ?? 0,
+    cacheReadPromptTokens: existing?.cacheReadPromptTokens ?? 0,
     totalTokens: existing?.totalTokens ?? 0,
     requestCount: existing?.requestCount ?? 0,
   }
@@ -94,21 +124,100 @@ function normalizeDay(day: string, existing?: DayTokenUsage): DayTokenUsage {
 
 function parseLegacyRecord(raw: string | undefined): AiTokenUsageRecord {
   if (!raw) {
-    return { ...EMPTY_RECORD, byActor: {}, byDay: {} }
+    return { ...EMPTY_RECORD, byActor: {}, byDay: {}, byModel: {} }
   }
 
   try {
     const parsed = JSON.parse(raw) as AiTokenUsageRecord
-    return {
-      totalPromptTokens: parsed.totalPromptTokens ?? 0,
-      totalCompletionTokens: parsed.totalCompletionTokens ?? 0,
-      totalTokens: parsed.totalTokens ?? 0,
-      requestCount: parsed.requestCount ?? 0,
-      byActor: parsed.byActor ?? {},
-      byDay: parsed.byDay ?? {},
-    }
+    return hydrateSummary(parsed)
   } catch {
-    return { ...EMPTY_RECORD, byActor: {}, byDay: {} }
+    return { ...EMPTY_RECORD, byActor: {}, byDay: {}, byModel: {} }
+  }
+}
+
+function hydrateBehavior(entry: BehaviorTokenUsage): BehaviorTokenUsage {
+  return {
+    ...entry,
+    promptTokens: entry.promptTokens ?? 0,
+    completionTokens: entry.completionTokens ?? 0,
+    cachedPromptTokens: entry.cachedPromptTokens ?? 0,
+    totalTokens: entry.totalTokens ?? 0,
+    requestCount: entry.requestCount ?? 0,
+  }
+}
+
+function hydrateActor(entry: ActorTokenUsage): ActorTokenUsage {
+  const byBehavior: Record<string, BehaviorTokenUsage> = {}
+  for (const [key, behavior] of Object.entries(entry.byBehavior ?? {})) {
+    byBehavior[key] = hydrateBehavior(behavior)
+  }
+  return {
+    ...entry,
+    promptTokens: entry.promptTokens ?? 0,
+    completionTokens: entry.completionTokens ?? 0,
+    cachedPromptTokens: entry.cachedPromptTokens ?? 0,
+    totalTokens: entry.totalTokens ?? 0,
+    requestCount: entry.requestCount ?? 0,
+    byBehavior,
+  }
+}
+
+function hydrateDay(entry: DayTokenUsage): DayTokenUsage {
+  return {
+    ...entry,
+    promptTokens: entry.promptTokens ?? 0,
+    completionTokens: entry.completionTokens ?? 0,
+    cachedPromptTokens: entry.cachedPromptTokens ?? 0,
+    totalTokens: entry.totalTokens ?? 0,
+    requestCount: entry.requestCount ?? 0,
+  }
+}
+
+function hydrateModel(entry: ModelTokenUsage, key: string): ModelTokenUsage {
+  return {
+    model: entry.model || key,
+    promptTokens: entry.promptTokens ?? 0,
+    completionTokens: entry.completionTokens ?? 0,
+    cachedPromptTokens: entry.cachedPromptTokens ?? 0,
+    cacheReadPromptTokens: entry.cacheReadPromptTokens ?? 0,
+    totalTokens: entry.totalTokens ?? 0,
+    requestCount: entry.requestCount ?? 0,
+  }
+}
+
+function hydrateSummary(parsed: AiTokenUsageRecord): AiTokenUsageRecord {
+  const byActor: Record<string, ActorTokenUsage> = {}
+  for (const [key, actor] of Object.entries(parsed.byActor ?? {})) {
+    byActor[key] = hydrateActor(actor)
+  }
+  const byDay: Record<string, DayTokenUsage> = {}
+  for (const [key, day] of Object.entries(parsed.byDay ?? {})) {
+    byDay[key] = hydrateDay(day)
+  }
+  const byModel: Record<string, ModelTokenUsage> = {}
+  for (const [key, model] of Object.entries(parsed.byModel ?? {})) {
+    byModel[key] = hydrateModel(model, key)
+  }
+  return {
+    totalPromptTokens: parsed.totalPromptTokens ?? 0,
+    totalCompletionTokens: parsed.totalCompletionTokens ?? 0,
+    totalCachedPromptTokens: parsed.totalCachedPromptTokens ?? 0,
+    totalTokens: parsed.totalTokens ?? 0,
+    requestCount: parsed.requestCount ?? 0,
+    byActor,
+    byDay,
+    byModel,
+  }
+}
+
+function hydrateRequest(request: AiUsageRequestRecord): AiUsageRequestRecord {
+  return {
+    ...request,
+    model: request.model?.trim() || undefined,
+    promptTokens: request.promptTokens ?? 0,
+    completionTokens: request.completionTokens ?? 0,
+    cachedPromptTokens: request.cachedPromptTokens ?? 0,
+    totalTokens: request.totalTokens ?? 0,
   }
 }
 
@@ -166,7 +275,7 @@ async function writeSummaryRecord(data: AiTokenUsageRecord): Promise<boolean> {
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + next.byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return false
   }
 
@@ -204,10 +313,41 @@ export async function initAiTokenUsageStorage(): Promise<void> {
   await initPromise
 }
 
+async function loadAllRequestRecords(): Promise<AiUsageRequestRecord[]> {
+  try {
+    const records = await runDataStoreTransaction<AiUsageDbRecord[]>(
+      AI_TOKEN_USAGE_STORE,
+      'readonly',
+      (store) => store.getAll(),
+    )
+    return records
+      .filter((record): record is RequestDbRecord => record.kind === 'request')
+      .map(({ key: _key, kind: _kind, byteSize: _byteSize, ...request }) => hydrateRequest(request))
+  } catch {
+    return []
+  }
+}
+
+async function hydrateSummaryResolvingCacheRead(
+  raw: AiTokenUsageRecord,
+): Promise<{ summary: AiTokenUsageRecord; rebuilt: boolean }> {
+  const summary = hydrateSummary(raw)
+  if (!summaryNeedsCacheReadPromptRebuild(raw)) {
+    return { summary, rebuilt: false }
+  }
+  const rebuilt = rebuildModelCacheReadPromptTokens(summary, await loadAllRequestRecords())
+  return { summary: rebuilt, rebuilt: true }
+}
+
 export async function loadAiTokenUsageFromStore(): Promise<AiTokenUsageRecord> {
   await initAiTokenUsageStorage()
-  const summary = await readSummaryRecord()
-  return summary?.data ?? { ...EMPTY_RECORD, byActor: {}, byDay: {} }
+  const stored = await readSummaryRecord()
+  const raw = stored?.data ?? { ...EMPTY_RECORD, byActor: {}, byDay: {}, byModel: {} }
+  const { summary, rebuilt } = await hydrateSummaryResolvingCacheRead(raw)
+  if (rebuilt) {
+    await writeSummaryRecord(summary)
+  }
+  return summary
 }
 
 export async function loadAiUsageRequestsForDay(day: string): Promise<AiUsageRequestRecord[]> {
@@ -220,7 +360,7 @@ export async function loadAiUsageRequestsForDay(day: string): Promise<AiUsageReq
     )
     return records
       .filter((record): record is RequestDbRecord => record.kind === 'request')
-      .map(({ key: _key, kind: _kind, byteSize: _byteSize, ...request }) => request)
+      .map(({ key: _key, kind: _kind, byteSize: _byteSize, ...request }) => hydrateRequest(request))
       .sort((left, right) => right.at - left.at)
   } catch {
     return []
@@ -245,21 +385,26 @@ function applyUsageToSummary(
   context: AiUsageContext,
   usage: TokenUsageSnapshot,
   day: string,
+  model: string,
 ): void {
+  const cachedPromptTokens = cachedPromptTokensOf(usage)
   record.totalPromptTokens += usage.promptTokens
   record.totalCompletionTokens += usage.completionTokens
+  record.totalCachedPromptTokens += cachedPromptTokens
   record.totalTokens += usage.totalTokens
   record.requestCount += 1
 
   const actor = normalizeActor(context, record.byActor[context.actor])
   actor.promptTokens += usage.promptTokens
   actor.completionTokens += usage.completionTokens
+  actor.cachedPromptTokens += cachedPromptTokens
   actor.totalTokens += usage.totalTokens
   actor.requestCount += 1
 
   const behavior = normalizeBehavior(context, actor.byBehavior[context.behavior])
   behavior.promptTokens += usage.promptTokens
   behavior.completionTokens += usage.completionTokens
+  behavior.cachedPromptTokens += cachedPromptTokens
   behavior.totalTokens += usage.totalTokens
   behavior.requestCount += 1
 
@@ -269,14 +414,31 @@ function applyUsageToSummary(
   const dayUsage = normalizeDay(day, record.byDay[day])
   dayUsage.promptTokens += usage.promptTokens
   dayUsage.completionTokens += usage.completionTokens
+  dayUsage.cachedPromptTokens += cachedPromptTokens
   dayUsage.totalTokens += usage.totalTokens
   dayUsage.requestCount += 1
   record.byDay[day] = dayUsage
+
+  if (!record.byModel) {
+    record.byModel = {}
+  }
+  const modelUsage = normalizeModel(model, record.byModel[model])
+  modelUsage.promptTokens += usage.promptTokens
+  modelUsage.completionTokens += usage.completionTokens
+  modelUsage.cachedPromptTokens += cachedPromptTokens
+  modelUsage.cacheReadPromptTokens += cacheReadPromptTokensFromUsage(
+    cachedPromptTokens,
+    usage.promptTokens,
+  )
+  modelUsage.totalTokens += usage.totalTokens
+  modelUsage.requestCount += 1
+  record.byModel[model] = modelUsage
 }
 
 export async function persistAiTokenUsage(
   context: AiUsageContext,
   usage: TokenUsageSnapshot,
+  model?: string,
 ): Promise<AiTokenUsageRecord> {
   await initAiTokenUsageStorage()
 
@@ -284,6 +446,7 @@ export async function persistAiTokenUsage(
   const day = osDayKey()
   const actorLabel = context.actorLabel ?? resolveActorLabel(context.actor)
   const behaviorLabel = context.behaviorLabel ?? context.behavior
+  const modelKey = resolveUsageModelKey(model)
 
   const request: AiUsageRequestRecord = {
     id: createRequestId(at),
@@ -293,8 +456,10 @@ export async function persistAiTokenUsage(
     behavior: context.behavior,
     actorLabel,
     behaviorLabel,
+    model: modelKey,
     promptTokens: usage.promptTokens,
     completionTokens: usage.completionTokens,
+    cachedPromptTokens: cachedPromptTokensOf(usage),
     totalTokens: usage.totalTokens,
   }
 
@@ -306,8 +471,12 @@ export async function persistAiTokenUsage(
   }
   requestDb.byteSize = estimateRecordBytes(requestDb)
 
-  const summary = (await readSummaryRecord())?.data ?? { ...EMPTY_RECORD, byActor: {}, byDay: {} }
-  applyUsageToSummary(summary, context, usage, day)
+  const summary = (
+    await hydrateSummaryResolvingCacheRead(
+      (await readSummaryRecord())?.data ?? { ...EMPTY_RECORD, byActor: {}, byDay: {}, byModel: {} },
+    )
+  ).summary
+  applyUsageToSummary(summary, context, usage, day, modelKey)
   const nextSummary = toSummaryDbRecord(summary)
 
   const existingSummary = await readSummaryRecord()
@@ -318,7 +487,7 @@ export async function persistAiTokenUsage(
     nextSummary.byteSize +
     requestDb.byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return summary
   }
 

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import {
+  formatHumanDurationMs,
+  formatThinkingDurationMs,
+} from '../../ai/format-human-duration.ts'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { HelpIcon } from '../../icons/app-icons.tsx'
 import { osNowMs } from '../../os/os-clock.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -20,7 +22,7 @@ import {
   type HelpTimelineItem,
 } from './help-agent.ts'
 import { createHelpActivityRevealController } from './help-activity-reveal.ts'
-import { HelpMarkdown } from './help-markdown.tsx'
+import { buildLiveAnswerClassName, HelpMarkdown } from './help-markdown.tsx'
 import './help.css'
 
 const APP_ID = 'help' as const
@@ -47,6 +49,7 @@ const SAMPLE_PROMPT_POOL = [
   '翻译怎么用？',
   '月历怎么用？',
   'CatGPT 能做什么？',
+  'ProDude 能做什么？',
   '系统设置在哪里打开？',
   '程序坞里的图标怎么用？',
   '股票应用怎么看行情？',
@@ -111,39 +114,20 @@ function formatHelpError(err: unknown): string {
   return String(err)
 }
 
-function formatDuration(durationMs: number): string {
-  if (durationMs < 1000) {
-    return '不到 1 秒'
-  }
-  const seconds = durationMs / 1000
-  if (seconds < 10) {
-    return `${seconds.toFixed(1)} 秒`
-  }
-  return `${Math.round(seconds)} 秒`
-}
-
-function formatThinkingDuration(durationMs: number): string {
-  if (durationMs < 1000) {
-    return '思考了不到 1 秒'
-  }
-  const seconds = durationMs / 1000
-  if (seconds < 10) {
-    return `思考了 ${seconds.toFixed(1)} 秒`
-  }
-  return `思考了 ${Math.round(seconds)} 秒`
-}
-
 function formatInvestigationSummary(investigation: HelpInvestigation): string {
   const parts = ['已完成调查']
-  if (investigation.reasoningDurationMs !== undefined) {
-    parts.push(formatThinkingDuration(investigation.reasoningDurationMs))
+  if (
+    investigation.reasoningDurationMs !== undefined &&
+    investigation.reasoningDurationMs >= 5000
+  ) {
+    parts.push(formatThinkingDurationMs(investigation.reasoningDurationMs))
   }
   parts.push(
     investigation.toolCallCount > 0
       ? `调用 ${investigation.toolCallCount} 个工具`
       : '未调用工具',
   )
-  parts.push(`用时 ${formatDuration(investigation.durationMs)}`)
+  parts.push(`用时 ${formatHumanDurationMs(investigation.durationMs)}`)
   return parts.join(' · ')
 }
 
@@ -229,7 +213,7 @@ function HelpReasoningStatus({
           aria-hidden="true"
         />
         <span class="help-app__reasoning-summary">
-          {formatThinkingDuration(durationMs)}
+          {formatThinkingDurationMs(durationMs)}
         </span>
       </button>
       {expanded ? (
@@ -444,10 +428,12 @@ function HelpLiveTimeline({
           )
         }
 
+        const separated = timeline.slice(0, index).some((entry) => entry.kind !== 'text')
+
         return (
           <div
             key={item.id}
-            class={`help-app__live-answer${item.done ? '' : ' help-app__live-answer--streaming'}`}
+            class={buildLiveAnswerClassName({ streaming: !item.done, separated })}
           >
             <HelpMarkdown text={item.content} streaming={!item.done} />
           </div>
@@ -458,8 +444,7 @@ function HelpLiveTimeline({
 }
 
 export function HelpApp() {
-  const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
   const [messages, setMessages] = useState<HelpMessage[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -756,28 +741,7 @@ export function HelpApp() {
   }, [messages.length, displayedLiveTimeline.length, liveAnswerLength, scrollToBottom])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
-
     return [
-      {
-        label: '帮助',
-        items: [
-          ...aboutAppMenuPrefix('关于 帮助', () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: '隐藏帮助',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出帮助',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
       {
         label: '编辑',
         items: [
@@ -810,14 +774,10 @@ export function HelpApp() {
     ]
   }, [
     busy,
-    closeWindowsForApp,
     contentWidth,
     handleClear,
     messages.length,
-    minimizeWindow,
-    showBuiltinAbout,
     thinkingEnabled,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)

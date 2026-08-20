@@ -1,0 +1,12 @@
+Third-Party System Sounds (CC0 1.0 Universal)
+============================================
+
+UI SFX (uisfx) v0.4.0
+- Source: https://github.com/romainsimon/uisfx / https://uisfx.com/
+- Author: Romain Simon / UI SFX
+- Audio license: CC0 1.0 — see UI-SFX-LICENSE-AUDIO.txt
+- Runtime code (not vendored): MIT — see UI-SFX-LICENSE-CODE.txt
+- Packs included: arcade, cinematic, dreamy, glass, mechanical, minimal, organic, rubber, scifi, soft, studio, zen
+- Format: MP3 under public/assets/sounds/uisfx/{pack}/{cue}.mp3
+
+Attribution is appreciated but not required under CC0.

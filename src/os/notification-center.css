@@ -839,26 +839,6 @@
   color: #c87800;
 }
 
-.process-isolation-fallback-emoji {
-  flex-shrink: 0;
-  line-height: 1;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.16));
-}
-
-.process-isolation-fallback-emoji--banner {
-  font-size: 28px;
-}
-
-.process-isolation-fallback-emoji--list {
-  width: 40px;
-  font-size: 32px;
-  text-align: center;
-}
-
-.process-isolation-fallback-emoji--detail {
-  font-size: 44px;
-}
-
 .notification-center__detail-card--failed {
   border-color: #b55;
   background: linear-gradient(180deg, #e8d5d5 0%, #f2e4e4 100%);

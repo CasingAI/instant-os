@@ -50,3 +50,24 @@
   font-weight: 700;
   color: #007aff;
 }
+
+/* ── Dark variant（portal 到 body 后仍自带该类，不依赖外层暗色作用域）── */
+
+.settings-choice-popover--dark {
+  border-color: rgba(0, 0, 0, 0.5);
+  color: #e8e8ea;
+  background: linear-gradient(180deg, #3a3a42 0%, #2c2c32 100%);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.settings-choice-popover--dark .settings-choice-popover__item:hover,
+.settings-choice-popover--dark .settings-choice-popover__item:focus-visible {
+  background: linear-gradient(180deg, #4ea0ef 0%, #2f87e2 100%);
+  color: #fff;
+}
+
+.settings-choice-popover--dark .settings-choice-popover__check {
+  color: #4ea0ef;
+}

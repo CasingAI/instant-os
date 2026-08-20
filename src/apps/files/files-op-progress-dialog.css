@@ -1,0 +1,21 @@
+.files-op-progress__remaining {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #555;
+}
+
+.files-op-progress__track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.files-op-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--window-modal-theme, #8a6a38) 82%, #000);
+  transition: width 0.25s ease-out;
+}

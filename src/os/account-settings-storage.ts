@@ -1,13 +1,32 @@
 import {
   DEFAULT_AI_PROVIDER_ID,
+  CURRENT_PRESET_SYNC_REVISION,
+  AI_MODEL_CAPABILITIES,
+  appendMissingPresetModels,
   defaultProviderEntry,
   isCustomProvider,
+  isOpencodeZenProvider,
   isProviderEntryValid,
   normalizeStoredModel,
+  parseStoredModelCapabilities,
+  parseStoredManualPricing,
+  parseStoredOpenRouterPricing,
+  parseStoredPricingModelKey,
+  parseStoredTokenizerFamily,
+  parseStoredContextWindowMode,
+  parseStoredContextWindow,
+  reconcilePreferredByCapability,
+  applyTextPreferredToProviders,
+  modelHasCapability,
+  providerRequiresProxy,
+  resolvePreferredModelRef,
   resolveProviderEntryBaseURL,
   type AccountSettingsV2,
+  type AiModelCapability,
   type AiProviderEntry,
   type AiProviderId,
+  type PreferredByCapability,
+  type PreferredModelRef,
 } from '../ai/ai-providers.ts'
 import { notifyOpenAiConfigChange } from '../ai/openai-config-events.ts'
 import { clearOpenAiClientCache } from '../ai/openai-client.ts'
@@ -62,10 +81,17 @@ function migrateLegacySettings(
   }
   entry.thinkingEnabled = raw.thinkingEnabled
 
+  const providers = [entry]
+  const reconciled = reconcilePreferredByCapability(providers, undefined, 0)
   return {
     version: 2,
-    providers: [entry],
-    preferredIndex: 0,
+    providers: applyTextPreferredToProviders(
+      providers,
+      reconciled.preferredByCapability,
+    ),
+    preferredIndex: reconciled.preferredIndex,
+    preferredByCapability: reconciled.preferredByCapability,
+    presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
   }
 }
 
@@ -75,6 +101,11 @@ function normalizeProviderId(value: unknown): AiProviderId {
     value === 'deepseek' ||
     value === 'mimo' ||
     value === 'mimo-token-plan' ||
+    value === 'ark-coding-plan' ||
+    value === 'ark-agent-plan' ||
+    value === 'opencode-go' ||
+    value === 'opencode-zen' ||
+    value === 'instant-free' ||
     value === 'custom'
   ) {
     return value
@@ -98,6 +129,9 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
     typeof record.thinkingEnabled === 'boolean'
       ? record.thinkingEnabled
       : false
+  const storedUseProxy =
+    typeof record.useProxy === 'boolean' ? record.useProxy : false
+  const useProxy = providerRequiresProxy(providerId) ? true : storedUseProxy
   const baseURL =
     typeof record.baseURL === 'string' ? record.baseURL.trim() : ''
   const id =
@@ -119,13 +153,41 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
             ? modelRecord.name.trim()
             : modelId
         if (modelId) {
-          enabledModels.push({ modelId, name })
+          const capabilities = parseStoredModelCapabilities(modelRecord.capabilities)
+          const openRouterPricing = parseStoredOpenRouterPricing(
+            modelRecord.openRouterPricing,
+          )
+          const manualPricing = openRouterPricing
+            ? undefined
+            : parseStoredManualPricing(modelRecord.manualPricing)
+          const pricingModelKey =
+            openRouterPricing || manualPricing
+              ? undefined
+              : parseStoredPricingModelKey(modelRecord.pricingModelKey)
+          const tokenizerFamily = parseStoredTokenizerFamily(
+            modelRecord.tokenizerFamily,
+          )
+          const contextWindowMode = parseStoredContextWindowMode(
+            modelRecord.contextWindowMode,
+          )
+          const contextWindow = parseStoredContextWindow(modelRecord.contextWindow)
+          enabledModels.push({
+            modelId,
+            name,
+            ...(capabilities ? { capabilities } : {}),
+            ...(pricingModelKey ? { pricingModelKey } : {}),
+            ...(manualPricing ? { manualPricing } : {}),
+            ...(openRouterPricing ? { openRouterPricing } : {}),
+            ...(tokenizerFamily ? { tokenizerFamily } : {}),
+            ...(contextWindowMode ? { contextWindowMode } : {}),
+            ...(contextWindow !== undefined ? { contextWindow } : {}),
+          })
         }
       }
     }
   }
 
-  if (!apiKey) {
+  if (!apiKey && !isOpencodeZenProvider(providerId)) {
     return undefined
   }
 
@@ -137,7 +199,31 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
     enabledModels,
     defaultModel,
     thinkingEnabled,
+    useProxy,
   }
+}
+
+function normalizePreferredModelRef(raw: unknown): PreferredModelRef | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const record = raw as Record<string, unknown>
+  const providerEntryId =
+    typeof record.providerEntryId === 'string' ? record.providerEntryId.trim() : ''
+  const modelId = typeof record.modelId === 'string' ? record.modelId.trim() : ''
+  if (!providerEntryId || !modelId) return undefined
+  return { providerEntryId, modelId }
+}
+
+function normalizePreferredByCapability(raw: unknown): PreferredByCapability {
+  if (!raw || typeof raw !== 'object') return {}
+  const record = raw as Record<string, unknown>
+  const result: PreferredByCapability = {}
+  for (const capability of AI_MODEL_CAPABILITIES) {
+    const ref = normalizePreferredModelRef(record[capability])
+    if (ref) {
+      result[capability] = ref
+    }
+  }
+  return result
 }
 
 function normalizeV2Settings(
@@ -167,15 +253,51 @@ function normalizeV2Settings(
     return undefined
   }
 
-  const preferredIndex =
-    typeof record.preferredIndex === 'number'
-      ? Math.max(0, Math.min(record.preferredIndex, providers.length - 1))
+  const storedRevision =
+    typeof record.presetSyncRevision === 'number'
+      ? record.presetSyncRevision
       : 0
+  const syncedProviders =
+    storedRevision < CURRENT_PRESET_SYNC_REVISION
+      ? providers.map(appendMissingPresetModels)
+      : providers
+
+  const preferredIndexHint =
+    typeof record.preferredIndex === 'number'
+      ? Math.max(0, Math.min(record.preferredIndex, syncedProviders.length - 1))
+      : 0
+
+  const existingPreferred = normalizePreferredByCapability(
+    record.preferredByCapability,
+  )
+
+  // 旧数据没有按能力首选时，用 preferredIndex + defaultModel 作为文本首选种子
+  if (!existingPreferred.text) {
+    const hinted = syncedProviders[preferredIndexHint]
+    if (hinted?.defaultModel) {
+      existingPreferred.text = {
+        providerEntryId: hinted.id,
+        modelId: hinted.defaultModel,
+      }
+    }
+  }
+
+  const reconciled = reconcilePreferredByCapability(
+    syncedProviders,
+    existingPreferred,
+    preferredIndexHint,
+  )
+  const nextProviders = applyTextPreferredToProviders(
+    syncedProviders,
+    reconciled.preferredByCapability,
+  )
 
   return {
     version: 2,
-    providers,
-    preferredIndex,
+    providers: nextProviders,
+    preferredIndex: reconciled.preferredIndex,
+    preferredByCapability: reconciled.preferredByCapability,
+    presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
   }
 }
 
@@ -226,29 +348,35 @@ function resolveAccountSettingsStorage(storage?: Storage): Storage {
 export function loadAccountSettings(storage?: Storage): AccountSettingsV2 | undefined {
   try {
     const raw = resolveAccountSettingsStorage(storage).getItem(STORAGE_KEY)
-    if (!raw) {
-      return undefined
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        !Array.isArray(parsed) &&
+        'version' in parsed
+      ) {
+        const v2 = normalizeV2Settings(parsed)
+        if (v2) {
+          return v2
+        }
+      } else {
+        const legacy = normalizeLegacySettings(parsed)
+        if (legacy) {
+          return migrateLegacySettings(legacy)
+        }
+      }
     }
-    const parsed = JSON.parse(raw)
-
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      !Array.isArray(parsed) &&
-      'version' in parsed
-    ) {
-      return normalizeV2Settings(parsed)
-    }
-
-    const legacy = normalizeLegacySettings(parsed)
-    if (legacy) {
-      return migrateLegacySettings(legacy)
-    }
-
-    return undefined
   } catch {
+    // 存储损坏，回落到默认免费档
+  }
+  // 显式传入 storage（测试等场景）保持纯读，不落盘
+  if (storage) {
     return undefined
   }
+  // 无配置：落盘默认免费档（instant-free + auto），与用户添加的 Provider 完全同构
+  const defaults = defaultAccountSettingsV2()
+  return saveAccountSettings(defaults) ? defaults : undefined
 }
 
 export function saveAccountSettings(
@@ -287,9 +415,15 @@ export function clearAccountSettings(): void {
 
 export function accountSettingsToOpenAiConfig(
   settings: AccountSettingsV2,
+  capability: AiModelCapability = 'text',
 ): Partial<OpenAiConfig> | undefined {
-  const entry = getPreferredProvider(settings)
-  if (!entry) {
+  const ref = resolvePreferredModelRef(settings, capability)
+  if (!ref) {
+    return undefined
+  }
+
+  const entry = settings.providers.find((item) => item.id === ref.providerEntryId)
+  if (!entry || !isProviderEntryValid(entry)) {
     return undefined
   }
 
@@ -298,47 +432,104 @@ export function accountSettingsToOpenAiConfig(
   return {
     apiKey: entry.apiKey,
     baseURL: baseURL || undefined,
-    defaultModel: entry.defaultModel,
+    defaultModel: ref.modelId,
     providerId: entry.providerId,
     thinkingEnabled: entry.thinkingEnabled,
+    useProxy: entry.useProxy,
+  }
+}
+
+export function openAiConfigForModelRef(
+  settings: AccountSettingsV2,
+  ref: PreferredModelRef,
+  capability: AiModelCapability = 'text',
+): Partial<OpenAiConfig> | undefined {
+  const entry = settings.providers.find((item) => item.id === ref.providerEntryId)
+  if (!entry || !isProviderEntryValid(entry)) {
+    return undefined
+  }
+  const model = entry.enabledModels.find((item) => item.modelId === ref.modelId)
+  if (!model) {
+    return undefined
+  }
+  if (
+    !modelHasCapability(entry.providerId, model.modelId, capability, model.capabilities)
+  ) {
+    return undefined
+  }
+  const baseURL = resolveProviderEntryBaseURL(entry)
+  return {
+    apiKey: entry.apiKey,
+    baseURL: baseURL || undefined,
+    defaultModel: ref.modelId,
+    providerId: entry.providerId,
+    thinkingEnabled: entry.thinkingEnabled,
+    useProxy: entry.useProxy,
   }
 }
 
 export function defaultAccountSettingsV2(): AccountSettingsV2 {
-  const entry = defaultProviderEntry()
+  // 开箱即用的默认：内置免费额度（auto 多候选模型），无任何配置时钥匙串即显示该条目
+  const entry = defaultProviderEntry('instant-free')
+  const providers = [entry]
+  const reconciled = reconcilePreferredByCapability(providers, undefined, 0)
   return {
     version: 2,
-    providers: [entry],
-    preferredIndex: 0,
+    providers: applyTextPreferredToProviders(
+      providers,
+      reconciled.preferredByCapability,
+    ),
+    preferredIndex: reconciled.preferredIndex,
+    preferredByCapability: reconciled.preferredByCapability,
+    presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
   }
 }
 
 export function isAccountSettingsValid(
   settings: AccountSettingsV2,
 ): boolean {
-  if (
-    settings.providers.length === 0 ||
-    settings.preferredIndex < 0 ||
-    settings.preferredIndex >= settings.providers.length
-  ) {
+  if (settings.providers.length === 0) {
     return false
   }
-  return isProviderEntryValid(settings.providers[settings.preferredIndex])
+
+  const textRef = resolvePreferredModelRef(settings, 'text')
+  if (!textRef) {
+    return false
+  }
+
+  const entry = settings.providers.find((item) => item.id === textRef.providerEntryId)
+  return entry !== undefined && isProviderEntryValid(entry)
 }
 
 export function getPreferredProvider(
   settings: AccountSettingsV2,
+  capability: AiModelCapability = 'text',
 ): AiProviderEntry | undefined {
-  if (
-    settings.preferredIndex >= 0 &&
-    settings.preferredIndex < settings.providers.length
-  ) {
-    return settings.providers[settings.preferredIndex]
+  const ref = resolvePreferredModelRef(settings, capability)
+  if (!ref) {
+    return settings.providers[settings.preferredIndex] ?? settings.providers[0]
   }
-  return settings.providers[0]
+  return (
+    settings.providers.find((item) => item.id === ref.providerEntryId) ??
+    settings.providers[0]
+  )
 }
 
-export { type AccountSettingsV2, type AiProviderEntry, type AiModelEntry } from '../ai/ai-providers.ts'
+export {
+  type AccountSettingsV2,
+  type AiProviderEntry,
+  type AiModelEntry,
+  type PreferredByCapability,
+  type PreferredModelRef,
+} from '../ai/ai-providers.ts'
+
+
+
+
+
+
+
+
 
 
 

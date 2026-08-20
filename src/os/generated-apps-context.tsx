@@ -33,10 +33,12 @@ import type { AppCapabilityTag } from '../apps/appstore/app-capability-tags.ts'
 import { DeviceStorageFullError } from './device-storage.ts'
 import {
   clearGeneratedAppData,
-  saveGeneratedAppData,
+  saveGeneratedAppDataAsync,
 } from './generated-app-data-storage.ts'
 import type { GeneratedAppDataStore } from './generated-app-data-storage.ts'
 import { loadInstalledApps, saveInstalledApps } from './generated-apps-storage.ts'
+import { hydrateInstalledAppsFromFiles } from './generated-apps-store.ts'
+import { invalidateAppCatalogCache } from './app-catalog.ts'
 import {
   loadLauncherLayout,
   removeAppFromLauncherLayout,
@@ -190,10 +192,34 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const [appDataRevisions, setAppDataRevisions] = useState<Record<string, number>>({})
   const [storageRevision, setStorageRevision] = useState(0)
 
+  // 启动 hydrate：从文件 Contents 载入完整记录到内存，同步 state 并失效 catalog 缓存。
+  // boot 流程已先于 render hydrate，此 effect 作为兜底（失败/其他入口时重新载入）。
   useEffect(() => {
-    if (!saveInstalledApps(installedApps)) {
-      setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
+    let cancelled = false
+    void hydrateInstalledAppsFromFiles().then(() => {
+      if (cancelled) return
+      const fromCache = loadInstalledApps()
+      setInstalledApps((current) =>
+        fromCache.length === current.length &&
+        fromCache.every((app, index) => app.id === current[index]?.id)
+          ? current
+          : fromCache,
+      )
+      invalidateAppCatalogCache()
+    })
+    return () => {
+      cancelled = true
     }
+  }, [])
+
+  // 持久化：installedApps 任一变化（含回滚/裁剪/卸载/发布等）差分写 Contents。
+  // 采用 fire-and-forget（同步 API 保持调用点签名），失败时异步提示。
+  useEffect(() => {
+    void saveInstalledApps(installedApps).then((ok) => {
+      if (!ok) {
+        setListingsError('数据空间已满（4 GB 上限），无法保存应用。')
+      }
+    })
   }, [installedApps])
 
   useEffect(() => {
@@ -453,11 +479,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       }
 
       const nextApps = replaceInstalledApp(installedApps, appId, rolledBack)
-      if (!saveInstalledApps(nextApps)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
-        return false
-      }
-
+      void saveInstalledApps(nextApps).then((ok) => {
+        if (!ok) setListingsError('数据空间已满（4 GB 上限），无法保存应用。')
+      })
       setInstalledApps(nextApps)
       return true
     },
@@ -473,10 +497,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
 
       const pruned = pruneArchivedVersions(app)
       const nextApps = replaceInstalledApp(installedApps, appId, pruned)
-      if (!saveInstalledApps(nextApps)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
-        return false
-      }
+      void saveInstalledApps(nextApps).then((ok) => {
+        if (!ok) setListingsError('数据空间已满（4 GB 上限），无法保存应用。')
+      })
 
       setInstalledApps(nextApps)
       return true
@@ -497,9 +520,10 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const dismissFailedInstall = useCallback((appId: GeneratedAppId) => {
     setFailedInstalls((current) => {
       const failed = current.find((item) => item.id === appId)
-      if (failed) {
-        clearPendingInstallStream(failed.listing.slug)
+      if (!failed) {
+        return current
       }
+      clearPendingInstallStream(failed.listing.slug)
       return current.filter((item) => item.id !== appId)
     })
   }, [])
@@ -512,9 +536,10 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const dismissCompletedInstall = useCallback((appId: GeneratedAppId) => {
     setCompletedInstalls((current) => {
       const completed = current.find((item) => item.id === appId)
-      if (completed) {
-        clearPendingInstallStream(completed.listing.slug)
+      if (!completed) {
+        return current
       }
+      clearPendingInstallStream(completed.listing.slug)
       return current.filter((item) => item.id !== appId)
     })
   }, [])
@@ -617,7 +642,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         }
 
         const nextApps = replaceInstalledApp(loadInstalledApps(), appId, record)
-        if (!saveInstalledApps(nextApps)) {
+        if (!(await saveInstalledApps(nextApps))) {
           throw new DeviceStorageFullError()
         }
 
@@ -796,15 +821,16 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         ? replaceInstalledApp(installedApps, input.appId, record)
         : [...installedApps, record]
 
-      if (!saveInstalledApps(nextApps)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法发布应用。')
-        return undefined
-      }
+      void saveInstalledApps(nextApps).then((ok) => {
+        if (!ok) setListingsError('数据空间已满（4 GB 上限），无法发布应用。')
+      })
 
-      if (!saveGeneratedAppData(input.appId, input.appData)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
-        return undefined
-      }
+      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（数据空间总配额）
+      void saveGeneratedAppDataAsync(input.appId, input.appData).then((failures) => {
+        if (failures.length > 0) {
+          setListingsError('数据空间已满，无法保存应用数据。')
+        }
+      })
 
       setInstalledApps(nextApps)
 
@@ -874,15 +900,16 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         ? replaceInstalledApp(installedApps, input.appId, record)
         : [...installedApps, record]
 
-      if (!saveInstalledApps(nextApps)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法同步应用。')
-        return false
-      }
+      void saveInstalledApps(nextApps).then((ok) => {
+        if (!ok) setListingsError('数据空间已满（4 GB 上限），无法同步应用。')
+      })
 
-      if (!saveGeneratedAppData(input.appId, input.appData)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
-        return false
-      }
+      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（数据空间总配额）
+      void saveGeneratedAppDataAsync(input.appId, input.appData).then((failures) => {
+        if (failures.length > 0) {
+          setListingsError('数据空间已满，无法保存应用数据。')
+        }
+      })
 
       setInstalledApps(nextApps)
       setStorageRevision((revision) => revision + 1)
@@ -908,10 +935,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       })
 
       const nextApps = replaceInstalledApp(installedApps, appId, record)
-      if (!saveInstalledApps(nextApps)) {
-        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
-        return false
-      }
+      void saveInstalledApps(nextApps).then((ok) => {
+        if (!ok) setListingsError('数据空间已满（4 GB 上限），无法保存应用。')
+      })
 
       setInstalledApps(nextApps)
       return true

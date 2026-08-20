@@ -1,0 +1,415 @@
+export type ComponentProp = {
+  name: string
+  type: string
+  description: string
+}
+
+export type ComponentDemo = {
+  id: string
+  name: string
+  description: string
+  category: 'form' | 'settings' | 'navigation' | 'picker' | 'other' | 'window'
+  importPath: string
+  props: ComponentProp[]
+  codeExample: string
+}
+
+export const UI_COMPONENTS: ComponentDemo[] = [
+  {
+    id: 'ios-switch',
+    name: 'IosSwitch',
+    description: 'iOS 6 风格 ON/OFF 滑块开关；可单独使用，也可嵌在设置行里',
+    category: 'form',
+    importPath: "import { IosSwitch } from '../../ui/ios-switch.tsx'",
+    props: [
+      { name: 'checked', type: 'boolean', description: '开关状态' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
+      { name: 'label', type: 'string', description: '无障碍标签' },
+    ],
+    codeExample: `<IosSwitch
+  checked={enabled}
+  onChange={setEnabled}
+  label="启用功能"
+/>`,
+  },
+  {
+    id: 'ios-check-toggle',
+    name: 'IosCheckToggle',
+    description: 'iOS 风格复选框；支持 default / small 尺寸与 disabled',
+    category: 'form',
+    importPath: "import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'",
+    props: [
+      { name: 'checked', type: 'boolean', description: '选中状态' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
+      { name: 'label', type: 'string', description: '无障碍标签' },
+      { name: 'size', type: "'default' | 'small'", description: '尺寸' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    ],
+    codeExample: `<IosCheckToggle
+  checked={agreed}
+  onChange={setAgreed}
+  label="同意条款"
+  size="small"
+/>`,
+  },
+  {
+    id: 'ios-button',
+    name: 'IosButton',
+    description:
+      'iOS 6 拟物按钮；secondary / primary / danger，支持 compact 与 icon 方形。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+    category: 'form',
+    importPath: "import { IosButton } from '../../ui/ios-button.tsx'",
+    props: [
+      { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary' },
+      { name: 'size', type: "'default' | 'compact'", description: '尺寸' },
+      { name: 'icon', type: 'boolean?', description: '方形图标按钮' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type' },
+      { name: 'aria-label', type: 'string?', description: '无障碍标签' },
+      { name: 'onClick', type: '() => void', description: '点击回调' },
+    ],
+    codeExample: `<IosButton tone="primary" onClick={handleSave}>保存</IosButton>
+<IosButton size="compact">取消</IosButton>
+{/* 父级设置 --ios-button-color / --ios-button-bg 等即可换皮 */}
+<div style={{ '--ios-button-color': '#c77400' }}>
+  <IosButton size="compact">书城</IosButton>
+</div>`,
+  },
+  {
+    id: 'ios-text-field',
+    name: 'IosTextField',
+    description:
+      'iOS 6 内凹文本输入框；属性与原生 input 一致。开启「语音实验室」后可长按空格语音听写',
+    category: 'form',
+    importPath: "import { IosTextField } from '../../ui/ios-text-field.tsx'",
+    props: [
+      { name: 'value', type: 'string', description: '输入值' },
+      { name: 'placeholder', type: 'string?', description: '占位文案' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'onInput', type: '(event) => void', description: '输入回调' },
+      {
+        name: 'voiceDictation',
+        type: 'boolean?',
+        description:
+          '长按空格语音听写；undefined 跟随开发者选项「语音实验室」，false 强制关闭',
+      },
+    ],
+    codeExample: `<IosTextField
+  value={query}
+  placeholder="搜索…"
+  onInput={(event) => setQuery(event.currentTarget.value)}
+/>
+{/* 长按空格说话，松手插入（需开启语音实验室） */}
+<IosTextField
+  value={query}
+  onInput={(event) => setQuery(event.currentTarget.value)}
+/>`,
+  },
+  {
+    id: 'segmented-control',
+    name: 'SegmentedControl',
+    description: '分段选择器；支持徽章数量与脏状态小橙点',
+    category: 'form',
+    importPath: "import { SegmentedControl } from '../../ui/segmented-control.tsx'",
+    props: [
+      { name: 'value', type: 'string', description: '当前选中值' },
+      { name: 'items', type: 'SegmentedControlItem[]', description: '选项列表' },
+      { name: 'onChange', type: '(id: string) => void', description: '选择变化回调' },
+      { name: 'ariaLabel', type: 'string', description: '无障碍标签' },
+    ],
+    codeExample: `<SegmentedControl
+  value={tab}
+  items={[
+    { id: 'all', label: '全部', badge: 5 },
+    { id: 'unread', label: '未读', dirty: true }
+  ]}
+  onChange={setTab}
+  ariaLabel="消息分类"
+/>`,
+  },
+  {
+    id: 'settings-choice-field',
+    name: 'SettingsChoiceField',
+    description: '设置选项字段；form / list 内置触发器，或 children 自定义；支持宽窄屏与 dark',
+    category: 'settings',
+    importPath: "import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '字段标签' },
+      { name: 'value', type: 'string', description: '当前值' },
+      { name: 'options', type: 'SettingsChoiceOption[]', description: '选项列表' },
+      { name: 'onChange', type: '(value: string) => void', description: '变化回调' },
+      { name: 'wideLayout', type: 'boolean', description: '是否宽屏布局' },
+      { name: 'presentation', type: "'form' | 'list'", description: '内置触发器样式' },
+      { name: 'dark', type: 'boolean?', description: '深色弹出菜单' },
+      { name: 'children', type: '(props: SettingsChoiceTriggerProps) => VNode', description: '自定义 trigger 渲染' },
+    ],
+    codeExample: `// 内置 form
+<SettingsChoiceField
+  label="主题" value={theme}
+  options={[...]} onChange={setTheme}
+  wideLayout presentation="form"
+/>
+
+// 自定义 trigger + dark
+<SettingsChoiceField
+  label="排序" value={sort}
+  options={[...]} onChange={setSort}
+  wideLayout dark
+>
+  {({ open, setOpen, triggerRef, displayValue }) => (
+    <button ref={triggerRef} onClick={() => setOpen(!open)}>
+      {displayValue}
+    </button>
+  )}
+</SettingsChoiceField>`,
+  },
+  {
+    id: 'settings-nav-row',
+    name: 'SettingsNavRow',
+    description: '设置导航行；右侧值、密钥圆点掩码、禁用态',
+    category: 'settings',
+    importPath: "import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '左侧标签' },
+      { name: 'value', type: 'string', description: '右侧显示值' },
+      { name: 'onClick', type: '() => void', description: '点击回调' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'secretLength', type: 'number?', description: '密钥长度；有值时显示圆点掩码' },
+    ],
+    codeExample: `<SettingsNavRow
+  label="账号设置"
+  value="user@example.com"
+  onClick={() => navigate('account')}
+/>
+
+<SettingsNavRow
+  label="API Key"
+  value=""
+  secretLength={24}
+  onClick={openSecretEditor}
+/>`,
+  },
+  {
+    id: 'settings-switch-row',
+    name: 'SettingsSwitchRow',
+    description: '设置开关行；标签 + IosSwitch 组合，常成组出现',
+    category: 'settings',
+    importPath: "import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '标签文本' },
+      { name: 'checked', type: 'boolean', description: '开关状态' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
+    ],
+    codeExample: `<SettingsSwitchRow
+  label="启用通知"
+  checked={notificationsEnabled}
+  onChange={setNotificationsEnabled}
+/>`,
+  },
+  {
+    id: 'settings-stepper-row',
+    name: 'SettingsStepperRow',
+    description: '设置数字行；点击弹出模态，在模态内用 [−] / 输入 / [+] 调节',
+    category: 'settings',
+    importPath: "import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '左侧标签' },
+      { name: 'value', type: 'number', description: '当前值' },
+      { name: 'onChange', type: '(value: number) => void', description: '值变化回调' },
+      { name: 'min', type: 'number?', description: '最小值' },
+      { name: 'max', type: 'number?', description: '最大值' },
+      { name: 'step', type: 'number?', description: '步进，默认 1' },
+      { name: 'unit', type: 'string?', description: '单位，显示在右侧当前值旁' },
+      { name: 'editable', type: 'boolean?', description: '模态内是否允许直接输入，默认 true' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    ],
+    codeExample: `<SettingsStepperRow
+  label="字号"
+  value={fontSize}
+  min={10}
+  max={24}
+  onChange={setFontSize}
+/>`,
+  },
+  {
+    id: 'settings-check-row',
+    name: 'SettingsCheckRow',
+    description: '设置勾选行；左侧标签、右侧无边框勾，整行点按切换；禁用态灰底灰字',
+    category: 'settings',
+    importPath: "import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '标签文本' },
+      { name: 'checked', type: 'boolean', description: '选中状态' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用（锁定项）' },
+    ],
+    codeExample: `<SettingsCheckRow
+  label="图像识别"
+  checked={supportsVision}
+  onChange={setSupportsVision}
+/>
+
+<SettingsCheckRow
+  label="文本"
+  checked
+  disabled
+  onChange={() => undefined}
+/>`,
+  },
+  {
+    id: 'settings-inline-input-row',
+    name: 'SettingsInlineInputRow',
+    description: '设置内联输入行；文本 / URL / 密码',
+    category: 'settings',
+    importPath: "import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '左侧标签' },
+      { name: 'value', type: 'string', description: '输入值' },
+      { name: 'onChange', type: '(value: string) => void', description: '变化回调' },
+      { name: 'type', type: "'text' | 'password' | 'url'", description: '输入类型' },
+      { name: 'placeholder', type: 'string?', description: '占位文案' },
+    ],
+    codeExample: `<SettingsInlineInputRow
+  label="服务地址"
+  value={url}
+  onChange={setUrl}
+  type="url"
+  placeholder="https://"
+/>`,
+  },
+  {
+    id: 'document-tab-bar',
+    name: 'DocumentTabBar',
+    description: '文档标签栏；脏状态、关闭动画、拥挤时悬停加宽、minTabsToShow',
+    category: 'navigation',
+    importPath: "import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'",
+    props: [
+      { name: 'tabs', type: 'DocumentTabItem[]', description: '标签列表' },
+      { name: 'activeTabId', type: 'string | undefined', description: '当前激活标签' },
+      { name: 'onActivate', type: '(tabId: string) => void', description: '激活回调' },
+      { name: 'onClose', type: '(tabId: string) => void', description: '关闭回调' },
+      { name: 'minTabsToShow', type: 'number?', description: '低于此数量时隐藏标签栏，默认 2' },
+    ],
+    codeExample: `<DocumentTabBar
+  tabs={openFiles}
+  activeTabId={currentFile}
+  onActivate={openFile}
+  onClose={closeFile}
+  minTabsToShow={2}
+/>`,
+  },
+  {
+    id: 'adaptive-action-menu',
+    name: 'AdaptiveActionMenu',
+    description: '自适应操作菜单；宽屏下拉，窄屏底部面板',
+    category: 'navigation',
+    importPath: "import { AdaptiveActionMenu } from '../../ui/adaptive-action-menu.tsx'",
+    props: [
+      { name: 'open', type: 'boolean', description: '是否打开' },
+      { name: 'title', type: 'string', description: '菜单标题' },
+      { name: 'items', type: 'AdaptiveActionMenuItem[]', description: '菜单项列表' },
+      { name: 'narrowLayout', type: 'boolean', description: '是否窄屏布局' },
+      { name: 'onClose', type: '() => void', description: '关闭回调' },
+      { name: 'mount', type: "'contained' | 'portal'", description: '挂载方式' },
+    ],
+    codeExample: `<AdaptiveActionMenu
+  open={menuOpen}
+  title="操作"
+  items={[
+    { type: 'action', label: '删除', onClick: handleDelete }
+  ]}
+  narrowLayout={narrow}
+  onClose={() => setMenuOpen(false)}
+/>`,
+  },
+  {
+    id: 'ios-nav-back-button',
+    name: 'IosNavBackButton',
+    description: 'iOS 风格返回按钮；用于子页标题栏',
+    category: 'navigation',
+    importPath: "import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '返回目标名称' },
+      { name: 'onClick', type: '(event) => void', description: '点击回调' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'iconSize', type: 'number?', description: '箭头图标尺寸，默认 13' },
+    ],
+    codeExample: `<IosNavBackButton
+  label="设置"
+  onClick={() => navigateBack()}
+/>`,
+  },
+  {
+    id: 'emoji-picker-popover',
+    name: 'EmojiPickerPopover',
+    description: '表情选择弹出层；默认触发器或自定义 children 内容',
+    category: 'picker',
+    importPath: "import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'",
+    props: [
+      { name: 'value', type: 'string', description: '当前表情' },
+      { name: 'onChange', type: '(emoji: string) => void', description: '选择回调' },
+      { name: 'triggerLabel', type: 'string?', description: '默认触发器文案' },
+      { name: 'children', type: 'ComponentChildren?', description: '自定义触发器内容' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    ],
+    codeExample: `<EmojiPickerPopover
+  value={emoji}
+  onChange={setEmoji}
+  triggerLabel="选择图标"
+/>`,
+  },
+  {
+    id: 'ai-model-capability-tags',
+    name: 'AiModelCapabilityTags',
+    description: 'AI 模型能力标签；视觉能力可切换编辑',
+    category: 'other',
+    importPath: "import { AiModelCapabilityTags } from '../../ui/ai-model-capability-tags.tsx'",
+    props: [
+      { name: 'capabilities', type: 'readonly AiModelCapability[]', description: '已启用能力' },
+      { name: 'visionEditable', type: 'boolean?', description: '是否允许切换视觉能力' },
+      { name: 'onVisionChange', type: '(supportsVision: boolean) => void?', description: '视觉能力变化回调' },
+    ],
+    codeExample: `<AiModelCapabilityTags
+  capabilities={['text', 'vision']}
+  visionEditable
+  onVisionChange={setSupportsVision}
+/>`,
+  },
+  {
+    id: 'window-modal',
+    name: 'WindowModal',
+    description: '窗口模态对话框；primary / secondary / danger 按钮，支持 wide / scrollBody',
+    category: 'window',
+    importPath: "import { WindowModal } from '../../window/window-modal.tsx'",
+    props: [
+      { name: 'open', type: 'boolean', description: '是否打开' },
+      { name: 'title', type: 'string', description: '对话框标题' },
+      { name: 'onClose', type: '() => void', description: '关闭回调' },
+      { name: 'actions', type: 'WindowModalAction[]?', description: '操作按钮列表' },
+      { name: 'wide', type: 'boolean?', description: '宽对话框' },
+      { name: 'scrollBody', type: 'boolean?', description: '内容区可滚动' },
+      { name: 'children', type: 'ComponentChildren', description: '内容区域' },
+    ],
+    codeExample: `<WindowModal
+  open={dialogOpen}
+  title="删除项目"
+  role="alertdialog"
+  onClose={handleClose}
+  actions={[
+    { label: '取消', onClick: handleClose },
+    { label: '删除', tone: 'danger', onClick: handleDelete }
+  ]}
+>
+  <p>此操作无法撤销。</p>
+</WindowModal>`,
+  },
+]
+
+export const COMPONENT_CATEGORIES = [
+  { id: 'form', name: '表单控件' },
+  { id: 'settings', name: '设置组件' },
+  { id: 'navigation', name: '导航交互' },
+  { id: 'picker', name: '选择器' },
+  { id: 'other', name: '其他' },
+  { id: 'window', name: '窗口系统' },
+] as const

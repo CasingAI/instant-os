@@ -1,6 +1,7 @@
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import type { GeneratedAppHeapReport } from '../../os/generated-app-heap-reports.ts'
 import { isGeneratedAppProcessIsolationActive } from '../../os/resolve-generated-app-process-isolation.ts'
+import type { WorkerHeapReport } from '../../os/worker-heap-reports.ts'
 
 export type JsHeapSnapshot = {
   usedBytes: number
@@ -28,11 +29,13 @@ export type MemoryTrackingMode = 'host-only' | 'deduped-heaps'
 
 export type AggregatedMemorySnapshot = {
   mode: MemoryTrackingMode
-  /** 折线主读数：去重后的各独立堆已用之和（宿主若与某微应用同堆只计一次）。 */
+  /** 折线主读数：宿主 + 去重后微应用堆。 */
   display: JsHeapSnapshot | undefined
   host: JsHeapSnapshot | undefined
   /** 与宿主不同堆的微应用侧合计（已去重）。 */
   apps: JsHeapSnapshot | undefined
+  /** 存活的系统服务 Worker 列表（无法读取各自堆大小）。 */
+  workerReports: WorkerHeapReport[]
   /** 去重后的独立堆；含宿主时 sharedWithHost 为 true。 */
   heapClusters: MemoryHeapCluster[]
   appReports: GeneratedAppHeapReport[]
@@ -178,6 +181,7 @@ export function aggregateMemorySnapshot(
   host: JsHeapSnapshot | undefined,
   appReports: GeneratedAppHeapReport[],
   isolationActive = isGeneratedAppProcessIsolationActive(),
+  workerReports: WorkerHeapReport[] = [],
 ): AggregatedMemorySnapshot {
   const heapClusters = clusterSharedHeaps(appReports, host)
   const sharedGuestReportCount = heapClusters.reduce(
@@ -192,6 +196,7 @@ export function aggregateMemorySnapshot(
       display: host,
       host,
       apps: undefined,
+      workerReports,
       heapClusters,
       appReports,
       isolationActive: false,
@@ -209,28 +214,21 @@ export function aggregateMemorySnapshot(
           limitBytes: guestOnlyClusters.reduce((sum, cluster) => sum + cluster.limitBytes, 0),
         }
 
-  if (!host && !apps) {
-    return {
-      mode: 'deduped-heaps',
-      display: undefined,
-      host,
-      apps,
-      heapClusters,
-      appReports,
-      isolationActive: true,
-      sharedGuestReportCount,
-    }
-  }
+  const display =
+    !host && !apps
+      ? undefined
+      : {
+          usedBytes: (host?.usedBytes ?? 0) + (apps?.usedBytes ?? 0),
+          totalBytes: (host?.totalBytes ?? 0) + (apps?.totalBytes ?? 0),
+          limitBytes: (host?.limitBytes ?? 0) + (apps?.limitBytes ?? 0),
+        }
 
   return {
     mode: 'deduped-heaps',
-    display: {
-      usedBytes: (host?.usedBytes ?? 0) + (apps?.usedBytes ?? 0),
-      totalBytes: (host?.totalBytes ?? 0) + (apps?.totalBytes ?? 0),
-      limitBytes: (host?.limitBytes ?? 0) + (apps?.limitBytes ?? 0),
-    },
+    display,
     host,
     apps,
+    workerReports,
     heapClusters,
     appReports,
     isolationActive: true,

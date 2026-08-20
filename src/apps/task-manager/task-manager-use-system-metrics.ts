@@ -5,6 +5,10 @@ import {
 import { listGeneratedAppHeapReports } from '../../os/generated-app-heap-reports.ts'
 import { SANDBOXED_CORS_PROBE_COMPLETED_EVENT } from '../../os/resolve-generated-app-process-isolation.ts'
 import {
+  listWorkerHeapReports,
+  WORKER_HEAP_REPORTS_CHANGED_EVENT,
+} from '../../os/worker-heap-reports.ts'
+import {
   appendMetricSeriesPoint,
   type MetricSeriesPoint,
 } from './task-manager-metric-series.ts'
@@ -23,10 +27,20 @@ export type TaskManagerSystemMetrics = {
   memorySupported: boolean
 }
 
+function readAggregatedMemory(): AggregatedMemorySnapshot {
+  return aggregateMemorySnapshot(
+    readJsHeapSnapshot(),
+    listGeneratedAppHeapReports(),
+    undefined,
+    listWorkerHeapReports(),
+  )
+}
+
 /**
  * 性能监视器打开期间持续采样帧率与 JS 堆内存。
  * 内存在进程隔离开启时会汇总宿主与微应用上报，但先按堆指纹去重（同堆只计一次）；
  * 关闭时只记宿主，避免同域整堆读数按窗口翻倍。
+ * Dedicated Worker 独立堆始终与宿主相加。
  */
 export function useTaskManagerSystemMetrics(
   sampleIntervalSec: SpeedSampleIntervalSec,
@@ -34,9 +48,7 @@ export function useTaskManagerSystemMetrics(
   const [fpsSeries, setFpsSeries] = useState<MetricSeriesPoint[]>([])
   const [memorySeries, setMemorySeries] = useState<MetricSeriesPoint[]>([])
   const [latestFps, setLatestFps] = useState(0)
-  const [memory, setMemory] = useState<AggregatedMemorySnapshot>(() =>
-    aggregateMemorySnapshot(readJsHeapSnapshot(), listGeneratedAppHeapReports()),
-  )
+  const [memory, setMemory] = useState<AggregatedMemorySnapshot>(() => readAggregatedMemory())
   const [memorySupported] = useState(() => readJsHeapSnapshot() !== undefined)
 
   const fpsInstantRef = useRef(0)
@@ -47,7 +59,7 @@ export function useTaskManagerSystemMetrics(
     setFpsSeries([])
     setMemorySeries([])
     setLatestFps(0)
-    setMemory(aggregateMemorySnapshot(readJsHeapSnapshot(), listGeneratedAppHeapReports()))
+    setMemory(readAggregatedMemory())
     fpsInstantRef.current = 0
     frameCountRef.current = 0
     frameWindowStartRef.current = performance.now()
@@ -74,10 +86,7 @@ export function useTaskManagerSystemMetrics(
         appendMetricSeriesPoint(current, { at: now, value: fps }, SPEED_SERIES_MAX_POINTS),
       )
 
-      const nextMemory = aggregateMemorySnapshot(
-        readJsHeapSnapshot(),
-        listGeneratedAppHeapReports(),
-      )
+      const nextMemory = readAggregatedMemory()
       setMemory(nextMemory)
       const displayUsed = nextMemory.display?.usedBytes
       if (displayUsed !== undefined) {
@@ -92,18 +101,20 @@ export function useTaskManagerSystemMetrics(
     }
 
     const refreshMemoryBreakdown = () => {
-      setMemory(aggregateMemorySnapshot(readJsHeapSnapshot(), listGeneratedAppHeapReports()))
+      setMemory(readAggregatedMemory())
     }
 
     sample()
     const timer = window.setInterval(sample, sampleIntervalSec * 1000)
     window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, refreshMemoryBreakdown)
     window.addEventListener(SANDBOXED_CORS_PROBE_COMPLETED_EVENT, refreshMemoryBreakdown)
+    window.addEventListener(WORKER_HEAP_REPORTS_CHANGED_EVENT, refreshMemoryBreakdown)
     return () => {
       window.cancelAnimationFrame(rafId)
       window.clearInterval(timer)
       window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, refreshMemoryBreakdown)
       window.removeEventListener(SANDBOXED_CORS_PROBE_COMPLETED_EVENT, refreshMemoryBreakdown)
+      window.removeEventListener(WORKER_HEAP_REPORTS_CHANGED_EVENT, refreshMemoryBreakdown)
     }
   }, [sampleIntervalSec])
 

@@ -1,6 +1,8 @@
 import {
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
+  APP_CAPABILITY_TAG_FILES,
+  APP_CAPABILITY_TAG_TERMINAL,
   formatAppCapabilityTagForDisplay,
   hasAppCapabilityTag,
   normalizeAppCapabilityTag,
@@ -11,6 +13,8 @@ import { GENERATED_APP_AI_BASE_URL } from '../generated/generated-app-ai-types.t
 export const GRANTABLE_ICODE_CAPABILITY_TAGS = [
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
+  APP_CAPABILITY_TAG_FILES,
+  APP_CAPABILITY_TAG_TERMINAL,
 ] as const
 
 export type GrantableIcodeCapabilityTag = (typeof GRANTABLE_ICODE_CAPABILITY_TAGS)[number]
@@ -42,6 +46,19 @@ const AI_RUNTIME_USAGE_PATTERNS = [
   /chat\/completions/,
 ]
 
+const FILES_RUNTIME_USAGE_PATTERNS = [
+  /InstantOS\s*\.\s*files\b/,
+  /__INSTANT_FILES__/,
+  /instant-generated-app-files-request/,
+  /filesListVolumes|filesReadText|filesWriteText/,
+]
+
+const TERMINAL_RUNTIME_USAGE_PATTERNS = [
+  /InstantOS\s*\.\s*terminal\b/,
+  /__INSTANT_TERMINAL__/,
+  /instant-generated-app-terminal-request/,
+]
+
 export function isGrantableIcodeCapabilityTag(tag: string): tag is GrantableIcodeCapabilityTag {
   return GRANTABLE_TAG_SET.has(tag)
 }
@@ -70,6 +87,12 @@ function formatUngrantedCapabilityLines(ungranted: readonly GrantableIcodeCapabi
       if (tag === APP_CAPABILITY_TAG_3D) {
         return '- 3d：Three.js / WebGL / Rapier 物理、3D 模型目录、真 3D 场景与相机'
       }
+      if (tag === APP_CAPABILITY_TAG_FILES) {
+        return '- files：通过 InstantOS.files 读写系统文件（/user、/models、/system、/mount/…）'
+      }
+      if (tag === APP_CAPABILITY_TAG_TERMINAL) {
+        return '- terminal：通过 InstantOS.terminal 创建系统终端会话并 exec 命令（AI 映射到虚拟文件系统）'
+      }
       return `- ai：应用运行时调用系统 AI（${GENERATED_APP_AI_BASE_URL}/chat/completions 或注入的 OpenAI 客户端）`
     })
     .join('\n')
@@ -79,12 +102,24 @@ export function formatGrantableCapabilityLabel(tag: GrantableIcodeCapabilityTag)
   if (tag === APP_CAPABILITY_TAG_3D) {
     return '3D 能力'
   }
+  if (tag === APP_CAPABILITY_TAG_FILES) {
+    return '文件访问能力'
+  }
+  if (tag === APP_CAPABILITY_TAG_TERMINAL) {
+    return '终端能力'
+  }
   return '运行时 AI 能力'
 }
 
 export function formatGrantableCapabilityDescription(tag: GrantableIcodeCapabilityTag): string {
   if (tag === APP_CAPABILITY_TAG_3D) {
     return '允许 AI 使用 3D 引擎'
+  }
+  if (tag === APP_CAPABILITY_TAG_FILES) {
+    return 'AI 可以在生成的 App 中读写系统文件'
+  }
+  if (tag === APP_CAPABILITY_TAG_TERMINAL) {
+    return 'AI 可以在生成的 App 中使用系统终端会话'
   }
   return 'AI 可以在生成的 App 运行时调用 AI 能力'
 }
@@ -106,7 +141,7 @@ export function buildIcodeCapabilityRequestPromptExtension(grantedTags: readonly
 当前未授予（用户点击「授予能力」前不得使用）：
 ${formatUngrantedCapabilityLines(ungranted)}
 
-判定：用户消息或你要实现的功能若依赖未授予的 3d 或 ai，即视为「需要该能力」。
+判定：用户消息或你要实现的功能若依赖未授予的 3d、ai 或 files，即视为「需要该能力」。
 
 若需要尚未授予的能力，本轮回复必须且只能包含：
 1. 自然语言（中文）：说明为什么需要、授予后你会做什么
@@ -116,10 +151,11 @@ ${formatUngrantedCapabilityLines(ungranted)}
 禁止用以下方式绕过能力限制（仍视为需要对应能力，必须改走 REQUEST_CAPABILITY）：
 - 未授予 3d：Three.js、WebGL、Canvas 伪 3D、CSS 3D transform 模拟场景、Rapier、3d 模型 URL
 - 未授予 ai：fetch/OpenAI 调用 ${GENERATED_APP_AI_BASE_URL}、任何 chat/completions、应用内大模型对话
+- 未授予 files：InstantOS.files、读写 /user /models /system /mount 等系统路径
 
 只有所需能力均已授予，或任务本身不需要未授予能力时，才允许输出 SEARCH/REPLACE 或完整 HTML。
 
-REQUEST_CAPABILITY 格式（tag 只能是 3d 或 ai，已授予的不要重复请求）：
+REQUEST_CAPABILITY 格式（tag 只能是 3d、ai 或 files，已授予的不要重复请求）：
 
 \`\`\`
 <<<<<<< REQUEST_CAPABILITY
@@ -166,6 +202,14 @@ export function detectAiCapabilityUsage(text: string): boolean {
   return AI_RUNTIME_USAGE_PATTERNS.some((pattern) => pattern.test(text))
 }
 
+export function detectFilesCapabilityUsage(text: string): boolean {
+  return FILES_RUNTIME_USAGE_PATTERNS.some((pattern) => pattern.test(text))
+}
+
+export function detectTerminalCapabilityUsage(text: string): boolean {
+  return TERMINAL_RUNTIME_USAGE_PATTERNS.some((pattern) => pattern.test(text))
+}
+
 export function inferMissingCapabilityRequests(
   content: string,
   html: string,
@@ -193,6 +237,28 @@ export function inferMissingCapabilityRequests(
     inferred.push({
       tag: APP_CAPABILITY_TAG_AI,
       reason: '实现该功能需要应用在运行时调用 AI，请先授予运行时 AI 能力。',
+    })
+  }
+
+  if (
+    !hasAppCapabilityTag(grantedTags, APP_CAPABILITY_TAG_FILES) &&
+    !requestedTags.has(APP_CAPABILITY_TAG_FILES) &&
+    detectFilesCapabilityUsage(html)
+  ) {
+    inferred.push({
+      tag: APP_CAPABILITY_TAG_FILES,
+      reason: '实现该功能需要读写系统文件，请先授予文件访问能力。',
+    })
+  }
+
+  if (
+    !hasAppCapabilityTag(grantedTags, APP_CAPABILITY_TAG_TERMINAL) &&
+    !requestedTags.has(APP_CAPABILITY_TAG_TERMINAL) &&
+    detectTerminalCapabilityUsage(html)
+  ) {
+    inferred.push({
+      tag: APP_CAPABILITY_TAG_TERMINAL,
+      reason: '实现该功能需要使用系统终端会话，请先授予终端能力。',
     })
   }
 
@@ -330,6 +396,12 @@ export function shouldRevertUngrantedCapabilityCode(
   return pendingRequests.some((request) => {
     if (request.tag === APP_CAPABILITY_TAG_3D) {
       return detect3dCapabilityUsage(html)
+    }
+    if (request.tag === APP_CAPABILITY_TAG_FILES) {
+      return detectFilesCapabilityUsage(html)
+    }
+    if (request.tag === APP_CAPABILITY_TAG_TERMINAL) {
+      return detectTerminalCapabilityUsage(html)
     }
     return detectAiCapabilityUsage(html)
   })

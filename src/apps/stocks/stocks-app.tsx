@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { loadNotificationCenterWidgetsCache } from '../../os/notification-center-widgets-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { generateStockBoard, generateStockDetail } from './stocks-agent.ts'
@@ -16,6 +13,7 @@ import {
   removeWatchEntry,
   setActiveWatch,
   setDefaultDisplay,
+  subscribeStocksStore,
   updateMarketBoard,
   updateWatchDetail,
   upsertWatchEntry,
@@ -171,14 +169,11 @@ function StockDetailPanel({
 }
 
 export function StocksApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
 
   const widgetCache = useMemo(() => loadNotificationCenterWidgetsCache(), [])
-  const [store, setStore] = useState<StocksStore>(() =>
-    bootstrapStocksStoreFromWidgetCache(widgetCache.stocks),
-  )
-  const [board, setBoard] = useState<StockBoard | undefined>(() => readStocksStore().marketBoard)
+  const [store, setStore] = useState<StocksStore | undefined>(undefined)
+  const [board, setBoard] = useState<StockBoard | undefined>(undefined)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSheetOpen, setSearchSheetOpen] = useState(false)
   const [searchSheetQuery, setSearchSheetQuery] = useState('')
@@ -188,35 +183,37 @@ export function StocksApp() {
   const [error, setError] = useState<string | undefined>(undefined)
   const [bootstrapped, setBootstrapped] = useState(false)
 
-  const activeWatch = useMemo(() => getActiveWatch(store), [store])
+  const activeWatch = useMemo(() => (store ? getActiveWatch(store) : undefined), [store])
 
   useEffect(() => {
     setAppWindowTitle('stocks', '股票')
   }, [setAppWindowTitle])
 
   useEffect(() => {
-    const next = bootstrapStocksStoreFromWidgetCache(widgetCache.stocks)
-    setStore(next)
-    if (next.marketBoard) {
-      setBoard(next.marketBoard)
+    let alive = true
+    const load = () => {
+      bootstrapStocksStoreFromWidgetCache(widgetCache.stocks).then((next) => {
+        if (!alive) {
+          return
+        }
+        setStore(next)
+        if (next.marketBoard) {
+          setBoard(next.marketBoard)
+        }
+      })
+    }
+    load()
+    const unsubscribe = subscribeStocksStore(load)
+    return () => {
+      alive = false
+      unsubscribe()
     }
   }, [widgetCache.stocks])
 
-  useEffect(() => {
-    const onChanged = () => {
-      const next = readStocksStore()
-      setStore(next)
-      if (next.marketBoard) {
-        setBoard(next.marketBoard)
-      }
-    }
-    window.addEventListener('instant-os:stocks-store-changed', onChanged)
-    return () => window.removeEventListener('instant-os:stocks-store-changed', onChanged)
-  }, [])
-
   const loadBoard = useCallback(async (force = false) => {
-    if (!force && readStocksStore().marketBoard) {
-      setBoard(readStocksStore().marketBoard)
+    const current = await readStocksStore()
+    if (!force && current.marketBoard) {
+      setBoard(current.marketBoard)
       return
     }
 
@@ -224,7 +221,7 @@ export function StocksApp() {
     setError(undefined)
     try {
       const data = await generateStockBoard()
-      const next = updateMarketBoard(data)
+      const next = await updateMarketBoard(data)
       setStore(next)
       setBoard(data)
     } catch (err) {
@@ -235,19 +232,19 @@ export function StocksApp() {
   }, [])
 
   useEffect(() => {
-    if (bootstrapped) {
+    if (bootstrapped || store === undefined) {
       return
     }
     setBootstrapped(true)
     void loadBoard()
-  }, [bootstrapped, loadBoard])
+  }, [bootstrapped, store, loadBoard])
 
   const refreshWatchDetail = useCallback(async (watchId: string, query: string) => {
     setLoadingWatchId(watchId)
     setError(undefined)
     try {
       const detail = await generateStockDetail(query)
-      const next = updateWatchDetail(watchId, detail)
+      const next = await updateWatchDetail(watchId, detail)
       setStore(next)
     } catch (err) {
       setError(err instanceof Error ? err.message : '刷新失败')
@@ -270,13 +267,13 @@ export function StocksApp() {
     setError(undefined)
     try {
       const detail = await generateStockDetail(`${suggestion.symbol} ${suggestion.name}`)
-      const next = upsertWatchEntry(readStocksStore(), {
+      const next = upsertWatchEntry(await readStocksStore(), {
         symbol: suggestion.symbol,
         name: suggestion.name,
         exchange: suggestion.exchange,
         detail,
       })
-      writeStocksStore(next)
+      await writeStocksStore(next)
       setStore(next)
       setSearchSheetOpen(false)
       setSearchQuery('')
@@ -287,31 +284,35 @@ export function StocksApp() {
     }
   }, [])
 
-  const handleSelectWatch = useCallback((watchId: string) => {
-    setStore(setActiveWatch(watchId))
+  const handleSelectWatch = useCallback(async (watchId: string) => {
+    const next = await setActiveWatch(watchId)
+    setStore(next)
   }, [])
 
-  const handleSelectBoard = useCallback(() => {
-    setStore(clearActiveWatch())
+  const handleSelectBoard = useCallback(async () => {
+    const next = await clearActiveWatch()
+    setStore(next)
   }, [])
 
-  const handleRemoveWatch = useCallback((watchId: string) => {
-    setStore(removeWatchEntry(watchId))
+  const handleRemoveWatch = useCallback(async (watchId: string) => {
+    const next = await removeWatchEntry(watchId)
+    setStore(next)
   }, [])
 
-  const handleSetWidgetDefault = useCallback(() => {
-    if (!activeWatch) {
+  const handleSetWidgetDefault = useCallback(async () => {
+    if (!activeWatch || !store) {
       return
     }
     const next =
       activeWatch.id === store.defaultWatchId
-        ? setDefaultDisplay('default-watch')
-        : setDefaultDisplay(activeWatch.id)
+        ? await setDefaultDisplay('default-watch')
+        : await setDefaultDisplay(activeWatch.id)
     setStore(next)
-  }, [activeWatch, store.defaultWatchId])
+  }, [activeWatch, store?.defaultWatchId])
 
-  const handleSetMarketBoardDefault = useCallback(() => {
-    setStore(setDefaultDisplay('market-board'))
+  const handleSetMarketBoardDefault = useCallback(async () => {
+    const next = await setDefaultDisplay('market-board')
+    setStore(next)
   }, [])
 
   const handleRefresh = useCallback(async () => {
@@ -322,33 +323,7 @@ export function StocksApp() {
     await loadBoard(true)
   }, [activeWatch, refreshWatchDetail, loadBoard])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'stocks' && !window.minimized)
-
-    return [
-      {
-        label: '股票',
-        items: [
-          ...aboutAppMenuPrefix('关于 股票', () => showBuiltinAbout('stocks')),
-          {
-            type: 'action',
-            label: '隐藏股票',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出股票',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('stocks'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('stocks', menuBar)
+  useAppMenuBar('stocks', [])
 
   const loading = loadingBoard || loadingWatchId !== undefined
 
@@ -390,7 +365,7 @@ export function StocksApp() {
         </button>
       </div>
 
-      {(board || store.watchlist.length > 0) && (
+      {store && (board || store.watchlist.length > 0) && (
         <div class="stocks-app__watch-bar" role="tablist" aria-label="行情视图">
           {board && (
             <div
@@ -401,7 +376,7 @@ export function StocksApp() {
                 role="tab"
                 aria-selected={!store.activeWatchId}
                 class={`stocks-app__watch-chip stocks-app__watch-chip--board${!store.activeWatchId ? ' stocks-app__watch-chip--active' : ''}`}
-                onClick={handleSelectBoard}
+                onClick={() => void handleSelectBoard()}
               >
                 <span class="stocks-app__watch-chip-symbol">看板</span>
                 <span class="stocks-app__watch-chip-copy">
@@ -426,7 +401,7 @@ export function StocksApp() {
                   role="tab"
                   aria-selected={selected}
                   class={`stocks-app__watch-chip${selected ? ' stocks-app__watch-chip--active' : ''}`}
-                  onClick={() => handleSelectWatch(item.id)}
+                  onClick={() => void handleSelectWatch(item.id)}
                 >
                   <span class="stocks-app__watch-chip-symbol">{item.symbol}</span>
                   <span class="stocks-app__watch-chip-copy">
@@ -449,7 +424,7 @@ export function StocksApp() {
                     type="button"
                     class="stocks-app__watch-remove"
                     aria-label={`移除 ${item.symbol}`}
-                    onClick={() => handleRemoveWatch(item.id)}
+                    onClick={() => void handleRemoveWatch(item.id)}
                   >
                     ×
                   </button>
@@ -461,6 +436,12 @@ export function StocksApp() {
       )}
 
       <div class="stocks-app__body">
+        {store === undefined && !loading && (
+          <div class="stocks-app__loading" role="status" aria-live="polite">
+            <div class="stocks-app__loading-spinner" aria-hidden="true" />
+            <p>正在加载</p>
+          </div>
+        )}
         {loadingBoard && !board && !activeWatch && (
           <div class="stocks-app__loading" role="status" aria-live="polite">
             <div class="stocks-app__loading-spinner" aria-hidden="true" />
@@ -469,7 +450,7 @@ export function StocksApp() {
         )}
         {error && <p class="stocks-app__error">{error}</p>}
 
-        {activeWatch?.detail && (
+        {activeWatch?.detail && store && (
           <StockDetailPanel
             detail={activeWatch.detail}
             isDefaultWatch={activeWatch.id === store.defaultWatchId}
@@ -486,7 +467,7 @@ export function StocksApp() {
                   <p class="stocks-app__market-name">{board.marketName}</p>
                   <p class="stocks-app__market-headline">{board.headline}</p>
                 </div>
-                {store.defaultDisplay === 'market-board' ? (
+                {store?.defaultDisplay === 'market-board' ? (
                   <span class="stocks-app__badge stocks-app__badge--widget">通知中心</span>
                 ) : (
                   <button
@@ -494,7 +475,7 @@ export function StocksApp() {
                     class="stocks-app__widget-pin"
                     aria-label="设为通知中心显示"
                     title="设为通知中心显示"
-                    onClick={handleSetMarketBoardDefault}
+                    onClick={() => void handleSetMarketBoardDefault()}
                   >
                     <svg
                       class="stocks-app__widget-pin-icon"
@@ -557,7 +538,7 @@ export function StocksApp() {
           </>
         )}
 
-        {!activeWatch && !board && !loadingBoard && (
+        {!activeWatch && !board && !loadingBoard && store !== undefined && (
           <p class="stocks-app__hint">搜索股票并加入自选，或在通知中心生成默认行情看板。</p>
         )}
       </div>

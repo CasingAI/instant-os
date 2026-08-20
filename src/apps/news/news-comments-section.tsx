@@ -207,24 +207,40 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
   }, [thread])
 
   useEffect(() => {
+    let cancelled = false
+
     if (savedThread && isStalePartialThread(savedThread)) {
       if (inflightRef.current !== article.id) {
-        onStoreChange(deleteCommentThread(readNewsStore(), article.id))
+        void readNewsStore()
+          .then(async (fresh) => {
+            if (cancelled) {
+              return
+            }
+            const next = await deleteCommentThread(fresh, article.id)
+            if (!cancelled) {
+              onStoreChange(next)
+            }
+          })
       }
-      return
+      return () => {
+        cancelled = true
+      }
     }
 
     if (savedThread) {
       setPendingComments([])
-      return
+      return () => {
+        cancelled = true
+      }
     }
 
     if (inflightRef.current === article.id) {
-      return
+      return () => {
+        cancelled = true
+      }
     }
     inflightRef.current = article.id
 
-    let cancelled = false
     setGenerating(true)
     setPendingComments([])
 
@@ -234,28 +250,33 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
       }
       setPendingComments((current) => [...current, comment])
     })
-      .then((comments) => {
+      .then(async (comments) => {
         if (cancelled || comments.length === 0) {
           return
         }
-        const fresh = readNewsStore()
+        const fresh = await readNewsStore()
         const flattened = flattenCommentsToTwoLevels(comments)
         const existing = getCommentThread(fresh, article.id)
         if (existing) {
           const existingIds = new Set(existing.comments.map((comment) => comment.id))
           const newComments = flattened.filter((comment) => !existingIds.has(comment.id))
           if (newComments.length > 0) {
-            onStoreChange(appendComments(fresh, article.id, newComments))
+            const next = await appendComments(fresh, article.id, newComments)
+            if (!cancelled) {
+              onStoreChange(next)
+            }
           }
         } else {
-          const next = saveCommentThread(fresh, {
+          const next = await saveCommentThread(fresh, {
             articleId: article.id,
             generatedAt: osNowMs(),
             comments: flattened,
             userReactions: {},
             reportedIds: [],
           })
-          onStoreChange(next)
+          if (!cancelled) {
+            onStoreChange(next)
+          }
         }
         setPendingComments([])
       })
@@ -285,14 +306,18 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
       }
       const prev = current.userReactions[commentId]
       const nextReaction = prev === reaction ? undefined : reaction
-      onStoreChange(setUserReaction(store, article.id, commentId, nextReaction))
+      void setUserReaction(store, article.id, commentId, nextReaction).then((next) => {
+        onStoreChange(next)
+      })
     },
     [article.id, onStoreChange, store],
   )
 
   const handleReportSubmit = useCallback(
     (commentId: string, _reasons: string[]) => {
-      onStoreChange(removeCommentFromThread(store, article.id, commentId))
+      void removeCommentFromThread(store, article.id, commentId).then((next) => {
+        onStoreChange(next)
+      })
       setReportTargetId(undefined)
       if (replyingToId === commentId) {
         setReplyingToId(undefined)
@@ -319,13 +344,13 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
         isUser: true,
       }
 
-      let next = appendComments(store, article.id, [userComment])
+      let next = await appendComments(store, article.id, [userComment])
       onStoreChange(next)
       setComposeDraft('')
 
       const result = await generateRepliesToUserTopComment(article, userComment.id, trimmed)
-      next = updateCommentInThread(next, article.id, userComment.id, result.userEngagement)
-      next = appendComments(next, article.id, result.replies)
+      next = await updateCommentInThread(next, article.id, userComment.id, result.userEngagement)
+      next = await appendComments(next, article.id, result.replies)
       onStoreChange(next)
       setComposeBusy(false)
     },
@@ -352,7 +377,7 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
         isUser: true,
       }
 
-      let next = appendComments(store, article.id, [userComment])
+      let next = await appendComments(store, article.id, [userComment])
       onStoreChange(next)
       setReplyingToId(undefined)
 
@@ -369,11 +394,11 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
         threadAfterUser.comments,
       )
 
-      next = updateCommentInThread(next, article.id, userComment.id, result.userEngagement)
+      next = await updateCommentInThread(next, article.id, userComment.id, result.userEngagement)
       onStoreChange(next)
 
       if (result.aiReply) {
-        next = appendComments(next, article.id, [result.aiReply])
+        next = await appendComments(next, article.id, [result.aiReply])
         onStoreChange(next)
       }
 

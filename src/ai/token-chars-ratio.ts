@@ -1,14 +1,11 @@
 import { loadRecentAiEventLogs } from './ai-event-log-storage.ts'
 import type { AiEventLogRecord } from './ai-event-log-types.ts'
 
-/** 尚无足够历史样本时的回退值（约 3~4 字符 / token） */
+/** 尚无历史样本时的回退值（约 3~4 字符 / token） */
 export const DEFAULT_CHARS_PER_TOKEN = 3.5
 
-/** 至少这么多条真实用量记录才启用学习比例 */
-const MIN_SAMPLES = 3
-
-/** 累计 completion+prompt token 至少这么多才启用，避免小样本噪声 */
-const MIN_TOTAL_TOKENS = 200
+/** 有一条真实用量记录即启用学习比例 */
+const MIN_SAMPLES = 1
 
 const HYDRATE_LOG_LIMIT = 300
 
@@ -25,7 +22,7 @@ let hydrated = false
 let hydratePromise: Promise<void> | undefined
 
 function hasEnoughData(stats: ModelRatioStats): boolean {
-  return stats.sampleCount >= MIN_SAMPLES && stats.totalTokens >= MIN_TOTAL_TOKENS
+  return stats.sampleCount >= MIN_SAMPLES
 }
 
 function messageChars(messages: AiEventLogRecord['messages'] | undefined): number {
@@ -139,7 +136,7 @@ export function resetTokenCharsRatios(): void {
 
 /**
  * 返回该模型用于估算的「字符数 / token」。
- * 样本不足或未指定模型时回退到 DEFAULT_CHARS_PER_TOKEN。
+ * 无样本或未指定模型时回退到 DEFAULT_CHARS_PER_TOKEN；有一条真实用量即用学习比例。
  */
 export function getCharsPerToken(model?: string): number {
   void ensureTokenCharsRatioHydrated()
@@ -153,7 +150,7 @@ export function getCharsPerToken(model?: string): number {
   return stats.totalChars / stats.totalTokens
 }
 
-/** 调试 / 设置页用：某模型当前是否已有足够学习数据。 */
+/** 调试 / 设置页用：某模型当前学习样本统计。 */
 export function getTokenCharsRatioStats(model: string): ModelRatioStats | undefined {
   return byModel.get(model)
 }

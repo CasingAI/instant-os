@@ -1,6 +1,6 @@
 import { osNowMs } from '../os/os-clock.ts'
 import {
-  DATA_CAPACITY_BYTES,
+  wouldExceedDataCapacity,
   DATA_META_STORE,
   DATA_STORAGE_CHANGED_EVENT,
   FOLDER_ICON_SNAPSHOTS_STORE,
@@ -79,7 +79,7 @@ export async function putFolderIconSnapshot(key: string, dataUrl: string): Promi
     const currentTotal = await readByteTotal()
     const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
 
-    if (projectedTotal > DATA_CAPACITY_BYTES) {
+    if (await wouldExceedDataCapacity(projectedTotal)) {
       return false
     }
 

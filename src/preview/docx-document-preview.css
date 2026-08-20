@@ -1,0 +1,97 @@
+.docx-document-preview {
+  --ddp-desk-light: #ddd0bc;
+  --ddp-desk: #cfc0a8;
+  --ddp-desk-deep: #b8a690;
+  --ddp-paper: #fffef9;
+  --ddp-ink-muted: #6b5d4d;
+
+  box-sizing: border-box;
+  min-height: 100%;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.14) 0%, transparent 52%),
+    radial-gradient(ellipse at 50% 100%, rgba(44, 36, 25, 0.08) 0%, transparent 48%),
+    linear-gradient(180deg, var(--ddp-desk-light) 0%, var(--ddp-desk) 42%, var(--ddp-desk-deep) 100%);
+}
+
+.docx-document-preview__loading {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ddp-ink-muted);
+}
+
+.docx-document-preview__viewport {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100%;
+  padding: 24px 16px 48px;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.docx-document-preview__layout {
+  position: relative;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.docx-document-preview__scale {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+.docx-document-preview__styles {
+  display: none;
+}
+
+.docx-document-preview__body {
+  width: max-content;
+  max-width: none;
+  margin: 0 auto;
+}
+
+/* docx-preview 默认给 wrapper 灰色底 + padding，section 再叠一层阴影，看起来像双层边框 */
+.docx-document-preview__body .docx-wrapper {
+  margin: 0 auto;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.docx-document-preview__body .docx-wrapper > section.docx {
+  background: var(--ddp-paper);
+  box-shadow:
+    0 1px 3px rgba(44, 36, 25, 0.08),
+    0 8px 24px rgba(44, 36, 25, 0.06);
+  margin-bottom: 24px;
+}
+
+.docx-document-preview--error {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--ddp-ink-muted);
+}
+
+.docx-document-preview__error-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2c2419;
+  font-family: Georgia, 'Songti SC', 'STSong', serif, var(--app-emoji-font-family);
+}
+
+.docx-document-preview__error-hint {
+  margin: 0;
+  max-width: 320px;
+  font-size: 13px;
+  line-height: 1.5;
+}

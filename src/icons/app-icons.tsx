@@ -12,7 +12,7 @@ type IconProps = {
 }
 
 export function BrowserIcon({ size = 64 }: IconProps) {
-  const compassSize = Math.round(size * 0.7)
+  const compassSize = Math.round(size * 0.86)
   return (
     <AppIconTile color="#3a7bd5" size={size}>
       <span
@@ -25,7 +25,7 @@ export function BrowserIcon({ size = 64 }: IconProps) {
           filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35))',
         }}
       >
-        <CompassMark />
+        <CompassMark size={compassSize} />
       </span>
     </AppIconTile>
   )
@@ -41,22 +41,27 @@ export function MailIcon({ size = 64 }: IconProps) {
   )
 }
 
-export function PhotosIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#e85d3a" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <circle cx="22" cy="24" r="5" fill="#ffe08a" />
-        <path d="M10 48 L24 32 L36 42 L46 28 L54 48 Z" fill="#fff" opacity="0.95" />
-      </svg>
-    </AppIconTile>
-  )
-}
+export { TextEditIcon } from './textedit-icon.tsx'
+
+export { PagesIcon } from './pages-icon.tsx'
+
+export { PreviewIcon } from './preview-icon.tsx'
 
 export function Scene3dLabIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#5856d6" size={size}>
       <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
         🧊
+      </span>
+    </AppIconTile>
+  )
+}
+
+export function ModelVisionIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#ff9f0a" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        👁️
       </span>
     </AppIconTile>
   )
@@ -82,93 +87,128 @@ export function ICodeIcon({ size = 64 }: IconProps) {
   )
 }
 
-export function SettingsIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#6d737c" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <g transform="translate(8, 8) scale(2)">
-          <path
-            fill="#fff"
-            d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z"
-          />
-        </g>
-      </svg>
-    </AppIconTile>
-  )
-}
-
-export function MarketplaceIcon({ size = 64 }: IconProps) {
-  const stroke = 6
-  const leftLeg = 'M17 47 L32 13'
-  const rightLeg = 'M47 47 L32 13'
-  const crossbar = 'M21 35 H43'
+export function VscodeIcon({ size = 64 }: IconProps) {
+  const cornerRadius = 14
 
   return (
-    <AppIconTile color="#0a84ff" size={size}>
+    <AppIconTile color="#0078d4" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <g transform="translate(1.5, 2.5)" opacity="0.28">
-          <path d={leftLeg} fill="none" stroke="#001a33" stroke-width={stroke + 1} stroke-linecap="round" />
-          <path d={rightLeg} fill="none" stroke="#001a33" stroke-width={stroke + 1} stroke-linecap="round" />
-          <path d={crossbar} fill="none" stroke="#001a33" stroke-width={stroke + 1} stroke-linecap="round" />
-        </g>
-        <path
-          d={leftLeg}
-          fill="none"
-          stroke="url(#appstore-stroke-depth)"
-          stroke-width={stroke}
-          stroke-linecap="round"
-        />
-        <path
-          d={rightLeg}
-          fill="none"
-          stroke="url(#appstore-stroke-depth)"
-          stroke-width={stroke}
-          stroke-linecap="round"
-        />
-        <path
-          d={crossbar}
-          fill="none"
-          stroke="url(#appstore-stroke-depth)"
-          stroke-width={stroke}
-          stroke-linecap="round"
-        />
-        <path
-          d={leftLeg}
-          fill="none"
-          stroke="url(#appstore-stroke-face)"
-          stroke-width={stroke - 1.2}
-          stroke-linecap="round"
-        />
-        <path
-          d={rightLeg}
-          fill="none"
-          stroke="url(#appstore-stroke-face)"
-          stroke-width={stroke - 1.2}
-          stroke-linecap="round"
-        />
-        <path
-          d={crossbar}
-          fill="none"
-          stroke="url(#appstore-stroke-face)"
-          stroke-width={stroke - 1.2}
-          stroke-linecap="round"
-        />
         <defs>
-          <linearGradient id="appstore-stroke-depth" x1="32" y1="13" x2="32" y2="47" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#b8d4f0" />
-            <stop offset="45%" stop-color="#6aabf0" />
-            <stop offset="100%" stop-color="#2a6db8" />
+          <linearGradient id="vscode-icon-window" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#3a3f4a" />
+            <stop offset="45%" stop-color="#252830" />
+            <stop offset="100%" stop-color="#16181e" />
           </linearGradient>
-          <linearGradient id="appstore-stroke-face" x1="32" y1="13" x2="32" y2="47" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#fff" />
-            <stop offset="55%" stop-color="#eef5ff" />
-            <stop offset="100%" stop-color="#c8ddf5" />
+          <linearGradient id="vscode-icon-chrome" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#4a5160" />
+            <stop offset="100%" stop-color="#2c313c" />
           </linearGradient>
+          <linearGradient id="vscode-icon-sidebar" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#2aa0f0" />
+            <stop offset="55%" stop-color="#0078d4" />
+            <stop offset="100%" stop-color="#005a9e" />
+          </linearGradient>
+          <linearGradient id="vscode-icon-gloss" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.28)" />
+            <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+          </linearGradient>
+          <clipPath id="vscode-icon-window-clip">
+            <rect x="0" y="0" width="64" height="64" rx={cornerRadius} ry={cornerRadius} />
+          </clipPath>
         </defs>
+
+        <g clip-path="url(#vscode-icon-window-clip)">
+          <rect x="0" y="0" width="64" height="64" fill="url(#vscode-icon-window)" />
+
+          {/* 顶栏 */}
+          <rect x="0" y="0" width="64" height="15" fill="url(#vscode-icon-chrome)" />
+          <g>
+            <circle cx="10" cy="7.5" r="2.1" fill="#ff5f57" />
+            <circle cx="17.5" cy="7.5" r="2.1" fill="#febc2e" />
+            <circle cx="25" cy="7.5" r="2.1" fill="#28c840" />
+          </g>
+          <rect x="36" y="5.8" width="22" height="3.4" rx="1.7" fill="rgba(255,255,255,0.14)" />
+
+          {/* 活动栏 */}
+          <rect x="0" y="15" width="12" height="49" fill="url(#vscode-icon-sidebar)" />
+          <g fill="#fff">
+            <rect x="3.2" y="20" width="5.6" height="5.6" rx="1.2" opacity="0.95" />
+            <rect x="3.2" y="30" width="5.6" height="5.6" rx="1.2" opacity="0.45" />
+            <rect x="3.2" y="40" width="5.6" height="5.6" rx="1.2" opacity="0.45" />
+            <rect x="3.2" y="52" width="5.6" height="5.6" rx="1.2" opacity="0.35" />
+          </g>
+
+          {/* 编辑区语法行 */}
+          <g stroke-linecap="round">
+            <line x1="18" y1="22" x2="38" y2="22" stroke="#c586c0" stroke-width="2.6" />
+            <line x1="41" y1="22" x2="58" y2="22" stroke="#9cdcfe" stroke-width="2.6" />
+            <line x1="21" y1="29" x2="48" y2="29" stroke="#ce9178" stroke-width="2.6" />
+            <line x1="21" y1="36" x2="34" y2="36" stroke="#4ec9b0" stroke-width="2.6" />
+            <line x1="37" y1="36" x2="58" y2="36" stroke="#dcdcaa" stroke-width="2.6" />
+            <line x1="21" y1="43" x2="54" y2="43" stroke="#9cdcfe" stroke-width="2.6" />
+            <line x1="18" y1="50" x2="30" y2="50" stroke="#c586c0" stroke-width="2.6" />
+            <line x1="33" y1="50" x2="44" y2="50" stroke="#ce9178" stroke-width="2.6" />
+            <line x1="21" y1="57" x2="50" y2="57" stroke="#6a9955" stroke-width="2.6" opacity="0.85" />
+          </g>
+
+          {/* 顶部高光 */}
+          <rect x="0" y="0" width="64" height="18" fill="url(#vscode-icon-gloss)" opacity="0.5" />
+        </g>
       </svg>
     </AppIconTile>
   )
 }
+
+/** Sub Agent 头像：紫色底 + 机器人面屏，与主 Agent（蓝色 VscodeIcon 代码窗口）区分 */
+export function SubagentIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#7c5cff" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 天线 */}
+        <line
+          x1="32"
+          y1="9"
+          x2="32"
+          y2="17"
+          stroke="rgba(255,255,255,0.85)"
+          stroke-width="3"
+          stroke-linecap="round"
+        />
+        <circle cx="32" cy="7.5" r="3" fill="#ffd166" />
+        {/* 耳朵 */}
+        <rect x="9" y="29" width="4.5" height="11" rx="2.25" fill="rgba(255,255,255,0.5)" />
+        <rect x="50.5" y="29" width="4.5" height="11" rx="2.25" fill="rgba(255,255,255,0.5)" />
+        {/* 头部：深色面屏 */}
+        <rect
+          x="13.5"
+          y="17"
+          width="37"
+          height="33"
+          rx="9"
+          fill="#241b3a"
+          stroke="rgba(255,255,255,0.75)"
+          stroke-width="2"
+        />
+        {/* 眼睛 */}
+        <circle cx="25.5" cy="31" r="3.4" fill="#7ee7ff" />
+        <circle cx="38.5" cy="31" r="3.4" fill="#7ee7ff" />
+        {/* 嘴 */}
+        <rect x="25" y="39.5" width="14" height="2.8" rx="1.4" fill="#7ee7ff" opacity="0.85" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export { SettingsIcon } from './settings-icon.tsx'
+export { ChromoIcon } from './chromo-icon.tsx'
+export { MarketplaceIcon } from './marketplace-icon.tsx'
+export { FilesIcon } from './files-icon.tsx'
+export { KeychainIcon } from './keychain-icon.tsx'
+export { NewsIcon } from './news-icon.tsx'
+export { TaskManagerIcon } from './task-manager-icon.tsx'
+export { ServicesIcon } from './services-icon.tsx'
+export { SpaceSnifferIcon } from './space-sniffer-icon.tsx'
+export { EventLogIcon } from './event-log-icon.tsx'
 
 const CHEVRON_VIEW_SIZE = 12
 
@@ -367,6 +407,46 @@ export function SignalIcon() {
   )
 }
 
+/** 菜单栏云服务状态图标（云朵造型，语义为云服务通道；可切换工作态） */
+type CloudServiceIconProps = {
+  /** 是否处于工作中（网络请求 / PoW 计算） */
+  active?: boolean
+}
+
+export function CloudServiceIcon({ active = false }: CloudServiceIconProps = {}) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      class={`ethernet-icon${active ? ' ethernet-icon--active' : ''}`}
+      role="img"
+      aria-label="云服务"
+    >
+      {active ? (
+        <>
+          {/* 工作态：云朵 + 旋转圈替换为 loading spinner */}
+          <path
+            d="M5 11.5 C3 11.5 1.5 10 1.5 8 C1.5 6.4 2.6 5 4.2 4.7 C4.5 2.5 6.5 1 8.5 1 C10.5 1 12.5 2.5 12.8 4.7 C14.4 5 15.5 6.4 15.5 8 C15.5 10 14 11.5 12 11.5 Z"
+            fill="currentColor"
+            opacity="0.25"
+          />
+          <g class="ethernet-icon__spinner" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none">
+            <circle cx="8" cy="7" r="3.8" opacity="0.18" />
+            <path d="M8 3.2 a3.8 3.8 0 0 1 3.8 3.8" />
+          </g>
+        </>
+      ) : (
+        <path
+          d="M5 11.5 C3 11.5 1.5 10 1.5 8 C1.5 6.4 2.6 5 4.2 4.7 C4.5 2.5 6.5 1 8.5 1 C10.5 1 12.5 2.5 12.8 4.7 C14.4 5 15.5 6.4 15.5 8 C15.5 10 14 11.5 12 11.5 Z"
+          fill="currentColor"
+          opacity="0.9"
+        />
+      )}
+    </svg>
+  )
+}
+
 type BrandIconProps = {
   size?: number
 }
@@ -481,16 +561,6 @@ export function BatteryIcon({ levelPercent, charging }: BatteryIconProps) {
         </>
       )}
     </svg>
-  )
-}
-
-export function NewsIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#c43c2e" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        📰
-      </span>
-    </AppIconTile>
   )
 }
 
@@ -664,6 +734,16 @@ export function BooksIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function MusicIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#fa2d55" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        🎵
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function WeatherIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#147efb" size={size}>
@@ -679,6 +759,16 @@ export function CatGptIcon({ size = 64 }: IconProps) {
     <AppIconTile color="#10a37f" size={size}>
       <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
         🐱
+      </span>
+    </AppIconTile>
+  )
+}
+
+export function ProdudeIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#2f6fed" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        🛠️
       </span>
     </AppIconTile>
   )
@@ -725,7 +815,8 @@ export function GomokuIcon({ size = 64 }: IconProps) {
 }
 
 export function TranslateIcon({ size = 64 }: IconProps) {
-  const fontSize = size * (22 / 72)
+  // SVG font-size 是 64 坐标系用户单位，不能随像素 size 再乘一遍。
+  const fontSize = 22 * (64 / 72)
 
   return (
     <AppIconTile color="#30b0c7" size={size}>
@@ -906,94 +997,62 @@ export function SpeechIcon({ size = 64 }: IconProps) {
   )
 }
 
-export function KeychainIcon({ size = 64 }: IconProps) {
+export function GithubDesktopIcon({ size = 64 }: IconProps) {
   return (
-    <AppIconTile color="#f5a623" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        {/* 钥匙环 */}
-        <circle
-          cx={Math.round(64 * 0.5)}
-          cy={Math.round(64 * 0.28)}
-          r={Math.round(64 * 0.38) / 2}
-          fill="none"
-          stroke="#fff"
-          stroke-width="5"
-          opacity="0.92"
-        />
-        {/* 钥匙杆 */}
-        <rect
-          x={Math.round(64 * 0.5 - 64 * 0.12 / 2)}
-          y={Math.round(64 * 0.42)}
-          width={Math.round(64 * 0.12)}
-          height={Math.round(64 * 0.4)}
-          rx={Math.round(64 * 0.06)}
-          fill="#fff"
-          opacity="0.92"
-        />
-        {/* 钥匙齿 */}
-        <rect
-          x={Math.round(64 * 0.5 + 64 * 0.12 / 2 - 2)}
-          y={Math.round(64 * 0.6)}
-          width={Math.round(64 * 0.1)}
-          height="4"
-          rx="1.5"
-          fill="#f5a623"
-          opacity="0.85"
-        />
-        <rect
-          x={Math.round(64 * 0.5 + 64 * 0.12 / 2 - 2)}
-          y={Math.round(64 * 0.7)}
-          width={Math.round(64 * 0.06)}
-          height="4"
-          rx="1.5"
-          fill="#f5a623"
-          opacity="0.85"
-        />
-      </svg>
+    <AppIconTile color="#7b26a8" size={size}>
+      <img
+        src="/assets/icons/github.png"
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        style={{
+          display: 'block',
+          width: `${size}px`,
+          height: `${size}px`,
+          objectFit: 'cover',
+        }}
+      />
     </AppIconTile>
   )
 }
 
-export function TaskManagerIcon({ size = 64 }: IconProps) {
+export function PackagesIcon({ size = 64 }: IconProps) {
   return (
-    <AppIconTile color="#1f1f22" size={size}>
+    <AppIconTile color="#0f766e" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <rect x="10" y="12" width="44" height="40" rx="6" fill="#2a2a2e" />
-        <polyline
-          points="16,40 24,30 32,34 40,22 48,28"
-          fill="none"
-          stroke="#34c759"
-          stroke-width="3"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-        <circle cx="16" cy="40" r="2.5" fill="#34c759" />
-        <circle cx="24" cy="30" r="2.5" fill="#34c759" />
-        <circle cx="32" cy="34" r="2.5" fill="#34c759" />
-        <circle cx="40" cy="22" r="2.5" fill="#34c759" />
-        <circle cx="48" cy="28" r="2.5" fill="#34c759" />
-        <rect x="16" y="46" width="32" height="2" rx="1" fill="#5ac8fa" opacity="0.9" />
-      </svg>
-    </AppIconTile>
-  )
-}
-
-export function EventLogIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#4a5568" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <rect x="14" y="10" width="36" height="44" rx="4" fill="#fff" opacity="0.95" />
-        <rect x="20" y="18" width="24" height="3" rx="1.5" fill="#4a5568" opacity="0.85" />
-        <rect x="20" y="26" width="20" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
-        <rect x="20" y="33" width="22" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
-        <rect x="20" y="40" width="16" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
-        <circle cx="44" cy="46" r="8" fill="#34c759" />
         <path
-          d="M41 46 L43.5 48.5 L47.5 43.5"
-          fill="none"
-          stroke="#fff"
-          stroke-width="2.5"
-          stroke-linecap="round"
+          d="M32 10 L50 20 L50 40 L32 50 L14 40 L14 20 Z"
+          fill="#134e4a"
+          stroke="#5eead4"
+          stroke-width="2"
+        />
+        <path d="M32 10 L32 50" stroke="#5eead4" stroke-width="2" />
+        <path d="M14 20 L32 30 L50 20" fill="none" stroke="#5eead4" stroke-width="2" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function ArchiveUtilityIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#78716c" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="18" y="12" width="28" height="40" rx="3" fill="#44403c" />
+        <rect x="20" y="14" width="24" height="36" rx="2" fill="#f5f5f4" />
+        <path
+          d="M26 12 H38 V18 H26 Z"
+          fill="#a8a29e"
+        />
+        <path d="M28 22 H36" stroke="#78716c" stroke-width="2" stroke-linecap="round" />
+        <path d="M28 28 H36" stroke="#78716c" stroke-width="2" stroke-linecap="round" />
+        <path d="M28 34 H36" stroke="#78716c" stroke-width="2" stroke-linecap="round" />
+        <path d="M28 40 H34" stroke="#78716c" stroke-width="2" stroke-linecap="round" />
+        <path
+          d="M40 36 L48 42 L40 48 Z"
+          fill="#d6d3d1"
+          stroke="#57534e"
+          stroke-width="1.5"
           stroke-linejoin="round"
         />
       </svg>
@@ -1059,3 +1118,285 @@ export function HelpIcon({ size = 64 }: IconProps) {
   )
 }
 
+
+/**
+ * @deprecated 模拟终端已弃用，此图标随 simulated-terminal app 一并保留，后续移除。
+ * 真终端图标使用 TerminalIcon（同文件，未被弃用）。
+ */
+export function SimulatedTerminalIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#1e3a2f" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="6" y="9" width="52" height="46" rx="6" fill="#142820" />
+        <rect x="7.4" y="10.4" width="49.2" height="43.2" rx="4.8" fill="#0a1410" />
+        <path
+          d="M16.5 24.5l10 8.2-10 8.2"
+          fill="none"
+          stroke="#9cf0b8"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <text
+          x="44"
+          y="41"
+          text-anchor="middle"
+          fill="#f7df1e"
+          font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+          font-size="14"
+          font-weight="800"
+        >
+          JS
+        </text>
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function TerminalIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#2c2c2e" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="6" y="9" width="52" height="46" rx="6" fill="#1a1a1c" />
+        <rect x="7.4" y="10.4" width="49.2" height="43.2" rx="4.8" fill="#0d0d0f" />
+        <path
+          d="M16.5 24.5l10 8.2-10 8.2"
+          fill="none"
+          stroke="#7ddea5"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M29.5 40.5h18"
+          fill="none"
+          stroke="#d0d0d6"
+          stroke-width="3"
+          stroke-linecap="round"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function VirtualJsIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#f7df1e" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <text
+          x="32"
+          y="40"
+          text-anchor="middle"
+          fill="#1a1a1c"
+          font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+          font-size="22"
+          font-weight="800"
+        >
+          JS
+        </text>
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function UiKitIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#5856d6" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 工具箱网格 */}
+        <rect x="16" y="18" width="13" height="13" rx="2" fill="rgba(255,255,255,0.9)" />
+        <rect x="35" y="18" width="13" height="13" rx="2" fill="rgba(255,255,255,0.9)" />
+        <rect x="16" y="33" width="13" height="13" rx="2" fill="rgba(255,255,255,0.9)" />
+        <rect x="35" y="33" width="13" height="13" rx="2" fill="rgba(255,255,255,0.75)" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function StemsIcon({ size = 64 }: IconProps) {
+  // 外框圆角跟 AppIconTile 一致（size * 0.22）；波形井按相同内缩，保持同心圆角。
+  const tileRadius = Math.round(size * 0.22)
+  const inset = 4
+  const wellRx = Math.max(tileRadius * (64 / size) - inset, 2)
+
+  return (
+    <AppIconTile color="#c8c2b8" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="stems-icon-well" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#141312" />
+            <stop offset="100%" stop-color="#2a2826" />
+          </linearGradient>
+          <linearGradient id="stems-icon-play" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#7eb4ef" />
+            <stop offset="55%" stop-color="#2f7fd6" />
+            <stop offset="100%" stop-color="#1f5ea8" />
+          </linearGradient>
+        </defs>
+        {/* 内凹波形井：上/左/右等距内缩，圆角 = 外框圆角 − 内缩 */}
+        <rect
+          x={inset}
+          y={inset}
+          width={64 - inset * 2}
+          height="43"
+          rx={wellRx}
+          fill="url(#stems-icon-well)"
+        />
+        {/* 四条分轨色带（长短不一，像波形片段） */}
+        <rect x="8" y="8" width="40" height="6.5" rx="3.25" fill="#e05a4e" />
+        <rect x="8" y="16.5" width="32" height="6.5" rx="3.25" fill="#e0b34e" />
+        <rect x="8" y="25" width="44" height="6.5" rx="3.25" fill="#4ed0a1" />
+        <rect x="8" y="33.5" width="26" height="6.5" rx="3.25" fill="#6aa6ef" />
+        {/* 播放头 */}
+        <line
+          x1="38"
+          y1="5.5"
+          x2="38"
+          y2="45.5"
+          stroke="#fff8e8"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          opacity="0.95"
+        />
+        {/* 底部传输钮 */}
+        <circle
+          cx="32"
+          cy="55"
+          r="6.2"
+          fill="url(#stems-icon-play)"
+          stroke="#145da8"
+          stroke-width="1.1"
+        />
+        <path d="M30.1 52.3 L30.1 57.7 L35.4 55 Z" fill="#ffffff" opacity="0.95" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function MidiDemoIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#5c3d2e" size={size}>
+      <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
+        <rect x="8" y="22" width="48" height="28" rx="3" fill="#f4efe6" />
+        <rect x="8" y="22" width="48" height="28" rx="3" fill="none" stroke="#2a1c14" stroke-width="1.6" />
+        {Array.from({ length: 7 }, (_, i) => (
+          <rect
+            key={`w-${i}`}
+            x={10 + i * 6.4}
+            y="24"
+            width="6"
+            height="24"
+            rx="0.6"
+            fill="#fffcf6"
+            stroke="#c4b8a8"
+            stroke-width="0.6"
+          />
+        ))}
+        {[0, 1, 3, 4, 5].map((i) => (
+          <rect
+            key={`b-${i}`}
+            x={13.6 + i * 6.4}
+            y="24"
+            width="3.4"
+            height="14"
+            rx="0.5"
+            fill="#1a1410"
+          />
+        ))}
+        <path
+          d="M42 12 v16"
+          stroke="#f0d48a"
+          stroke-width="2.4"
+          stroke-linecap="round"
+        />
+        <circle cx="38.6" cy="28" r="4.2" fill="#f0d48a" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function SrmlDemoIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#c07f1e" size={size}>
+      <svg
+        viewBox="0 0 64 64"
+        width={size}
+        height={size}
+        fill="none"
+        aria-hidden="true"
+      >
+        {/* 指令序列块：提示符 + 缩进键值行 */}
+        <g transform="translate(6 12)">
+          <path d="M4 4 h12 l4 6 -4 6 h-12 z" fill="#2a2410" />
+          <text x="10" y="14" text-anchor="middle" font-size="11" fill="#f5b54e" font-family="Menlo, monospace" font-weight="bold">
+            &gt;
+          </text>
+          <rect x="24" y="3" width="34" height="4" rx="2" fill="#4a3a12" />
+          <rect x="28" y="12" width="26" height="4" rx="2" fill="#4a3a12" />
+          <rect x="24" y="21" width="14" height="4" rx="2" fill="#4a3a12" />
+        </g>
+        {/* 回滚箭头：预测失败时倒退 */}
+        <path
+          d="M30 50 C 24 50 21 45 23 41 M23 41 l 4 4 M23 41 l 4 -4"
+          stroke="#e9e3d3"
+          stroke-width="3.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="40" cy="47" r="3" fill="#e9e3d3" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function LlmPlaygroundIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#7c5cf0" size={size}>
+      <svg
+        viewBox="0 0 64 64"
+        width={size}
+        height={size}
+        fill="none"
+        aria-hidden="true"
+      >
+        {/* 可编辑消息气泡：白底圆角矩形 + 三条彩色消息行 */}
+        <g transform="translate(8 9)">
+          <path
+            d="M4 0 h40 a4 4 0 0 1 4 4 v22 a4 4 0 0 1 -4 4 H30 l-6 7 v-7 h-6 a4 4 0 0 1 -4 -4 V4 a4 4 0 0 1 4 -4 z"
+            fill="#ffffff"
+            stroke="#4a3e80"
+            stroke-width="1.6"
+          />
+          <circle cx="10" cy="11" r="3.2" fill="#9333ea" />
+          <rect x="17" y="8.5" width="27" height="5" rx="2.5" fill="#d8d0f2" />
+          <circle cx="10" cy="21" r="3.2" fill="#2563eb" />
+          <rect x="17" y="18.5" width="19" height="5" rx="2.5" fill="#c6d6f6" />
+          <circle cx="10" cy="31" r="3.2" fill="#0d9488" />
+          <rect x="17" y="28.5" width="23" height="5" rx="2.5" fill="#b8e2dc" />
+        </g>
+        {/* 发送 / 参数角标：右下角圆形发送钮 */}
+        <circle
+          cx="47"
+          cy="48"
+          r="10"
+          fill="url(#llm-playground-send)"
+          stroke="#ffffff"
+          stroke-width="1.4"
+        />
+        <path
+          d="M42 48 h10 M47 43.5 l4.5 4.5 -4.5 4.5"
+          stroke="#ffffff"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <defs>
+          <linearGradient id="llm-playground-send" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#a48bf7" />
+            <stop offset="100%" stop-color="#5b3fd8" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </AppIconTile>
+  )
+}

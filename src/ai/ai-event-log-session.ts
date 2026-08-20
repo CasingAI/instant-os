@@ -10,6 +10,7 @@ import type {
   AiEventLogStatus,
 } from './ai-event-log-types.ts'
 import { ensureTokenCharsRatioHydrated } from './token-chars-ratio.ts'
+import { prepareTokenEstimation } from './model-tokenizer.ts'
 
 export const AI_EVENT_LOG_CHANGED_EVENT = 'instant-os:ai-event-log-changed'
 
@@ -162,6 +163,7 @@ export function startAiEventLogSession(
     response: '',
     promptTokens: undefined,
     completionTokens: undefined,
+    cachedPromptTokens: undefined,
     totalTokens: undefined,
     usageEstimated: undefined,
     status: 'running',
@@ -190,6 +192,7 @@ export function startAiEventLogSession(
   liveSessions.set(id, state)
   scheduleDispatch(state, true)
   void ensureTokenCharsRatioHydrated()
+  void prepareTokenEstimation(input.model)
 
   return {
     id,
@@ -216,6 +219,7 @@ export function startAiEventLogSession(
       if (patch.usage) {
         current.record.promptTokens = patch.usage.promptTokens
         current.record.completionTokens = patch.usage.completionTokens
+        current.record.cachedPromptTokens = patch.usage.cachedPromptTokens ?? 0
         current.record.totalTokens = patch.usage.totalTokens
         current.record.usageEstimated = false
       } else if (patch.estimateUsage !== false) {
@@ -284,7 +288,10 @@ export function startAiEventLogSession(
   }
 }
 
-/** 刷新所有进行中会话的耗时/速度字段（供性能监视器定时 tick）。 */
+/**
+ * 刷新所有进行中会话的耗时/速度字段（供性能监视器定时 tick）。
+ * 只更新内存态，不派发变更事件，避免监听方再次调用时同步递归。
+ */
 export function refreshLiveAiEventLogPerformance(): boolean {
   if (liveSessions.size === 0) {
     return false
@@ -292,7 +299,6 @@ export function refreshLiveAiEventLogPerformance(): boolean {
   for (const state of liveSessions.values()) {
     applyLivePerformance(state)
   }
-  dispatchEventLogChanged()
   return true
 }
 
@@ -307,6 +313,65 @@ export function listLiveAiEventLogs(): AiEventLogRecord[] {
 
 export function getLiveAiEventLogCount(): number {
   return liveSessions.size
+}
+
+/**
+ * 强制结束指定 actor 的进行中会话，返回待落盘的 finish 输入（已从 live Map 移除）。
+ * 用于应用关窗时扫尾，避免 messages/response 常驻。
+ */
+export function takeLiveAiEventLogFinishInputsForActor(
+  actor: string,
+  status: AiEventLogStatus = 'aborted',
+  errorMessage = '窗口已关闭',
+): Array<{ context: AiUsageContext; input: AiEventLogInput }> {
+  const taken: Array<{ context: AiUsageContext; input: AiEventLogInput }> = []
+  for (const [id, state] of [...liveSessions.entries()]) {
+    if (state.context.actor !== actor && state.record.actor !== actor) {
+      continue
+    }
+    if (state.pendingDispatch) {
+      clearTimeout(state.pendingDispatch)
+      state.pendingDispatch = undefined
+    }
+    liveSessions.delete(id)
+    applyLivePerformance(state)
+    taken.push({
+      context: state.context,
+      input: {
+        id,
+        model: state.record.model,
+        thinkingEnabled: state.record.thinkingEnabled,
+        messages: state.record.messages,
+        response: state.record.response,
+        usage:
+          state.record.promptTokens !== undefined ||
+          state.record.completionTokens !== undefined
+            ? {
+                promptTokens: state.record.promptTokens ?? 0,
+                completionTokens: state.record.completionTokens ?? 0,
+                cachedPromptTokens: state.record.cachedPromptTokens ?? 0,
+                totalTokens:
+                  state.record.totalTokens ??
+                  (state.record.promptTokens ?? 0) +
+                    (state.record.completionTokens ?? 0),
+              }
+            : undefined,
+        usageEstimated: state.record.usageEstimated,
+        status,
+        errorMessage,
+        timing: {
+          startedAt: state.timingStartedAt,
+          startedRealAt: state.timingStartedRealAt,
+          firstTokenAt: state.firstTokenAt,
+          firstTokenRealAt: state.firstTokenRealAt,
+        },
+      },
+    })
+  }
+  if (taken.length > 0) {
+    dispatchEventLogChanged()
+  }
+  return taken
 }
 
 export function mergeLiveAndPersistedEventLogs(

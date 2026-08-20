@@ -1,7 +1,43 @@
+import {
+  fileDocumentAddressBarText,
+  fileDocumentDisplayName,
+  isFileDocumentUrl,
+} from './browser-file-document.ts'
+
 export const START_PAGE_URL = 'instant://home'
+
+export const VIEW_SOURCE_PREFIX = 'view-source:'
 
 export function isStartPageUrl(url: string): boolean {
   return url.trim().toLowerCase() === START_PAGE_URL
+}
+
+export function isViewSourceUrl(url: string): boolean {
+  return url.trim().toLowerCase().startsWith(VIEW_SOURCE_PREFIX)
+}
+
+/** 去掉一层或多层 `view-source:` 前缀，得到被查看的真实地址 */
+export function unwrapViewSourceUrl(url: string): string | undefined {
+  let inner = url.trim()
+  if (!inner.toLowerCase().startsWith(VIEW_SOURCE_PREFIX)) {
+    return undefined
+  }
+  while (inner.toLowerCase().startsWith(VIEW_SOURCE_PREFIX)) {
+    inner = inner.slice(VIEW_SOURCE_PREFIX.length).trim()
+  }
+  return inner || undefined
+}
+
+/** 为真实页面地址生成 `view-source:` URL（已是源码页则原样规范化） */
+export function toViewSourceUrl(url: string): string {
+  const trimmed = url.trim()
+  if (!trimmed || isStartPageUrl(trimmed)) {
+    return trimmed
+  }
+  if (isViewSourceUrl(trimmed)) {
+    return normalizeBrowserUrl(trimmed)
+  }
+  return `${VIEW_SOURCE_PREFIX}${normalizeBrowserUrl(trimmed)}`
 }
 
 function canonicalizeHttpHostname(url: string): string {
@@ -25,6 +61,18 @@ export function normalizeBrowserUrl(input: string): string {
   const trimmed = input.trim()
   if (!trimmed) {
     return START_PAGE_URL
+  }
+
+  if (/^view-source:/i.test(trimmed)) {
+    const inner = unwrapViewSourceUrl(trimmed)
+    if (!inner) {
+      return START_PAGE_URL
+    }
+    const normalizedInner = normalizeBrowserUrl(inner)
+    if (isStartPageUrl(normalizedInner)) {
+      return START_PAGE_URL
+    }
+    return `${VIEW_SOURCE_PREFIX}${normalizedInner}`
   }
 
   if (/^instant:\/\//i.test(trimmed)) {
@@ -52,6 +100,18 @@ export function displayUrl(url: string): string {
     return ''
   }
 
+  if (isViewSourceUrl(url)) {
+    const inner = unwrapViewSourceUrl(url)
+    if (!inner) {
+      return url
+    }
+    return `${VIEW_SOURCE_PREFIX}${displayUrl(inner) || normalizeBrowserUrl(inner)}`
+  }
+
+  if (isFileDocumentUrl(url)) {
+    return fileDocumentAddressBarText(url)
+  }
+
   try {
     const parsed = new URL(url)
     const host = parsed.host
@@ -71,12 +131,31 @@ export function addressBarDisplayUrl(url: string, showFullUrl: boolean): string 
   if (isStartPageUrl(url)) {
     return ''
   }
+  if (isViewSourceUrl(url)) {
+    return normalizeBrowserUrl(url)
+  }
+  if (isFileDocumentUrl(url)) {
+    return fileDocumentAddressBarText(url)
+  }
   return showFullUrl ? normalizeBrowserUrl(url) : displayUrl(url)
 }
 
 export function pageTitleFromUrl(url: string): string {
   if (isStartPageUrl(url)) {
     return '起始页'
+  }
+
+  if (isViewSourceUrl(url)) {
+    const inner = unwrapViewSourceUrl(url)
+    if (!inner) {
+      return '[源代码]'
+    }
+    return `[源代码]${pageTitleFromUrl(inner)}`
+  }
+
+  const fileName = fileDocumentDisplayName(url)
+  if (fileName) {
+    return fileName
   }
 
   try {
@@ -88,6 +167,16 @@ export function pageTitleFromUrl(url: string): string {
 }
 
 export function hostnameFromUrl(url: string): string {
+  if (isViewSourceUrl(url)) {
+    const inner = unwrapViewSourceUrl(url)
+    return inner ? hostnameFromUrl(inner) : url
+  }
+
+  const fileName = fileDocumentDisplayName(url)
+  if (fileName) {
+    return fileName
+  }
+
   try {
     return new URL(url).hostname.replace(/^www\./, '')
   } catch {
@@ -98,6 +187,11 @@ export function hostnameFromUrl(url: string): string {
 export function siteRootUrl(url: string): string {
   if (isStartPageUrl(url)) {
     return START_PAGE_URL
+  }
+
+  if (isViewSourceUrl(url)) {
+    const inner = unwrapViewSourceUrl(url)
+    return inner ? siteRootUrl(inner) : START_PAGE_URL
   }
 
   try {
@@ -113,11 +207,19 @@ export function isSameSite(urlA: string, urlB: string): boolean {
     return false
   }
 
+  if (isViewSourceUrl(urlA) || isViewSourceUrl(urlB)) {
+    return false
+  }
+
   return hostnameFromUrl(urlA) === hostnameFromUrl(urlB)
 }
 
 export function isSiteRootUrl(url: string): boolean {
   if (isStartPageUrl(url)) {
+    return false
+  }
+
+  if (isViewSourceUrl(url)) {
     return false
   }
 

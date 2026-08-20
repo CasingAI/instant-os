@@ -1,0 +1,1847 @@
+/* VS Code 编辑器内 AI 对话：复用 help-app 拟物风 */
+
+.vscode-ai.help-app {
+  --help-chat-max: 100%;
+  --help-bubble-max: 720px;
+  --help-welcome-max: min(520px, 100%);
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg, #fff 0%, var(--help-bg) 100%);
+}
+
+.vscode-ai__chat {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 10px calc(var(--vscode-ai-composer-inset, 96px) + 8px);
+  overflow-x: hidden;
+  /* scrollIntoView 会忽略容器 padding，把内容对齐到可视区底缘；
+     这里用 scroll-padding 兜住悬浮输入框占位，避免内容滚到输入框后面 */
+  scroll-padding-bottom: calc(var(--vscode-ai-composer-inset, 96px) + 8px);
+}
+
+/* 主对话右上角悬浮「复制对话」：sticky 保证滚动时不漂走 */
+.vscode-ai__chat-copy {
+  position: sticky;
+  top: 8px;
+  float: right;
+  z-index: 6;
+  margin-top: 2px;
+  border: 1px solid rgba(120, 120, 130, 0.35);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #555;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.vscode-ai__chat-copy:hover {
+  color: #1e1e1e;
+  border-color: rgba(80, 80, 90, 0.5);
+}
+
+.vscode-ai__chat-copy--copied {
+  color: #2e7d32;
+  border-color: #2e7d32;
+}
+
+/* 头像占位后，气泡不得超过行宽，避免表格等内容把消息撑出面板（滚动条被隐藏时像裁切） */
+.vscode-ai .help-app__messages,
+.vscode-ai .help-app__message {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.vscode-ai .help-app__message .help-app__bubble {
+  min-width: 0;
+  max-width: min(var(--help-bubble-max), calc(100% - 40px));
+}
+
+.vscode-ai .help-app__message--assistant .help-app__bubble {
+  flex: 0 1 auto;
+}
+
+.vscode-ai .help-app__answer,
+.vscode-ai .help-app__markdown {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.vscode-ai .help-app__markdown code {
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.vscode-ai__welcome {
+  margin-top: 16px;
+}
+
+.vscode-ai__welcome .help-app__welcome-icon {
+  width: 56px;
+  height: 56px;
+}
+
+.vscode-ai__welcome .help-app__welcome-title {
+  font-size: 17px;
+}
+
+.vscode-ai__welcome .help-app__welcome-sub {
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.vscode-ai__welcome .help-app__samples {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.vscode-ai__welcome .help-app__sample {
+  text-align: left;
+}
+
+.help-app__messages .help-app__bubble {
+  font-size: 12px;
+}
+
+/* 流式气泡占满可用行宽，避免「模型正在思考」snippet 把宽度撑来撑去 */
+.vscode-ai .help-app__message--assistant .help-app__bubble--live {
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: auto;
+  min-width: 0;
+  max-width: min(var(--help-bubble-max), calc(100% - 40px));
+}
+
+.vscode-ai__edit-card {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(196, 181, 160, 0.45);
+}
+
+.vscode-ai__write-card {
+  margin: 6px 0;
+  border: 1px solid rgba(196, 181, 160, 0.5);
+  border-radius: 6px;
+  background: rgba(250, 248, 245, 0.9);
+  overflow: hidden;
+}
+
+.vscode-ai__write-card--live {
+  border-color: rgba(180, 140, 60, 0.55);
+  box-shadow: 0 0 0 1px rgba(180, 140, 60, 0.12);
+}
+
+.vscode-ai__write-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vscode-ai__write-card-toggle:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.vscode-ai__write-card-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vscode-ai__write-card-title {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--help-ink);
+}
+
+.vscode-ai__write-card-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--help-ink-muted);
+}
+
+.vscode-ai__write-card-preview {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 0 10px 10px;
+  border-top: 1px solid rgba(196, 181, 160, 0.35);
+  background: #f7f4ef;
+  color: var(--help-ink);
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.vscode-ai__write-card-preview--md {
+  font-family: inherit;
+  white-space: normal;
+}
+
+.vscode-ai__write-card-preview--md .vscode__markdown-preview {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.vscode-ai__write-card-preview--md .vscode__markdown-preview h1,
+.vscode-ai__write-card-preview--md .vscode__markdown-preview h2,
+.vscode-ai__write-card-preview--md .vscode__markdown-preview h3 {
+  font-size: 13px;
+  margin: 0.6em 0 0.35em;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.vscode-ai__write-card-preview-empty {
+  color: var(--help-ink-muted);
+}
+
+.vscode-ai__edit-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--help-ink-muted);
+  margin-bottom: 4px;
+}
+
+.vscode-ai__edit-card-path {
+  font-size: 11px;
+  word-break: break-all;
+  margin-bottom: 8px;
+  color: var(--help-ink);
+}
+
+.vscode-ai__edit-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.vscode-ai__change-review-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 8px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.vscode-ai__change-review-file {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--help-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.vscode-ai__change-review-file:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.vscode-ai__change-review-file--active {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.vscode-ai__change-review-kind {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--help-ink-muted);
+}
+
+.vscode-ai__change-review-path {
+  min-width: 0;
+  word-break: break-all;
+}
+
+.vscode-ai__diff-view {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid rgba(196, 181, 160, 0.45);
+  border-radius: 4px;
+  background: #faf8f5;
+  color: var(--help-ink);
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 18px;
+  user-select: text;
+}
+
+.vscode-ai__diff-rows {
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  width: 100%;
+}
+
+.vscode-ai__diff-row {
+  display: flex;
+  flex-direction: row;
+  min-height: 18px;
+  width: 100%;
+}
+
+.vscode-ai__diff-gutter {
+  flex-shrink: 0;
+  display: flex;
+  box-sizing: content-box;
+  user-select: none;
+  border-right: 1px solid rgba(196, 181, 160, 0.35);
+}
+
+.vscode-ai__diff-linenum {
+  display: block;
+  box-sizing: border-box;
+  padding: 0 4px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  color: var(--help-ink-muted);
+  border-right: 1px solid rgba(196, 181, 160, 0.25);
+}
+
+.vscode-ai__diff-linenum:last-child {
+  border-right: none;
+}
+
+.vscode-ai__diff-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding-right: 8px;
+}
+
+.vscode-ai__diff-prefix {
+  flex-shrink: 0;
+  width: 1ch;
+  user-select: none;
+}
+
+.vscode-ai__diff-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.vscode-ai__diff-row--added {
+  background: #e6ffec;
+}
+
+.vscode-ai__diff-row--deleted {
+  background: #ffebe9;
+}
+
+.vscode-ai__diff-row--hunk .vscode-ai__diff-hunk {
+  width: 100%;
+  padding: 2px 8px;
+  color: var(--help-ink-muted);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.vscode-ai__diff-empty,
+.vscode-ai__diff-notice {
+  margin: 4px 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--help-ink-muted);
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+}
+
+.vscode-ai__diff-notice {
+  color: #7a4a00;
+  background: #fff4e8;
+}
+
+.vscode-ai__composer-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  pointer-events: none;
+  background: none;
+}
+
+.vscode-ai .help-app__composer-wrap {
+  background: none;
+}
+
+.vscode-ai__composer-wrap > * {
+  pointer-events: auto;
+}
+
+.vscode-ai__send-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.vscode-ai__send-queue-summary,
+.vscode-ai__send-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--help-border, #c9c2b6) 80%, transparent);
+  background: color-mix(in srgb, var(--help-paper, #fffdf8) 88%, transparent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  color: var(--help-ink, #2a2a32);
+  font-size: 12px;
+}
+
+.vscode-ai__send-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 132px;
+  overflow: auto;
+  padding-right: 1px;
+}
+
+.vscode-ai__send-queue-list .vscode-ai__send-queue-item {
+  box-shadow: none;
+}
+
+.vscode-ai__send-queue-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--help-accent, #2f87e2) 16%, transparent);
+  color: var(--help-accent, #2f87e2);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
+.vscode-ai__send-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 18px;
+}
+
+.vscode-ai__send-queue-toggle {
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--help-muted, #777);
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.vscode-ai__send-queue-toggle:hover {
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--help-ink, #2a2a32);
+}
+
+.vscode-ai__send-queue-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--help-muted, #777);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vscode-ai__send-queue-remove:hover {
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--help-ink, #2a2a32);
+}
+
+.vscode-ai__review-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.vscode-ai__review-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid rgba(196, 181, 160, 0.45);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fffdf8 0%, var(--help-paper, #fffaf0) 100%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  color: var(--help-ink);
+}
+
+.vscode-ai__review-bar-label {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.vscode-ai__review-bar-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.vscode-ai__message-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(100%, var(--help-bubble-max));
+  flex: 1;
+}
+
+.vscode-ai__message-stack > .help-app__bubble {
+  max-width: 100%;
+}
+
+/**
+ * 全宽横幅气泡：与普通聊天气泡分离，撑满消息列左右。
+ * 变体用 vscode-ai__banner--{kind}，未来可扩展。
+ */
+.vscode-ai .help-app__message--with-banner {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.vscode-ai__message-main {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+}
+
+.vscode-ai__banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.vscode-ai__banner--plan {
+  border: 1px solid rgba(212, 175, 55, 0.42);
+  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+  box-shadow: 0 4px 14px rgba(180, 140, 40, 0.12);
+  color: #5c4a1f;
+}
+
+.vscode-ai__banner--mode-switch {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid rgba(47, 135, 226, 0.42);
+  /* 耗尽后露出的底色 */
+  background: linear-gradient(180deg, #e8f1fa 0%, #d5e4f2 100%);
+  box-shadow: 0 4px 14px rgba(47, 135, 226, 0.14);
+  color: #1a4f86;
+  --mode-switch-progress: 1;
+}
+
+/* 倒计时填充：满宽起步，从右往左收回（scaleX 锚定左侧） */
+.vscode-ai__banner--mode-switch::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  transform-origin: left center;
+  transform: scaleX(var(--mode-switch-progress, 1));
+  background: linear-gradient(
+    90deg,
+    rgba(47, 135, 226, 0.1) 0%,
+    rgba(47, 135, 226, 0.22) 72%,
+    rgba(120, 190, 255, 0.55) 100%
+  );
+  box-shadow: inset -1.5px 0 0 0 rgba(255, 255, 255, 0.75);
+}
+
+.vscode-ai__banner--mode-switch > * {
+  position: relative;
+  z-index: 1;
+}
+
+.vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn {
+  border-color: rgba(47, 135, 226, 0.45);
+  background: linear-gradient(180deg, #f5faff 0%, #e3f0ff 100%);
+  box-shadow: 0 1px 2px rgba(47, 135, 226, 0.12);
+  color: #1a4f86;
+}
+
+.vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn--primary {
+  border-color: rgba(47, 135, 226, 0.65);
+  background: linear-gradient(180deg, #4d9ee8 0%, #2f87e2 100%);
+  color: #fff;
+}
+
+.vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn:disabled {
+  background: linear-gradient(180deg, #e8f0f8 0%, #d5e4f2 100%);
+  color: #6a8aad;
+}
+
+.vscode-ai__banner-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.vscode-ai__banner-progress {
+  font-weight: 500;
+  opacity: 0.82;
+}
+
+.vscode-ai__banner-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.vscode-ai__plan-bar-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(212, 175, 55, 0.55);
+  background: linear-gradient(180deg, #fff7d6 0%, #f5e6a8 100%);
+  box-shadow: 0 1px 2px rgba(180, 140, 40, 0.12);
+  color: #5c4a1f;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.vscode-ai__plan-bar-btn:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.vscode-ai__plan-bar-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  filter: none;
+  background: linear-gradient(180deg, #f3e9c0 0%, #e8dba0 100%);
+  color: #7a6a3a;
+}
+
+.vscode-ai__review-changes {
+  width: 100%;
+  box-sizing: border-box;
+  max-height: min(360px, 45vh);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid rgba(196, 181, 160, 0.45);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fffdf8 0%, var(--help-paper, #fffaf0) 100%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  color: var(--help-ink);
+}
+
+.vscode-ai .help-app__message--user .help-app__bubble {
+  align-self: flex-start;
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: min(var(--help-bubble-max), calc(100% - 40px));
+}
+
+.vscode-ai__bubble--user {
+  position: relative;
+}
+
+.vscode-ai__bubble--user-editable {
+  cursor: pointer;
+}
+
+.vscode-ai__bubble--user-editable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--help-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* 编辑态：用户气泡本身就是输入区（无嵌套灰色 composer 卡片） */
+.vscode-ai .help-app__message--user.help-app__message--user-editing {
+  width: 100%;
+}
+
+.vscode-ai .help-app__message--user-editing .help-app__avatar {
+  flex-shrink: 0;
+}
+
+.vscode-ai .help-app__message--user .help-app__bubble.vscode-ai__bubble--user-editing {
+  flex: 1 1 0;
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  align-self: stretch;
+  cursor: default;
+  outline: none;
+  white-space: normal;
+}
+
+.vscode-ai__bubble-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  color: inherit;
+}
+
+.vscode-ai__bubble-edit-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  resize: none;
+  outline: none;
+  overflow-y: hidden;
+  box-sizing: content-box;
+}
+
+.vscode-ai__bubble-edit-input::placeholder {
+  color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.vscode-ai__bubble-edit-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .vscode-ai__bubble-edit-footer {
+    animation: vscode-ai-bubble-edit-footer-in 200ms ease 40ms both;
+  }
+}
+
+@keyframes vscode-ai-bubble-edit-footer-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.vscode-ai__bubble-edit-select {
+  flex: none;
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 22px 0 6px;
+  border-radius: var(--help-radius);
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%231a334d' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E")
+      no-repeat right 8px center / 10px 6px,
+    color-mix(in srgb, #fff 42%, transparent);
+  color: inherit;
+  font-size: 11px;
+  font-family: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.vscode-ai__bubble-edit-select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.vscode-ai__bubble-edit-select.vscode-ai__footer-select--open,
+.vscode-ai__bubble-edit-select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.vscode-ai__bubble-edit-send {
+  width: 28px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.vscode-ai .vscode-ai__bubble--user-editing .vscode-ai__context-usage-ring-hole {
+  background: #d0e3f7;
+}
+
+.vscode--chrome-dark .vscode-ai .vscode-ai__bubble--user-editing .vscode-ai__context-usage-ring-hole {
+  background: #142e4a;
+}
+
+.vscode--chrome-dark .vscode-ai__bubble-edit-select {
+  border-color: color-mix(in srgb, #fff 22%, transparent);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23c8dcf0' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E")
+      no-repeat right 8px center / 10px 6px,
+    color-mix(in srgb, #fff 10%, transparent);
+  color: inherit;
+}
+
+.vscode-ai__composer {
+  /* wrap 为 flex 列时，help-app 的 margin:0 auto 会让输入框按内容收缩居中 */
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.vscode-ai__composer-input-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.vscode-ai__composer .help-app__input,
+.vscode-ai__composer-input-wrap .help-app__input {
+  flex: none;
+  width: 100%;
+  min-height: 18px;
+  max-height: none;
+  height: 18px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-y: hidden;
+  transition: height 0.18s ease;
+  box-sizing: content-box;
+}
+
+.vscode-ai__composer-input--dictating {
+  padding-right: 26px;
+}
+
+.vscode-ai__composer--dictating.vscode-ai__composer,
+.vscode-ai__composer--dictating.vscode-ai__bubble-edit {
+  box-shadow:
+    0 0 0 1px rgba(224, 122, 58, 0.45),
+    0 0 0 3px rgba(224, 122, 58, 0.16);
+}
+
+.vscode-ai__composer-input-wave,
+.vscode-ai__composer-input-spinner {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.vscode-ai__composer-input-wave {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 18px;
+  height: 14px;
+}
+
+.vscode-ai__composer-input-spinner {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(224, 122, 58, 0.22);
+  border-top-color: #e07a3a;
+  border-radius: 50%;
+}
+
+.vscode-ai__composer-input-wrap--recording .vscode-ai__composer-input-wave,
+.vscode-ai__composer-input-wrap--recognizing .vscode-ai__composer-input-spinner {
+  opacity: 1;
+  visibility: visible;
+}
+
+.vscode-ai__composer-input-wrap--recognizing .vscode-ai__composer-input-spinner {
+  animation: vscode-ai-dictation-spin 0.7s linear infinite;
+}
+
+.vscode-ai__composer-input-wave i {
+  display: block;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: #e07a3a;
+  transform-origin: center center;
+  transform: scaleY(0.35);
+}
+
+.vscode-ai__composer-input-wrap--recording .vscode-ai__composer-input-wave i {
+  animation: vscode-ai-dictation-bar 0.45s ease-in-out infinite;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(3) {
+  animation-delay: 0.16s;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(4) {
+  animation-delay: 0.24s;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(5) {
+  animation-delay: 0.12s;
+}
+
+@keyframes vscode-ai-dictation-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes vscode-ai-dictation-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vscode-ai__composer-input-wrap--recording .vscode-ai__composer-input-wave i {
+    animation: none;
+    transform: scaleY(0.45);
+  }
+
+  .vscode-ai__composer-input-wrap--recognizing .vscode-ai__composer-input-spinner {
+    animation: none;
+  }
+}
+
+.vscode-ai__composer-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.vscode-ai__footer-field {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.vscode-ai__footer-field--mode {
+  max-width: 96px;
+}
+
+.vscode-ai__footer-field--model {
+  max-width: 220px;
+}
+
+.vscode-ai__footer-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.vscode-ai__footer-select {
+  flex: none;
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--help-radius);
+  border: 1px solid var(--help-border);
+  background: linear-gradient(180deg, #fffdf8 0%, var(--help-paper) 100%);
+  box-shadow: var(--help-shadow);
+  color: var(--help-ink);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.vscode-ai__footer-select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* SettingsChoiceField 自定义 trigger：沿用原生 select 外观，补下拉箭头与文本截断 */
+.vscode-ai__footer-select--trigger {
+  padding-right: 22px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23666666' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E") no-repeat right 8px center / 10px 6px,
+    linear-gradient(180deg, #fffdf8 0%, var(--help-paper) 100%);
+}
+
+.vscode-ai__footer-select--trigger.vscode-ai__footer-select--open,
+.vscode-ai__footer-select--trigger:focus-visible {
+  outline: none;
+  border-color: var(--help-accent);
+}
+
+.vscode-ai__composer-footer-trailing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.vscode-ai__attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 2px 8px;
+}
+
+.vscode-ai__attach-chips--bubble {
+  padding: 0 0 8px;
+}
+
+.vscode-ai__attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--help-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--help-accent) 10%, #fff);
+  font-size: 12px;
+  color: #334;
+}
+
+.vscode-ai__attach-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.vscode-ai__attach-chip-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.vscode-ai__attach-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #c0392b 35%, transparent);
+  background: color-mix(in srgb, #c0392b 10%, #fff);
+  color: #8b1e14;
+  font-size: 12px;
+}
+
+.vscode-ai__attach-error-dismiss {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+}
+
+/* 图片独占气泡：紧凑内边距，尺寸小于文字气泡 */
+.vscode-ai .help-app__bubble.vscode-ai__bubble--image {
+  padding: 0;
+  max-width: min(200px, calc(100% - 40px));
+  width: fit-content;
+}
+
+.vscode-ai__msg-images {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.vscode-ai__msg-images--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.vscode-ai__msg-image-link {
+  display: block;
+  max-width: min(188px, 100%);
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+  border: 1px solid color-mix(in srgb, var(--help-accent) 18%, transparent);
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: zoom-in;
+  font: inherit;
+  text-align: left;
+}
+
+.vscode-ai__msg-image-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, #000 55%, transparent);
+  cursor: zoom-out;
+}
+
+.vscode-ai__msg-image-overlay-img {
+  max-width: min(96%, 1200px);
+  max-height: 92%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
+  cursor: default;
+}
+
+.vscode-ai__msg-image {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  background: color-mix(in srgb, #000 4%, transparent);
+}
+
+.vscode-ai__msg-image--inline {
+  width: 72px;
+  height: 72px;
+  max-height: none;
+  object-fit: cover;
+}
+
+.vscode-ai__msg-image--loading,
+.vscode-ai__msg-image--failed {
+  min-height: 64px;
+  max-width: min(188px, 100%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--help-accent) 10%, transparent);
+}
+
+.vscode-ai__msg-image--failed {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.3;
+}
+
+.vscode--chrome-dark .vscode-ai__msg-image-link {
+  border-color: color-mix(in srgb, #fff 12%, transparent);
+}
+
+.vscode--chrome-dark .vscode-ai__msg-image {
+  background: color-mix(in srgb, #fff 6%, transparent);
+}
+
+.vscode--chrome-dark .vscode-ai__msg-image--failed {
+  color: #b0b0b8;
+}
+
+.vscode--chrome-dark .vscode-ai__attach-chip {
+  background: color-mix(in srgb, var(--help-accent) 18%, #1c1c1e);
+  color: #dce6f2;
+}
+
+.vscode--chrome-dark .vscode-ai__attach-error {
+  background: color-mix(in srgb, #c0392b 22%, #1c1c1e);
+  color: #f5c6c0;
+}
+
+.vscode-ai__context-usage {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.vscode-ai__context-usage--empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.vscode-ai__context-usage-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--help-muted, #777);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.vscode-ai__context-usage-trigger:hover,
+.vscode-ai__context-usage--open .vscode-ai__context-usage-trigger {
+  opacity: 1;
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.vscode-ai__context-usage-trigger:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.vscode-ai__context-usage-ring {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(127, 127, 127, 0.28);
+  flex-shrink: 0;
+}
+
+.vscode-ai__context-usage-ring-hole {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--help-paper, #fffdf8);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+.vscode-ai__context-usage-popover {
+  position: fixed;
+  z-index: 1200;
+  width: min(280px, calc(100vw - 16px));
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--help-border);
+  background: linear-gradient(180deg, #fffdf8 0%, var(--help-paper, #fffaf0) 100%);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  color: var(--help-ink);
+  box-sizing: border-box;
+}
+
+.vscode-ai__context-usage-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.vscode-ai__context-usage-popover-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.vscode-ai__context-usage-popover-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--help-muted, #777);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vscode-ai__context-usage-popover-close:hover {
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--help-ink);
+}
+
+.vscode-ai__context-usage-popover-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vscode-ai__context-usage-popover-summary span:last-child {
+  color: var(--help-muted, #777);
+  font-size: 11px;
+}
+
+.vscode-ai__context-usage-bar {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.16);
+  margin-bottom: 10px;
+}
+
+.vscode-ai__context-usage-bar-seg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+}
+
+.vscode-ai__context-usage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vscode-ai__context-usage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vscode-ai__context-usage-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.vscode-ai__context-usage-row-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--help-ink);
+}
+
+.vscode-ai__context-usage-row-tokens {
+  color: var(--help-muted, #777);
+}
+
+.vscode-ai__context-usage-note {
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--help-muted, #777);
+}
+
+.vscode-ai__composer-footer .help-app__send,
+.vscode-ai__composer-footer .help-app__stop {
+  flex-shrink: 0;
+  width: 28px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.vscode-ai__composer-footer .help-app__stop {
+  font-size: 10px;
+}
+
+/* ── 深色模式：跟随 VS Code 深色外壳，覆写 help-app 拟物变量 ── */
+
+.vscode--chrome-dark .vscode-ai {
+  --help-bg: #1e1e24;
+  --help-surface: #26262c;
+  --help-paper: #2a2a30;
+  --help-ink: #d4d4d8;
+  --help-ink-muted: #888890;
+  --help-border: #3a3a42;
+  --help-border-light: #32323a;
+  --help-accent: #4ea0ef;
+  --help-accent-dark: #6cb3ff;
+  --help-accent-gloss: linear-gradient(180deg, #5aa8f0 0%, #3a8fd4 55%, #2a6fc0 100%);
+  --help-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 1px 3px rgba(0, 0, 0, 0.35);
+  --help-shadow-deep:
+    0 2px 6px rgba(0, 0, 0, 0.4),
+    0 1px 0 rgba(255, 255, 255, 0.03) inset;
+
+  background: linear-gradient(180deg, #1e1e1e 0%, var(--help-bg) 100%);
+}
+
+/* 欢迎页标题文字阴影 */
+.vscode--chrome-dark .vscode-ai .help-app__welcome-title {
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* 示例按钮：深色卡片，去亮色渐变 */
+.vscode--chrome-dark .vscode-ai .help-app__sample {
+  background: linear-gradient(180deg, #2e2e36 0%, #26262e 100%);
+  border: 1px solid var(--help-border);
+  color: var(--help-ink);
+  box-shadow: var(--help-shadow);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__sample:hover:not(:disabled) {
+  background: linear-gradient(180deg, #363640 0%, #2a2a32 100%);
+  border-color: #4a4a52;
+}
+
+/* 助手气泡 */
+.vscode--chrome-dark .vscode-ai .help-app__message--assistant .help-app__bubble {
+  background: linear-gradient(180deg, #2a2a32 0%, var(--help-paper) 100%);
+  border: 1px solid var(--help-border);
+}
+
+/* 用户气泡：深蓝灰，不刺眼 */
+.vscode--chrome-dark .vscode-ai .help-app__message--user .help-app__bubble {
+  background: linear-gradient(180deg, #1a3a5c 0%, #142e4a 100%);
+  border: 1px solid #2a6fad;
+  color: #c8dcf0;
+}
+
+/* 错误气泡 */
+.vscode--chrome-dark .vscode-ai .help-app__bubble--error {
+  background: linear-gradient(180deg, #3a2222 0%, #2e1a1a 100%);
+  border: 1px solid #6a3030;
+  color: #e0a0a0;
+}
+
+/* 用户头像 */
+.vscode--chrome-dark .vscode-ai .help-app__message--user .help-app__avatar {
+  background: linear-gradient(180deg, #2f87e2 0%, #1f6ec7 100%);
+}
+
+/* 错误头像 */
+.vscode--chrome-dark .vscode-ai .help-app__message--error .help-app__avatar {
+  background: linear-gradient(180deg, #a05050 0%, #7a2828 100%);
+}
+
+/* 分隔线 */
+.vscode--chrome-dark .vscode-ai .help-app__investigation,
+.vscode--chrome-dark .vscode-ai .help-app__live-answer--separated,
+.vscode--chrome-dark .vscode-ai__edit-card {
+  border-top-color: var(--help-border);
+}
+
+.vscode--chrome-dark .vscode-ai__write-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--help-border);
+}
+
+.vscode--chrome-dark .vscode-ai__write-card--live {
+  border-color: rgba(206, 145, 50, 0.55);
+  box-shadow: 0 0 0 1px rgba(206, 145, 50, 0.12);
+}
+
+.vscode--chrome-dark .vscode-ai__write-card-toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vscode--chrome-dark .vscode-ai__write-card-preview {
+  background: rgba(0, 0, 0, 0.25);
+  border-top-color: var(--help-border);
+  color: #d4d4d4;
+}
+
+.vscode--chrome-dark .vscode-ai__change-review-file:hover,
+.vscode--chrome-dark .vscode-ai__change-review-file--active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.vscode--chrome-dark .vscode-ai__diff-view {
+  background: #1e1e1e;
+  border-color: var(--help-border);
+  color: #d4d4d4;
+}
+
+.vscode--chrome-dark .vscode-ai__diff-row--added {
+  background: rgba(63, 185, 80, 0.15);
+}
+
+.vscode--chrome-dark .vscode-ai__diff-row--deleted {
+  background: rgba(248, 81, 73, 0.15);
+}
+
+.vscode--chrome-dark .vscode-ai__diff-row--hunk .vscode-ai__diff-hunk,
+.vscode--chrome-dark .vscode-ai__diff-empty {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vscode--chrome-dark .vscode-ai__diff-notice {
+  color: #e3b341;
+  background: rgba(187, 128, 9, 0.15);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__live-answer--separated.help-app__live-answer--streaming {
+  border-top-color: rgba(108, 179, 255, 0.25);
+}
+
+/* Markdown 内联代码 */
+.vscode--chrome-dark .vscode-ai .help-app__markdown code {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Markdown 代码块 */
+.vscode--chrome-dark .vscode-ai .help-app__markdown pre {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--help-border);
+}
+
+/* 思考原文块：避免浅色半透明底 + muted 字看不清 */
+.vscode--chrome-dark .vscode-ai .help-app__reasoning-body {
+  background: rgba(0, 0, 0, 0.25);
+  border-color: var(--help-border);
+  color: var(--help-ink-muted);
+}
+
+/* Markdown 引用 */
+.vscode--chrome-dark .vscode-ai .help-app__markdown blockquote {
+  background: rgba(255, 255, 255, 0.03);
+  border-left-color: var(--help-border);
+}
+
+/* Markdown 表格 */
+.vscode--chrome-dark .vscode-ai .help-app__markdown-table-wrap {
+  background: rgba(0, 0, 0, 0.15);
+  border-color: var(--help-border);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__markdown th {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__markdown td {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__markdown th,
+.vscode--chrome-dark .vscode-ai .help-app__markdown td {
+  border-right-color: rgba(58, 58, 66, 0.55);
+  border-bottom-color: rgba(58, 58, 66, 0.55);
+}
+
+/* 流式光标 */
+.vscode--chrome-dark .vscode-ai .help-app__stream-caret {
+  background: linear-gradient(180deg, #5aa8f0 0%, #3a8fd4 100%);
+}
+
+/* 活动项完成态 */
+.vscode--chrome-dark .vscode-ai .help-app__activity-item--done {
+  color: #5a8a60;
+}
+
+/* 浮层 wrap 保持透明，仅输入框卡片自身有背景 */
+.vscode--chrome-dark .vscode-ai .vscode-ai__composer-wrap,
+.vscode--chrome-dark .vscode-ai .help-app__composer-wrap {
+  background: none;
+}
+
+.vscode--chrome-dark .vscode-ai__review-bar,
+.vscode--chrome-dark .vscode-ai__review-changes {
+  background: linear-gradient(180deg, #2a2a32 0%, var(--help-surface, #26262c) 100%);
+  border-color: var(--help-border);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.vscode--chrome-dark .vscode-ai__banner--plan {
+  background: linear-gradient(180deg, #3d3420 0%, #2f2818 100%);
+  border-color: rgba(212, 175, 55, 0.35);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  color: #f5e6b8;
+}
+
+.vscode--chrome-dark .vscode-ai__banner--mode-switch {
+  background: linear-gradient(180deg, #1a2533 0%, #141c28 100%);
+  border-color: rgba(47, 135, 226, 0.4);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  color: #c5ddf5;
+}
+
+.vscode--chrome-dark .vscode-ai__banner--mode-switch::before {
+  background: linear-gradient(
+    90deg,
+    rgba(47, 135, 226, 0.18) 0%,
+    rgba(47, 135, 226, 0.32) 72%,
+    rgba(90, 170, 240, 0.55) 100%
+  );
+  box-shadow: inset -1.5px 0 0 0 rgba(180, 220, 255, 0.55);
+}
+
+.vscode--chrome-dark .vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn {
+  border-color: rgba(47, 135, 226, 0.4);
+  background: linear-gradient(180deg, #2f4560 0%, #243548 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  color: #c5ddf5;
+}
+
+.vscode--chrome-dark .vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn--primary {
+  border-color: rgba(77, 158, 232, 0.7);
+  background: linear-gradient(180deg, #3d8fd4 0%, #2a6fb0 100%);
+  color: #fff;
+}
+
+.vscode--chrome-dark .vscode-ai__plan-bar-btn {
+  border-color: rgba(212, 175, 55, 0.4);
+  background: linear-gradient(180deg, #5a4a28 0%, #463a1e 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  color: #f5e6b8;
+}
+
+.vscode--chrome-dark .vscode-ai__plan-bar-btn:disabled {
+  background: linear-gradient(180deg, #3a3220 0%, #2e2818 100%);
+  color: #a89868;
+}
+
+.vscode--chrome-dark .vscode-ai__send-queue-summary,
+.vscode--chrome-dark .vscode-ai__send-queue-item {
+  background: color-mix(in srgb, var(--help-surface, #2a2a32) 92%, transparent);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--help-ink, #d4d4d8);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.vscode--chrome-dark .vscode-ai__send-queue-list .vscode-ai__send-queue-item {
+  box-shadow: none;
+}
+
+.vscode--chrome-dark .vscode-ai__send-queue-badge {
+  background: color-mix(in srgb, var(--help-accent, #2f87e2) 22%, transparent);
+  color: #9ec9f5;
+}
+
+.vscode--chrome-dark .vscode-ai__send-queue-toggle:hover,
+.vscode--chrome-dark .vscode-ai__send-queue-remove:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--help-ink, #d4d4d8);
+}
+
+/* 输入框容器 */
+.vscode--chrome-dark .vscode-ai .help-app__composer {
+  background: linear-gradient(180deg, #2a2a32 0%, var(--help-surface) 100%);
+  border: 1px solid var(--help-border);
+}
+
+/* 输入框文字颜色 */
+.vscode--chrome-dark .vscode-ai .help-app__input {
+  color: var(--help-ink);
+}
+
+/* 模式/模型选择框 */
+.vscode--chrome-dark .vscode-ai .vscode-ai__footer-select {
+  background: linear-gradient(180deg, #363640 0%, var(--help-paper) 100%);
+  border: 1px solid var(--help-border);
+}
+
+/* 自定义 trigger：深色渐变 + 浅色箭头（深色覆写用 background 简写，会重置
+   repeat/position/size，这里同样用简写整体重声明） */
+.vscode--chrome-dark .vscode-ai .vscode-ai__footer-select--trigger {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23b0b0b8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E") no-repeat right 8px center / 10px 6px,
+    linear-gradient(180deg, #363640 0%, var(--help-paper) 100%);
+}
+
+/* 发送按钮 */
+.vscode--chrome-dark .vscode-ai .help-app__send {
+  background: var(--help-accent-gloss);
+  border-color: rgba(0, 0, 0, 0.3);
+}
+
+/* 停止按钮 */
+.vscode--chrome-dark .vscode-ai .help-app__stop {
+  background: linear-gradient(180deg, #3a3a42 0%, #2a2a32 100%);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.vscode--chrome-dark .vscode-ai__context-usage-ring-hole {
+  background: var(--help-surface, #2a2a32);
+}
+
+.vscode-ai__context-usage-popover--dark,
+.vscode--chrome-dark .vscode-ai__context-usage-popover {
+  --help-ink: #d4d4d8;
+  --help-muted: #888890;
+  --help-surface: #2a2a32;
+  --help-border: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, #32323a 0%, #2a2a32 100%);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: var(--help-ink);
+  border-color: var(--help-border);
+}
+
+.vscode--chrome-dark .vscode-ai__context-usage-trigger:hover,
+.vscode--chrome-dark .vscode-ai__context-usage--open .vscode-ai__context-usage-trigger {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Debug：展示注入的 system-reminder */
+.vscode-ai__system-reminder {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px dashed rgba(127, 127, 140, 0.45);
+  background: rgba(127, 127, 140, 0.08);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--help-muted, #6b6b76);
+}
+
+.vscode-ai__system-reminder summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: var(--help-fg, #222);
+}
+
+.vscode-ai__system-reminder-body {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.vscode--chrome-dark .vscode-ai__system-reminder {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.vscode--chrome-dark .vscode-ai__system-reminder summary {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.vscode-ai__incomplete-note {
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.vscode--chrome-dark .vscode-ai__incomplete-note {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* 悬浮「复制对话」深色 */
+.vscode--chrome-dark .vscode-ai__chat-copy {
+  background: rgba(42, 42, 50, 0.92);
+  border-color: rgba(140, 140, 150, 0.35);
+  color: #c8c8c8;
+}
+
+.vscode--chrome-dark .vscode-ai__chat-copy:hover {
+  color: #fff;
+  border-color: rgba(170, 170, 180, 0.5);
+}
+
+.vscode--chrome-dark .vscode-ai__chat-copy--copied {
+  color: #7ecb8e;
+  border-color: #7ecb8e;
+}

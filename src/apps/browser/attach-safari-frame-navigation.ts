@@ -37,6 +37,8 @@ export function attachSafariFrameNavigation(
   onNavigate: (url: string) => void,
   onFocus?: () => void,
   onContextMenu?: (request: SafariFrameContextMenuRequest) => void,
+  /** iframe 内事件不冒泡到父窗口；用于关闭叠在页面上的自定义菜单 */
+  onDismissOverlay?: () => void,
 ): () => void {
   const emitNavigate = (url: string) => {
     if (isEmbeddedAppOrigin(url)) {
@@ -112,8 +114,22 @@ export function attachSafariFrameNavigation(
     }
   }
 
-  const onPointerDown = () => {
+  const onPointerDown = (event: Event) => {
     onFocus?.()
+    // 右键留给 contextmenu 打开菜单；左键等需主动关闭（父窗口听不到 iframe 内 pointerdown）
+    if ((event as PointerEvent).button !== 2) {
+      onDismissOverlay?.()
+    }
+  }
+
+  const onKeyDown = (event: Event) => {
+    if ((event as KeyboardEvent).key === 'Escape') {
+      onDismissOverlay?.()
+    }
+  }
+
+  const onScroll = () => {
+    onDismissOverlay?.()
   }
 
   const resolveContextTarget = (element: Element): SafariContextMenuTarget => {
@@ -159,12 +175,16 @@ export function attachSafariFrameNavigation(
   doc.addEventListener('click', onClick, true)
   doc.addEventListener('submit', onSubmit, true)
   doc.addEventListener('pointerdown', onPointerDown, true)
+  doc.addEventListener('keydown', onKeyDown, true)
+  doc.addEventListener('scroll', onScroll, true)
   doc.addEventListener('contextmenu', onContextMenuEvent, true)
 
   return () => {
     doc.removeEventListener('click', onClick, true)
     doc.removeEventListener('submit', onSubmit, true)
     doc.removeEventListener('pointerdown', onPointerDown, true)
+    doc.removeEventListener('keydown', onKeyDown, true)
+    doc.removeEventListener('scroll', onScroll, true)
     doc.removeEventListener('contextmenu', onContextMenuEvent, true)
   }
 }

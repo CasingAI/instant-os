@@ -127,7 +127,8 @@ export function BooksStoreDetail({
     let cancelled = false
 
     const refreshPersisted = async () => {
-      const book = findLibraryBookById(readBooksStore(), libraryBook.id)
+      const store = await readBooksStore()
+      const book = findLibraryBookById(store, libraryBook.id)
       if (!book) {
         if (!cancelled) {
           setPersistedCharacterCount(undefined)

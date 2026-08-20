@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { ExtAppIcon } from '../ext/ext-app-icon.tsx'
+import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 import {
   AI_EVENT_LOG_CHANGED_EVENT,
   formatTokensPerSecond,
   getLiveAiEventLogCount,
   listLiveAiEventLogs,
-  refreshLiveAiEventLogPerformance,
 } from '../../ai/ai-event-log.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -17,9 +15,21 @@ import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { useDevExtApps } from '../../os/dev-ext-apps-context.tsx'
 import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
+import {
+  consumePendingOpenTaskManager,
+  OPEN_TASK_MANAGER_EVENT,
+  type TaskManagerOpenTarget,
+} from '../../os/task-manager-open.ts'
 import type { AppId, WindowState } from '../../os/types.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
-import { TaskManagerPerformancePanel } from './task-manager-performance-panel.tsx'
+import {
+  listWorkerHeapReports,
+  WORKER_HEAP_REPORTS_CHANGED_EVENT,
+  WORKER_SERVICE_STATUS_LABELS,
+  type WorkerHeapReport,
+} from '../../os/worker-heap-reports.ts'
+import { restartWorkerService } from '../../os/service-supervisor.ts'
+import { TaskManagerPerformancePanel, type PerfCategory } from './task-manager-performance-panel.tsx'
 import {
   formatSampleIntervalLabel,
   SPEED_SAMPLE_INTERVALS,
@@ -27,6 +37,17 @@ import {
 } from './task-manager-speed-series.ts'
 import { useTaskManagerSpeedSeries } from './task-manager-use-speed-series.ts'
 import { useTaskManagerSystemMetrics } from './task-manager-use-system-metrics.ts'
+import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-server-metrics.ts'
+import { useTaskManagerFilesIoMetrics } from './task-manager-use-files-io-metrics.ts'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
+import {
+  listWebViewUnits,
+  onWebViewRegistryChanged,
+  summarizeWebViewUnit,
+  type WebViewUnitSummary,
+} from '../webview/webview-registry.ts'
+import { destroyWebViewUnitFully } from '../webview/webview-window-service.ts'
+import { ChromoIcon } from '../../icons/app-icons.tsx'
 import './task-manager.css'
 
 const APP_ID = 'task-manager' as const
@@ -38,6 +59,7 @@ type LiveAppActivity = {
   tokensPerSecond: number
   behaviorLabel: string
   sessionCount: number
+  usageEstimated: boolean
 }
 
 type RunningAppEntry = {
@@ -87,22 +109,24 @@ function resolveAppName(
 }
 
 function collectLiveAppActivity(): Map<string, LiveAppActivity> {
-  refreshLiveAiEventLogPerformance()
   const byActor = new Map<string, LiveAppActivity>()
 
   for (const record of listLiveAiEventLogs()) {
     const existing = byActor.get(record.actor)
     const rate = record.completionTokensPerSecond ?? 0
+    const usageEstimated = record.usageEstimated === true
     if (!existing) {
       byActor.set(record.actor, {
         tokensPerSecond: rate,
         behaviorLabel: record.behaviorLabel || record.behavior,
         sessionCount: 1,
+        usageEstimated,
       })
       continue
     }
     existing.tokensPerSecond += rate
     existing.sessionCount += 1
+    existing.usageEstimated = existing.usageEstimated || usageEstimated
   }
 
   return byActor
@@ -113,21 +137,52 @@ export function TaskManagerApp() {
     windows,
     activeWindowId,
     closeWindowsForApp,
-    minimizeWindow,
+    closeWindow,
   } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const { getInstalledApp } = useGeneratedApps()
   const { getSessionExtApp } = useDevExtApps()
   const { isAppUnresponsive } = useGeneratedAppHeartbeat()
-  const definition = getAppDefinition(APP_ID)
   const [tab, setTab] = useState<TaskManagerTab>('programs')
+  const [perfCategory, setPerfCategory] = useState<PerfCategory>('ai')
   const [sampleIntervalSec, setSampleIntervalSec] = useState<SpeedSampleIntervalSec>(1)
   const [liveByActor, setLiveByActor] = useState<Map<string, LiveAppActivity>>(() => new Map())
+  const [workerServices, setWorkerServices] = useState<WorkerHeapReport[]>(() =>
+    listWorkerHeapReports().filter((service) => service.status !== 'stopped'),
+  )
   const speedSeries = useTaskManagerSpeedSeries(sampleIntervalSec)
   const systemMetrics = useTaskManagerSystemMetrics(sampleIntervalSec)
+  const proxyServerMetrics = useTaskManagerProxyServerMetrics(sampleIntervalSec)
+  const filesIoMetrics = useTaskManagerFilesIoMetrics(sampleIntervalSec)
 
   const refreshLiveActivity = useCallback(() => {
     setLiveByActor(collectLiveAppActivity())
+  }, [])
+
+  const applyOpenTarget = useCallback((target: TaskManagerOpenTarget) => {
+    setTab(target.tab)
+    if (target.tab === 'performance') {
+      setPerfCategory(target.category)
+    }
+  }, [])
+
+  useEffect(() => {
+    const pendingTarget = consumePendingOpenTaskManager()
+    if (pendingTarget) {
+      applyOpenTarget(pendingTarget)
+    }
+
+    const handleOpen = (event: Event) => {
+      consumePendingOpenTaskManager()
+      const detail = (event as CustomEvent<TaskManagerOpenTarget>).detail
+      applyOpenTarget(detail ?? { tab: 'programs' })
+    }
+
+    window.addEventListener(OPEN_TASK_MANAGER_EVENT, handleOpen)
+    return () => window.removeEventListener(OPEN_TASK_MANAGER_EVENT, handleOpen)
+  }, [applyOpenTarget])
+
+  const refreshWorkerServices = useCallback(() => {
+    setWorkerServices(listWorkerHeapReports().filter((service) => service.status !== 'stopped'))
   }, [])
 
   useEffect(() => {
@@ -138,6 +193,23 @@ export function TaskManagerApp() {
     window.addEventListener(AI_EVENT_LOG_CHANGED_EVENT, onChanged)
     return () => window.removeEventListener(AI_EVENT_LOG_CHANGED_EVENT, onChanged)
   }, [refreshLiveActivity])
+
+  useEffect(() => {
+    refreshWorkerServices()
+    window.addEventListener(WORKER_HEAP_REPORTS_CHANGED_EVENT, refreshWorkerServices)
+    return () =>
+      window.removeEventListener(WORKER_HEAP_REPORTS_CHANGED_EVENT, refreshWorkerServices)
+  }, [refreshWorkerServices])
+
+  useEffect(() => {
+    if (tab !== 'programs') {
+      return
+    }
+    const timer = window.setInterval(() => {
+      refreshWorkerServices()
+    }, sampleIntervalSec * 1000)
+    return () => window.clearInterval(timer)
+  }, [refreshWorkerServices, sampleIntervalSec, tab])
 
   useEffect(() => {
     if (tab !== 'programs') {
@@ -153,27 +225,7 @@ export function TaskManagerApp() {
   }, [liveByActor.size, refreshLiveActivity, tab])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     return [
-      {
-        label: definition?.name ?? '性能监视器',
-        items: [
-          ...aboutAppMenuPrefix(`关于 ${definition?.name ?? '性能监视器'}`, () => showBuiltinAbout(APP_ID)),
-          {
-            type: 'action',
-            label: `隐藏${definition?.name ?? '性能监视器'}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出${definition?.name ?? '性能监视器'}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(APP_ID),
-          },
-        ],
-      },
       {
         label: '视图',
         items: [
@@ -203,21 +255,32 @@ export function TaskManagerApp() {
       },
     ]
   }, [
-    closeWindowsForApp,
-    definition?.name,
-    minimizeWindow,
     sampleIntervalSec,
-    showBuiltinAbout,
-    windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)
+
+  const [webviewUnits, setWebviewUnits] = useState<WebViewUnitSummary[]>(() =>
+    listWebViewUnits().map((unit) => summarizeWebViewUnit(unit, windows)),
+  )
+
+  useEffect(() => {
+    const refresh = () => {
+      setWebviewUnits(listWebViewUnits().map((unit) => summarizeWebViewUnit(unit, windows)))
+    }
+    refresh()
+    return onWebViewRegistryChanged(refresh)
+  }, [windows])
 
   const runningApps = useMemo((): RunningAppEntry[] => {
     const groups = new Map<AppId, WindowState[]>()
 
     for (const window of windows) {
       if (window.closing) {
+        continue
+      }
+      // WebView units are listed per-unit below; skip aggregated webview app row.
+      if (window.appId === 'webview') {
         continue
       }
       const list = groups.get(window.appId) ?? []
@@ -265,29 +328,21 @@ export function TaskManagerApp() {
 
   const endableApps = runningApps.filter((entry) => entry.canEnd)
   const openWindowCount = windows.filter((window) => !window.closing).length
+  const programCount = runningApps.length + webviewUnits.length + workerServices.length
+  const emptyPrograms = programCount === 0
 
   return (
     <div class="task-manager">
-      <div class="task-manager__tabs" role="tablist" aria-label="性能监视器">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'programs'}
-          class={`task-manager__tab${tab === 'programs' ? ' task-manager__tab--active' : ''}`}
-          onClick={() => setTab('programs')}
-        >
-          程序
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'performance'}
-          class={`task-manager__tab${tab === 'performance' ? ' task-manager__tab--active' : ''}`}
-          onClick={() => setTab('performance')}
-        >
-          性能
-        </button>
-      </div>
+      <SegmentedControl
+        value={tab}
+        ariaLabel="性能监视器"
+        className="task-manager__section-tabs"
+        items={[
+          { id: 'programs', label: '程序' },
+          { id: 'performance', label: '性能' },
+        ]}
+        onChange={setTab}
+      />
 
       <div class="task-manager__tab-body">
         <section
@@ -295,14 +350,14 @@ export function TaskManagerApp() {
           hidden={tab !== 'programs'}
           aria-hidden={tab !== 'programs'}
         >
-          <h2 class="task-manager__section-title">正在运行的应用</h2>
+          <h2 class="task-manager__section-title">正在运行的程序</h2>
           <p class="task-manager__section-subtitle">
-            {runningApps.length === 0
-              ? '当前没有打开的应用'
-              : `共 ${runningApps.length} 个应用、${openWindowCount} 个窗口`}
+            {emptyPrograms
+              ? '当前没有打开的应用或系统服务'
+              : `共 ${programCount} 个进程、${openWindowCount} 个窗口`}
           </p>
 
-          {runningApps.length === 0 ? (
+          {emptyPrograms ? (
             <p class="task-manager__empty">打开任意应用后，会显示在这里。</p>
           ) : (
             <div class="task-manager__table-wrap">
@@ -330,7 +385,7 @@ export function TaskManagerApp() {
                     const Icon = builtin?.icon
                     const isUnresponsive = entry.status === '未响应'
                     const aiSpeed = entry.liveActivity
-                      ? formatTokensPerSecond(entry.liveActivity.tokensPerSecond)
+                      ? `${entry.liveActivity.usageEstimated ? '~' : ''}${formatTokensPerSecond(entry.liveActivity.tokensPerSecond)}`
                       : '—'
 
                     return (
@@ -391,14 +446,81 @@ export function TaskManagerApp() {
                       </tr>
                     )
                   })}
+                  {webviewUnits.map((unit) => (
+                    <tr key={unit.unitId} class="task-manager__tr">
+                      <td class="task-manager__td task-manager__td--name">
+                        <span class="task-manager__name-cell">
+                          <span class="task-manager__app-icon">
+                            <ChromoIcon size={28} />
+                          </span>
+                          <span class="task-manager__name-text">{unit.title}</span>
+                        </span>
+                      </td>
+                      <td class="task-manager__td task-manager__td--status">{unit.status}</td>
+                      <td class="task-manager__td task-manager__td--ai">—</td>
+                      <td class="task-manager__td task-manager__td--windows">
+                        {unit.windowId ? 1 : 0}
+                      </td>
+                      <td class="task-manager__td task-manager__td--action">
+                        <button
+                          type="button"
+                          class="task-manager__end-button"
+                          onClick={() => {
+                            destroyWebViewUnitFully(
+                              { getWindows: () => windows, closeWindow },
+                              unit.unitId,
+                            )
+                          }}
+                        >
+                          结束
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {workerServices.map((service) => (
+                    <tr key={service.id} class="task-manager__tr">
+                      <td class="task-manager__td task-manager__td--name">
+                        <span class="task-manager__name-cell">
+                          <span class="task-manager__app-icon">
+                            <AppIconTile color="#8e8e93" size={28}>
+                              <span style={{ fontSize: '19px' }}>⚙️</span>
+                            </AppIconTile>
+                          </span>
+                          <span class="task-manager__name-text">
+                            {service.label}
+                            <span class="task-manager__name-tag">[系统]</span>
+                          </span>
+                        </span>
+                      </td>
+                      <td class="task-manager__td task-manager__td--status">
+                        {WORKER_SERVICE_STATUS_LABELS[service.status]}
+                        {service.restartCount > 0 ? ` ·重启${service.restartCount}次` : ''}
+                      </td>
+                      <td class="task-manager__td task-manager__td--ai">—</td>
+                      <td class="task-manager__td task-manager__td--windows">—</td>
+                      <td class="task-manager__td task-manager__td--action">
+                        <button
+                          type="button"
+                          class="task-manager__end-button"
+                          onClick={() => {
+                            restartWorkerService(service.id)
+                          }}
+                        >
+                          重启
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           )}
 
-          {endableApps.length > 0 && (
+          {(endableApps.length > 0 || webviewUnits.length > 0 || workerServices.length > 0) && (
             <p class="task-manager__footnote">
-              「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。
+              「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。WebView
+              按浏览单元单独列出（含尚未 show 的离屏单元）。系统服务异常时会自动重启（最多 3
+              次），也可点「重启」手动恢复。
             </p>
           )}
         </section>
@@ -409,6 +531,8 @@ export function TaskManagerApp() {
           aria-hidden={tab !== 'performance'}
         >
           <TaskManagerPerformancePanel
+            category={perfCategory}
+            onCategoryChange={setPerfCategory}
             sampleIntervalSec={sampleIntervalSec}
             series={speedSeries}
             fpsSeries={systemMetrics.fpsSeries}
@@ -416,6 +540,14 @@ export function TaskManagerApp() {
             latestFps={systemMetrics.latestFps}
             memory={systemMetrics.memory}
             memorySupported={systemMetrics.memorySupported}
+            proxyDownloadSeries={proxyServerMetrics.downloadSeries}
+            proxyUploadSeries={proxyServerMetrics.uploadSeries}
+            latestProxyDownload={proxyServerMetrics.latestDownloadBytesPerSec}
+            latestProxyUpload={proxyServerMetrics.latestUploadBytesPerSec}
+            proxyServerConnected={proxyServerMetrics.proxyServerConnected}
+            proxyRecentRequests={proxyServerMetrics.recentRequests}
+            filesIoContainers={filesIoMetrics.containers}
+            filesIoRecentOperations={filesIoMetrics.recentOperations}
           />
         </div>
       </div>

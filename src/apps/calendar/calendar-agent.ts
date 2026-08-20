@@ -242,7 +242,7 @@ async function completeJson<T>(
     const response = await client.chat.completions.create({
       model: config.defaultModel,
       messages,
-      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
     })
 
     const text = response.choices[0]?.message?.content ?? ''
@@ -426,7 +426,7 @@ export async function generateMonthMarkers(
     markers,
   }
   if (options?.persist !== false) {
-    saveMonthDigest(digest)
+    await saveMonthDigest(digest)
   }
   return digest
 }

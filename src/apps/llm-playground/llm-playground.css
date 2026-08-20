@@ -1,0 +1,550 @@
+/* LLM Playground — 消息可编辑的 OpenAI Playground 风格实验台 */
+
+.llm-playground {
+  --lp-bg: #f6f5f2;
+  --lp-surface: #ffffff;
+  --lp-panel: #fafaf8;
+  --lp-ink: #1f2430;
+  --lp-ink-muted: #6a7280;
+  --lp-border: #dcdce0;
+  --lp-border-strong: #c9c9cf;
+  --lp-accent: #7c5cf0;
+  --lp-accent-dark: #5b3fd8;
+  --lp-accent-soft: #eeeafe;
+  --lp-system: #9333ea;
+  --lp-system-soft: #f7ecfe;
+  --lp-user: #2563eb;
+  --lp-user-soft: #eaf1fe;
+  --lp-assistant: #0d9488;
+  --lp-assistant-soft: #e6f7f4;
+  --lp-ok: #16a34a;
+  --lp-error: #dc2626;
+  --lp-mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  --lp-radius: 8px;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--lp-bg);
+  color: var(--lp-ink);
+  font-family: var(--app-text-font-family);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.llm-playground__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- 主列：消息列表 + 响应 ---- */
+
+.llm-playground__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.llm-playground__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 16px 6px;
+}
+
+.llm-playground__empty {
+  margin: auto;
+  max-width: 380px;
+  text-align: center;
+  padding: 28px 16px;
+}
+
+.llm-playground__empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.llm-playground__empty-sub {
+  margin: 0 0 16px;
+  color: var(--lp-ink-muted);
+  line-height: 1.6;
+}
+
+.llm-playground__empty-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* ---- 消息卡片 ---- */
+
+.llm-playground-message {
+  display: flex;
+  flex-direction: column;
+  /* 禁止 flex 压缩：列表内容超过容器高度时应溢出产生滚动条，而不是把卡片压扁 */
+  flex-shrink: 0;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius);
+  background: var(--lp-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+.llm-playground-message__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: linear-gradient(180deg, #fdfdfc 0%, #f5f5f3 100%);
+  border-bottom: 1px solid var(--lp-border);
+}
+
+.llm-playground-message__role {
+  appearance: none;
+  border: 1px solid var(--lp-border-strong);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 22px 3px 8px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M0 0l4 6 4-6z' fill='%23777'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+}
+
+.llm-playground-message__role--system {
+  color: var(--lp-system);
+  background-color: var(--lp-system-soft);
+  border-color: #dcc5f3;
+}
+
+.llm-playground-message__role--user {
+  color: var(--lp-user);
+  background-color: var(--lp-user-soft);
+  border-color: #c3d6f9;
+}
+
+.llm-playground-message__role--assistant {
+  color: var(--lp-assistant);
+  background-color: var(--lp-assistant-soft);
+  border-color: #b9e4de;
+}
+
+.llm-playground-message__index {
+  font-size: 11px;
+  color: var(--lp-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.llm-playground-message__spacer {
+  flex: 1;
+}
+
+.llm-playground-message__action {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--lp-ink-muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.llm-playground-message__action:hover:not(:disabled) {
+  background: #e9e9ed;
+  color: var(--lp-ink);
+}
+
+.llm-playground-message__action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.llm-playground-message__action--danger:hover:not(:disabled) {
+  background: #fdeaea;
+  color: var(--lp-error);
+}
+
+.llm-playground-message__content {
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 10px 12px;
+  font-family: var(--app-text-font-family);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--lp-ink);
+  background: transparent;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 42px;
+  /* 高度由 JS 跟随内容增长（autosize），不设上限；
+     单条消息再长都完整显示，滚动统一发生在外层消息列表，避免双层滚动 */
+  height: auto;
+  overflow: hidden;
+}
+
+.llm-playground-message__content::placeholder {
+  color: #a8aab2;
+}
+
+/* ---- 添加消息 / 复制对话 按钮行（固定在消息列表下方） ---- */
+
+.llm-playground__message-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 10px;
+}
+
+.llm-playground__add-message {
+  flex: 1;
+  padding: 9px;
+  border: 1px dashed var(--lp-border-strong);
+  border-radius: var(--lp-radius);
+  background: var(--lp-surface);
+  color: var(--lp-ink-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.llm-playground__add-message:hover {
+  background: var(--lp-accent-soft);
+  border-color: var(--lp-accent);
+  color: var(--lp-accent-dark);
+}
+
+.llm-playground__copy-conversation {
+  flex-shrink: 0;
+  padding: 9px 14px;
+  border: 1px solid var(--lp-border-strong);
+  border-radius: var(--lp-radius);
+  background: var(--lp-surface);
+  color: var(--lp-ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.llm-playground__copy-conversation:hover:not(:disabled) {
+  background: #f0f0f4;
+}
+
+.llm-playground__copy-conversation:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.llm-playground__copy-status {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.llm-playground__copy-status--ok {
+  color: var(--lp-ok);
+}
+
+.llm-playground__copy-status--error {
+  color: var(--lp-error);
+}
+
+/* ---- 响应区 ---- */
+
+.llm-playground-response {
+  flex-shrink: 0;
+  margin: 0 16px 14px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius);
+  background: var(--lp-surface);
+  min-height: 44px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+
+.llm-playground-response--idle {
+  background: #fbfbf9;
+}
+
+.llm-playground-response__hint {
+  margin: 0;
+  color: var(--lp-ink-muted);
+  font-size: 12px;
+}
+
+.llm-playground-response__waiting {
+  margin: 0;
+  color: var(--lp-ink-muted);
+  font-size: 12px;
+}
+
+.llm-playground-response__reasoning {
+  border: 1px solid #e2d9f5;
+  background: #faf7ff;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.llm-playground-response__reasoning summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #7c5cf0;
+}
+
+.llm-playground-response__reasoning-text {
+  margin: 8px 0 0;
+  font-family: var(--lp-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: #5b4b8a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.llm-playground-response__content {
+  line-height: 1.65;
+  font-size: 13px;
+}
+
+.llm-playground-response__content--streaming {
+  opacity: 0.9;
+}
+
+.llm-playground-response__content > :first-child {
+  margin-top: 0;
+}
+
+.llm-playground-response__content > :last-child {
+  margin-bottom: 0;
+}
+
+.llm-playground-response__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.llm-playground-response__status {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lp-ok);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.llm-playground-response__spacer {
+  flex: 1;
+}
+
+.llm-playground-response__error {
+  color: var(--lp-error);
+}
+
+.llm-playground-response__error-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.llm-playground-response__error-message {
+  margin: 0;
+  font-family: var(--lp-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- 右侧配置面板 ---- */
+
+.llm-playground__panel {
+  flex-shrink: 0;
+  width: 292px;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--lp-panel);
+  border-left: 1px solid var(--lp-border);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.llm-playground__panel-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--lp-ink-muted);
+}
+
+.llm-playground-panel__divider {
+  border-top: 1px solid var(--lp-border);
+}
+
+.llm-playground-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.llm-playground-field--switch {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.llm-playground-field__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.llm-playground-field__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lp-ink);
+}
+
+.llm-playground-field__value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--lp-accent-dark);
+  font-weight: 600;
+}
+
+.llm-playground-field__hint {
+  font-size: 11px;
+  color: var(--lp-ink-muted);
+}
+
+.llm-playground-field__select,
+.llm-playground-field__input {
+  border: 1px solid var(--lp-border-strong);
+  border-radius: 6px;
+  background: var(--lp-surface);
+  color: var(--lp-ink);
+  font-size: 13px;
+  padding: 6px 8px;
+  outline: none;
+  font-family: var(--app-text-font-family);
+}
+
+.llm-playground-field__select:focus,
+.llm-playground-field__input:focus {
+  border-color: var(--lp-accent);
+  box-shadow: 0 0 0 2px var(--lp-accent-soft);
+}
+
+.llm-playground-field__range {
+  accent-color: var(--lp-accent);
+  width: 100%;
+  margin: 0;
+}
+
+/* ---- 发送按钮 ---- */
+
+.llm-playground-send {
+  margin-top: 2px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--lp-radius);
+  background: linear-gradient(180deg, var(--lp-accent) 0%, var(--lp-accent-dark) 100%);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(91, 63, 216, 0.35);
+}
+
+.llm-playground-send:hover {
+  filter: brightness(1.06);
+}
+
+.llm-playground-send--running {
+  background: linear-gradient(180deg, #e05a4e 0%, #c23a2e 100%);
+  box-shadow: 0 1px 2px rgba(194, 58, 46, 0.35);
+}
+
+.llm-playground-send-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--lp-ink-muted);
+  line-height: 1.5;
+}
+
+/* ---- 保存状态条 ---- */
+
+.llm-playground-save-state {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.llm-playground-save-state--saved {
+  background: #e8f7ee;
+  border: 1px solid #b8e3c8;
+  color: #166534;
+}
+
+.llm-playground-save-state--error {
+  background: #fdeeee;
+  border: 1px solid #f3c1c1;
+  color: #b91c1c;
+}
+
+/* ---- 通用按钮 ---- */
+
+.llm-playground-btn {
+  border: 1px solid var(--lp-border-strong);
+  border-radius: 6px;
+  background: var(--lp-surface);
+  color: var(--lp-ink);
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.llm-playground-btn:hover:not(:disabled) {
+  background: #f0f0f4;
+}
+
+.llm-playground-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.llm-playground-btn--primary {
+  background: linear-gradient(180deg, var(--lp-accent) 0%, var(--lp-accent-dark) 100%);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.llm-playground-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.llm-playground-btn--small {
+  font-size: 12px;
+  padding: 4px 10px;
+}

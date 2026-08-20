@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
   formatCalendarYearLabel,
   formatChineseMonthLabel,
@@ -25,16 +23,16 @@ import { BackIcon, ForwardIcon, ReloadIcon } from '../../icons/app-icons.tsx'
 import { DateTimeDatePanel } from '../../ui/date-time-date-panel.tsx'
 import { generateMonthMarkers } from './calendar-agent.ts'
 import {
-  CALENDAR_STORE_CHANGED_EVENT,
   formatMonthKey,
-  getMonthDigest,
+  readCalendarStore,
+  subscribeCalendarStore,
 } from './calendar-storage.ts'
 import { requestNewsEdition } from '../news/news-edition-request.ts'
 import {
   CALENDAR_MARKER_KIND_LABEL,
   type CalendarDayMarker,
   type CalendarMarkerKind,
-  type CalendarMonthDigest,
+  type CalendarStore,
 } from './calendar-types.ts'
 import './calendar.css'
 
@@ -195,19 +193,17 @@ function buildMonthGrid(
 }
 
 export function CalendarApp() {
-  const { closeWindowsForApp, minimizeWindow, openApp, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { openApp } = useOs()
 
   const [todayKey, setTodayKey] = useState(() => formatEditionDateKey(getOsNowInstant()))
   const [view, setView] = useState<ViewMonth>(() => viewMonthFromInstant(getOsNowInstant()))
   const [selectedKey, setSelectedKey] = useState(() => formatEditionDateKey(getOsNowInstant()))
-  const [monthDigest, setMonthDigest] = useState<CalendarMonthDigest | undefined>(() =>
-    getMonthDigest(formatMonthKey(viewMonthFromInstant(getOsNowInstant()))),
-  )
+  const [store, setStore] = useState<CalendarStore | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | undefined>()
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const viewMonthKey = formatMonthKey(view)
+  const monthDigest = store?.digestsByMonth[viewMonthKey]
   const viewRef = useRef(view)
   viewRef.current = view
 
@@ -221,40 +217,57 @@ export function CalendarApp() {
   }, [])
 
   useEffect(() => {
-    const onStore = () => {
-      setMonthDigest(getMonthDigest(viewMonthKey))
+    let alive = true
+    const load = () => {
+      readCalendarStore().then((next) => {
+        if (alive) {
+          setStore(next)
+        }
+      })
     }
-    window.addEventListener(CALENDAR_STORE_CHANGED_EVENT, onStore)
-    return () => window.removeEventListener(CALENDAR_STORE_CHANGED_EVENT, onStore)
-  }, [viewMonthKey])
+    load()
+    const unsubscribe = subscribeCalendarStore(load)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [])
 
   const ensureMonthMarkers = useCallback(async (target: ViewMonth, force = false) => {
     const monthKey = formatMonthKey(target)
-    const existing = getMonthDigest(monthKey)
+    const current = await readCalendarStore()
+    const existing = current.digestsByMonth[monthKey]
     if (existing && !force) {
       if (formatMonthKey(viewRef.current) === monthKey) {
-        setMonthDigest(existing)
+        setStore(current)
         setError(undefined)
         setLoading(false)
       }
       return
     }
     if (formatMonthKey(viewRef.current) === monthKey) {
-      setMonthDigest(force ? existing : undefined)
       setLoading(true)
       setError(undefined)
     }
     try {
       const next = await generateMonthMarkers(target)
       if (formatMonthKey(viewRef.current) === monthKey) {
-        setMonthDigest(next)
+        setStore((prev) => ({
+          digestsByMonth: {
+            ...(prev?.digestsByMonth ?? {}),
+            [monthKey]: next,
+          },
+        }))
       }
     } catch (err) {
       if (formatMonthKey(viewRef.current) !== monthKey) {
         return
       }
       setError(err instanceof Error ? err.message : '特殊日期加载失败')
-      setMonthDigest(getMonthDigest(monthKey))
+      const fallback = await readCalendarStore()
+      if (formatMonthKey(viewRef.current) === monthKey) {
+        setStore(fallback)
+      }
     } finally {
       if (formatMonthKey(viewRef.current) === monthKey) {
         setLoading(false)
@@ -321,28 +334,7 @@ export function CalendarApp() {
   }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'calendar' && !window.minimized)
-
     return [
-      {
-        label: '月历',
-        items: [
-          ...aboutAppMenuPrefix('关于 月历', () => showBuiltinAbout('calendar')),
-          {
-            type: 'action',
-            label: '隐藏月历',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出月历',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('calendar'),
-          },
-        ],
-      },
       {
         label: '前往',
         items: [
@@ -365,14 +357,10 @@ export function CalendarApp() {
       },
     ]
   }, [
-    closeWindowsForApp,
     ensureMonthMarkers,
     goToday,
-    minimizeWindow,
     openDatePicker,
-    showBuiltinAbout,
     view,
-    windows,
   ])
 
   useAppMenuBar('calendar', menuBar)
@@ -565,7 +553,13 @@ export function CalendarApp() {
 
         <div class="calendar-app__events">
           <h3 class="calendar-app__events-title">当日标记</h3>
-          {loading && !monthDigest && (
+          {store === undefined && (
+            <div class="calendar-app__loading" role="status">
+              <div class="calendar-app__loading-spinner" aria-hidden="true" />
+              <p>正在加载</p>
+            </div>
+          )}
+          {store !== undefined && loading && !monthDigest && (
             <div class="calendar-app__loading" role="status">
               <div class="calendar-app__loading-spinner" aria-hidden="true" />
               <p>正在加载当月特殊日期…</p>

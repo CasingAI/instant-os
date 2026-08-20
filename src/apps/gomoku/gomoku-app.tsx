@@ -2,11 +2,8 @@ import type { ComponentChild } from 'preact'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { hasOpenAiApiKey } from '../../ai/openai-config.ts'
 import { useDefaultAiModelFriendlyName } from '../../ai/use-default-ai-model.ts'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
 import {
   GOMOKU_HEURISTIC_AI_NAME,
   gomokuAiDegradeBannerMessage,
@@ -41,7 +38,12 @@ import { GomokuModelName } from './gomoku-model-name.tsx'
 import { GomokuMatchIntro } from './gomoku-match-intro.tsx'
 import { GomokuWinCelebration } from './gomoku-win-celebration.tsx'
 import { GomokuWinLineHighlight } from './gomoku-win-line-highlight.tsx'
-import { loadGomokuGameMode, saveGomokuGameMode, type GomokuGameMode } from './gomoku-storage.ts'
+import {
+  loadGomokuGameMode,
+  saveGomokuGameMode,
+  subscribeGomokuGameMode,
+  type GomokuGameMode,
+} from './gomoku-storage.ts'
 import { playInvalidSound, playPlaceSound, playUndoSound, playWinSound } from './gomoku-sounds.ts'
 import './gomoku.css'
 
@@ -228,10 +230,8 @@ function gomokuModeLabel(gameMode: GomokuGameMode): string {
 }
 
 export function GomokuApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
   const opponentFriendlyName = useDefaultAiModelFriendlyName()
-  const [gameMode, setGameMode] = useState<GomokuGameMode>(() => loadGomokuGameMode())
+  const [gameMode, setGameMode] = useState<GomokuGameMode>('pve')
   const [game, setGame] = useState<GameState>(createInitialState)
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>('idle')
   const [aiThinking, setAiThinking] = useState(false)
@@ -242,6 +242,23 @@ export function GomokuApp() {
   const [drawCelebrationDismissed, setDrawCelebrationDismissed] = useState(false)
   const [mobileInfoOpen, setMobileInfoOpen] = useState(false)
   const aiTurnRef = useRef(0)
+
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      loadGomokuGameMode().then((mode) => {
+        if (alive) {
+          setGameMode(mode)
+        }
+      })
+    }
+    load()
+    const unsubscribe = subscribeGomokuGameMode(load)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [])
 
   const lastMove = game.moves.at(-1)
   const aiConfigured = hasOpenAiApiKey()
@@ -260,9 +277,9 @@ export function GomokuApp() {
     setDrawCelebrationDismissed(false)
   }, [])
 
-  const selectGameMode = useCallback((mode: GomokuGameMode) => {
+  const selectGameMode = useCallback(async (mode: GomokuGameMode) => {
     if (mode === gameMode) return
-    saveGomokuGameMode(mode)
+    await saveGomokuGameMode(mode)
     setGameMode(mode)
     setAiThinking(false)
     setAiThinkingLabel('default')
@@ -288,32 +305,15 @@ export function GomokuApp() {
   }, [resetEndgamePresentation])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'gomoku' && !window.minimized)
-
     return [
       {
         label: '五子棋',
         items: [
-          ...aboutAppMenuPrefix('关于五子棋', () => showBuiltinAbout('gomoku')),
           {
             type: 'action',
             label: sessionPhase === 'idle' ? '开始新对局' : '新局',
             shortcut: '⌘N',
             onClick: startNewGame,
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '隐藏五子棋',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出五子棋',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('gomoku'),
           },
         ],
       },
@@ -323,17 +323,17 @@ export function GomokuApp() {
           {
             type: 'action',
             label: `${menuCheckPrefix(gameMode === 'pvp')}人类对战人类`,
-            onClick: () => selectGameMode('pvp'),
+            onClick: () => void selectGameMode('pvp'),
           },
           {
             type: 'action',
             label: `${menuCheckPrefix(gameMode === 'pve')}人类对战 AI`,
-            onClick: () => selectGameMode('pve'),
+            onClick: () => void selectGameMode('pve'),
           },
           {
             type: 'action',
             label: `${menuCheckPrefix(gameMode === 'aivai')}AI 对战 AI`,
-            onClick: () => selectGameMode('aivai'),
+            onClick: () => void selectGameMode('aivai'),
           },
         ],
       },
@@ -365,7 +365,7 @@ export function GomokuApp() {
         ],
       },
     ]
-  }, [closeWindowsForApp, gameMode, minimizeWindow, selectGameMode, sessionPhase, showBuiltinAbout, startNewGame, windows])
+  }, [gameMode, selectGameMode, sessionPhase, startNewGame])
 
   useAppMenuBar('gomoku', menuBar)
 

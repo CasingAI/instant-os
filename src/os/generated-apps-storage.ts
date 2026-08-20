@@ -1,79 +1,26 @@
-import type { GeneratedAppRecord, GeneratedAppVersionSnapshot } from '../apps/appstore/types.ts'
-import { migrateAppRecord } from '../apps/appstore/generated-app-versions.ts'
+/**
+ * 已安装生成应用的读取 / 保存入口：委托 generated-apps-store。
+ * 生成应用本体存于 Contents 真实文件，localStorage 仅索引；
+ * 同步读走内存缓存，异步写走 files 层。
+ */
+import type { GeneratedAppRecord } from '../apps/appstore/types.ts'
 import {
-  DEVICE_STORAGE_KEYS,
-  getLocalStorageKeyBytes,
-  writeLocalStorageItem,
-} from './device-storage.ts'
+  getGeneratedAppIndexBytes,
+  loadInstalledAppsFromCache,
+  saveInstalledAppsToFiles,
+} from './generated-apps-store.ts'
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.generatedApps
-
+/** 同步读取已安装生成应用（内存缓存；启动 hydrate 后即有数据） */
 export function loadInstalledApps(): GeneratedAppRecord[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return []
-    }
-
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    return parsed.filter(isValidGeneratedAppRecord).map(migrateAppRecord)
-  } catch {
-    return []
-  }
+  return loadInstalledAppsFromCache()
 }
 
-export function saveInstalledApps(apps: GeneratedAppRecord[]): boolean {
-  return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(apps))
+/** 异步保存全部已安装生成应用（差分写 Contents）；成功返回 true */
+export async function saveInstalledApps(apps: GeneratedAppRecord[]): Promise<boolean> {
+  return saveInstalledAppsToFiles(apps)
 }
 
+/** 生成应用本体索引的 localStorage 字节（轻量） */
 export function getInstalledAppsStorageBytes(): number {
-  return getLocalStorageKeyBytes(STORAGE_KEY)
-}
-
-function isValidGeneratedAppRecord(value: unknown): value is GeneratedAppRecord {
-  if (typeof value !== 'object' || value === undefined) {
-    return false
-  }
-
-  const record = value as Record<string, unknown>
-  if (
-    typeof record.id !== 'string' ||
-    !record.id.startsWith('gen:') ||
-    typeof record.name !== 'string' ||
-    typeof record.description !== 'string' ||
-    typeof record.category !== 'string' ||
-    typeof record.iconEmoji !== 'string' ||
-    typeof record.themeColor !== 'string' ||
-    typeof record.html !== 'string'
-  ) {
-    return false
-  }
-
-  if (record.versions !== undefined) {
-    if (!Array.isArray(record.versions)) {
-      return false
-    }
-    if (!record.versions.every(isValidVersionSnapshot)) {
-      return false
-    }
-  }
-
-  return true
-}
-
-function isValidVersionSnapshot(value: unknown): value is GeneratedAppVersionSnapshot {
-  if (typeof value !== 'object' || value === undefined) {
-    return false
-  }
-
-  const snapshot = value as Record<string, unknown>
-  return (
-    typeof snapshot.version === 'string' &&
-    typeof snapshot.html === 'string' &&
-    typeof snapshot.savedAt === 'number'
-  )
+  return getGeneratedAppIndexBytes()
 }

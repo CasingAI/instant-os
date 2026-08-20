@@ -12,14 +12,16 @@ type MenuBarContextValue = {
 
 const MenuBarContext = createContext<MenuBarContextValue | undefined>(undefined)
 
-function leafItemSignature(item: MenuItemLeaf): string | [string, boolean, string] {
+function leafItemSignature(item: MenuItemLeaf): string | [string, boolean, string, string] {
   if (item.type === 'separator') {
     return '|'
   }
-  return [item.label, item.disabled ?? false, item.shortcut ?? '']
+  return [item.label, item.disabled ?? false, item.shortcut ?? '', item.id ?? '']
 }
 
-function menuItemSignature(item: MenuItem): string | [string, boolean, string] | [string, 'submenu', unknown[]] {
+function menuItemSignature(
+  item: MenuItem,
+): string | [string, boolean, string, string] | [string, 'submenu', unknown[]] {
   if (item.type === 'submenu') {
     return [item.label, 'submenu', item.items.map(leafItemSignature)]
   }
@@ -72,14 +74,15 @@ export function useMenuBar() {
   return context
 }
 
-export function useAppMenuBar(appId: AppId, menus: MenuDefinition[]) {
+export function useAppMenuBar(appId: AppId, menus: MenuDefinition[], enabled = true) {
   const { registerAppMenus, unregisterAppMenus } = useMenuBar()
   const menusRef = useRef(menus)
   menusRef.current = menus
   const signature = menuSignature(menus)
 
   useEffect(() => {
+    if (!enabled) return
     registerAppMenus(appId, menusRef.current)
     return () => unregisterAppMenus(appId)
-  }, [appId, signature, registerAppMenus, unregisterAppMenus])
+  }, [appId, enabled, signature, registerAppMenus, unregisterAppMenus])
 }

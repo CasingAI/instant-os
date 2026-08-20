@@ -15,7 +15,6 @@ html.instant-boot-hide-cursor * {
   position: absolute;
   inset: 0;
   z-index: 1;
-  will-change: opacity, transform, filter;
 }
 
 .boot-root__desktop--cold-entering {
@@ -23,69 +22,8 @@ html.instant-boot-hide-cursor * {
   animation: boot-desktop-cold-enter 1s ease-out forwards;
 }
 
-.boot-root__desktop--setup-entering {
-  animation: boot-desktop-setup-enter 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
 .boot-root__desktop--entered {
   opacity: 1;
-  transform: scale(1);
-  filter: blur(0);
-}
-
-.boot-root__setup {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  will-change: opacity, transform, filter;
-}
-
-.boot-root__setup--cold-entering {
-  opacity: 0;
-  animation: boot-desktop-cold-enter 1s ease-out forwards;
-}
-
-.boot-root__setup--exiting {
-  animation: boot-setup-exit 0.95s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  pointer-events: none;
-}
-
-.boot-root__flash {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(
-    circle at 50% 42%,
-    rgba(255, 255, 255, 0.72) 0%,
-    rgba(255, 255, 255, 0.28) 28%,
-    transparent 62%
-  );
-}
-
-.boot-root__flash--active {
-  animation: boot-flash 0.95s ease-out forwards;
-}
-
-@keyframes boot-setup-exit {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
-  }
-
-  55% {
-    opacity: 0.55;
-    transform: scale(1.04);
-    filter: blur(2px);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(1.1);
-    filter: blur(14px);
-  }
 }
 
 @keyframes boot-desktop-cold-enter {
@@ -95,39 +33,5 @@ html.instant-boot-hide-cursor * {
 
   to {
     opacity: 1;
-  }
-}
-
-@keyframes boot-desktop-setup-enter {
-  0% {
-    opacity: 0;
-    transform: scale(0.96);
-    filter: blur(10px);
-  }
-
-  45% {
-    opacity: 0.85;
-    transform: scale(0.99);
-    filter: blur(2px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
-  }
-}
-
-@keyframes boot-flash {
-  0% {
-    opacity: 0;
-  }
-
-  18% {
-    opacity: 0.85;
-  }
-
-  100% {
-    opacity: 0;
   }
 }

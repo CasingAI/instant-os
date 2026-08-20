@@ -1,0 +1,22 @@
+Third-Party Music Source Separation Weights (HTDemucs 6-stem)
+=============================================================
+
+The following model weights are bundled under public/assets/demucs/models for
+ONNX-based music source separation. The ONNX graph is MIT-licensed, but the
+underlying neural-network weights originate from Meta's Demucs v4 release and
+are made available for research / personal use only (NOT for commercial use).
+
+HTDemucs 6-stem (htdemucs_6s)
+- Source: https://huggingface.co/kramp/htdemucs-6s-webgpu-onnx
+  (WebGPU-compatible constant-folded ONNX of StemSplitio/htdemucs-6s-onnx)
+- Base model: https://huggingface.co/StemSplitio/htdemucs-6s-onnx
+- Original weights: Meta Facebook Research "Demucs" v4 (Hybrid Transformer Demucs)
+  https://github.com/facebookresearch/demucs
+- Author: Meta Platforms, Inc. (original weights); kramp (WebGPU ONNX export);
+  StemSplitio (ONNX export)
+- License: MIT (ONNX graph) — see LICENSE-MIT.txt
+  IMPORTANT: original Meta weights are research / personal use only.
+  See docs/demucs-model-license.md for the full provenance and restrictions.
+- File: htdemucs_6s.onnx (284,797,240 bytes, fp32)
+- Stems: drums, bass, other, vocals, guitar, piano
+- Input/Output: mix [1,2,343980] -> stems [1,6,2,343980]

@@ -19,13 +19,15 @@
   --ios-nav-back-height: 28px;
   --ios-nav-back-font-size: 13px;
   --ios-nav-back-font-weight: 600;
-  --ios-nav-back-padding: 0 12px 0 9px;
+  --ios-nav-back-padding: 0 8px 0 2px;
 }
 
 .ios-nav-back {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
+  width: fit-content;
+  max-width: min(200px, 100%);
   height: var(--ios-nav-back-height);
   padding: var(--ios-nav-back-padding);
   border: var(--ios-nav-back-border);
@@ -38,6 +40,7 @@
   text-shadow: var(--ios-nav-back-text-shadow);
   box-shadow: var(--ios-nav-back-shadow);
   white-space: nowrap;
+  /* 按内容定宽，短 label 不被挤没；长 label 靠 max-width + label ellipsis */
   flex-shrink: 0;
 }
 
@@ -47,6 +50,14 @@
   justify-content: center;
   flex-shrink: 0;
   overflow: visible;
+}
+
+.ios-nav-back__label {
+  min-width: 0;
+  line-height: 1.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ios-nav-back:hover {
@@ -62,4 +73,12 @@
 .ios-nav-back:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+.ios-nav-back--mini {
+  --ios-nav-back-height: 22px;
+  --ios-nav-back-font-size: 11px;
+  --ios-nav-back-radius: 4px;
+  --ios-nav-back-padding: 0 7px 0 1px;
+  max-width: min(120px, 100%);
 }

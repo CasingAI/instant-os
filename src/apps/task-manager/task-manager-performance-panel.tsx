@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   AI_EVENT_LOG_CHANGED_EVENT,
   formatDurationMs,
   formatTokensPerSecond,
   getLiveAiEventLogCount,
+  listLiveAiEventLogs,
   loadRecentEventLogs,
   type AiEventLogRecord,
 } from '../../ai/ai-event-log.ts'
@@ -32,22 +33,64 @@ import {
   type AggregatedMemorySnapshot,
   type MemoryHeapCluster,
 } from './task-manager-system-metrics.ts'
+import {
+  formatProxyServerAxisTick,
+  formatProxyServerBytesPerSec,
+  formatProxyServerDataBytes,
+  type ProxyServerRequestRecord,
+} from '../../os/proxy-server-metrics.ts'
+import {
+  formatFilesIoAxisTick,
+  formatFilesIoBytesPerSec,
+  formatFilesIoDataBytes,
+  formatFilesIoDurationAxisTick,
+  formatFilesIoDurationMs,
+  formatFilesIoOpLabel,
+  formatFilesIoOpsAxisTick,
+  formatFilesIoOpsPerSec,
+  type FilesIoOperationRecord,
+} from '../../os/files-io-metrics.ts'
+import type { FilesIoContainerId, FilesIoContainerMetrics } from './task-manager-use-files-io-metrics.ts'
+import { WORKER_SERVICE_STATUS_LABELS } from '../../os/worker-heap-reports.ts'
 
 const LOG_LIMIT = 200
 const CHART_VIEW_WIDTH = 960
 const CHART_VIEW_HEIGHT = 280
-/** 左侧留给轴标签；窄屏字号按 viewBox 放大后仍需足够边距 */
-const CHART_PADDING = { top: 16, right: 16, bottom: 20, left: 72 }
-const CHART_PLOT_LEFT = CHART_PADDING.left
-const CHART_AXIS_LABEL_X = CHART_PADDING.left - 6
+/** 轴标签与绘图区的间距（用户单位）；左侧宽度按实测标签动态算 */
+const CHART_AXIS_LABEL_GAP = 8
+const CHART_PADDING_BASE = { top: 22, right: 16, bottom: 20, left: 56 }
+const CHART_AXIS_LEFT_MIN = 40
+const CHART_AXIS_LEFT_MAX = 280
 
-type PerfCategory = 'ai' | 'fps' | 'memory'
+type ChartPadding = {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
 
-const PERF_CATEGORIES: { id: PerfCategory; label: string }[] = [
+export type FixedPerfCategory = 'ai' | 'fps' | 'memory' | 'proxy-server'
+export type DiskPerfCategory = `disk:${FilesIoContainerId}`
+export type PerfCategory = FixedPerfCategory | DiskPerfCategory
+
+const PERF_CATEGORIES: { id: FixedPerfCategory; label: string }[] = [
   { id: 'ai', label: 'AI 输出' },
   { id: 'fps', label: '帧率' },
   { id: 'memory', label: '内存' },
+  { id: 'proxy-server', label: '云服务' },
 ]
+
+function isDiskCategory(category: PerfCategory): category is DiskPerfCategory {
+  return category.startsWith('disk:')
+}
+
+function diskContainerIdFromCategory(category: DiskPerfCategory): FilesIoContainerId {
+  return category.slice('disk:'.length) as FilesIoContainerId
+}
+
+function toDiskCategory(containerId: FilesIoContainerId): DiskPerfCategory {
+  return `disk:${containerId}`
+}
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -60,6 +103,8 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
 }
 
 type TaskManagerPerformancePanelProps = {
+  category: PerfCategory
+  onCategoryChange: (category: PerfCategory) => void
   sampleIntervalSec: SpeedSampleIntervalSec
   series: SpeedSeriesPoint[]
   fpsSeries: MetricSeriesPoint[]
@@ -67,6 +112,14 @@ type TaskManagerPerformancePanelProps = {
   latestFps: number
   memory: AggregatedMemorySnapshot
   memorySupported: boolean
+  proxyDownloadSeries: MetricSeriesPoint[]
+  proxyUploadSeries: MetricSeriesPoint[]
+  latestProxyDownload: number
+  latestProxyUpload: number
+  proxyServerConnected: boolean
+  proxyRecentRequests: ProxyServerRequestRecord[]
+  filesIoContainers: FilesIoContainerMetrics[]
+  filesIoRecentOperations: FilesIoOperationRecord[]
 }
 
 function formatHeapClusterLabel(cluster: MemoryHeapCluster, index: number, total: number): string {
@@ -80,6 +133,8 @@ function formatHeapClusterLabel(cluster: MemoryHeapCluster, index: number, total
 }
 
 export function TaskManagerPerformancePanel({
+  category,
+  onCategoryChange,
   sampleIntervalSec,
   series,
   fpsSeries,
@@ -87,14 +142,48 @@ export function TaskManagerPerformancePanel({
   latestFps,
   memory,
   memorySupported,
+  proxyDownloadSeries,
+  proxyUploadSeries,
+  latestProxyDownload,
+  latestProxyUpload,
+  proxyServerConnected,
+  proxyRecentRequests,
+  filesIoContainers,
+  filesIoRecentOperations,
 }: TaskManagerPerformancePanelProps) {
-  const [category, setCategory] = useState<PerfCategory>('ai')
   const [records, setRecords] = useState<AiEventLogRecord[]>([])
 
   const latestHeap = memory.display
   const hostHeap = memory.host
   const appsHeap = memory.apps
+  const workerReports = memory.workerReports.filter((r) => r.status !== 'stopped')
   const isolationActive = memory.isolationActive
+  const runningWorkerCount = workerReports.filter((r) => r.status === 'running').length
+  const abnormalWorkerCount = workerReports.filter((r) => r.status !== 'running').length
+
+  const selectedDiskContainer = useMemo((): FilesIoContainerMetrics | undefined => {
+    if (!isDiskCategory(category)) return undefined
+    const containerId = diskContainerIdFromCategory(category)
+    return filesIoContainers.find((container) => container.id === containerId)
+  }, [category, filesIoContainers])
+
+  useEffect(() => {
+    if (!isDiskCategory(category)) return
+    if (selectedDiskContainer) return
+    if (filesIoContainers.length === 0) {
+      onCategoryChange('ai')
+      return
+    }
+    onCategoryChange(toDiskCategory(filesIoContainers[0]!.id))
+  }, [category, onCategoryChange, selectedDiskContainer, filesIoContainers])
+
+  const diskRecentOperations = useMemo((): FilesIoOperationRecord[] => {
+    if (!selectedDiskContainer) return []
+    const allowed = new Set(selectedDiskContainer.locationIds)
+    return filesIoRecentOperations
+      .filter((item) => allowed.has(item.locationId))
+      .slice(0, 12)
+  }, [filesIoRecentOperations, selectedDiskContainer])
 
   const refresh = useCallback(async () => {
     const next = await loadRecentEventLogs(LOG_LIMIT)
@@ -111,66 +200,128 @@ export function TaskManagerPerformancePanel({
   }, [refresh])
 
   const analysis = useMemo((): AiPerformanceAnalysis => analyzeAiEventPerformance(records), [records])
-  const chart = useMemo(
-    () => buildRealtimeSpeedPolyline(series, CHART_VIEW_WIDTH, CHART_VIEW_HEIGHT, CHART_PADDING),
-    [series],
-  )
-  const fpsChart = useMemo(
-    () =>
-      buildRealtimeMetricPolyline(fpsSeries, CHART_VIEW_WIDTH, CHART_VIEW_HEIGHT, CHART_PADDING, {
-        minAxisMax: 60,
-        formatTick: (value) => (value >= 10 ? `${Math.round(value)}` : value.toFixed(1)),
-      }),
-    [fpsSeries],
-  )
-  const memoryChart = useMemo(
-    () =>
-      buildRealtimeMetricPolyline(
-        memorySeries,
-        CHART_VIEW_WIDTH,
-        CHART_VIEW_HEIGHT,
-        CHART_PADDING,
-        {
-          formatTick: formatMemoryAxisTick,
-          minAxisMax: latestHeap?.limitBytes ? latestHeap.limitBytes * 0.05 : undefined,
-        },
-      ),
-    [latestHeap?.limitBytes, memorySeries],
-  )
   const recentSamples = useMemo(
     () => [...analysis.samples].reverse().slice(0, 5),
     [analysis.samples],
   )
   const liveCount = getLiveAiEventLogCount()
+  const liveSpeedEstimated = listLiveAiEventLogs().some(
+    (record) => record.usageEstimated === true,
+  )
 
   const hasSpeed = series.some((point) => point.tokensPerSecond > 0)
+  const latestSpeed = series.length > 0 ? series[series.length - 1]!.tokensPerSecond : 0
+  const formatLiveSpeed = (rate: number | undefined) => {
+    const text = formatTokensPerSecond(rate)
+    if (text === '—' || !liveSpeedEstimated) {
+      return text
+    }
+    return `~${text}`
+  }
   const windowAverage =
     series.length === 0
       ? undefined
       : series.reduce((sum, point) => sum + point.tokensPerSecond, 0) / series.length
-  const windowPeak = hasSpeed ? chart.maxSpeed : undefined
+  const windowPeak = hasSpeed
+    ? Math.max(...series.map((point) => point.tokensPerSecond))
+    : undefined
   const sampleMeta = speedSeriesTimeWindowLabel(series.length, sampleIntervalSec)
   const fpsSampleMeta = speedSeriesTimeWindowLabel(fpsSeries.length, sampleIntervalSec)
   const memorySampleMeta = speedSeriesTimeWindowLabel(memorySeries.length, sampleIntervalSec)
+  const proxySampleMeta = speedSeriesTimeWindowLabel(
+    proxyDownloadSeries.length,
+    sampleIntervalSec,
+  )
+  const diskSampleMeta = speedSeriesTimeWindowLabel(
+    selectedDiskContainer?.readSeries.length ?? 0,
+    sampleIntervalSec,
+  )
 
   const fpsWindowAverage =
     fpsSeries.length === 0
       ? undefined
       : fpsSeries.reduce((sum, point) => sum + point.value, 0) / fpsSeries.length
-  const fpsWindowPeak = fpsSeries.length === 0 ? undefined : fpsChart.maxValue
+  const fpsWindowPeak =
+    fpsSeries.length === 0 ? undefined : Math.max(...fpsSeries.map((point) => point.value))
 
-  const memoryWindowPeak = memorySeries.length === 0 ? undefined : memoryChart.maxValue
+  const memoryWindowPeak =
+    memorySeries.length === 0 ? undefined : Math.max(...memorySeries.map((point) => point.value))
   const heapPercent = memoryUsagePercent(latestHeap)
   const appReportCount = memory.appReports.length
   const uniqueGuestHeapCount = memory.heapClusters.filter((cluster) => !cluster.sharedWithHost).length
   const guestClusters = memory.heapClusters.filter((cluster) => !cluster.sharedWithHost)
 
+  const proxyDownloadAverage =
+    proxyDownloadSeries.length === 0
+      ? undefined
+      : proxyDownloadSeries.reduce((sum, point) => sum + point.value, 0) /
+        proxyDownloadSeries.length
+  const proxyDownloadPeak =
+    proxyDownloadSeries.length === 0
+      ? undefined
+      : Math.max(...proxyDownloadSeries.map((point) => point.value))
+  const proxyUploadPeak =
+    proxyUploadSeries.length === 0
+      ? undefined
+      : Math.max(...proxyUploadSeries.map((point) => point.value))
+
+  const diskReadSeries = selectedDiskContainer?.readSeries ?? []
+  const diskWriteSeries = selectedDiskContainer?.writeSeries ?? []
+  const diskOpsSeries = selectedDiskContainer?.opsSeries ?? []
+  const diskLatencySeries = selectedDiskContainer?.latencySeries ?? []
+  const diskLatestRead = selectedDiskContainer?.latestReadBytesPerSec ?? 0
+  const diskLatestWrite = selectedDiskContainer?.latestWriteBytesPerSec ?? 0
+  const diskLatestOps = selectedDiskContainer?.latestOpsPerSec ?? 0
+  const diskLatestAvgLatency = selectedDiskContainer?.latestAvgDurationMs ?? 0
+  const diskLatestPeakLatency = selectedDiskContainer?.latestPeakDurationMs ?? 0
+  const diskOpBreakdown = selectedDiskContainer?.opBreakdown ?? []
+  const diskReadAverage =
+    diskReadSeries.length === 0
+      ? undefined
+      : diskReadSeries.reduce((sum, point) => sum + point.value, 0) / diskReadSeries.length
+  const diskReadPeak =
+    diskReadSeries.length === 0
+      ? undefined
+      : Math.max(...diskReadSeries.map((point) => point.value))
+  const diskWriteAverage =
+    diskWriteSeries.length === 0
+      ? undefined
+      : diskWriteSeries.reduce((sum, point) => sum + point.value, 0) / diskWriteSeries.length
+  const diskWritePeak =
+    diskWriteSeries.length === 0
+      ? undefined
+      : Math.max(...diskWriteSeries.map((point) => point.value))
+  const diskOpsAverage =
+    diskOpsSeries.length === 0
+      ? undefined
+      : diskOpsSeries.reduce((sum, point) => sum + point.value, 0) / diskOpsSeries.length
+  const diskOpsPeak =
+    diskOpsSeries.length === 0
+      ? undefined
+      : Math.max(...diskOpsSeries.map((point) => point.value))
+  const diskLatencyAverage =
+    diskLatencySeries.length === 0
+      ? undefined
+      : diskLatencySeries.reduce((sum, point) => sum + point.value, 0) / diskLatencySeries.length
+  const diskLatencyPeak =
+    diskLatencySeries.length === 0
+      ? undefined
+      : Math.max(...diskLatencySeries.map((point) => point.value))
+
   const categoryNow =
     category === 'ai'
-      ? formatTokensPerSecond(chart.latest)
+      ? formatLiveSpeed(latestSpeed)
       : category === 'fps'
         ? formatFps(latestFps)
-        : formatMemoryBytes(latestHeap?.usedBytes)
+        : category === 'memory'
+          ? formatMemoryBytes(latestHeap?.usedBytes)
+          : category === 'proxy-server'
+            ? formatProxyServerBytesPerSec(latestProxyDownload)
+            : formatFilesIoBytesPerSec(diskLatestRead)
+
+  const categoryTitle = isDiskCategory(category)
+    ? (selectedDiskContainer?.label ?? '磁盘')
+    : PERF_CATEGORIES.find((item) => item.id === category)?.label
 
   const categorySubtitle =
     category === 'ai'
@@ -179,13 +330,39 @@ export function TaskManagerPerformancePanel({
         }`
       : category === 'fps'
         ? '主线程动画帧速率（与屏幕标称刷新率可能不同）'
-        : !memorySupported
-          ? '当前浏览器不支持读取 JS 堆内存'
-          : isolationActive
-            ? `按独立堆去重后合计${uniqueGuestHeapCount > 0 ? ` · ${uniqueGuestHeapCount} 个微应用堆` : ''}${
-                memory.sharedGuestReportCount > 0 ? ' · 已合并同堆上报' : ''
-              }`
-            : '宿主 JS 堆（同域微应用通常同堆，不计多份）'
+        : category === 'memory'
+          ? !memorySupported
+            ? '当前浏览器不支持读取 JS 堆内存'
+            : [
+                isolationActive
+                  ? `按独立堆去重后合计${uniqueGuestHeapCount > 0 ? ` · ${uniqueGuestHeapCount} 个微应用堆` : ''}${
+                      memory.sharedGuestReportCount > 0 ? ' · 已合并同堆上报' : ''
+                    }`
+                  : '宿主 JS 堆（同域微应用通常同堆，不计多份）',
+                workerReports.length > 0 ? ` · ${workerReports.length} 个系统服务` : '',
+              ].join('')
+          : category === 'proxy-server'
+            ? proxyServerConnected
+              ? '经代理服务器的吞吐'
+              : '尚未连接代理服务器'
+            : selectedDiskContainer
+              ? selectedDiskContainer.id === 'physical'
+                ? selectedDiskContainer.mountCount > 0
+                  ? `${selectedDiskContainer.detail} · ${selectedDiskContainer.mountCount} 个挂载 · 吞吐 · 请求次数 · 响应时间`
+                  : `${selectedDiskContainer.detail} · 尚未挂载本机文件夹`
+                : `${selectedDiskContainer.detail} · 吞吐 · 请求次数 · 响应时间`
+              : '容器不可用'
+
+  const categorySampleMeta =
+    category === 'ai'
+      ? sampleMeta
+      : category === 'fps'
+        ? fpsSampleMeta
+        : category === 'memory'
+          ? memorySampleMeta
+          : category === 'proxy-server'
+            ? proxySampleMeta
+            : diskSampleMeta
 
   return (
     <section class="task-manager__section task-manager__section--performance">
@@ -195,10 +372,12 @@ export function TaskManagerPerformancePanel({
             const active = category === item.id
             const value =
               item.id === 'ai'
-                ? formatTokensPerSecond(chart.latest)
+                ? formatLiveSpeed(latestSpeed)
                 : item.id === 'fps'
                   ? formatFps(latestFps)
-                  : formatMemoryBytes(latestHeap?.usedBytes)
+                  : item.id === 'memory'
+                    ? formatMemoryBytes(latestHeap?.usedBytes)
+                    : formatProxyServerBytesPerSec(latestProxyDownload)
             const hint =
               item.id === 'ai'
                 ? liveCount > 0
@@ -206,20 +385,24 @@ export function TaskManagerPerformancePanel({
                   : '空闲'
                 : item.id === 'fps'
                   ? fpsSampleMeta
-                  : memorySupported
-                    ? isolationActive
-                      ? uniqueGuestHeapCount > 0
-                        ? `${uniqueGuestHeapCount} 个独立堆`
-                        : '隔离去重'
-                      : '仅宿主'
-                    : '不可用'
+                  : item.id === 'memory'
+                    ? memorySupported
+                      ? isolationActive
+                        ? uniqueGuestHeapCount > 0
+                          ? `${uniqueGuestHeapCount} 个独立堆`
+                          : '隔离去重'
+                        : '仅宿主'
+                      : '不可用'
+                    : proxyServerConnected
+                      ? proxySampleMeta
+                      : '未连接'
             return (
               <button
                 key={item.id}
                 type="button"
                 class={`task-manager__perf-nav-item${active ? ' task-manager__perf-nav-item--active' : ''}`}
                 aria-pressed={active}
-                onClick={() => setCategory(item.id)}
+                onClick={() => onCategoryChange(item.id)}
               >
                 <span class="task-manager__perf-nav-label">{item.label}</span>
                 <span class="task-manager__perf-nav-value">{value}</span>
@@ -227,24 +410,58 @@ export function TaskManagerPerformancePanel({
               </button>
             )
           })}
+
+          {filesIoContainers.length > 0 ? (
+            <div class="task-manager__perf-nav-group" role="presentation">
+              <div class="task-manager__perf-nav-group-title">磁盘</div>
+              {filesIoContainers.map((container) => {
+                const id = toDiskCategory(container.id)
+                const active = category === id
+                const activity =
+                  container.latestReadBytesPerSec +
+                  container.latestWriteBytesPerSec +
+                  container.latestOpsPerSec
+                const idleHint =
+                  container.id === 'physical'
+                    ? container.mountCount > 0
+                      ? `${container.mountCount} 个挂载`
+                      : '未挂载'
+                    : container.writable
+                      ? '空闲'
+                      : '只读'
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    class={`task-manager__perf-nav-item${active ? ' task-manager__perf-nav-item--active' : ''}`}
+                    aria-pressed={active}
+                    onClick={() => onCategoryChange(id)}
+                  >
+                    <span class="task-manager__perf-nav-label">{container.label}</span>
+                    <span class="task-manager__perf-nav-value">
+                      {formatFilesIoBytesPerSec(container.latestReadBytesPerSec)}
+                    </span>
+                    <span class="task-manager__perf-nav-hint">
+                      {activity > 0
+                        ? `${formatFilesIoOpsPerSec(container.latestOpsPerSec)} · ${formatFilesIoDurationMs(container.latestAvgDurationMs)}`
+                        : `${container.detail} · ${idleHint}`}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : undefined}
         </nav>
 
         <div class="task-manager__perf-main">
           <div class="task-manager__perf-toolbar">
             <div class="task-manager__perf-toolbar-copy">
-              <h2 class="task-manager__section-title">
-                {PERF_CATEGORIES.find((item) => item.id === category)?.label}
-              </h2>
+              <h2 class="task-manager__section-title">{categoryTitle}</h2>
               <p class="task-manager__section-subtitle">
                 {categorySubtitle}
                 <span class="task-manager__section-subtitle-meta">
                   {' '}
-                  ·{' '}
-                  {category === 'ai'
-                    ? sampleMeta
-                    : category === 'fps'
-                      ? fpsSampleMeta
-                      : memorySampleMeta}
+                  · {categorySampleMeta}
                 </span>
               </p>
             </div>
@@ -268,7 +485,15 @@ export function TaskManagerPerformancePanel({
                   </div>
                   <div class="task-manager__chart-frame">
                     <MetricChart
-                      chart={chart}
+                      revision={series}
+                      buildChart={(padding) =>
+                        buildRealtimeSpeedPolyline(
+                          series,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                        )
+                      }
                       ariaLabel="输出 token 速度实时折线图"
                       tickClassPeak
                     />
@@ -335,7 +560,7 @@ export function TaskManagerPerformancePanel({
                         </span>
                         <span class="task-manager__perf-meta">
                           {sample.live ? '实时' : formatUsageTime(sample.at)} ·{' '}
-                          {sample.usageEstimated ? '约 ' : ''}
+                          {sample.usageEstimated ? '~' : ''}
                           {formatTokenCount(sample.completionTokens)} tok ·{' '}
                           {formatDurationMs(sample.durationMs)}
                           {sample.timeToFirstTokenMs !== undefined
@@ -343,6 +568,7 @@ export function TaskManagerPerformancePanel({
                             : ''}
                         </span>
                         <span class="task-manager__perf-side">
+                          {sample.usageEstimated ? '~' : ''}
                           {formatTokensPerSecond(sample.tokensPerSecond)}
                         </span>
                       </div>
@@ -366,7 +592,23 @@ export function TaskManagerPerformancePanel({
                     </span>
                   </div>
                   <div class="task-manager__chart-frame">
-                    <MetricChart chart={fpsChart} ariaLabel="帧率实时折线图" />
+                    <MetricChart
+                      revision={fpsSeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          fpsSeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            minAxisMax: 60,
+                            formatTick: (value) =>
+                              value >= 10 ? `${Math.round(value)}` : value.toFixed(1),
+                          },
+                        )
+                      }
+                      ariaLabel="帧率实时折线图"
+                    />
                   </div>
                 </div>
               </div>
@@ -391,7 +633,9 @@ export function TaskManagerPerformancePanel({
                 <div class="task-manager__chart-card task-manager__chart-card--hero">
                   <div class="task-manager__chart-header">
                     <h3 class="task-manager__chart-title">
-                      {isolationActive ? '合计已用内存' : '宿主已用内存'}
+                      {isolationActive || workerReports.length > 0
+                        ? '合计已用内存'
+                        : '宿主已用内存'}
                     </h3>
                     <span class="task-manager__chart-meta">
                       {memorySupported
@@ -401,7 +645,24 @@ export function TaskManagerPerformancePanel({
                   </div>
                   <div class="task-manager__chart-frame">
                     {memorySupported ? (
-                      <MetricChart chart={memoryChart} ariaLabel="JS 堆内存实时折线图" />
+                      <MetricChart
+                        revision={[memorySeries, latestHeap?.limitBytes]}
+                        buildChart={(padding) =>
+                          buildRealtimeMetricPolyline(
+                            memorySeries,
+                            CHART_VIEW_WIDTH,
+                            CHART_VIEW_HEIGHT,
+                            padding,
+                            {
+                              formatTick: formatMemoryAxisTick,
+                              minAxisMax: latestHeap?.limitBytes
+                                ? latestHeap.limitBytes * 0.05
+                                : undefined,
+                            },
+                          )
+                        }
+                        ariaLabel="JS 堆内存实时折线图"
+                      />
                     ) : (
                       <p class="task-manager__chart-unavailable">
                         当前浏览器未暴露 JS 堆内存接口，无法绘制内存曲线。
@@ -446,6 +707,17 @@ export function TaskManagerPerformancePanel({
                           : '进程隔离关闭'
                     }
                   />
+                  <StatCard
+                    label="系统服务"
+                    value={runningWorkerCount > 0 ? `${runningWorkerCount}` : '—'}
+                    hint={
+                      workerReports.length > 0
+                        ? abnormalWorkerCount > 0
+                          ? `${runningWorkerCount} 个运行中 · ${abnormalWorkerCount} 个异常`
+                          : `${runningWorkerCount} 个 Worker 运行中`
+                        : '暂无已启动 Worker'
+                    }
+                  />
                 </div>
               </div>
 
@@ -462,6 +734,23 @@ export function TaskManagerPerformancePanel({
                       {formatMemoryBytes(hostHeap?.usedBytes)}
                     </span>
                   </div>
+                  {workerReports.length > 0 && (
+                    <>
+                      <div class="task-manager__list-header task-manager__list-header--sub">
+                        系统服务（{workerReports.length} 个 Worker）
+                      </div>
+                      {workerReports.map((report) => (
+                        <div key={report.id} class="task-manager__perf-row">
+                          <span class="task-manager__perf-name">{report.label}</span>
+                          <span class="task-manager__perf-meta">
+                            {WORKER_SERVICE_STATUS_LABELS[report.status]}
+                            {report.restartCount > 0 ? ` · 重启 ${report.restartCount} 次` : ''}
+                          </span>
+                          <span class="task-manager__perf-side">—</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
                   {guestClusters.length === 0 ? (
                     <p class="task-manager__list-empty">
                       {isolationActive
@@ -497,19 +786,349 @@ export function TaskManagerPerformancePanel({
             </div>
           )}
 
+          {category === 'proxy-server' && (
+            <div class="task-manager__perf-dashboard">
+              <div class="task-manager__perf-chart-col">
+                <div class="task-manager__chart-card task-manager__chart-card--hero">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">下行速率</h3>
+                    <span class="task-manager__chart-meta">
+                      {proxyServerConnected
+                        ? `${proxySampleMeta} · 峰值 ${formatProxyServerBytesPerSec(proxyDownloadPeak)}`
+                        : '未连接'}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame">
+                    {proxyServerConnected ? (
+                      <MetricChart
+                        revision={proxyDownloadSeries}
+                        buildChart={(padding) =>
+                          buildRealtimeMetricPolyline(
+                            proxyDownloadSeries,
+                            CHART_VIEW_WIDTH,
+                            CHART_VIEW_HEIGHT,
+                            padding,
+                            {
+                              formatTick: formatProxyServerAxisTick,
+                              minAxisMax: 1024,
+                            },
+                          )
+                        }
+                        ariaLabel="代理服务器下行速率实时折线图"
+                      />
+                    ) : (
+                      <p class="task-manager__chart-unavailable">
+                        尚未连接代理服务器。请打开「系统设置 → 云服务」配置并连接。
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div class="task-manager__perf-side-col">
+                <div class="task-manager__stats">
+                  <StatCard
+                    label="当前下行"
+                    value={formatProxyServerBytesPerSec(latestProxyDownload)}
+                    hint={proxyServerConnected ? proxySampleMeta : '未连接'}
+                  />
+                  <StatCard
+                    label="当前上行"
+                    value={formatProxyServerBytesPerSec(latestProxyUpload)}
+                    hint={
+                      proxyUploadPeak !== undefined
+                        ? `峰值 ${formatProxyServerBytesPerSec(proxyUploadPeak)}`
+                        : undefined
+                    }
+                  />
+                  <StatCard
+                    label="窗口平均下行"
+                    value={formatProxyServerBytesPerSec(proxyDownloadAverage)}
+                    hint={proxySampleMeta}
+                  />
+                  <StatCard
+                    label="窗口峰值下行"
+                    value={formatProxyServerBytesPerSec(proxyDownloadPeak)}
+                  />
+                </div>
+              </div>
+
+              <div class="task-manager__perf-bottom">
+                <div class="task-manager__list task-manager__list--compact">
+                  <div class="task-manager__list-header">最近请求</div>
+                  {proxyRecentRequests.length === 0 ? (
+                    <p class="task-manager__list-empty">
+                      {proxyServerConnected ? '暂无请求' : '连接代理服务器后，这里会列出最近请求。'}
+                    </p>
+                  ) : (
+                    proxyRecentRequests.map((request) => (
+                      <div key={request.id} class="task-manager__perf-row">
+                        <span class="task-manager__perf-name">{request.host}</span>
+                        <span class="task-manager__perf-meta">
+                          {request.method}
+                          {request.status !== undefined ? ` · ${request.status}` : ' · 失败'}
+                          {request.errorMessage ? ` · ${request.errorMessage}` : ''}
+                          {' · '}
+                          {request.durationMs} ms
+                        </span>
+                        <span class="task-manager__perf-side">
+                          {formatProxyServerDataBytes(request.downloadBytes)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isDiskCategory(category) && selectedDiskContainer && (
+            <div class="task-manager__perf-dashboard task-manager__perf-dashboard--disk">
+              <div class="task-manager__perf-chart-col">
+                <div class="task-manager__chart-card task-manager__chart-card--hero">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">读取速率</h3>
+                    <span class="task-manager__chart-meta">
+                      {diskSampleMeta}
+                      {' · '}
+                      峰值 {formatFilesIoBytesPerSec(diskReadPeak)}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame task-manager__chart-frame--compact">
+                    <MetricChart
+                      revision={diskReadSeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          diskReadSeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            formatTick: formatFilesIoAxisTick,
+                            minAxisMax: 1024,
+                          },
+                        )
+                      }
+                      ariaLabel={`${selectedDiskContainer.label}读取速率实时折线图`}
+                    />
+                  </div>
+                </div>
+                <div class="task-manager__chart-card">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">写入速率</h3>
+                    <span class="task-manager__chart-meta">
+                      峰值 {formatFilesIoBytesPerSec(diskWritePeak)}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame task-manager__chart-frame--compact">
+                    <MetricChart
+                      revision={diskWriteSeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          diskWriteSeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            formatTick: formatFilesIoAxisTick,
+                            minAxisMax: 1024,
+                          },
+                        )
+                      }
+                      ariaLabel={`${selectedDiskContainer.label}写入速率实时折线图`}
+                    />
+                  </div>
+                </div>
+                <div class="task-manager__chart-card">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">请求次数</h3>
+                    <span class="task-manager__chart-meta">
+                      {diskSampleMeta}
+                      {' · '}
+                      峰值 {formatFilesIoOpsPerSec(diskOpsPeak)}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame task-manager__chart-frame--compact">
+                    <MetricChart
+                      revision={diskOpsSeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          diskOpsSeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            formatTick: (value) => `${formatFilesIoOpsAxisTick(value)}/s`,
+                            minAxisMax: 1,
+                          },
+                        )
+                      }
+                      ariaLabel={`${selectedDiskContainer.label}请求次数实时折线图`}
+                    />
+                  </div>
+                </div>
+                <div class="task-manager__chart-card">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">响应时间</h3>
+                    <span class="task-manager__chart-meta">
+                      平均 {formatFilesIoDurationMs(diskLatestAvgLatency)}
+                      {' · '}
+                      峰值 {formatFilesIoDurationMs(diskLatestPeakLatency)}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame task-manager__chart-frame--compact">
+                    <MetricChart
+                      revision={diskLatencySeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          diskLatencySeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            formatTick: formatFilesIoDurationAxisTick,
+                            minAxisMax: 16,
+                          },
+                        )
+                      }
+                      ariaLabel={`${selectedDiskContainer.label}响应时间实时折线图`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="task-manager__perf-side-col">
+                <div class="task-manager__stats">
+                  <StatCard
+                    label="当前读取"
+                    value={formatFilesIoBytesPerSec(diskLatestRead)}
+                    hint={
+                      diskReadAverage !== undefined
+                        ? `平均 ${formatFilesIoBytesPerSec(diskReadAverage)}`
+                        : diskSampleMeta
+                    }
+                  />
+                  <StatCard
+                    label="当前写入"
+                    value={formatFilesIoBytesPerSec(diskLatestWrite)}
+                    hint={
+                      selectedDiskContainer.writable
+                        ? diskWriteAverage !== undefined
+                          ? `平均 ${formatFilesIoBytesPerSec(diskWriteAverage)}`
+                          : undefined
+                        : '只读卷'
+                    }
+                  />
+                  <StatCard
+                    label="请求次数"
+                    value={formatFilesIoOpsPerSec(diskLatestOps)}
+                    hint={
+                      diskOpsAverage !== undefined
+                        ? `窗口平均 ${formatFilesIoOpsPerSec(diskOpsAverage)}`
+                        : diskSampleMeta
+                    }
+                  />
+                  <StatCard
+                    label="平均响应"
+                    value={formatFilesIoDurationMs(diskLatestAvgLatency)}
+                    hint={
+                      diskLatencyAverage !== undefined
+                        ? `窗口平均 ${formatFilesIoDurationMs(diskLatencyAverage)}`
+                        : undefined
+                    }
+                  />
+                  <StatCard
+                    label="峰值响应"
+                    value={formatFilesIoDurationMs(
+                      Math.max(diskLatestPeakLatency, diskLatencyPeak ?? 0),
+                    )}
+                  />
+                  <StatCard
+                    label="窗口峰值读取"
+                    value={formatFilesIoBytesPerSec(diskReadPeak)}
+                  />
+                </div>
+              </div>
+
+              <div class="task-manager__perf-bottom">
+                <div class="task-manager__list task-manager__list--compact">
+                  <div class="task-manager__list-header">按操作类型</div>
+                  {diskOpBreakdown.length === 0 ? (
+                    <p class="task-manager__list-empty">暂无分类数据</p>
+                  ) : (
+                    diskOpBreakdown.slice(0, 8).map((item) => (
+                      <div
+                        key={`${item.direction}:${item.op}`}
+                        class="task-manager__perf-row"
+                      >
+                        <span class="task-manager__perf-name">
+                          {formatFilesIoOpLabel(item.op)}
+                        </span>
+                        <span class="task-manager__perf-meta">
+                          {item.direction === 'read' ? '读取' : '写入'}
+                          {' · '}
+                          {item.count} 次
+                          {' · '}
+                          平均 {formatFilesIoDurationMs(item.avgDurationMs)}
+                        </span>
+                        <span class="task-manager__perf-side">
+                          {formatFilesIoDataBytes(item.bytes)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div class="task-manager__list task-manager__list--compact">
+                  <div class="task-manager__list-header">最近读写</div>
+                  {diskRecentOperations.length === 0 ? (
+                    <p class="task-manager__list-empty">暂无数据读写</p>
+                  ) : (
+                    diskRecentOperations.map((operation) => (
+                      <div key={operation.id} class="task-manager__perf-row">
+                        <span class="task-manager__perf-name">
+                          {formatFilesIoPath(operation.path)}
+                        </span>
+                        <span class="task-manager__perf-meta">
+                          {operation.direction === 'read' ? '读取' : '写入'}
+                          {' · '}
+                          {formatFilesIoOpLabel(operation.op)}
+                          {' · '}
+                          {formatFilesIoDurationMs(operation.durationMs)}
+                        </span>
+                        <span class="task-manager__perf-side">
+                          {formatFilesIoDataBytes(operation.bytes)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <p class="task-manager__footnote">
             {category === 'ai'
               ? `打开性能监视器后即按间隔写入速度点；无生成时记 0。菜单栏「视图」可切换 0.5 / 1 / 3 / 5 秒，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
               : category === 'fps'
                 ? `帧率由主线程动画帧推算，部分浏览器会把页面更新锁在约 60，即使屏幕是 120；拖动等合成器动画仍可能更顺。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
-                : memorySupported
-                  ? `JS 堆接口按隔离堆报整堆，不是按应用分摊；多个第三方应用若同堆，只计一份。折线为去重后的独立堆之和（非整机物理内存）。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
-                  : '内存数据依赖 Chromium 系浏览器的 JS 堆接口；Safari 等环境通常不可用。'}
+                : category === 'memory'
+                  ? memorySupported
+                    ? `JS 堆接口按隔离堆报整堆，不是按应用分摊；多个第三方应用若同堆，只计一份。Dedicated Worker（系统服务）为独立堆，与宿主相加。折线为去重后的独立堆与 Worker 之和（非整机物理内存）。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
+                    : '内存数据依赖 Chromium 系浏览器的 JS 堆接口；Safari 等环境通常不可用。'
+                  : category === 'proxy-server'
+                    ? `仅统计经代理服务器的流量。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
+                    : `仅统计经虚拟文件系统的数据读写（不含目录列举等元数据操作）。折线与当前值按菜单栏「视图」采样间隔写入；响应时间为单次读写耗时。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`}
           </p>
         </div>
       </div>
     </section>
   )
+}
+
+function formatFilesIoPath(path: string | undefined): string {
+  if (!path) return '（未知路径）'
+  if (path.length <= 48) return path
+  return `…${path.slice(-47)}`
 }
 
 type MetricChartModel = {
@@ -519,17 +1138,108 @@ type MetricChartModel = {
   ticks: { value: number; label: string; y: number }[]
 }
 
+/**
+ * 与 CSS `font-size: 15px * max(960/cqi, 280/cqh)` + viewBox meet 对齐，
+ * 估算轴标签在用户坐标系中占用的左侧宽度。
+ */
+function estimateAxisLeftPadding(
+  labels: string[],
+  frameWidth: number,
+  frameHeight: number,
+): number {
+  const maxChars = Math.max(1, ...labels.map((label) => label.length))
+  if (frameWidth <= 0 || frameHeight <= 0) {
+    return Math.min(
+      CHART_AXIS_LEFT_MAX,
+      Math.max(CHART_AXIS_LEFT_MIN, maxChars * 24 + CHART_AXIS_LABEL_GAP),
+    )
+  }
+  const scale = Math.min(frameWidth / CHART_VIEW_WIDTH, frameHeight / CHART_VIEW_HEIGHT)
+  const fontCssPx =
+    15 * Math.max(CHART_VIEW_WIDTH / frameWidth, CHART_VIEW_HEIGHT / frameHeight)
+  // 屏幕像素字宽换回用户单位；略放大系数覆盖粗体峰值刻度
+  const charWidthUser = (0.72 * fontCssPx) / Math.max(scale, 1e-6)
+  return Math.min(
+    CHART_AXIS_LEFT_MAX,
+    Math.max(CHART_AXIS_LEFT_MIN, Math.ceil(maxChars * charWidthUser + CHART_AXIS_LABEL_GAP)),
+  )
+}
+
 function MetricChart({
-  chart,
+  buildChart,
+  revision,
   ariaLabel,
   tickClassPeak = false,
 }: {
-  chart: MetricChartModel
+  buildChart: (padding: ChartPadding) => MetricChartModel
+  /** 序列或相关参数变化时触发重绘 */
+  revision: unknown
   ariaLabel: string
   tickClassPeak?: boolean
 }) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [axisLeft, setAxisLeft] = useState(CHART_PADDING_BASE.left)
+  const padding = useMemo(
+    (): ChartPadding => ({ ...CHART_PADDING_BASE, left: axisLeft }),
+    [axisLeft],
+  )
+  const chart = useMemo(
+    () => buildChart(padding),
+    // buildChart 闭包随父组件渲染更新；revision 承载数据依赖
+    [buildChart, padding, revision],
+  )
+  const plotLeft = padding.left
+  const labelX = padding.left - CHART_AXIS_LABEL_GAP
+
+  useLayoutEffect(() => {
+    const svg = svgRef.current
+    const frame = svg?.parentElement
+    if (!svg || !frame) {
+      return
+    }
+
+    const syncAxisLeft = () => {
+      const labels = [...svg.querySelectorAll('.task-manager__chart-axis')].map(
+        (node) => node.textContent ?? '',
+      )
+      const cs = getComputedStyle(frame)
+      const padX =
+        (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+      const padY =
+        (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+      const contentW = Math.max(0, frame.clientWidth - padX)
+      const contentH = Math.max(0, frame.clientHeight - padY)
+      let nextLeft = estimateAxisLeftPadding(labels, contentW, contentH)
+
+      let maxBoxWidth = 0
+      for (const node of svg.querySelectorAll('.task-manager__chart-axis')) {
+        const box = (node as SVGGraphicsElement).getBBox()
+        if (Number.isFinite(box.width)) {
+          maxBoxWidth = Math.max(maxBoxWidth, box.width)
+        }
+      }
+      if (maxBoxWidth > 0) {
+        nextLeft = Math.max(
+          nextLeft,
+          Math.min(CHART_AXIS_LEFT_MAX, Math.ceil(maxBoxWidth + CHART_AXIS_LABEL_GAP)),
+        )
+      }
+
+      setAxisLeft((prev) => (Math.abs(prev - nextLeft) >= 1 ? nextLeft : prev))
+    }
+
+    syncAxisLeft()
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+    const observer = new ResizeObserver(syncAxisLeft)
+    observer.observe(frame)
+    return () => observer.disconnect()
+  }, [chart])
+
   return (
     <svg
+      ref={svgRef}
       class="task-manager__chart"
       viewBox={`0 0 ${CHART_VIEW_WIDTH} ${CHART_VIEW_HEIGHT}`}
       preserveAspectRatio="xMidYMid meet"
@@ -540,14 +1250,14 @@ function MetricChart({
         <g key={`tick-${tick.value}`}>
           <line
             class={`task-manager__chart-grid${tick.value === 0 ? ' task-manager__chart-grid--baseline' : ''}${tickClassPeak && tick.value === chart.axisMax ? ' task-manager__chart-grid--peak' : ''}`}
-            x1={CHART_PLOT_LEFT}
+            x1={plotLeft}
             y1={tick.y}
             x2={CHART_VIEW_WIDTH - 16}
             y2={tick.y}
           />
           <text
             class={`task-manager__chart-axis${tickClassPeak && tick.value === chart.axisMax ? ' task-manager__chart-axis--peak' : ''}`}
-            x={CHART_AXIS_LABEL_X}
+            x={labelX}
             y={tick.y}
             text-anchor="end"
             dominant-baseline="middle"

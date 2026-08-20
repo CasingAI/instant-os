@@ -5,7 +5,7 @@
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  cursor: default;
+  cursor: pointer;
 }
 
 .ios-switch input {
@@ -119,4 +119,13 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.42),
     0 0 0 2px rgba(74, 144, 226, 0.35);
+}
+
+.ios-switch--disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ios-switch--disabled input:disabled + .ios-switch__track {
+  filter: grayscale(0.15);
 }

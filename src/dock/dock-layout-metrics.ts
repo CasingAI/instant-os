@@ -10,6 +10,8 @@ import { isExtAppId, isGeneratedAppId, type AppId, type ExtAppId, type Generated
 import {
   DOCK_BASE_ICON_PX,
   DOCK_BASE_RESERVE_PX,
+  DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE,
+  DOCK_PLATE_PADDING_BOTTOM_BASE,
   DOCK_SIZE_TIER_SCALES,
   resolveDockSizeScale,
   type DockSettings,
@@ -71,13 +73,41 @@ function isVisibleDockApp(
     : isBuiltinAppVisibleOnDock(app, experimental)
 }
 
+function countOpenWindowsByAppId(
+  windows: readonly { appId: AppId; closing?: boolean }[] | undefined,
+): Map<AppId, number> {
+  const counts = new Map<AppId, number>()
+  if (!windows) {
+    return counts
+  }
+
+  for (const entry of windows) {
+    if (entry.closing) {
+      continue
+    }
+    counts.set(entry.appId, (counts.get(entry.appId) ?? 0) + 1)
+  }
+
+  return counts
+}
+
+/** 多窗口应用在 Dock 上按窗口数占位；无窗口的固定应用占 1 格。 */
+function dockIconCountForApp(windowCount: number | undefined, { pinned }: { pinned: boolean }): number {
+  if (windowCount !== undefined && windowCount > 0) {
+    return windowCount
+  }
+  return pinned ? 1 : 0
+}
+
 export function buildDockLayoutSnapshot(params: {
   pinnedDockItemIds: readonly DesktopItemId[]
   runningAppIds: readonly AppId[]
   installedGeneratedAppIds: ReadonlySet<GeneratedAppId>
   sessionExtAppIds?: ReadonlySet<ExtAppId>
+  windows?: readonly { appId: AppId; closing?: boolean }[]
 }): DockLayoutSnapshot {
   const sessionExtAppIds = params.sessionExtAppIds ?? new Set<ExtAppId>()
+  const windowCountByAppId = countOpenWindowsByAppId(params.windows)
   const pinnedSet = new Set<AppId>()
   let pinnedCount = 0
 
@@ -88,24 +118,25 @@ export function buildDockLayoutSnapshot(params: {
     }
 
     pinnedSet.add(itemId)
-    if (isVisibleDockApp(itemId, params.installedGeneratedAppIds, sessionExtAppIds)) {
-      pinnedCount += 1
+    // 含 dockWhenRunning：用户固定后应计入固定区宽度（与 Dock 渲染一致）
+    if (isVisibleDockApp(itemId, params.installedGeneratedAppIds, sessionExtAppIds, true)) {
+      pinnedCount += dockIconCountForApp(windowCountByAppId.get(itemId), { pinned: true })
     }
   }
 
-  const runningUnpinned = new Set<AppId>()
+  let runningUnpinnedCount = 0
   for (const appId of params.runningAppIds) {
     if (pinnedSet.has(appId)) {
       continue
     }
     if (isVisibleDockApp(appId, params.installedGeneratedAppIds, sessionExtAppIds, true)) {
-      runningUnpinned.add(appId)
+      runningUnpinnedCount += dockIconCountForApp(windowCountByAppId.get(appId), { pinned: false }) || 1
     }
   }
 
   return {
     pinnedCount,
-    runningUnpinnedCount: runningUnpinned.size,
+    runningUnpinnedCount,
   }
 }
 
@@ -180,8 +211,8 @@ export function resolveEffectiveDockIconSizePx(settings?: DockSettings): number 
 
 export function resolveEffectiveDockIconCenterYOffsetFromBottom(settings?: DockSettings): number {
   const scale = resolveEffectiveDockScale(settings)
-  const bottomPad = Math.round(14 * scale)
-  const platePadBottom = Math.round(10 * scale)
+  const bottomPad = Math.round(DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE * scale)
+  const platePadBottom = Math.round(DOCK_PLATE_PADDING_BOTTOM_BASE * scale)
   const iconHalf = resolveEffectiveDockIconSizePx(settings) / 2
   return bottomPad + platePadBottom + iconHalf
 }

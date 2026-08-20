@@ -11,9 +11,18 @@ import './global.css'
 import { initBrowserPageCache } from './apps/browser/browser-page-cache.ts'
 import { initializeDockAppearance } from './dock/apply-dock-settings.ts'
 import { blockBrowserZoom } from './os/block-browser-zoom.ts'
+import { blockDocumentOverscroll } from './os/block-document-overscroll.ts'
+import { patchSystemVolumeBus } from './os/audio-bus.ts'
+import { preloadSystemSounds, unlockSystemSounds } from './os/system-sounds.ts'
+import { hydrateInstalledAppsFromFiles } from './os/generated-apps-store.ts'
+import { runAppRegistryMigration } from './os/app-registry-migration.ts'
 import { App } from './app.tsx'
 
+// 早于任何音频模块初始化：让全部 Web Audio 发声源自动经过系统主音量
+patchSystemVolumeBus()
 blockBrowserZoom()
+blockDocumentOverscroll()
+unlockSystemSounds()
 
 function CrashTestThrow(): null {
   throw new Error('[instant_crash] 模拟 React 组件崩溃（react）')
@@ -26,11 +35,16 @@ if (!appRoot) {
   reportCrash('boot.missing-root', '找不到 #app 挂载节点')
 } else {
   void ensureAppleColorEmojiFonts()
-    .then(() => {
+    .then(async () => {
       if (crashTestMode === 'font') {
         reportCrash('instant_crash.font', new Error('[instant_crash] 模拟字体初始化后崩溃（font）'))
         return
       }
+
+      // 先 hydrate 生成应用本体（含一次性迁移），保证程序坞 / 应用目录拿到完整应用列表
+      await hydrateInstalledAppsFromFiles().catch(() => undefined)
+      // 再迁移应用数据 localStorage → 注册表（幂等），保证任何应用打开前迁移已完成
+      await runAppRegistryMigration().catch(() => undefined)
 
       initializeDockAppearance()
 
@@ -47,7 +61,11 @@ if (!appRoot) {
 
       render(tree, appRoot)
       markBootComplete()
+      preloadSystemSounds()
       void initBrowserPageCache()
+      void import('./apps/github-desktop/github-repo-attributes.ts')
+        .then((m) => m.reconcileGithubRepoAttributes())
+        .catch(() => undefined)
       scheduleEmojiOffsetAutoCalibration()
     })
     .catch((error) => {

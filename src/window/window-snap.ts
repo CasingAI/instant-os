@@ -2,7 +2,7 @@ import { getMaximizedBounds, STATUS_BAR_HEIGHT, type WindowBounds } from './wind
 import { clampFloatingSize } from './window-resize.ts'
 
 export const SNAP_THRESHOLD = 16
-export const NARROW_WORK_AREA_WIDTH = 640
+export const NARROW_WORK_AREA_WIDTH = 520
 
 export type SnapTarget = 'left' | 'right' | 'top'
 
@@ -39,17 +39,14 @@ export function getSnapBounds(target: SnapTarget): WindowBounds {
 }
 
 export function reanchorSnappedWindow(window: WindowBounds & { snap?: 'left' | 'right' }): WindowBounds {
+  if (window.snap === 'left' || window.snap === 'right') {
+    return getSnapBounds(window.snap)
+  }
+
   const work = getMaximizedBounds()
   const width = Math.min(window.width, work.width)
   const height = Math.min(window.height, work.height)
   const y = Math.max(work.y, Math.min(window.y, work.y + work.height - height))
-
-  if (window.snap === 'left') {
-    return { x: work.x, y, width, height }
-  }
-  if (window.snap === 'right') {
-    return { x: work.x + work.width - width, y, width, height }
-  }
 
   return { x: window.x, y, width, height }
 }
@@ -70,9 +67,10 @@ export function fitFloatingWindowBounds(
   y: number,
   width: number,
   height: number,
+  options?: { minWidth?: number; minHeight?: number },
 ): WindowBounds {
   const work = getMaximizedBounds()
-  const size = clampFloatingSize(width, height)
+  const size = clampFloatingSize(width, height, options)
   let nextX = x
   let nextY = y
 

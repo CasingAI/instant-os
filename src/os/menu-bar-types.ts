@@ -1,5 +1,7 @@
 export type MenuItemAction = {
   type: 'action'
+  /** 系统保留项 id，例如 `app.about` / `app.hide` / `app.quit`。 */
+  id?: string
   label: string
   onClick: () => void
   disabled?: boolean

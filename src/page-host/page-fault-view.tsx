@@ -1,0 +1,96 @@
+import type { ChromoPageFault } from './page-fault.ts'
+
+type ChromoPageFaultViewProps = {
+  fault: ChromoPageFault
+  variant?: 'viewport' | 'panel'
+  /** load: retry navigation; fatal: reload current Chromo tab (viewer + SW update) */
+  onRetry?: () => void
+  /** Override primary button label (default: 重试 / 重新加载 by severity). */
+  actionLabel?: string
+  /** When false, hide the “type a new URL in the omnibox” hint (e.g. read-only WebView). Default true. */
+  showOmniboxHint?: boolean
+}
+
+function buildMetaLines(fault: ChromoPageFault): string[] {
+  const lines: string[] = []
+  if (fault.code) {
+    lines.push(`code: ${fault.code}`)
+  }
+  if (fault.bridgeBuild) {
+    lines.push(`bridge: ${fault.bridgeBuild}`)
+  }
+  if (fault.swBuild) {
+    lines.push(`SW: ${fault.swBuild}`)
+  }
+  if (fault.url && fault.severity === 'fatal') {
+    lines.push(`url: ${fault.url}`)
+  }
+  return lines
+}
+
+export function ChromoPageFaultView({
+  fault,
+  variant = 'viewport',
+  onRetry,
+  actionLabel,
+  showOmniboxHint,
+}: ChromoPageFaultViewProps) {
+  return PageFaultView({ fault, variant, onRetry, actionLabel, showOmniboxHint })
+}
+
+/** Alias for ChromoPageFaultView — preferred name in page-host consumers. */
+export function PageFaultView({
+  fault,
+  variant = 'viewport',
+  onRetry,
+  actionLabel,
+  showOmniboxHint = true,
+}: ChromoPageFaultViewProps) {
+  const isFatal = fault.severity === 'fatal'
+  const title = isFatal ? '此页面已停止运行' : '无法加载此页'
+  const primaryLabel = actionLabel ?? (isFatal ? '重新加载' : '重试')
+  const metaLines = buildMetaLines(fault)
+
+  return (
+    <div
+      class={[
+        'chromo__page-fault',
+        isFatal ? 'chromo__page-fault--fatal' : 'chromo__page-fault--load',
+        variant === 'panel' ? 'chromo__page-fault--panel' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      role="alertdialog"
+      aria-labelledby="chromo-page-fault-title"
+      aria-describedby="chromo-page-fault-message"
+    >
+      <div class="chromo__page-fault-card">
+        <h1 id="chromo-page-fault-title" class="chromo__page-fault-title">
+          {title}
+        </h1>
+        <p id="chromo-page-fault-message" class="chromo__page-fault-message">
+          {fault.message}
+        </p>
+        {!isFatal && fault.url ? (
+          <p class="chromo__page-fault-url" title={fault.url}>
+            {fault.url}
+          </p>
+        ) : null}
+        {metaLines.length > 0 ? (
+          <pre class="chromo__page-fault-meta">{metaLines.join('\n')}</pre>
+        ) : null}
+        {onRetry ? (
+          <button type="button" class="chromo__page-fault-action" onClick={onRetry}>
+            {primaryLabel}
+          </button>
+        ) : null}
+        {isFatal && onRetry ? (
+          <p class="chromo__page-fault-hint">将刷新当前标签页（含代理 Service Worker 更新），不会重启整个系统。</p>
+        ) : null}
+        {!isFatal && showOmniboxHint ? (
+          <p class="chromo__page-fault-hint">也可在地址栏输入新地址后回车继续浏览。</p>
+        ) : null}
+      </div>
+    </div>
+  )
+}

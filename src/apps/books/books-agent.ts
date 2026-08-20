@@ -8,7 +8,7 @@ import {
 import { isStreamIdleTimeoutError, streamChatCompletion } from '../../ai/stream-chat.ts'
 import type { StreamChatTurn } from '../../ai/stream-chat.ts'
 import { hasOpenAiApiKey } from '../../ai/openai-config.ts'
-import { addAppNotification } from '../../os/app-notifications-store.ts'
+import { dismissOsNotification, postOsNotification } from '../../os/os-notifications.ts'
 import { setBookStream, clearBookStream } from '../../os/book-stream-store.ts'
 import {
   appendChapterIndex,
@@ -756,8 +756,8 @@ export async function generateBookChaptersStreaming(
   clearBookStream(listing.slug)
   const chapterBodies = new Map<number, string>()
 
-  const shouldStop = () =>
-    isBookGenerationCancelled(bookId) || !findLibraryBookById(readBooksStore(), bookId)
+  const shouldStop = async () =>
+    isBookGenerationCancelled(bookId) || !findLibraryBookById(await readBooksStore(), bookId)
 
   const publishLiveCharacterCount = (accumulatedXml?: string) => {
     const count =
@@ -770,41 +770,55 @@ export async function generateBookChaptersStreaming(
     })
   }
 
-  const markBookFailed = (errorMessage?: string) => {
+  const markBookFailed = async (errorMessage?: string) => {
     const msg = errorMessage ?? '书籍下载失败，请稍后重试'
     console.error(`[books] 书籍「${listing.title}」(${bookId}) 生成失败：${msg}`)
 
-    if (shouldStop()) {
+    if (await shouldStop()) {
       return
     }
-    let store = readBooksStore()
+    let store = await readBooksStore()
     store = updateBookInLibrary(store, bookId, { status: 'failed' })
-    writeBooksStore(store)
+    await writeBooksStore(store)
 
-    addAppNotification({
-      id: `book-fail-${bookId}`,
-      appName: listing.title,
-      appSlug: listing.slug,
-      iconEmoji: listing.coverEmoji,
-      themeColor: listing.coverColor,
-      error: msg,
-      failedAt: osNowMs(),
-    })
+    postOsNotification(
+      {
+        id: `book:${listing.slug}`,
+        title: listing.title,
+        subtitle: '生成失败',
+        phase: 'failure',
+        icon: {
+          kind: 'tile',
+          emoji: listing.coverEmoji,
+          color: listing.coverColor,
+        },
+        body: msg,
+        banner: 'once',
+        streamSlug: listing.slug,
+        streamKind: 'book',
+        actions: [{ id: 'dismiss', label: '忽略' }],
+      },
+      {
+        onAction: {
+          dismiss: () => dismissOsNotification(`book:${listing.slug}`),
+        },
+      },
+    )
   }
 
   const resetBookForRetry = async () => {
     chapterBodies.clear()
     clearBookStream(listing.slug)
     await deleteBookChapters(bookId)
-    let store = readBooksStore()
+    let store = await readBooksStore()
     store = updateBookInLibrary(store, bookId, { status: 'generating', chapters: [] })
-    writeBooksStore(store)
+    await writeBooksStore(store)
     publishBookGenerationProgress(bookId, { count: 0, phase: 'connecting' })
   }
 
   const preloadSavedChapterBodies = async () => {
     chapterBodies.clear()
-    const store = readBooksStore()
+    const store = await readBooksStore()
     const book = findLibraryBookById(store, bookId)
     if (!book) {
       return
@@ -819,7 +833,7 @@ export async function generateBookChaptersStreaming(
   }
 
   const trimChaptersFromIndex = async (fromIndex: number) => {
-    const store = readBooksStore()
+    const store = await readBooksStore()
     const book = findLibraryBookById(store, bookId)
     if (!book) {
       return
@@ -841,7 +855,7 @@ export async function generateBookChaptersStreaming(
       chapters: book.chapters.filter((chapter) => chapter.index < fromIndex),
       status: 'generating',
     })
-    writeBooksStore(nextStore)
+    await writeBooksStore(nextStore)
   }
 
   try {
@@ -850,7 +864,7 @@ export async function generateBookChaptersStreaming(
     const templateBlock = formatGenreTemplateForPrompt(template)
 
     const persistChapter = async (index: number, title: string, body: string) => {
-      if (shouldStop()) {
+      if (await shouldStop()) {
         return
       }
 
@@ -865,39 +879,39 @@ export async function generateBookChaptersStreaming(
         body,
       })
 
-      if (shouldStop()) {
+      if (await shouldStop()) {
         return
       }
 
-      let store = readBooksStore()
+      let store = await readBooksStore()
       store = appendChapterIndex(store, bookId, { id: chapterId, index, title })
       store = updateBookInLibrary(store, bookId, {
         status: index >= total ? 'complete' : 'generating',
       })
-      writeBooksStore(store)
+      await writeBooksStore(store)
       onChapterSaved(index, total)
       publishLiveCharacterCount()
     }
 
     if (!hasOpenAiApiKey()) {
-      const store = readBooksStore()
+      const store = await readBooksStore()
       const book = findLibraryBookById(store, bookId)
       if (!book) {
         return
       }
       const seeds = buildSeedChapters(book)
       for (const chapter of seeds) {
-        if (shouldStop()) {
+        if (await shouldStop()) {
           return
         }
         await persistChapter(chapter.index, chapter.title, chapter.body)
       }
-      if (shouldStop()) {
+      if (await shouldStop()) {
         return
       }
-      let nextStore = readBooksStore()
+      let nextStore = await readBooksStore()
       nextStore = updateBookInLibrary(nextStore, bookId, { status: 'complete' })
-      writeBooksStore(nextStore)
+      await writeBooksStore(nextStore)
       return
     }
 
@@ -915,7 +929,7 @@ export async function generateBookChaptersStreaming(
       publishBookGenerationProgress(bookId, { phase: 'connecting' })
 
       const persistedChapterIndexes = new Set<number>()
-      const storeBefore = readBooksStore()
+      const storeBefore = await readBooksStore()
       const bookBefore = findLibraryBookById(storeBefore, bookId)
       for (const chapter of bookBefore?.chapters ?? []) {
         persistedChapterIndexes.add(chapter.index)
@@ -931,7 +945,7 @@ export async function generateBookChaptersStreaming(
           }
           persistedChapterIndexes.add(chapter.index)
           persistQueue = persistQueue.then(async () => {
-            if (shouldStop()) {
+            if (await shouldStop()) {
               persistedChapterIndexes.delete(chapter.index)
               return
             }
@@ -974,7 +988,7 @@ export async function generateBookChaptersStreaming(
           },
         })
       } catch (error) {
-        if (shouldStop()) {
+        if (await shouldStop()) {
           return { fullText }
         }
         if (isStreamIdleTimeoutError(error)) {
@@ -994,7 +1008,7 @@ export async function generateBookChaptersStreaming(
       const parsedIndexes = new Set(parsedChapters.map((chapter) => chapter.index))
 
       for (const chapter of parsedChapters) {
-        if (shouldStop()) {
+        if (await shouldStop()) {
           return { fullText }
         }
         if (persistedChapterIndexes.has(chapter.index)) {
@@ -1008,17 +1022,17 @@ export async function generateBookChaptersStreaming(
         }
       }
 
-      if (shouldStop()) {
+      if (await shouldStop()) {
         return { fullText }
       }
 
-      let finalStore = readBooksStore()
+      let finalStore = await readBooksStore()
       const finalBook = findLibraryBookById(finalStore, bookId)
       const savedIndexes = new Set(finalBook?.chapters.map((chapter) => chapter.index) ?? [])
 
       if (finalBook && finalBook.chapters.length >= total) {
         finalStore = updateBookInLibrary(finalStore, bookId, { status: 'complete' })
-        writeBooksStore(finalStore)
+        await writeBooksStore(finalStore)
         return { fullText }
       }
 
@@ -1046,12 +1060,12 @@ export async function generateBookChaptersStreaming(
     await preloadSavedChapterBodies()
 
     for (let attempt = 1; attempt <= MAX_BOOK_GENERATION_ATTEMPTS; attempt += 1) {
-      if (shouldStop()) {
+      if (await shouldStop()) {
         break
       }
 
       if (attempt > 1) {
-        const store = readBooksStore()
+        const store = await readBooksStore()
         const book = findLibraryBookById(store, bookId)
         const savedIndexes = new Set(book?.chapters.map((chapter) => chapter.index) ?? [])
         const firstMissing = findFirstMissingChapterIndex(savedIndexes, total)
@@ -1117,29 +1131,29 @@ export async function generateBookChaptersStreaming(
         )
 
         if (attempt >= MAX_BOOK_GENERATION_ATTEMPTS) {
-          markBookFailed(`${result.error}（已自动重试 ${MAX_BOOK_GENERATION_ATTEMPTS} 次）`)
+          await markBookFailed(`${result.error}（已自动重试 ${MAX_BOOK_GENERATION_ATTEMPTS} 次）`)
         }
       } catch (outerError) {
-        if (shouldStop()) {
+        if (await shouldStop()) {
           break
         }
 
-        const store = readBooksStore()
+        const store = await readBooksStore()
         const book = findLibraryBookById(store, bookId)
         if (book && book.chapters.length === 0) {
           const seeds = buildSeedChapters(book)
           for (const chapter of seeds) {
-            if (shouldStop()) {
+            if (await shouldStop()) {
               break
             }
             await persistChapter(chapter.index, chapter.title, chapter.body)
           }
-          if (shouldStop()) {
+          if (await shouldStop()) {
             break
           }
-          let nextStore = readBooksStore()
+          let nextStore = await readBooksStore()
           nextStore = updateBookInLibrary(nextStore, bookId, { status: 'complete' })
-          writeBooksStore(nextStore)
+          await writeBooksStore(nextStore)
           break
         }
 
@@ -1152,7 +1166,7 @@ export async function generateBookChaptersStreaming(
         )
 
         if (attempt >= MAX_BOOK_GENERATION_ATTEMPTS) {
-          markBookFailed(`${errorMessage}（已自动重试 ${MAX_BOOK_GENERATION_ATTEMPTS} 次）`)
+          await markBookFailed(`${errorMessage}（已自动重试 ${MAX_BOOK_GENERATION_ATTEMPTS} 次）`)
         }
       }
     }
@@ -1172,15 +1186,15 @@ export async function seedBookContent(book: BookRecordMeta): Promise<void> {
       title: chapter.title,
       body: chapter.body,
     })
-    let store = readBooksStore()
+    let store = await readBooksStore()
     store = appendChapterIndex(store, book.id, {
       id: chapterId,
       index: chapter.index,
       title: chapter.title,
     })
-    writeBooksStore(store)
+    await writeBooksStore(store)
   }
-  let store = readBooksStore()
+  let store = await readBooksStore()
   store = updateBookInLibrary(store, book.id, { status: 'complete' })
-  writeBooksStore(store)
+  await writeBooksStore(store)
 }

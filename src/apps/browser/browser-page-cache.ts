@@ -10,6 +10,7 @@ import {
 import {
   hostnameFromUrl,
   isStartPageUrl,
+  isViewSourceUrl,
   normalizeBrowserUrl,
   siteRootUrl,
 } from './normalize-browser-url.ts'
@@ -125,7 +126,7 @@ async function persistPage(record: CachedPageRecord): Promise<boolean> {
 }
 
 export function getCachedPage(url: string): CachedPageRecord | undefined {
-  if (isStartPageUrl(url)) {
+  if (isStartPageUrl(url) || isViewSourceUrl(url)) {
     return undefined
   }
   ensureReadyForSyncRead()
@@ -135,7 +136,7 @@ export function getCachedPage(url: string): CachedPageRecord | undefined {
 export function saveCachedPage(
   record: Omit<CachedPageRecord, 'cachedAt'> & { cachedAt?: number },
 ): boolean {
-  if (isStartPageUrl(record.url)) {
+  if (isStartPageUrl(record.url) || isViewSourceUrl(record.url)) {
     return true
   }
 

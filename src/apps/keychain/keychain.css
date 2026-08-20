@@ -1,230 +1,474 @@
-/* 钥匙串 — iOS 6 拟物风格，类似书架 */
-.keychain {
+/* 钥匙串 — 对齐系统设置的边距 / 尺寸 / 颜色 / 圆角 */
+
+/* ── iOS 6 式导航：Header 栏固定交叉淡移，正文整页叠推 ── */
+
+.keychain-stack {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--instant-bg);
-  color: #1d1d1f;
-  font-family: var(--app-text-font-family);
-  font-size: 13px;
+  min-height: 0;
   overflow: hidden;
 }
 
-/* ── 工具栏 ── */
+.keychain-stack > .settings,
+.keychain-stack__layer:not([hidden]) {
+  flex: 1;
+  min-height: 0;
+}
 
-.keychain__toolbar {
+/* 静止时也走 layer，保证 key 稳定；仅当前层可见（勿穿透嵌套子栈） */
+.keychain-stack:not([class*='keychain-stack--']) > .keychain-stack__layer:not([hidden]) {
+  position: absolute;
+  inset: 0;
+}
+
+/* 嵌套在 .settings 内的子栈（定价 / 词表等）填满父页 */
+.settings > .keychain-stack {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.settings:has(> .keychain-stack) {
+  overflow: hidden;
+}
+
+.keychain-stack__layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  z-index: 0;
+}
+
+.keychain-stack__layer > .settings {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.keychain-stack__layer--over {
+  z-index: 1;
+}
+
+/*
+ * 转场时拆开 DOM 盒：两页的 nav 叠在同一 Header 栏，
+ * 两页的 content 叠在同一正文区（避免整层背景挡住 Header 交叉淡出）。
+ */
+.keychain-stack--push,
+.keychain-stack--pop {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  height: 44px;
-  padding: 0 12px;
-  background:
-    linear-gradient(180deg, #f7f7f9 0%, #e5e5ea 100%);
-  border-bottom: 1px solid #b8b8c0;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
-.keychain__toolbar > :first-child {
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: start;
+.keychain-stack--push .keychain-stack__layer,
+.keychain-stack--pop .keychain-stack__layer {
+  display: contents;
+  position: static;
+  inset: auto;
 }
 
-.keychain__toolbar > :last-child {
-  grid-column: 3;
-  grid-row: 1;
-  justify-self: end;
+/*
+ * display:contents 特异性高于 UA 的 [hidden]{display:none}，
+ * 会把栈里未参与转场的层（如更深的 Sub Agent「+」）抬进 Header 交叉动画。
+ * 强制隐藏层继续不渲染。
+ */
+.keychain-stack--push .keychain-stack__layer[hidden],
+.keychain-stack--pop .keychain-stack__layer[hidden],
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer[hidden],
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer[hidden] {
+  display: none !important;
 }
 
-.keychain__toolbar-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: #1d1d1f;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+.keychain-stack--push .keychain-stack__layer > .settings,
+.keychain-stack--pop .keychain-stack__layer > .settings {
+  display: contents;
+  height: auto;
 }
 
-.keychain__toolbar-title--center {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: stretch;
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
+/* 父级转场时拆开嵌套的 idle 子栈，让 Header/正文仍参与交叉动画 */
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--']),
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--']) {
+  display: contents;
+}
+
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer {
+  display: contents;
+  position: static;
+  inset: auto;
+}
+
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer
+  > .settings,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer
+  > .settings,
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .settings,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .settings {
+  display: contents;
+  height: auto;
+}
+
+.keychain-stack--push .keychain-stack__layer--under .settings__nav,
+.keychain-stack--push .keychain-stack__layer--under .settings__body,
+.keychain-stack--push .keychain-stack__layer--under .settings__content,
+.keychain-stack--pop .keychain-stack__layer--under .settings__nav,
+.keychain-stack--pop .keychain-stack__layer--under .settings__body,
+.keychain-stack--pop .keychain-stack__layer--under .settings__content,
+.keychain-stack--pop .keychain-stack__layer--over .settings__nav,
+.keychain-stack--pop .keychain-stack__layer--over .settings__body,
+.keychain-stack--pop .keychain-stack__layer--over .settings__content {
   pointer-events: none;
 }
 
-.keychain__toolbar > :first-child,
-.keychain__toolbar > :last-child {
+.keychain-stack--push .settings__nav,
+.keychain-stack--pop .settings__nav {
+  grid-row: 1;
+  grid-column: 1;
+  /* 压过 settings.css 的 sticky，否则 display:contents 下交叉淡移叠不住 */
+  position: relative !important;
+  z-index: 3;
+}
+
+/*
+ * 钥匙串 Header 不用 drop shadow / scroll elevate。
+ * elevate 的 animation-timeline 会盖住转场 keyframes（嵌套子栈尤甚：
+ * 外层 idle 时本栈 --push 的 animation 被 timeline 劫持成「跟滚动走」）。
+ * 分隔只靠 border-bottom。
+ */
+.keychain-stack .settings:has(> .settings__nav) > .settings__nav {
+  box-shadow: none !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
+}
+
+/*
+ * 只关本栈 idle 页的 elevate（特异性已高于 settings-nav-elevate）。
+ * 绝不能 !important：嵌套 idle 子栈在父栈 --push 时仍匹配本规则，
+ * !important 会盖掉父级的 keychain-nav-enter/leave。
+ */
+.keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer
+  > .settings:has(> .settings__nav)
+  > .settings__nav {
+  animation: none;
+}
+
+/*
+ * 必须压过 settings.css：
+ *   .settings:has(> .settings__nav) > .settings__content {
+ *     flex: none; overflow: visible; min-height: auto;
+ *   }
+ * 否则转场时正文不是滚动容器，scrollTop 写了也无效，看起来像跳顶。
+ */
+.keychain-stack--push
+  .keychain-stack__layer
+  .settings:has(> .settings__nav)
+  > .settings__body,
+.keychain-stack--push
+  .keychain-stack__layer
+  .settings:has(> .settings__nav)
+  > .settings__content,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .settings:has(> .settings__nav)
+  > .settings__body,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .settings:has(> .settings__nav)
+  > .settings__content {
+  grid-row: 2;
+  grid-column: 1;
   position: relative;
   z-index: 1;
-  flex-shrink: 0;
-  white-space: nowrap;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* .settings 在 display:contents 下不再铺背景，改由正文承担；跟主题 token */
+  background: var(--settings-page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
 }
 
-.keychain__toolbar-spacer {
-  width: 64px;
-  flex-shrink: 0;
+/* 转场时正文才是滚动容器，搜索条贴内容顶即可 */
+.keychain-stack--push
+  .keychain-stack__layer
+  .settings__body
+  > .settings__search-bar,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .settings__body
+  > .settings__search-bar {
+  top: 0;
 }
 
-.keychain__toolbar-btn--action {
-  min-width: 64px;
+.keychain-stack--push .keychain-stack__layer--under .settings__nav {
+  animation: keychain-nav-leave-push 0.35s ease-in-out both !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
+  z-index: 3;
 }
 
-/* ── 保存按钮 ── */
-
-.keychain__save-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 29px;
-  padding: 0 14px;
-  border-radius: 6px;
-  border: 1px solid #7090c8;
-  background: linear-gradient(180deg, #4a90d9 0%, #2563eb 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.18);
-  font-size: 13px;
-  font-weight: 700;
-  color: #fff;
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
-  cursor: pointer;
-  animation: keychain-save-pop-in 0.2s ease-out;
+.keychain-stack--push .keychain-stack__layer--over .settings__nav {
+  animation: keychain-nav-enter-push 0.35s ease-in-out both !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
+  z-index: 4;
 }
 
-.keychain__save-btn:hover {
-  background: linear-gradient(180deg, #5b9de4 0%, #3476f0 100%);
+.keychain-stack--pop .keychain-stack__layer--over .settings__nav {
+  animation: keychain-nav-leave-pop 0.35s ease-in-out both !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
+  z-index: 4;
 }
 
-.keychain__save-btn:active {
-  background: linear-gradient(180deg, #3476f0 0%, #2563eb 100%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+.keychain-stack--pop .keychain-stack__layer--under .settings__nav {
+  animation: keychain-nav-enter-pop 0.35s ease-in-out both !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
+  z-index: 3;
 }
 
-.keychain__save-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
+.keychain-stack--push .keychain-stack__layer--under .settings__body,
+.keychain-stack--push .keychain-stack__layer--under .settings__content {
+  animation: keychain-body-under-push 0.35s ease-in-out both;
+  z-index: 1;
 }
 
-@keyframes keychain-save-pop-in {
+.keychain-stack--push .keychain-stack__layer--over .settings__body,
+.keychain-stack--push .keychain-stack__layer--over .settings__content {
+  animation: keychain-body-over-push 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+.keychain-stack--pop .keychain-stack__layer--under .settings__body,
+.keychain-stack--pop .keychain-stack__layer--under .settings__content {
+  animation: keychain-body-under-pop 0.35s ease-in-out both;
+  z-index: 1;
+}
+
+.keychain-stack--pop .keychain-stack__layer--over .settings__body,
+.keychain-stack--pop .keychain-stack__layer--over .settings__content {
+  animation: keychain-body-over-pop 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+@keyframes keychain-nav-leave-push {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-28%);
+  }
+}
+
+@keyframes keychain-nav-enter-push {
   from {
     opacity: 0;
-    transform: scale(0.85);
+    transform: translateX(40%);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateX(0);
   }
 }
 
-/* ── 标题栏按钮（添加/删除/返回） ── */
+@keyframes keychain-nav-leave-pop {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(40%);
+  }
+}
 
-.keychain__toolbar-btn {
-  appearance: none;
+@keyframes keychain-nav-enter-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-28%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes keychain-body-under-push {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-30%);
+  }
+}
+
+@keyframes keychain-body-over-push {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes keychain-body-under-pop {
+  from {
+    transform: translateX(-30%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes keychain-body-over-pop {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keychain-stack--push .keychain-stack__layer .settings__nav,
+  .keychain-stack--pop .keychain-stack__layer .settings__nav,
+  .keychain-stack--push .keychain-stack__layer .settings__body,
+  .keychain-stack--pop .keychain-stack__layer .settings__body,
+  .keychain-stack--push .keychain-stack__layer .settings__content,
+  .keychain-stack--pop .keychain-stack__layer .settings__content {
+    animation: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}
+
+.keychain__nav,
+.settings__nav.keychain__nav,
+.settings[data-settings-subpage] > .settings__nav.keychain__nav {
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 29px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid #a8a8b0;
-  background: linear-gradient(180deg, #fff 0%, #e9e9ed 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 1px 2px rgba(0, 0, 0, 0.12);
-  font-size: 12px;
-  font-weight: 600;
-  color: #1d1d1f;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
-  cursor: pointer;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.keychain__toolbar-btn:hover {
-  background: linear-gradient(180deg, #fff 0%, #f0f0f4 100%);
+.keychain__nav .settings__btn:not(.settings__btn--icon) {
+  flex-shrink: 0;
+  min-width: 64px;
 }
 
-.keychain__toolbar-btn:active {
-  background: linear-gradient(180deg, #e9e9ed 0%, #d8d8de 100%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
+.settings__nav--titled .settings__nav-trailing .settings__btn:not(.settings__btn--icon) {
+  flex-shrink: 0;
+  min-width: 64px;
 }
 
-.keychain__toolbar-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
+/* ── 能力 Tab 间距（样式见 SegmentedControl）── */
+
+.keychain__capability-tabs {
+  margin: 0 0 10px;
 }
 
-.keychain__toolbar-btn--danger {
-  color: #d63031;
-  border-color: #d63031;
+.keychain__section-empty {
+  margin-top: 0;
+  min-height: 88px;
 }
 
-/* ── 内容区 ── */
+/* ── 供应商 / 模型详情分组（对齐 settings__section 间距）── */
 
-.keychain__content {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  background:
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 43px,
-      rgba(0, 0, 0, 0.04) 43px,
-      rgba(0, 0, 0, 0.04) 44px
-    );
-}
-
-.keychain__content--empty {
+.keychain__form-stack {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 48px 24px;
-  background: var(--instant-bg);
 }
 
-.keychain__empty-title {
-  margin: 0;
-  font-size: 18px;
+.keychain__form-group + .keychain__form-group {
+  margin-top: 22px;
+}
+
+.keychain__form-group-title {
+  margin: 0 0 6px;
+  font-size: 11px;
   font-weight: 600;
-  color: #86868b;
+  color: #555;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-.keychain__empty-hint {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #aeaeb2;
-  text-align: center;
-  max-width: 320px;
-  line-height: 1.5;
+/* ── 模型行内免费徽标（OpenCode Zen 免费模型）── */
+
+.keychain-model-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
-/* ── 模型列表 ── */
+.keychain-model-label .ai-model-free-badge {
+  flex-shrink: 0;
+}
+
+/* ── 模型列表（对齐 settings__list）── */
 
 .keychain__list {
   display: flex;
   flex-direction: column;
-  padding: 0;
+  overflow: hidden;
+  border: 1px solid #a8a8a8;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .keychain__list-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 52px;
-  padding: 8px 12px;
+  min-height: 36px;
+  padding: 4px 10px;
   border-top: 3px solid transparent;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid #ececec;
   background: #fff;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
-  transition: background 0.1s, border-top-color 0.08s;
+  color: inherit;
+  font-size: 13px;
+}
+
+.keychain__list-item:last-child {
+  border-bottom: none;
 }
 
 .keychain__list--reordering {
@@ -232,11 +476,29 @@
 }
 
 .keychain__list-item:hover {
-  background: #f5f5ff;
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
 }
 
 .keychain__list-item:active {
-  background: #e8e8f8;
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+  color: #fff;
+}
+
+.keychain__list-item:hover .keychain__model-provider,
+.keychain__list-item:active .keychain__model-provider {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.keychain__list-item:hover .keychain__grip-line,
+.keychain__list-item:active .keychain__grip-line {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.keychain__list-item:hover .settings__disclosure,
+.keychain__list-item:active .settings__disclosure {
+  color: #fff;
+  opacity: 0.9;
 }
 
 .keychain__list-item--dragging {
@@ -244,7 +506,11 @@
 }
 
 .keychain__list-item--over {
-  border-top-color: #2563eb;
+  border-top-color: #2068b8;
+}
+
+.keychain__list-item--preferred:not(:hover):not(:active) {
+  background: rgba(45, 122, 45, 0.06);
 }
 
 /* ── 拖拽手柄 ── */
@@ -254,12 +520,12 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
   flex-shrink: 0;
   align-self: stretch;
-  width: 36px;
-  margin: -8px 0 -8px -8px;
-  padding: 0 10px;
+  width: 28px;
+  margin: -4px 0 -4px -6px;
+  padding: 0 8px;
   cursor: grab;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
@@ -272,7 +538,7 @@
 
 .keychain__grip-line {
   display: block;
-  width: 14px;
+  width: 12px;
   height: 2px;
   border-radius: 1px;
   background: #aeaeb2;
@@ -290,9 +556,8 @@
 
 .keychain__model-name {
   display: block;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  color: #1d1d1f;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -301,389 +566,44 @@
 .keychain__model-provider {
   display: block;
   font-size: 11px;
-  color: #8e8e93;
+  color: #888;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ── 激活徽章 ── */
+/* ── 首选徽章 ── */
 
 .keychain__badge {
   display: flex;
   align-items: center;
   flex-shrink: 0;
   height: 18px;
-  padding: 0 8px;
-  border-radius: 9px;
-  background: linear-gradient(180deg, #34c759 0%, #28a745 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 1px 2px rgba(0, 0, 0, 0.1);
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.15);
-}
-
-/* ── 底部提示 ── */
-
-.keychain__hint {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 0 24px;
-  font-size: 12px;
-  color: #8e8e93;
-  text-align: center;
-}
-
-/* ── 展开指示器 ── */
-
-.keychain__chevron {
-  flex-shrink: 0;
-  font-size: 18px;
-  color: #8e8e93;
-  opacity: 0.3;
-}
-
-/* ── 供应商设置视图 ── */
-
-.keychain__settings {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  background:
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 43px,
-      rgba(0, 0, 0, 0.04) 43px,
-      rgba(0, 0, 0, 0.04) 44px
-    );
-}
-
-.keychain__settings-body {
-  max-width: 520px;
-  margin: 0 auto;
-  padding: 16px 16px 32px;
-}
-
-/* ── 表单字段 ── */
-
-.keychain__field-group {
-  margin-bottom: 20px;
-}
-
-.keychain__field-label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #6d6d72;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-.keychain__field-input {
-  width: 100%;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid #c8c8ce;
-  border-radius: 6px;
-  background: linear-gradient(180deg, #fff 0%, #fafafc 100%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
-  font-size: 14px;
-  color: #1d1d1f;
-  box-sizing: border-box;
-  transition: border-color 0.12s;
-}
-
-.keychain__field-input:focus {
-  outline: none;
-  border-color: #4a90d9;
-  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
-}
-
-.keychain__field-input::placeholder {
-  color: #aeaeb2;
-}
-
-.keychain__field-group--choice .settings-choice-field {
-  width: 100%;
-}
-
-.keychain__field-group--choice .settings-choice-field__trigger {
-  width: 100%;
-  min-width: 0;
-  height: 36px;
-  padding: 0 32px 0 12px;
-  border: 1px solid #c8c8ce;
-  border-radius: 6px;
-  background: linear-gradient(180deg, #fff 0%, #fafafc 100%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
-  font-size: 14px;
-  color: #1d1d1f;
-  text-align: left;
-}
-
-.keychain__field-group--choice .settings-choice-field__trigger--open,
-.keychain__field-group--choice .settings-choice-field__trigger:focus-visible {
-  outline: none;
-  border-color: #4a90d9;
-  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
-}
-
-/* ── 模型复选框列表 ── */
-
-.keychain__model-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  background: #fff;
-  border: 1px solid #c8c8ce;
-  border-radius: 8px;
-  --keychain-model-row-height: 36px;
-  max-height: calc(var(--keychain-model-row-height) * 2.5);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-.keychain__model-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: var(--keychain-model-row-height);
-  min-height: var(--keychain-model-row-height);
-  padding: 0 10px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.keychain__model-row:last-of-type {
-  border-bottom: none;
-}
-
-.keychain__model-row--disabled {
-  opacity: 0.4;
-}
-
-.keychain__model-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid #c8c8ce;
-  border-radius: 5px;
-  background: linear-gradient(180deg, #fff 0%, #f0f0f4 100%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
-  cursor: pointer;
-}
-
-.keychain__model-toggle--on {
-  border-color: #4a90d9;
-  background: linear-gradient(180deg, #5b9de4 0%, #2563eb 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 1px 2px rgba(37, 99, 235, 0.2);
-}
-
-.keychain__model-toggle-mark {
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1;
-  color: #fff;
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.15);
-}
-
-.keychain__model-check-name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  color: #1d1d1f;
-}
-
-.keychain__model-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.keychain__inline-btn {
-  height: 24px;
-  padding: 0 8px;
+  padding: 0 7px;
   border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  background: #fff;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.1s;
-}
-
-.keychain__inline-btn:hover {
-  background: #f0f0f4;
-}
-
-.keychain__inline-btn--default {
-  color: #2563eb;
-  border-color: rgba(37, 99, 235, 0.25);
-  background: rgba(37, 99, 235, 0.06);
-}
-
-.keychain__inline-btn--default:hover {
-  background: rgba(37, 99, 235, 0.12);
-}
-
-.keychain__inline-btn--remove {
-  color: #d63031;
-}
-
-.keychain__inline-btn--remove:hover {
-  background: rgba(214, 48, 49, 0.06);
-}
-
-/* ── 自定义模型空状态 ── */
-
-.keychain__model-empty-hint {
-  padding: 12px 10px;
-  color: #aeaeb2;
-  font-size: 12px;
-  text-align: center;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-/* ── 自定义模型输入 ── */
-
-.keychain__model-add-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.keychain__model-add-input {
-  flex: 1;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid #c8c8ce;
-  border-radius: 4px;
-  background: #f9f9fb;
-  font-size: 13px;
-  color: #1d1d1f;
-  box-sizing: border-box;
-}
-
-.keychain__model-add-input:focus {
-  outline: none;
-  border-color: #4a90d9;
-  background: #fff;
-  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.1);
-}
-
-.keychain__model-add-input::placeholder {
-  color: #aeaeb2;
-}
-
-.keychain__model-add-btn {
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 4px;
-  border: 1px solid #7090c8;
-  background: linear-gradient(180deg, #4a90d9 0%, #2563eb 100%);
-  font-size: 12px;
+  border: 1px solid #2d7a2d;
+  background: linear-gradient(180deg, #dff3df 0%, #c5e6c5 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  font-size: 10px;
   font-weight: 600;
+  color: #2d7a2d;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.keychain__list-item:hover .keychain__badge,
+.keychain__list-item:active .keychain__badge {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.22);
   color: #fff;
-  cursor: pointer;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.12);
+  text-shadow: none;
+  box-shadow: none;
 }
 
-.keychain__model-add-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
+/* ── 上下文设置界面的间距 ── */
+.keychain__context-options + .keychain__form-group {
+  margin-top: 22px;
 }
 
-/* ── Switch 行 ── */
-
-.keychain__switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  margin-top: 8px;
-}
-
-.keychain__switch-label {
-  font-size: 13px;
-  color: #1d1d1f;
-}
-
-/* ── 页脚 ── */
-
-.keychain__settings-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  margin-top: 8px;
-}
-
-.keychain__done-btn {
-  height: 32px;
-  padding: 0 24px;
-  border-radius: 6px;
-  border: 1px solid #7090c8;
-  background: linear-gradient(180deg, #4a90d9 0%, #2563eb 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.18);
-  font-size: 14px;
-  font-weight: 700;
-  color: #fff;
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
-  cursor: pointer;
-}
-
-.keychain__done-btn:hover {
-  background: linear-gradient(180deg, #5b9de4 0%, #3476f0 100%);
-}
-
-.keychain__done-btn:active {
-  background: linear-gradient(180deg, #3476f0 0%, #2563eb 100%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-
-.keychain__done-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* ── 容器查询 ── */
-
-@container app-window (max-width: 480px) {
-  .keychain__settings-body {
-    padding: 12px 12px 24px;
-  }
-
-  .keychain__model-list {
-    max-height: none;
-    overflow-y: visible;
-  }
-
-  .keychain__toolbar-btn--action {
-    min-width: 52px;
-    padding: 4px 8px;
-  }
+.keychain__context-options .settings__row--check + .settings__row--check {
+  margin-top: 12px;
 }

@@ -1,257 +1,426 @@
-import type { ComponentType } from 'preact'
-import { useMemo } from 'preact/hooks'
-import { Scene3dLabApp } from '../apps/scene3d-lab/scene3d-lab-app.tsx'
-import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
-import { BrowserApp } from '../apps/browser/browser-app.tsx'
-import { MailApp } from '../apps/mail/mail-app.tsx'
-import { SettingsApp } from '../apps/settings/settings-app.tsx'
-import { NewsApp } from '../apps/news/news-app.tsx'
-import { BooksApp } from '../apps/books/books-app.tsx'
-import { WeatherApp } from '../apps/weather/weather-app.tsx'
-import { CalendarApp } from '../apps/calendar/calendar-app.tsx'
-import { StocksApp } from '../apps/stocks/stocks-app.tsx'
-import { TranslateApp } from '../apps/translate/translate-app.tsx'
-import { CatGptApp } from '../apps/catgpt/catgpt-app.tsx'
-import { GomokuApp } from '../apps/gomoku/gomoku-app.tsx'
-import { HelpApp } from '../apps/help/help-app.tsx'
-import { SpeechApp } from '../apps/speech/speech-app.tsx'
-import { ICodeApp } from '../apps/icode/icode-app.tsx'
-import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
-import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
-import { EventLogApp } from '../apps/event-log/event-log-app.tsx'
-import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
-import { useAboutApp } from './about-app-context.tsx'
-import { aboutAppMenuPrefix } from './about-app-menu.ts'
-import { useAppMenuBar } from './menu-bar-context.tsx'
-import type { MenuDefinition } from './menu-bar-types.ts'
-import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon } from '../icons/app-icons.tsx'
-import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
-import type { AppDefinition, BuiltinAppId } from './types.ts'
+import { FileInfoIcon } from '../apps/file-info/file-info-icon.tsx'
+import { WelcomeIcon } from '../apps/welcome/welcome-icon.tsx'
+import { WelcomeNextIcon } from '../apps/welcome-next/welcome-next-icon.tsx'
+import { WelcomeHelloIcon } from '../apps/welcome-hello/welcome-hello-icon.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
+import { RegistryIcon } from '../apps/registry/registry-icon.tsx'
+import { AttuneBenchIcon } from '../apps/attunebench/attunebench-icon.tsx'
+import { withAppIconDecoration } from '../icons/app-icon-decoration.tsx'
+import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
+import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
+import type { AppDefinition, AppIconDecorationConfig, BuiltinAppId } from './types.ts'
+
+const AI_RIBBON: AppIconDecorationConfig = { ribbon: { label: 'AI' } }
+const DEV_SLEEVE: AppIconDecorationConfig = { sleeve: { label: '开发中' } }
 
 function withAbout(app: AppDefinition): AppDefinition {
-  return { ...app, about: BUILTIN_APP_ABOUT[app.id] }
+  return {
+    ...app,
+    about: BUILTIN_APP_ABOUT[app.id],
+    icon: app.iconDecoration ? withAppIconDecoration(app.icon, app.iconDecoration) : app.icon,
+  }
 }
 
 export const APP_REGISTRY: AppDefinition[] = [
   withAbout({
     id: 'appstore',
-    name: '应用集市',
+    name: BUILTIN_APP_DISPLAY_NAMES['appstore'],
     icon: MarketplaceIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'browser',
-    name: '网络浏览器',
+    name: BUILTIN_APP_DISPLAY_NAMES['browser'],
     icon: BrowserIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
+  }),
+  withAbout({
+    id: 'chromo',
+    name: BUILTIN_APP_DISPLAY_NAMES['chromo'],
+    icon: ChromoIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'page-devtools',
+    name: BUILTIN_APP_DISPLAY_NAMES['page-devtools'],
+    icon: ChromoIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+    multiWindow: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'webview',
+    name: BUILTIN_APP_DISPLAY_NAMES['webview'],
+    icon: ChromoIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+    multiWindow: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'mail',
-    name: '邮件',
+    name: BUILTIN_APP_DISPLAY_NAMES['mail'],
     icon: MailIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'news',
-    name: '新闻',
+    name: BUILTIN_APP_DISPLAY_NAMES['news'],
     icon: NewsIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: AI_RIBBON,
+  }),
+  withAbout({
+    id: 'books',
+    name: BUILTIN_APP_DISPLAY_NAMES['books'],
+    icon: BooksIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: AI_RIBBON,
+  }),
+  withAbout({
+    id: 'music',
+    name: BUILTIN_APP_DISPLAY_NAMES['music'],
+    icon: MusicIcon,
     dock: true,
     desktop: true,
   }),
   withAbout({
-    id: 'books',
-    name: '书架',
-    icon: BooksIcon,
+    id: 'stems',
+    name: BUILTIN_APP_DISPLAY_NAMES['stems'],
+    icon: StemsIcon,
     dock: true,
     desktop: true,
   }),
   withAbout({
     id: 'weather',
-    name: '天气',
+    name: BUILTIN_APP_DISPLAY_NAMES['weather'],
     icon: WeatherIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'calendar',
-    name: '月历',
+    name: BUILTIN_APP_DISPLAY_NAMES['calendar'],
     icon: CalendarIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'stocks',
-    name: '股票',
+    name: BUILTIN_APP_DISPLAY_NAMES['stocks'],
     icon: StocksIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'translate',
-    name: '翻译',
+    name: BUILTIN_APP_DISPLAY_NAMES['translate'],
     icon: TranslateIcon,
     dock: true,
     desktop: true,
+    iconDecoration: AI_RIBBON,
   }),
   withAbout({
     id: 'catgpt',
-    name: 'CatGPT',
+    name: BUILTIN_APP_DISPLAY_NAMES['catgpt'],
     icon: CatGptIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'produde',
+    name: BUILTIN_APP_DISPLAY_NAMES['produde'],
+    icon: ProdudeIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'gomoku',
-    name: '五子棋',
+    name: BUILTIN_APP_DISPLAY_NAMES['gomoku'],
     icon: GomokuIcon,
     dock: true,
     desktop: true,
   }),
-  // 【实验性 · 未完成】语音识别；默认隐藏，见 experimental-settings-storage.speechApp
+  // 【实验性 · 未完成】语音实验室；默认隐藏，见 experimental-settings-storage.speechApp
   withAbout({
     id: 'speech',
-    name: '语音识别',
+    name: BUILTIN_APP_DISPLAY_NAMES['speech'],
     icon: SpeechIcon,
     dock: false,
     desktop: false,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
-    id: 'photos',
-    name: '照片',
-    icon: PhotosIcon,
+    id: 'files',
+    name: BUILTIN_APP_DISPLAY_NAMES['files'],
+    icon: FilesIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'file-info',
+    name: BUILTIN_APP_DISPLAY_NAMES['file-info'],
+    icon: FileInfoIcon,
     dock: false,
+    dockWhenRunning: true,
     desktop: false,
   }),
   withAbout({
+    id: 'textedit',
+    name: BUILTIN_APP_DISPLAY_NAMES['textedit'],
+    icon: TextEditIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'pages',
+    name: BUILTIN_APP_DISPLAY_NAMES['pages'],
+    icon: PagesIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'preview',
+    name: BUILTIN_APP_DISPLAY_NAMES['preview'],
+    icon: PreviewIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'vscode',
+    name: BUILTIN_APP_DISPLAY_NAMES['vscode'],
+    icon: VscodeIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
     id: 'scene3d-lab',
-    name: '3D 实验室',
+    name: BUILTIN_APP_DISPLAY_NAMES['scene3d-lab'],
     icon: Scene3dLabIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'model-vision',
+    name: BUILTIN_APP_DISPLAY_NAMES['model-vision'],
+    icon: ModelVisionIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
     id: 'icode',
-    name: 'iCode',
+    name: BUILTIN_APP_DISPLAY_NAMES['icode'],
     icon: ICodeIcon,
     dock: true,
     desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'registry',
+    name: BUILTIN_APP_DISPLAY_NAMES['registry'],
+    icon: RegistryIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
   }),
   withAbout({
     id: 'settings',
-    name: '系统设置',
+    name: BUILTIN_APP_DISPLAY_NAMES['settings'],
     icon: SettingsIcon,
     dock: true,
     desktop: true,
   }),
   withAbout({
     id: 'system-info',
-    name: '系统信息',
+    name: BUILTIN_APP_DISPLAY_NAMES['system-info'],
     icon: InstantLogoIcon,
     dock: false,
     desktop: false,
   }),
   withAbout({
     id: 'task-manager',
-    name: '性能监视器',
+    name: BUILTIN_APP_DISPLAY_NAMES['task-manager'],
     icon: TaskManagerIcon,
     dock: false,
     dockWhenRunning: true,
     desktop: false,
   }),
   withAbout({
+    id: 'services',
+    name: BUILTIN_APP_DISPLAY_NAMES['services'],
+    icon: ServicesIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+  }),
+  withAbout({
     id: 'event-log',
-    name: '事件日志',
+    name: BUILTIN_APP_DISPLAY_NAMES['event-log'],
     icon: EventLogIcon,
     dock: false,
     dockWhenRunning: true,
     desktop: false,
   }),
   withAbout({
+    id: 'packages',
+    name: BUILTIN_APP_DISPLAY_NAMES['packages'],
+    icon: PackagesIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'archive-utility',
+    name: BUILTIN_APP_DISPLAY_NAMES['archive-utility'],
+    icon: ArchiveUtilityIcon,
+    dock: true,
+    dockWhenRunning: true,
+    desktop: false,
+    multiWindow: true,
+  }),
+  withAbout({
+    id: 'space-sniffer',
+    name: BUILTIN_APP_DISPLAY_NAMES['space-sniffer'],
+    icon: SpaceSnifferIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+  }),
+  withAbout({
     id: 'keychain',
-    name: '钥匙串',
+    name: BUILTIN_APP_DISPLAY_NAMES['keychain'],
     icon: KeychainIcon,
     dock: false,
     desktop: false,
   }),
   withAbout({
+    id: 'github-desktop',
+    name: BUILTIN_APP_DISPLAY_NAMES['github-desktop'],
+    icon: GithubDesktopIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
     id: 'help',
-    name: '帮助',
+    name: BUILTIN_APP_DISPLAY_NAMES['help'],
     icon: HelpIcon,
     dock: true,
     desktop: true,
   }),
+  withAbout({
+    id: 'terminal',
+    name: BUILTIN_APP_DISPLAY_NAMES['terminal'],
+    icon: TerminalIcon,
+    dock: true,
+    desktop: true,
+  }),
+  /** @deprecated 模拟终端已弃用，此 AppDefinition 保留仅为过渡，后续移除。AppDefinition 结构体见 types.ts:AppDefinition */
+  withAbout({
+    id: 'simulated-terminal',
+    name: BUILTIN_APP_DISPLAY_NAMES['simulated-terminal'],
+    icon: SimulatedTerminalIcon,
+    dock: false,
+    desktop: false,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'virtual-js',
+    name: BUILTIN_APP_DISPLAY_NAMES['virtual-js'],
+    icon: VirtualJsIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'ui-kit',
+    name: BUILTIN_APP_DISPLAY_NAMES['ui-kit'],
+    icon: UiKitIcon,
+    dock: false,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'srml-demo',
+    name: BUILTIN_APP_DISPLAY_NAMES['srml-demo'],
+    icon: SrmlDemoIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'midi-demo',
+    name: BUILTIN_APP_DISPLAY_NAMES['midi-demo'],
+    icon: MidiDemoIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'llm-playground',
+    name: BUILTIN_APP_DISPLAY_NAMES['llm-playground'],
+    icon: LlmPlaygroundIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'attunebench',
+    name: BUILTIN_APP_DISPLAY_NAMES['attunebench'],
+    icon: AttuneBenchIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'welcome',
+    name: BUILTIN_APP_DISPLAY_NAMES['welcome'],
+    icon: WelcomeIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+  }),
+  withAbout({
+    id: 'welcome-next',
+    name: BUILTIN_APP_DISPLAY_NAMES['welcome-next'],
+    icon: WelcomeNextIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+    iconDecoration: { sleeve: { label: '新' } },
+  }),
+  withAbout({
+    id: 'welcome-hello',
+    name: BUILTIN_APP_DISPLAY_NAMES['welcome-hello'],
+    icon: WelcomeHelloIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+    iconDecoration: { sleeve: { label: '新' } },
+  }),
 ]
-
-export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
-  appstore: MarketplaceApp,
-  browser: BrowserApp,
-  mail: MailApp,
-  news: NewsApp,
-  books: BooksApp,
-  weather: WeatherApp,
-  calendar: CalendarApp,
-  stocks: StocksApp,
-  translate: TranslateApp,
-  catgpt: CatGptApp,
-  gomoku: GomokuApp,
-  speech: SpeechApp,
-  photos: PlaceholderApp('photos', '照片'),
-  'scene3d-lab': Scene3dLabApp,
-  icode: ICodeApp,
-  settings: SettingsApp,
-  'system-info': SystemInfoApp,
-  'task-manager': TaskManagerApp,
-  'event-log': EventLogApp,
-  keychain: KeychainApp,
-  help: HelpApp,
-}
-
-function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {
-  return function AppPlaceholder() {
-    const { closeWindowsForApp, minimizeWindow, windows } = useOs()
-    const { showBuiltinAbout } = useAboutApp()
-    const definition = getAppDefinition(appId)
-
-    const menuBar = useMemo((): MenuDefinition[] => {
-      const appWindow = windows.find((window) => window.appId === appId && !window.minimized)
-
-      return [
-        {
-          label: definition?.name ?? title,
-          items: [
-            ...aboutAppMenuPrefix(`关于 ${definition?.name ?? title}`, () => showBuiltinAbout(appId)),
-            {
-              type: 'action',
-              label: `隐藏${definition?.name ?? title}`,
-              shortcut: '⌘H',
-              onClick: () => appWindow && minimizeWindow(appWindow.id),
-            },
-            { type: 'separator' },
-            {
-              type: 'action',
-              label: `退出${definition?.name ?? title}`,
-              shortcut: '⌘Q',
-              onClick: () => closeWindowsForApp(appId),
-            },
-          ],
-        },
-      ]
-    }, [closeWindowsForApp, definition?.name, minimizeWindow, showBuiltinAbout, title, windows])
-
-    useAppMenuBar(appId, menuBar)
-
-    return (
-      <div class="placeholder-app">
-        <p>{title}</p>
-        <span>即将推出</span>
-      </div>
-    )
-  }
-}
 
 export function getAppDefinition(appId: BuiltinAppId) {
   return APP_REGISTRY.find((app) => app.id === appId)

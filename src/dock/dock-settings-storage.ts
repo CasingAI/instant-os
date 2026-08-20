@@ -2,8 +2,19 @@ import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../os/device-storage
 
 export const DOCK_SETTINGS_CHANGED_EVENT = 'instant-os:dock-settings-changed'
 
-export const DOCK_BASE_RESERVE_PX = 96
 export const DOCK_BASE_ICON_PX = 56
+
+/** 与 dock.css 中 plate-anchor / plate 内边距一致。 */
+export const DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE = 6
+export const DOCK_PLATE_PADDING_TOP_BASE = 8
+export const DOCK_PLATE_PADDING_BOTTOM_BASE = 10
+
+/** 程序坞实际占用高度（图标 + 内边距），用于工作区与最大化窗口计算。 */
+export const DOCK_BASE_RESERVE_PX =
+  DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE +
+  DOCK_PLATE_PADDING_TOP_BASE +
+  DOCK_BASE_ICON_PX +
+  DOCK_PLATE_PADDING_BOTTOM_BASE
 
 export type DockSizeTier = 'mini' | 'small' | 'medium' | 'large' | 'extraLarge'
 
@@ -32,14 +43,34 @@ export const DOCK_SIZE_TIER_SCALES: Record<DockSizeTier, number> = {
   extraLarge: 1.4,
 }
 
+export type DesktopClickAction = 'reveal' | 'flip3d'
+
+export const DESKTOP_CLICK_ACTIONS: readonly DesktopClickAction[] = ['reveal', 'flip3d']
+
+export const DESKTOP_CLICK_ACTION_LABELS: Record<DesktopClickAction, string> = {
+  reveal: '散开窗口',
+  flip3d: '切换窗口',
+}
+
+export const DESKTOP_CLICK_ACTION_OPTIONS = DESKTOP_CLICK_ACTIONS.map((id) => ({
+  id,
+  label: DESKTOP_CLICK_ACTION_LABELS[id],
+}))
+
 export type DockSettings = {
   sizeTier: DockSizeTier
+  desktopClickAction: DesktopClickAction
+  desktopHoldAction: DesktopClickAction
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.dockSettings
 
 function isDockSizeTier(value: unknown): value is DockSizeTier {
   return typeof value === 'string' && DOCK_SIZE_TIERS.includes(value as DockSizeTier)
+}
+
+function isDesktopClickAction(value: unknown): value is DesktopClickAction {
+  return typeof value === 'string' && DESKTOP_CLICK_ACTIONS.includes(value as DesktopClickAction)
 }
 
 export function resolveDefaultDockSizeTier(screenWidth = window.innerWidth): DockSizeTier {
@@ -58,6 +89,8 @@ export function resolveDefaultDockSizeTier(screenWidth = window.innerWidth): Doc
 export function createInitialDockSettings(screenWidth = window.innerWidth): DockSettings {
   return {
     sizeTier: resolveDefaultDockSizeTier(screenWidth),
+    desktopClickAction: 'reveal',
+    desktopHoldAction: 'flip3d',
   }
 }
 
@@ -76,21 +109,27 @@ function migrateLegacySizeScale(scale: number): DockSizeTier {
   return nearest
 }
 
-function normalizeDockSettings(raw: unknown): DockSettings {
+export function normalizeDockSettings(raw: unknown): DockSettings {
   if (!raw || typeof raw !== 'object') {
     return createInitialDockSettings()
   }
 
   const record = raw as Record<string, unknown>
-  if (isDockSizeTier(record.sizeTier)) {
-    return { sizeTier: record.sizeTier }
-  }
+  const sizeTier = isDockSizeTier(record.sizeTier)
+    ? record.sizeTier
+    : typeof record.sizeScale === 'number' && Number.isFinite(record.sizeScale)
+      ? migrateLegacySizeScale(record.sizeScale)
+      : resolveDefaultDockSizeTier()
 
-  if (typeof record.sizeScale === 'number' && Number.isFinite(record.sizeScale)) {
-    return { sizeTier: migrateLegacySizeScale(record.sizeScale) }
+  return {
+    sizeTier,
+    desktopClickAction: isDesktopClickAction(record.desktopClickAction)
+      ? record.desktopClickAction
+      : 'reveal',
+    desktopHoldAction: isDesktopClickAction(record.desktopHoldAction)
+      ? record.desktopHoldAction
+      : 'flip3d',
   }
-
-  return createInitialDockSettings()
 }
 
 export function dockSizeTierStopPercent(index: number, tierCount = DOCK_SIZE_TIERS.length): number {
@@ -136,6 +175,12 @@ export function hasStoredDockSettings(): boolean {
 export function saveDockSettings(settings: DockSettings): boolean {
   const payload: DockSettings = {
     sizeTier: isDockSizeTier(settings.sizeTier) ? settings.sizeTier : 'large',
+    desktopClickAction: isDesktopClickAction(settings.desktopClickAction)
+      ? settings.desktopClickAction
+      : 'reveal',
+    desktopHoldAction: isDesktopClickAction(settings.desktopHoldAction)
+      ? settings.desktopHoldAction
+      : 'flip3d',
   }
   return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(payload))
 }
@@ -154,6 +199,20 @@ export function resolveDockSizeTier(settings?: DockSettings): DockSizeTier {
   return isDockSizeTier(tier) ? tier : 'large'
 }
 
+export function resolveDesktopClickAction(settings?: DockSettings): DesktopClickAction {
+  const action = (settings ?? loadDockSettings()).desktopClickAction
+  return isDesktopClickAction(action) ? action : 'reveal'
+}
+
+export function resolveDesktopHoldAction(settings?: DockSettings): DesktopClickAction {
+  const action = (settings ?? loadDockSettings()).desktopHoldAction
+  return isDesktopClickAction(action) ? action : 'flip3d'
+}
+
+export function desktopClickActionLabel(action: DesktopClickAction): string {
+  return DESKTOP_CLICK_ACTION_LABELS[action]
+}
+
 export function resolveDockSizeScale(settings?: DockSettings): number {
   return DOCK_SIZE_TIER_SCALES[resolveDockSizeTier(settings)]
 }
@@ -167,8 +226,8 @@ export function resolveDockIconSizePx(scale = resolveDockSizeScale()): number {
 }
 
 export function resolveDockIconCenterYOffsetFromBottom(scale = resolveDockSizeScale()): number {
-  const bottomPad = Math.round(14 * scale)
-  const platePadBottom = Math.round(10 * scale)
+  const bottomPad = Math.round(DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE * scale)
+  const platePadBottom = Math.round(DOCK_PLATE_PADDING_BOTTOM_BASE * scale)
   const iconHalf = resolveDockIconSizePx(scale) / 2
   return bottomPad + platePadBottom + iconHalf
 }

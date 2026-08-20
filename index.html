@@ -1,6 +1,18 @@
 <!doctype html>
 <html lang="zh-CN" class="instant-boot-hide-cursor">
   <head>
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('instant-os-experimental-settings')
+          if (!raw) return
+          var settings = JSON.parse(raw)
+          if (settings && settings.alwaysShowCursor === true) {
+            document.documentElement.classList.remove('instant-boot-hide-cursor')
+          }
+        } catch (_error) {}
+      })()
+    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -17,6 +29,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
+        overscroll-behavior: none;
         background: #000;
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
@@ -39,6 +52,9 @@
         position: fixed;
         inset: 0;
         z-index: 2147483000;
+      }
+
+      html.instant-boot-hide-cursor .instant-boot-splash {
         cursor: none;
       }
 

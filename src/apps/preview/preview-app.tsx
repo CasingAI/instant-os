@@ -1,0 +1,513 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
+import type { MenuDefinition } from '../../os/menu-bar-types.ts'
+import { useOs } from '../../os/os-context.tsx'
+import {
+  DOCX_ZOOM_MAX,
+  DOCX_ZOOM_MIN,
+  DOCX_ZOOM_STEP,
+  FilePreview,
+  loadPreviewDocument,
+  PREVIEW_OPEN_EXTENSIONS,
+  type DocxZoomMode,
+  type MarkdownViewMode,
+  type PreviewKind,
+} from '../../preview/file-preview-public.ts'
+import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
+import { FilesStorageFullError } from '../files/files-storage.ts'
+import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
+import './preview.css'
+
+const APP_ID = 'preview' as const
+const THEME = '#8b5a2b'
+const DEFAULT_TITLE = '预览'
+const OPEN_TITLE = '打开文件'
+
+type PreviewTab = {
+  id: string
+  path: string
+  name: string
+  kind: PreviewKind
+  text?: string
+  imageSrc?: string
+  modelUrl?: string
+  docxBlob?: Blob
+  /** Markdown 标签页：渲染 / 源码；per-tab 保留 */
+  markdownViewMode?: MarkdownViewMode
+}
+
+type PreviewAppProps = {
+  windowId?: string
+}
+
+let tabCounter = 0
+
+function nextTabId(): string {
+  tabCounter += 1
+  return `preview-tab-${tabCounter}`
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof FilesStorageFullError) return error.message
+  if (error instanceof Error && error.message) return error.message
+  return '操作失败'
+}
+
+function revokeTabUrls(tab: PreviewTab): void {
+  if (tab.imageSrc?.startsWith('blob:')) {
+    URL.revokeObjectURL(tab.imageSrc)
+  }
+  if (tab.modelUrl?.startsWith('blob:')) {
+    URL.revokeObjectURL(tab.modelUrl)
+  }
+}
+
+export function PreviewApp({ windowId }: PreviewAppProps) {
+  const {
+    windows,
+    activeWindowId,
+    setWindowTitle,
+    setWindowDocumentId,
+    setWindowDocumentEdited,
+    setWindowDocumentReadOnly,
+    closeWindow,
+    bypassWindowCloseGuard,
+  } = useOs()
+  const modal = useWindowModal()
+  const { showSystemOpenDialog, dialog: openDialog, isOpen: openDialogOpen } = useSystemOpenDialog()
+
+  const appWindow = windowId
+    ? windows.find((window) => window.id === windowId && !window.closing)
+    : undefined
+  const pendingDocumentId = appWindow?.documentId
+  const isActiveWindow = windowId !== undefined && activeWindowId === windowId
+
+  const [tabs, setTabs] = useState<PreviewTab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | undefined>(undefined)
+  const [loading, setLoading] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [docxZoomMode, setDocxZoomMode] = useState<DocxZoomMode>('fit-width')
+  const [docxManualScale, setDocxManualScale] = useState(1)
+  const [docxEffectiveScale, setDocxEffectiveScale] = useState(1)
+  const bootstrappedRef = useRef(false)
+  const loadingPathRef = useRef<string | undefined>(undefined)
+  const tabsRef = useRef(tabs)
+  const activeTabIdRef = useRef(activeTabId)
+  const mountedRef = useRef(true)
+
+  tabsRef.current = tabs
+  activeTabIdRef.current = activeTabId
+
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
+  const isDocxTab = activeTab?.kind === 'docx'
+  const isMarkdownTab = activeTab?.kind === 'markdown'
+  const markdownViewMode = activeTab?.markdownViewMode ?? 'render'
+  const isTextPreviewBody =
+    activeTab?.kind === 'text' || (isMarkdownTab && markdownViewMode === 'source')
+
+  useEffect(() => {
+    setDocxZoomMode('fit-width')
+    setDocxManualScale(1)
+    setDocxEffectiveScale(1)
+  }, [activeTab?.id])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      for (const tab of tabsRef.current) {
+        revokeTabUrls(tab)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!windowId || !ready) return
+    if (!activeTab) {
+      setWindowTitle(windowId, DEFAULT_TITLE)
+      setWindowDocumentId(windowId, undefined)
+      setWindowDocumentEdited(windowId, false)
+      setWindowDocumentReadOnly(windowId, false)
+      return
+    }
+    setWindowTitle(windowId, activeTab.name)
+    setWindowDocumentId(windowId, activeTab.path)
+    setWindowDocumentEdited(windowId, false)
+    setWindowDocumentReadOnly(windowId, true)
+  }, [
+    activeTab?.id,
+    activeTab?.name,
+    activeTab?.path,
+    ready,
+    setWindowDocumentEdited,
+    setWindowDocumentId,
+    setWindowDocumentReadOnly,
+    setWindowTitle,
+    windowId,
+  ])
+
+  const focusTab = useCallback((tabId: string) => {
+    setActiveTabId(tabId)
+  }, [])
+
+  const tabItems = useMemo(
+    () =>
+      tabs.map((tab) => ({
+        id: tab.id,
+        title: tab.name,
+        pathTitle: tab.path,
+      })),
+    [tabs],
+  )
+
+  const openDocument = useCallback(
+    async (documentRef: string): Promise<boolean> => {
+      if (!windowId) return false
+
+      const existing = tabsRef.current.find((tab) => tab.path === documentRef)
+      if (existing) {
+        setActiveTabId(existing.id)
+        setReady(true)
+        return true
+      }
+
+      if (loadingPathRef.current === documentRef) {
+        return true
+      }
+
+      loadingPathRef.current = documentRef
+      setLoading(true)
+      try {
+        const loaded = await loadPreviewDocument(documentRef)
+        if (!mountedRef.current) return false
+        const already = tabsRef.current.find((tab) => tab.path === loaded.path)
+        if (already) {
+          setActiveTabId(already.id)
+          setReady(true)
+          return true
+        }
+        const imageSrc =
+          loaded.kind === 'image' && loaded.blob
+            ? URL.createObjectURL(loaded.blob)
+            : undefined
+        const modelUrl =
+          loaded.kind === 'model3d'
+            ? loaded.modelUrl ??
+              (loaded.blob ? URL.createObjectURL(loaded.blob) : undefined)
+            : undefined
+        if (!mountedRef.current) {
+          if (imageSrc) URL.revokeObjectURL(imageSrc)
+          if (modelUrl?.startsWith('blob:')) URL.revokeObjectURL(modelUrl)
+          return false
+        }
+        const tab: PreviewTab = {
+          id: nextTabId(),
+          path: loaded.path,
+          name: loaded.name,
+          kind: loaded.kind,
+          text: loaded.text,
+          imageSrc,
+          modelUrl,
+          docxBlob: loaded.kind === 'docx' ? loaded.blob : undefined,
+          markdownViewMode: loaded.kind === 'markdown' ? 'render' : undefined,
+        }
+        setTabs((prev) => [...prev, tab])
+        setActiveTabId(tab.id)
+        setReady(true)
+        return true
+      } catch (err) {
+        await modal.alert({
+          title: '无法打开',
+          message: formatError(err),
+          themeColor: THEME,
+        })
+        return false
+      } finally {
+        if (loadingPathRef.current === documentRef) {
+          loadingPathRef.current = undefined
+        }
+        setLoading(false)
+      }
+    },
+    [modal, windowId],
+  )
+
+  const pickAndOpen = useCallback(async (): Promise<boolean> => {
+    if (!windowId) return false
+    const path = await showSystemOpenDialog({
+      title: OPEN_TITLE,
+      acceptExtensions: [...PREVIEW_OPEN_EXTENSIONS],
+      allowCreate: false,
+      presentation: 'modal',
+    })
+    if (!path) return false
+    return openDocument(path)
+  }, [openDocument, showSystemOpenDialog, windowId])
+
+  useEffect(() => {
+    if (!windowId || bootstrappedRef.current) return
+    bootstrappedRef.current = true
+
+    if (pendingDocumentId) {
+      void openDocument(pendingDocumentId)
+    } else {
+      setReady(true)
+    }
+  }, [openDocument, pendingDocumentId, windowId])
+
+  useEffect(() => {
+    if (!windowId || !ready || !pendingDocumentId) return
+    if (loadingPathRef.current === pendingDocumentId) return
+
+    const existing = tabsRef.current.find((tab) => tab.path === pendingDocumentId)
+    if (existing) {
+      if (existing.id !== activeTabIdRef.current) {
+        setActiveTabId(existing.id)
+      }
+      return
+    }
+
+    void openDocument(pendingDocumentId)
+  }, [openDocument, pendingDocumentId, ready, windowId])
+
+  const handleOpen = useCallback(async () => {
+    await pickAndOpen()
+  }, [pickAndOpen])
+
+  const removeTab = useCallback(
+    (tabId: string) => {
+      if (!windowId) return
+      const current = tabsRef.current
+      const index = current.findIndex((tab) => tab.id === tabId)
+      if (index < 0) return
+      const closing = current[index]
+      if (closing) revokeTabUrls(closing)
+      const nextTabs = current.filter((tab) => tab.id !== tabId)
+      if (nextTabs.length === 0) {
+        setTabs([])
+        setActiveTabId(undefined)
+        bypassWindowCloseGuard(windowId)
+        closeWindow(windowId)
+        return
+      }
+      setTabs(nextTabs)
+      if (activeTabIdRef.current === tabId) {
+        const neighbor = nextTabs[Math.min(index, nextTabs.length - 1)]
+        setActiveTabId(neighbor?.id)
+      }
+    },
+    [bypassWindowCloseGuard, closeWindow, windowId],
+  )
+
+  const closeTab = useCallback(
+    (tabId: string) => {
+      removeTab(tabId)
+    },
+    [removeTab],
+  )
+
+  const handleDocxZoomOut = useCallback(() => {
+    setDocxZoomMode('manual')
+    setDocxManualScale((scale) => {
+      const base = docxZoomMode === 'fit-width' ? docxEffectiveScale : scale
+      return Math.max(DOCX_ZOOM_MIN, Math.round((base - DOCX_ZOOM_STEP) * 100) / 100)
+    })
+  }, [docxEffectiveScale, docxZoomMode])
+
+  const handleDocxZoomIn = useCallback(() => {
+    setDocxZoomMode('manual')
+    setDocxManualScale((scale) => {
+      const base = docxZoomMode === 'fit-width' ? docxEffectiveScale : scale
+      return Math.min(DOCX_ZOOM_MAX, Math.round((base + DOCX_ZOOM_STEP) * 100) / 100)
+    })
+  }, [docxEffectiveScale, docxZoomMode])
+
+  const handleDocxFitWidth = useCallback(() => {
+    setDocxZoomMode('fit-width')
+  }, [])
+
+  const handleDocxActualSize = useCallback(() => {
+    setDocxZoomMode('manual')
+    setDocxManualScale(1)
+  }, [])
+
+  const setMarkdownViewMode = useCallback((mode: MarkdownViewMode) => {
+    const tabId = activeTabIdRef.current
+    if (!tabId) return
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.id === tabId && tab.kind === 'markdown' ? { ...tab, markdownViewMode: mode } : tab,
+      ),
+    )
+  }, [])
+
+  const menuBar = useMemo((): MenuDefinition[] => {
+    return [
+      {
+        label: '文件',
+        items: [
+          {
+            type: 'action',
+            label: '打开…',
+            shortcut: '⌘O',
+            disabled: loading || openDialogOpen,
+            onClick: () => void handleOpen(),
+          },
+          {
+            type: 'action',
+            label: '关闭标签页',
+            shortcut: '⌘W',
+            disabled: !activeTab || loading,
+            onClick: () => activeTab && closeTab(activeTab.id),
+          },
+        ],
+      },
+    ]
+  }, [
+    activeTab,
+    closeTab,
+    handleOpen,
+    loading,
+    openDialogOpen,
+  ])
+
+  useAppMenuBar(APP_ID, menuBar, isActiveWindow)
+
+  return (
+    <div class="preview-app">
+      <div class="preview-app__toolbar">
+        <button
+          type="button"
+          class="preview-app__toolbar-btn"
+          disabled={loading || openDialogOpen}
+          onClick={() => void handleOpen()}
+        >
+          打开…
+        </button>
+        {isDocxTab ? (
+          <div class="preview-app__toolbar-tools" role="toolbar" aria-label="Word 文档缩放">
+            <button
+              type="button"
+              class={`preview-app__toolbar-btn preview-app__toolbar-btn--compact${docxZoomMode === 'fit-width' ? ' preview-app__toolbar-btn--active' : ''}`}
+              disabled={loading}
+              title="适合宽度"
+              onClick={handleDocxFitWidth}
+            >
+              适合宽度
+            </button>
+            <button
+              type="button"
+              class="preview-app__toolbar-btn preview-app__toolbar-btn--compact"
+              disabled={loading || docxManualScale <= DOCX_ZOOM_MIN}
+              title="缩小"
+              aria-label="缩小"
+              onClick={handleDocxZoomOut}
+            >
+              −
+            </button>
+            <span class="preview-app__toolbar-scale" aria-live="polite">
+              {Math.round(docxEffectiveScale * 100)}%
+            </span>
+            <button
+              type="button"
+              class="preview-app__toolbar-btn preview-app__toolbar-btn--compact"
+              disabled={loading || docxManualScale >= DOCX_ZOOM_MAX}
+              title="放大"
+              aria-label="放大"
+              onClick={handleDocxZoomIn}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              class={`preview-app__toolbar-btn preview-app__toolbar-btn--compact${docxZoomMode === 'manual' && docxManualScale === 1 ? ' preview-app__toolbar-btn--active' : ''}`}
+              disabled={loading}
+              title="实际大小"
+              onClick={handleDocxActualSize}
+            >
+              100%
+            </button>
+          </div>
+        ) : undefined}
+        {isMarkdownTab ? (
+          <div class="preview-app__toolbar-tools" role="toolbar" aria-label="Markdown 预览模式">
+            <button
+              type="button"
+              class={`preview-app__toolbar-btn preview-app__toolbar-btn--compact${markdownViewMode === 'render' ? ' preview-app__toolbar-btn--active' : ''}`}
+              disabled={loading}
+              title="渲染预览"
+              onClick={() => setMarkdownViewMode('render')}
+            >
+              渲染
+            </button>
+            <button
+              type="button"
+              class={`preview-app__toolbar-btn preview-app__toolbar-btn--compact${markdownViewMode === 'source' ? ' preview-app__toolbar-btn--active' : ''}`}
+              disabled={loading}
+              title="源码预览"
+              onClick={() => setMarkdownViewMode('source')}
+            >
+              源码
+            </button>
+          </div>
+        ) : undefined}
+        <div class="preview-app__toolbar-title">
+          {activeTab ? activeTab.name : '未打开文档'}
+        </div>
+      </div>
+
+      {tabItems.length > 0 ? (
+        <DocumentTabBar
+          class="preview-app__doc-tabs"
+          tabs={tabItems}
+          activeTabId={activeTab?.id}
+          closeDisabled={loading || openDialogOpen}
+          onActivate={focusTab}
+          onClose={closeTab}
+        />
+      ) : undefined}
+
+      <div
+        class={`preview-app__body${isTextPreviewBody ? ' preview-app__body--text' : ''}`}
+      >
+        {loading && !activeTab ? (
+          <div class="preview-app__loading">正在打开…</div>
+        ) : !activeTab ? (
+          <div class="preview-app__empty">
+            <p class="preview-app__empty-title">预览</p>
+            <p class="preview-app__empty-hint">
+              打开 Markdown、JSON / HTML / 源码等文本、Word 文档（.docx）、图片或 3D 模型（glTF /
+              GLB），以只读方式查看内容。
+            </p>
+            <button
+              type="button"
+              class="preview-app__toolbar-btn preview-app__empty-btn"
+              disabled={openDialogOpen}
+              onClick={() => void handleOpen()}
+            >
+              打开文件…
+            </button>
+          </div>
+        ) : (
+          <FilePreview
+            kind={activeTab.kind}
+            text={activeTab.text}
+            imageSrc={activeTab.imageSrc}
+            imageAlt={activeTab.name}
+            modelUrl={activeTab.modelUrl}
+            docxBlob={activeTab.docxBlob}
+            docxZoomMode={docxZoomMode}
+            docxManualScale={docxManualScale}
+            onDocxEffectiveScaleChange={setDocxEffectiveScale}
+            fileName={activeTab.name}
+            filePath={activeTab.path}
+            active={isActiveWindow}
+            markdownViewMode={markdownViewMode}
+          />
+        )}
+      </div>
+      {openDialogOpen && openDialog ? openDialog : undefined}
+    </div>
+  )
+}

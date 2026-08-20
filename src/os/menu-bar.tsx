@@ -1,41 +1,72 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { BatteryIcon, ForwardIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
+import { memo } from 'preact/compat'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { BatteryIcon, CloudServiceIcon, ForwardIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../ui/adaptive-action-menu.tsx'
 import { isNarrowWorkArea } from '../window/window-snap.ts'
 import { useAboutApp } from './about-app-context.tsx'
+import { applyAppMenuTemplate } from './app-menu-template.ts'
 import { getAppDefinition } from './app-registry.tsx'
 import { getThisDeviceAbout } from './builtin-app-about.ts'
+import { useDevExtApps } from './dev-ext-apps-context.tsx'
 import { useMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
 import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
-import { BatteryStatusPanel } from './menu-bar-status-panels.tsx'
+import { BatteryStatusPanel, CloudServiceStatusPanel } from './menu-bar-status-panels.tsx'
+import { MenuBarVolumeIcon, MenuBarVolumePanel } from './menu-bar-volume-panel.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
 import { isOsUsing24HourTime } from './os-clock.ts'
 import { useOsNowDate } from './use-os-clock.ts'
 import { useNotificationCenter } from './notification-center-context.tsx'
-import { useAppNotifications } from './use-app-notifications.ts'
-import { useProcessIsolationFallbackNotification } from './use-process-isolation-fallback-notification.ts'
-import { useStorageWarningNotification } from './use-storage-warning-notification.ts'
+import { useOsNotifications } from './use-os-notifications.ts'
 import { reloadInstantOs } from './reload-instant-os.ts'
 import { useOs } from './os-context.tsx'
+import { useFlip3dScene } from '../window/flip3d-context.tsx'
+import {
+  getSystemVolumeState,
+  setSystemVolume,
+  subscribeSystemVolume,
+  toggleSystemMute,
+} from './system-volume.ts'
 import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.tsx'
 import { useDeviceBattery } from './use-device-battery.ts'
+import { useProxyServerConnection } from './use-proxy-server-connection.ts'
+import { openSettingsProxyServerView } from './proxy-server-settings-storage.ts'
+import { openTaskManager } from './task-manager-open.ts'
+import {
+  getActiveCloudNetworkRequests,
+  subscribeCloudNetworkRequests,
+} from './cloud-network-store.ts'
+import {
+  getPowProgress,
+  subscribePowProgress,
+  type PowProgressState,
+} from './pow-progress-store.ts'
 import type { AppId, BuiltinAppId } from './types.ts'
-import { isGeneratedAppId } from './types.ts'
+import { isExtAppId, isGeneratedAppId } from './types.ts'
 import './menu-bar.css'
 import './menu-bar-popover.css'
 import './notification-center.css'
 
 const APPLE_MENU_LABEL = '__apple__'
 const MORE_MENU_LABEL = '__more__'
+const STATUS_CLOUD_SERVICE_LABEL = '__status_cloud_service__'
 const STATUS_BATTERY_LABEL = '__status_battery__'
+const STATUS_VOLUME_LABEL = '__status_volume__'
 const MENU_GAP_PX = 2
 const MORE_MENU_BTN_SPACE_PX = 50
 
-function appNameForWindow(appId: AppId, windowTitle: string): string {
+function resolveAppMenuName(
+  appId: AppId,
+  windowTitle: string,
+  generatedName: string | undefined,
+  extName: string | undefined,
+): string {
   if (isGeneratedAppId(appId)) {
-    return windowTitle
+    return generatedName || windowTitle
+  }
+  if (isExtAppId(appId)) {
+    return extName || windowTitle
   }
   return getAppDefinition(appId as BuiltinAppId)?.name ?? windowTitle
 }
@@ -317,29 +348,184 @@ function MenuDropdown({ menu, onClose, narrowLayout }: MenuDropdownProps) {
   )
 }
 
+const MenuDropdownMemo = memo(MenuDropdown)
+
+type MenuBarRightSectionProps = {
+  openMenuLabel: string | undefined
+  onToggleMenu: (label: string) => void
+  notificationCenterOpen: boolean
+  onToggleNotificationCenter: () => void
+  activeNotificationCount: number
+  onSelectWindow: (windowId: string) => void
+  onOpenTaskManager: () => void
+  onOpenCloudServiceInfo: () => void
+  onOpenCloudServiceSettings: () => void
+}
+
+function MenuBarRightSection({
+  openMenuLabel,
+  onToggleMenu,
+  notificationCenterOpen,
+  onToggleNotificationCenter,
+  activeNotificationCount,
+  onSelectWindow,
+  onOpenTaskManager,
+  onOpenCloudServiceInfo,
+  onOpenCloudServiceSettings,
+}: MenuBarRightSectionProps) {
+  const battery = useDeviceBattery()
+  const proxyServer = useProxyServerConnection()
+  const now = useOsNowDate()
+  const [volumeState, setVolumeState] = useState(() => getSystemVolumeState())
+  const [powProgress, setPowProgress] = useState<PowProgressState>(() => getPowProgress())
+  const [activeNetworkRequests, setActiveNetworkRequests] = useState(() =>
+    getActiveCloudNetworkRequests(),
+  )
+  const { calendar, weekday, time } = formatOsDateTime(now, isOsUsing24HourTime())
+
+  useEffect(() => {
+    return subscribeSystemVolume(() => setVolumeState(getSystemVolumeState()))
+  }, [])
+
+  useEffect(() => {
+    return subscribePowProgress(setPowProgress)
+  }, [])
+
+  useEffect(() => {
+    return subscribeCloudNetworkRequests((state) => setActiveNetworkRequests(state.activeRequests))
+  }, [])
+
+  const cloudWorking = powProgress.active || activeNetworkRequests > 0
+
+  return (
+    <div class="menu-bar__right">
+      <div class="menu-bar__menu">
+        <button
+          type="button"
+          class={`menu-bar__status-trigger${openMenuLabel === STATUS_CLOUD_SERVICE_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+          aria-haspopup="dialog"
+          aria-expanded={openMenuLabel === STATUS_CLOUD_SERVICE_LABEL}
+          aria-label={
+            cloudWorking
+              ? powProgress.active
+                ? '云服务：正在计算 AI Challenge…'
+                : '云服务：网络请求中…'
+              : proxyServer.connected
+                ? proxyServer.proxyLabel
+                  ? `云服务已连接，${proxyServer.proxyLabel}`
+                  : '云服务已连接'
+                : '云服务未连接'
+          }
+          onClick={() => onToggleMenu(STATUS_CLOUD_SERVICE_LABEL)}
+        >
+          <CloudServiceIcon active={cloudWorking} />
+        </button>
+        {openMenuLabel === STATUS_CLOUD_SERVICE_LABEL && (
+          <CloudServiceStatusPanel
+            connection={proxyServer}
+            powProgress={powProgress}
+            activeNetworkRequests={activeNetworkRequests}
+            onOpenCloudServiceSettings={onOpenCloudServiceSettings}
+            onOpenTaskManager={onOpenCloudServiceInfo}
+          />
+        )}
+      </div>
+      <div class="menu-bar__menu">
+        <button
+          type="button"
+          class={`menu-bar__status-trigger${openMenuLabel === STATUS_BATTERY_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+          aria-haspopup="dialog"
+          aria-expanded={openMenuLabel === STATUS_BATTERY_LABEL}
+          aria-label={
+            battery
+              ? `电池 ${battery.levelPercent}%${battery.charging ? '，已连接电源' : ''}`
+              : '电池状态'
+          }
+          onClick={() => onToggleMenu(STATUS_BATTERY_LABEL)}
+        >
+          {battery !== undefined && (
+            <span class="menu-bar__battery">{battery.levelPercent}%</span>
+          )}
+          <BatteryIcon levelPercent={battery?.levelPercent} charging={battery?.charging} />
+        </button>
+        {openMenuLabel === STATUS_BATTERY_LABEL && (
+          <BatteryStatusPanel
+            battery={battery}
+            onSelectWindow={onSelectWindow}
+            onOpenTaskManager={onOpenTaskManager}
+          />
+        )}
+      </div>
+      <div class="menu-bar__menu">
+        <button
+          type="button"
+          class={`menu-bar__status-trigger${openMenuLabel === STATUS_VOLUME_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+          aria-haspopup="dialog"
+          aria-expanded={openMenuLabel === STATUS_VOLUME_LABEL}
+          aria-label={
+            volumeState.muted || volumeState.volume === 0
+              ? '音量，已静音'
+              : `音量 ${Math.round(volumeState.volume * 100)}%`
+          }
+          onClick={() => onToggleMenu(STATUS_VOLUME_LABEL)}
+        >
+          <MenuBarVolumeIcon muted={volumeState.muted || volumeState.volume === 0} />
+        </button>
+        {openMenuLabel === STATUS_VOLUME_LABEL && <MenuBarVolumePanel />}
+      </div>
+      <button
+        type="button"
+        class={`menu-bar__datetime${notificationCenterOpen ? ' menu-bar__datetime--open' : ''}`}
+        aria-haspopup="dialog"
+        aria-expanded={notificationCenterOpen}
+        aria-label={
+          activeNotificationCount > 0
+            ? `通知中心，${activeNotificationCount} 条通知`
+            : '通知中心'
+        }
+        onClick={onToggleNotificationCenter}
+      >
+        <span class="menu-bar__datetime-calendar">{calendar}</span>
+        <span class="menu-bar__datetime-weekday">{weekday}</span>
+        <span class="menu-bar__datetime-time">{time}</span>
+      </button>
+    </div>
+  )
+}
+
 export function MenuBar() {
-  const { windows, activeWindowId, focusWindow, restoreWindow, openApp } = useOs()
+  const {
+    windows,
+    activeWindowId,
+    focusWindow,
+    restoreWindow,
+    openApp,
+    closeWindowsForApp,
+    minimizeWindow,
+  } = useOs()
+  const { flip3dActive } = useFlip3dScene()
   const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
-  const { showInstantAbout, showAbout } = useAboutApp()
-  const battery = useDeviceBattery()
-  const { pendingInstalls, failedInstalls, completedInstalls } = useGeneratedApps()
-  const appNotifications = useAppNotifications()
-  const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
-  const storageWarning = useStorageWarningNotification()
+  const { showInstantAbout, showAbout, showBuiltinAbout } = useAboutApp()
+  const { getInstalledApp } = useGeneratedApps()
+  const { getSessionExtApp } = useDevExtApps()
+  const osNotifications = useOsNotifications()
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
   const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
   const narrowLayout = useMenuBarNarrowLayout()
-  const now = useOsNowDate()
   const barRef = useRef<HTMLElement>(null)
   const leftRef = useRef<HTMLDivElement>(null)
   const menusRef = useRef<HTMLDivElement>(null)
+  const closeMenu = useCallback(() => setOpenMenuLabel(undefined), [])
 
   const hasFullscreenWindow = windows.some((window) => window.fullscreen && !window.minimized)
-  const hidden = hasImmersiveFullscreen
-    ? !chromeRevealed
-    : hasFullscreenWindow
+  const hidden =
+    flip3dActive
+      ? true
+      : hasImmersiveFullscreen
+        ? !chromeRevealed
+        : hasFullscreenWindow
   const activeWindow = windows.find((window) => window.id === activeWindowId && !window.minimized)
 
   const desktopMenus = useMemo<MenuDefinition[]>(
@@ -380,6 +566,16 @@ export function MenuBar() {
         },
         {
           type: 'action',
+          label: '服务',
+          onClick: () => openApp('services'),
+        },
+        {
+          type: 'action',
+          label: '空间嗅探',
+          onClick: () => openApp('space-sniffer'),
+        },
+        {
+          type: 'action',
           label: '事件日志',
           onClick: () => openApp('event-log'),
         },
@@ -387,6 +583,11 @@ export function MenuBar() {
           type: 'action',
           label: '钥匙串',
           onClick: () => openApp('keychain'),
+        },
+        {
+          type: 'action',
+          label: '注册表',
+          onClick: () => openApp('registry'),
         },
         {
           type: 'action',
@@ -404,22 +605,99 @@ export function MenuBar() {
     [showAbout, openApp],
   )
 
-  const menus = activeWindow ? (menusByApp[activeWindow.appId] ?? []) : desktopMenus
+  const menus = useMemo<MenuDefinition[]>(() => {
+    if (!activeWindow) {
+      return desktopMenus
+    }
+
+    const appId = activeWindow.appId
+    const generated = isGeneratedAppId(appId) ? getInstalledApp(appId) : undefined
+    const extApp = isExtAppId(appId) ? getSessionExtApp(appId) : undefined
+    const appName = resolveAppMenuName(
+      appId,
+      activeWindow.title,
+      generated?.name,
+      extApp?.manifest.name,
+    )
+
+    return applyAppMenuTemplate(menusByApp[appId] ?? [], appName, {
+      onAbout: () => {
+        if (generated) {
+          showAbout({
+            title: generated.name,
+            version: generated.category,
+            iconEmoji: generated.iconEmoji,
+            themeColor: generated.themeColor,
+            paragraphs: [generated.description],
+          })
+          return
+        }
+        if (extApp) {
+          showAbout({
+            title: extApp.manifest.name,
+            version: extApp.manifest.version,
+            themeColor: extApp.manifest.themeColor,
+            paragraphs: [
+              extApp.manifest.description,
+              `开发地址：${extApp.devUrl}`,
+              '本次会话调试应用，重启后自动移除。',
+            ],
+          })
+          return
+        }
+        if (!isGeneratedAppId(appId) && !isExtAppId(appId)) {
+          showBuiltinAbout(appId)
+        }
+      },
+      onHide: () => minimizeWindow(activeWindow.id),
+      onQuit: () => closeWindowsForApp(appId),
+    })
+  }, [
+    activeWindow,
+    closeWindowsForApp,
+    desktopMenus,
+    getInstalledApp,
+    getSessionExtApp,
+    menusByApp,
+    minimizeWindow,
+    showAbout,
+    showBuiltinAbout,
+  ])
   const hasMenuOverflow = visibleMenuCount < menus.length
   const overflowMenus = hasMenuOverflow ? menus.slice(visibleMenuCount) : []
 
-  const { calendar, weekday, time } = formatOsDateTime(now, isOsUsing24HourTime())
-  const activeNotificationCount =
-    pendingInstalls.length +
-    failedInstalls.length +
-    completedInstalls.length +
-    appNotifications.length +
-    (processIsolationFallbackActive ? 1 : 0) +
-    (storageWarning ? 1 : 0)
+  const activeNotificationCount = osNotifications.length
 
   useEffect(() => {
     setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)
   }, [notificationCenterOpen, openMenuLabel, setChromePinSource])
+
+  // 部分环境（如桌面壳、无系统快捷键的浏览器）会把音量键派发给页面；可用时作为增强
+  useEffect(() => {
+    const handleVolumeKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) {
+        return
+      }
+      switch (event.code) {
+        case 'VolumeUp':
+          event.preventDefault()
+          setSystemVolume(Math.min(1, getSystemVolumeState().volume + 0.05))
+          break
+        case 'VolumeDown':
+          event.preventDefault()
+          setSystemVolume(Math.max(0, getSystemVolumeState().volume - 0.05))
+          break
+        case 'VolumeMute':
+          event.preventDefault()
+          toggleSystemMute()
+          break
+      }
+    }
+    window.addEventListener('keydown', handleVolumeKeyDown)
+    return () => window.removeEventListener('keydown', handleVolumeKeyDown)
+  }, [])
 
   const prevActiveWindowIdRef = useRef(activeWindowId)
 
@@ -446,14 +724,10 @@ export function MenuBar() {
       }
 
       const brand = left.querySelector<HTMLElement>('.menu-bar__menu--brand')
-      const fallback = left.querySelector<HTMLElement>('.menu-bar__fallback-name')
 
       let available = left.clientWidth
       if (brand) {
         available -= brand.offsetWidth + MENU_GAP_PX
-      }
-      if (fallback) {
-        available -= fallback.offsetWidth + MENU_GAP_PX
       }
 
       if (available <= 0) {
@@ -540,27 +814,41 @@ export function MenuBar() {
     }
   }, [openMenuLabel])
 
-  const toggleMenu = (label: string) => {
+  const toggleMenu = useCallback((label: string) => {
     setOpenMenuLabel((current) => (current === label ? undefined : label))
-  }
+  }, [])
 
-  const handleSelectWindow = (windowId: string) => {
-    const target = windows.find((window) => window.id === windowId)
-    if (!target) {
-      return
-    }
-    if (target.minimized) {
-      restoreWindow(windowId)
-    } else {
-      focusWindow(windowId)
-    }
-    setOpenMenuLabel(undefined)
-  }
+  const handleSelectWindow = useCallback(
+    (windowId: string) => {
+      const target = windows.find((window) => window.id === windowId)
+      if (!target) {
+        return
+      }
+      if (target.minimized) {
+        restoreWindow(windowId)
+      } else {
+        focusWindow(windowId)
+      }
+      closeMenu()
+    },
+    [closeMenu, focusWindow, restoreWindow, windows],
+  )
 
-  const handleOpenTaskManager = () => {
-    openApp('task-manager')
-    setOpenMenuLabel(undefined)
-  }
+  const handleOpenTaskManager = useCallback(() => {
+    openTaskManager({ tab: 'programs' })
+    closeMenu()
+  }, [closeMenu])
+
+  const handleOpenCloudServiceInfo = useCallback(() => {
+    openTaskManager({ tab: 'performance', category: 'proxy-server' })
+    closeMenu()
+  }, [closeMenu])
+
+  const handleOpenCloudServiceSettings = useCallback(() => {
+    openApp('settings')
+    openSettingsProxyServerView()
+    closeMenu()
+  }, [closeMenu, openApp])
 
   return (
     <header ref={barRef} class={`menu-bar${hidden ? ' menu-bar--hidden' : ''}`}>
@@ -577,10 +865,10 @@ export function MenuBar() {
             <InstantLogoIcon size={15} />
           </button>
           {openMenuLabel === APPLE_MENU_LABEL && (
-            <MenuDropdown
+            <MenuDropdownMemo
               menu={appleMenu}
               narrowLayout={narrowLayout}
-              onClose={() => setOpenMenuLabel(undefined)}
+              onClose={closeMenu}
             />
           )}
         </div>
@@ -603,10 +891,10 @@ export function MenuBar() {
                     {menu.label}
                   </button>
                   {openMenuLabel === menu.label && (
-                    <MenuDropdown
+                    <MenuDropdownMemo
                       menu={menu}
                       narrowLayout={narrowLayout}
-                      onClose={() => setOpenMenuLabel(undefined)}
+                      onClose={closeMenu}
                     />
                   )}
                 </div>
@@ -645,55 +933,19 @@ export function MenuBar() {
             </div>
           </div>
         )}
-        {activeWindow && menus.length === 0 && (
-          <span class="menu-bar__fallback-name">
-            {appNameForWindow(activeWindow.appId, activeWindow.title)}
-          </span>
-        )}
       </div>
       <div class="menu-bar__center" />
-      <div class="menu-bar__right">
-        <div class="menu-bar__menu">
-          <button
-            type="button"
-            class={`menu-bar__status-trigger${openMenuLabel === STATUS_BATTERY_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
-            aria-haspopup="dialog"
-            aria-expanded={openMenuLabel === STATUS_BATTERY_LABEL}
-            aria-label={
-              battery
-                ? `电池 ${battery.levelPercent}%${battery.charging ? '，已连接电源' : ''}`
-                : '电池状态'
-            }
-            onClick={() => toggleMenu(STATUS_BATTERY_LABEL)}
-          >
-            {battery !== undefined && (
-              <span class="menu-bar__battery">{battery.levelPercent}%</span>
-            )}
-            <BatteryIcon levelPercent={battery?.levelPercent} charging={battery?.charging} />
-          </button>
-          {openMenuLabel === STATUS_BATTERY_LABEL && (
-            <BatteryStatusPanel
-              battery={battery}
-              onSelectWindow={handleSelectWindow}
-              onOpenTaskManager={handleOpenTaskManager}
-            />
-          )}
-        </div>
-        <button
-          type="button"
-          class={`menu-bar__datetime${notificationCenterOpen ? ' menu-bar__datetime--open' : ''}`}
-          aria-haspopup="dialog"
-          aria-expanded={notificationCenterOpen}
-          aria-label={
-            activeNotificationCount > 0
-              ? `通知中心，${activeNotificationCount} 条通知`
-              : '通知中心'
-          }
-          onClick={togglePanel}
-        >
-          <span class="menu-bar__datetime-calendar">{calendar}</span><span class="menu-bar__datetime-weekday">{weekday}</span><span class="menu-bar__datetime-time">{time}</span>
-        </button>
-      </div>
+      <MenuBarRightSection
+        openMenuLabel={openMenuLabel}
+        onToggleMenu={toggleMenu}
+        notificationCenterOpen={notificationCenterOpen}
+        onToggleNotificationCenter={togglePanel}
+        activeNotificationCount={activeNotificationCount}
+        onSelectWindow={handleSelectWindow}
+        onOpenTaskManager={handleOpenTaskManager}
+        onOpenCloudServiceInfo={handleOpenCloudServiceInfo}
+        onOpenCloudServiceSettings={handleOpenCloudServiceSettings}
+      />
     </header>
   )
 }

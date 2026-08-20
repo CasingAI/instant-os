@@ -9,9 +9,15 @@ import {
 import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
+import { resolveUsageEstimated } from '../browser/estimate-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
-import { forEachStreamChunk, isStreamAbortError, raceWithAbortSignal } from '../../ai/stream-abort.ts'
+import {
+  createChatCompletionStream,
+  forEachStreamChunk,
+  isStreamAbortError,
+  raceWithAbortSignal,
+} from '../../ai/stream-abort.ts'
 import {
   buildApp3dSystemPromptExtension,
   resolveApp3dGenerationOptions,
@@ -20,6 +26,10 @@ import {
   buildAppAiSystemPromptExtension,
   resolveAppAiGenerationOptions,
 } from '../appstore/app-ai-generation-prompt.ts'
+import {
+  buildAppFilesSystemPromptExtension,
+  resolveAppFilesGenerationOptions,
+} from '../appstore/app-files-generation-prompt.ts'
 import { formatListingTagsForPrompt } from '../appstore/listing-tags.ts'
 import type { StoreListing } from '../appstore/types.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
@@ -135,6 +145,7 @@ function buildEditSystemPrompt(listing: StoreListing, existingHtml: string): str
   const isBootstrap = existingHtml.trim().length === 0
   const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(listing, undefined, existingHtml)
   const { isAi } = resolveAppAiGenerationOptions(listing, undefined, existingHtml)
+  const { isFiles } = resolveAppFilesGenerationOptions(listing, undefined, existingHtml)
 
   const sections = [buildIcodeCapabilityRequestPromptExtension(listing.tags), ICODE_EDIT_SYSTEM_PROMPT]
   if (isBootstrap) {
@@ -145,6 +156,9 @@ function buildEditSystemPrompt(listing: StoreListing, existingHtml: string): str
   }
   if (isAi) {
     sections.push(buildAppAiSystemPromptExtension())
+  }
+  if (isFiles) {
+    sections.push(buildAppFilesSystemPromptExtension())
   }
 
   return sections.join('\n\n')
@@ -306,17 +320,20 @@ export async function generateIcodeHtmlEditsStreaming(
   )
 
   const stream = await raceWithAbortSignal(
-    client.chat.completions.create({
-      model,
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...apiMessages,
-      ],
-      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
-      ...(options.signal ? { signal: options.signal } : {}),
-    }),
+    createChatCompletionStream(
+      client,
+      {
+        model,
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...apiMessages,
+        ],
+        ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, config.defaultModel),
+      },
+      options.signal,
+    ),
     options.signal,
   )
 
@@ -417,11 +434,11 @@ export async function generateIcodeHtmlEditsStreaming(
     )
   } catch (error) {
     if (isStreamAbortError(error, options.signal)) {
-      recordAiTokenUsage(usageContext, usage)
+      recordAiTokenUsage(usageContext, usage, model)
       finishAiEventLogSession(logSession, usageContext, {
         response: formatStreamEventResponse(reasoningText, contentText),
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'aborted',
       })
       throw new IcodeGenerationAbortedError()
@@ -431,7 +448,7 @@ export async function generateIcodeHtmlEditsStreaming(
       finishAiEventLogSession(logSession, usageContext, {
         response: snapshot.response,
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
       })
@@ -445,11 +462,11 @@ export async function generateIcodeHtmlEditsStreaming(
 
   emit(true)
 
-  recordAiTokenUsage(usageContext, usage)
+  recordAiTokenUsage(usageContext, usage, model)
   finishAiEventLogSession(logSession, usageContext, {
     response: formatStreamEventResponse(reasoningText, contentText),
     usage,
-    usageEstimated: !usage,
+    usageEstimated: resolveUsageEstimated(Boolean(usage), model),
     status: 'success',
   })
 

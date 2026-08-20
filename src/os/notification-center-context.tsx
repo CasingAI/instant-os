@@ -8,8 +8,6 @@ import {
   setNotificationCenterStoreState,
   subscribeNotificationCenterStore,
 } from './notification-center-store.ts'
-import { ProcessIsolationFallbackBannerHost } from './process-isolation-fallback-banner.tsx'
-import { StorageWarningBannerHost } from './storage-warning-banner.tsx'
 
 type NotificationPanelScreen = 'list' | 'detail'
 
@@ -98,8 +96,6 @@ function NotificationCenterHost({ hostRef }: NotificationCenterHostProps) {
   return (
     <>
       <NotificationBannerHost />
-      <StorageWarningBannerHost />
-      <ProcessIsolationFallbackBannerHost />
       <NotificationCenterPanel open={isOpen} onClose={closePanel} />
     </>
   )

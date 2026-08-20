@@ -1,29 +1,347 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { GeneratedApp } from '../apps/generated/generated-app.tsx'
-import { ExtApp } from '../apps/ext/ext-app.tsx'
-import { APP_COMPONENTS } from '../os/app-registry.tsx'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { ComponentChildren, JSX } from 'preact'
+import { flip3dWheelDelta, useWheelStepGesture } from '../desktop/use-wheel-step-gesture.ts'
 import { useOs } from '../os/os-context.tsx'
 import { useFullscreenChromeReveal } from '../os/fullscreen-chrome-reveal-context.tsx'
-import { isExtAppId, isGeneratedAppId } from '../os/types.ts'
-import type { BuiltinAppId, WindowState } from '../os/types.ts'
+import type { WindowState } from '../os/types.ts'
 import { buildDesktopRevealTransform } from './build-desktop-reveal-transform.ts'
+import {
+  buildFlip3dBackEnterTransform,
+  buildFlip3dTransform,
+  flip3dPerspectiveOrigin,
+  hitTestFlip3dWindowId,
+  FLIP3D_PERSPECTIVE_PX,
+  FLIP3D_Z_BASE,
+} from './build-flip3d-transform.ts'
+import { FLIP3D_FLIGHT_OUT_MS, resolveFlip3dVisual } from './flip3d.ts'
+import { Flip3dGhostFrame } from './flip3d-ghost-frame.tsx'
+import { useFlip3dLayers, useFlip3dScene, useFlip3dShadowReveal } from './flip3d-context.tsx'
 import { DesktopRevealPeekLayer } from './desktop-reveal-peek-layer.tsx'
 import { buildMinimizeTransform } from './build-minimize-transform.ts'
+import type { WindowBounds } from './window-metrics.ts'
 import { SnapPreview } from './window-snap-preview.tsx'
 import { useWindowDrag } from './use-window-drag.ts'
 import { useWindowResize } from './use-window-resize.ts'
 import { type ResizeDirection } from './window-resize.ts'
 import { WindowModalProvider } from './window-modal-context.tsx'
+import { WindowAppBody } from './window-app-body.tsx'
 
 const EDGE_DIRECTIONS: ResizeDirection[] = ['n', 's', 'e', 'w']
 const CORNER_DIRECTIONS: ResizeDirection[] = ['nw', 'ne', 'sw', 'se']
 import './window-frame.css'
 
+function Flip3dCastShadow({ hidden }: { hidden?: boolean }) {
+  const flip3dShadowReveal = useFlip3dShadowReveal()
+  if (hidden || (flip3dShadowReveal !== 'hold' && flip3dShadowReveal !== 'fade')) {
+    return undefined
+  }
+  return (
+    <div
+      class={`window-frame__cast-shadow${flip3dShadowReveal === 'fade' ? ' window-frame__cast-shadow--in' : ''}`}
+      aria-hidden="true"
+    />
+  )
+}
+
 type WindowFrameProps = {
   window: WindowState
 }
 
-export function WindowFrame({ window }: WindowFrameProps) {
+function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
+  const { flip3dActive, flip3dRestoring, exitFlip3d } = useFlip3dScene()
+  const { flip3dEntering, flip3dOrder, flip3dSnapIds, flip3dFlight, finishFlip3dFlight } =
+    useFlip3dLayers()
+  const visual = resolveFlip3dVisual(flip3dOrder, windowId, flip3dSnapIds)
+  const flight = flip3dFlight?.windowId === windowId ? flip3dFlight : undefined
+  const frameRef = useRef<HTMLElement>(null)
+  const finishFlightRef = useRef(finishFlip3dFlight)
+  finishFlightRef.current = finishFlip3dFlight
+  const inFlip3d = (flip3dActive || flip3dRestoring) && visual !== undefined
+  const viewport = { width: window.innerWidth, height: window.innerHeight }
+  const count = Math.max(flip3dOrder.length, 1)
+  const transform = flight
+    ? flight.fromTransform
+    : flip3dActive && visual
+      ? visual.fromBack
+        ? buildFlip3dBackEnterTransform(bounds, viewport, count)
+        : buildFlip3dTransform(bounds, visual.rank, viewport, count)
+      : undefined
+  const zIndex = flight
+    ? flight.zIndex
+    : flip3dActive && visual
+      ? FLIP3D_Z_BASE - visual.rank
+      : undefined
+
+  useLayoutEffect(() => {
+    if (!flight) {
+      return
+    }
+    const node = frameRef.current
+    if (!node) {
+      return
+    }
+
+    let done = false
+    const animation = node.animate(
+      [
+        { transform: flight.fromTransform, opacity: flight.fromOpacity },
+        { transform: flight.toTransform, opacity: flight.toOpacity },
+      ],
+      {
+        duration: FLIP3D_FLIGHT_OUT_MS,
+        easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
+        fill: 'forwards',
+      },
+    )
+    const finish = () => {
+      if (done) {
+        return
+      }
+      done = true
+      finishFlightRef.current(flight.id)
+    }
+    const fallback = window.setTimeout(finish, FLIP3D_FLIGHT_OUT_MS)
+    void animation.finished.then(finish).catch(() => {})
+    return () => {
+      window.clearTimeout(fallback)
+      animation.cancel()
+    }
+  }, [flight])
+
+  return {
+    frameRef,
+    inFlip3d,
+    transform,
+    zIndex,
+    opacity: flight?.fromOpacity ?? visual?.opacity,
+    skipTransition: Boolean(
+      flight || (visual?.skipTransition && flip3dActive && !flip3dEntering && !flip3dRestoring),
+    ),
+    selectWindow: () => exitFlip3d(windowId),
+  }
+}
+
+/**
+ * 无窗口应用宿主：默认不可见；展开为 panel 时使用与普通窗口相同的系统标题栏，
+ * 且保持 App 挂载路径稳定，避免解压过程中组件卸载。
+ */
+function WindowlessAppHost({ window }: WindowFrameProps) {
+  const {
+    activeWindowId,
+    focusWindow,
+    moveWindow,
+    releaseAnchoredWindow,
+    applyWindowSnap,
+    closeWindow,
+    finalizeWindowClose,
+    minimizeWindow,
+    toggleFullscreen,
+  } = useOs()
+  const revealed = !!window.windowlessPanel && !window.minimized
+  const isActive = activeWindowId === window.id
+  const isClosing = window.closing
+  const [isEntering, setIsEntering] = useState(false)
+  const wasRevealedRef = useRef(false)
+  const windowBounds = useMemo(
+    () => ({
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+    }),
+    [window.x, window.y, window.width, window.height],
+  )
+  const {
+    frameRef: flip3dFrameRef,
+    inFlip3d,
+    transform: flip3dTransform,
+    zIndex: flip3dZIndex,
+    opacity: flip3dOpacity,
+    skipTransition: flip3dInstant,
+    selectWindow: selectFlip3dWindow,
+  } = useFlip3dFrame(window.id, windowBounds)
+  const [minimizeTransform, setMinimizeTransform] = useState<string | undefined>(undefined)
+  const prevMinimizedRef = useRef(window.minimized)
+  const [isMinimizing, setIsMinimizing] = useState(false)
+  const [minimizeVisualSettled, setMinimizeVisualSettled] = useState(window.minimized)
+  const showMinimizeVisual = isMinimizing || minimizeVisualSettled
+  const showAsWindowFrame = revealed || isMinimizing
+
+  useLayoutEffect(() => {
+    const wasMinimized = prevMinimizedRef.current
+    prevMinimizedRef.current = window.minimized
+
+    if (window.minimized && !wasMinimized) {
+      setMinimizeTransform(buildMinimizeTransform(windowBounds, window.appId))
+      setMinimizeVisualSettled(false)
+      setIsMinimizing(true)
+      const timer = globalThis.setTimeout(() => {
+        setIsMinimizing(false)
+        setMinimizeVisualSettled(true)
+      }, 420)
+      return () => globalThis.clearTimeout(timer)
+    }
+
+    if (!window.minimized) {
+      setMinimizeTransform(undefined)
+      setIsMinimizing(false)
+      setMinimizeVisualSettled(false)
+    }
+  }, [window.minimized, windowBounds, window.appId])
+
+  useLayoutEffect(() => {
+    const wasRevealed = wasRevealedRef.current
+    wasRevealedRef.current = revealed
+    if (revealed && !wasRevealed && window.enterAnimation === 'scale-in') {
+      setIsEntering(true)
+    }
+    if (!revealed && !isMinimizing) {
+      setIsEntering(false)
+    }
+  }, [isMinimizing, revealed, window.enterAnimation])
+
+  const getDragBounds = useCallback(
+    () => ({
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+    }),
+    [window.x, window.y, window.width, window.height],
+  )
+
+  const { dragging, snapPreview, onTitlebarPointerDown } = useWindowDrag(
+    window.id,
+    false,
+    getDragBounds,
+    moveWindow,
+    focusWindow,
+    releaseAnchoredWindow,
+    applyWindowSnap,
+    undefined,
+    revealed && !isEntering && !isMinimizing && !inFlip3d,
+  )
+
+  useEffect(() => {
+    if (!window.closing) return
+    finalizeWindowClose(window.id)
+  }, [finalizeWindowClose, window.closing, window.id])
+
+  if (isClosing) {
+    return undefined
+  }
+
+  const closeDisabled = !!window.chromeCloseDisabled
+  const minimizeDisabled = !!window.chromeMinimizeDisabled
+  const zoomDisabled = !!window.chromeZoomDisabled
+  const isDialogChrome = window.chromeKind === 'dialog'
+
+  return (
+    <>
+      {dragging && <SnapPreview target={snapPreview} />}
+      <section
+        ref={flip3dFrameRef}
+        data-flip3d-window={window.id}
+        class={
+          showAsWindowFrame
+            ? `window-frame${isDialogChrome ? ' window-frame--dialog' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}`
+            : 'windowless-app-host'
+        }
+        aria-hidden={showMinimizeVisual ? true : undefined}
+        style={{
+          zIndex: flip3dZIndex ?? window.zIndex,
+          left: `${window.x}px`,
+          top: `${window.y}px`,
+          width: `${window.width}px`,
+          height: `${window.height}px`,
+          transform: isEntering
+            ? undefined
+            : showMinimizeVisual
+              ? minimizeTransform
+              : inFlip3d
+                ? flip3dTransform
+                : undefined,
+          opacity: showMinimizeVisual ? 0 : inFlip3d ? flip3dOpacity : undefined,
+        }}
+        onAnimationEnd={(event) => {
+          if (event.animationName === 'window-frame-open') {
+            setIsEntering(false)
+          }
+        }}
+        onPointerDownCapture={
+          revealed && !isMinimizing
+            ? (event) => {
+                if (event.button !== 0) return
+                if (inFlip3d) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  selectFlip3dWindow()
+                  return
+                }
+                focusWindow(window.id)
+              }
+            : undefined
+        }
+      >
+        {showAsWindowFrame ? <Flip3dCastShadow hidden={inFlip3d || showMinimizeVisual} /> : undefined}
+        <div class={showAsWindowFrame ? 'window-frame__chrome' : 'windowless-app-host__chrome'}>
+          {showAsWindowFrame ? (
+            <header class="window-frame__titlebar" onPointerDown={onTitlebarPointerDown}>
+              <div class="window-frame__controls">
+                <button
+                  type="button"
+                  class="window-frame__control window-frame__control--close"
+                  aria-label="关闭"
+                  disabled={closeDisabled}
+                  aria-disabled={closeDisabled || undefined}
+                  onClick={() => {
+                    if (closeDisabled) return
+                    closeWindow(window.id)
+                  }}
+                />
+                {isDialogChrome ? undefined : (
+                  <>
+                    <button
+                      type="button"
+                      class="window-frame__control window-frame__control--minimize"
+                      aria-label="最小化"
+                      disabled={minimizeDisabled}
+                      aria-disabled={minimizeDisabled || undefined}
+                      onClick={() => {
+                        if (minimizeDisabled) return
+                        minimizeWindow(window.id)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      class="window-frame__control window-frame__control--fullscreen"
+                      aria-label="全屏"
+                      disabled={zoomDisabled}
+                      aria-disabled={zoomDisabled || undefined}
+                      onClick={() => {
+                        if (zoomDisabled) return
+                        toggleFullscreen(window.id)
+                      }}
+                    />
+                  </>
+                )}
+              </div>
+              <span class="window-frame__title">{window.title}</span>
+              <span class="window-frame__title-trailing" aria-live="polite" />
+            </header>
+          ) : undefined}
+          <div class={showAsWindowFrame ? 'window-frame__content' : 'windowless-app-host__content'}>
+            <WindowModalProvider>
+              <WindowAppBody window={window} />
+            </WindowModalProvider>
+          </div>
+        </div>
+      </section>
+    </>
+  )
+}
+
+function ChromeWindowFrame({ window }: WindowFrameProps) {
   const {
     activeWindowId,
     desktopRevealed,
@@ -39,14 +357,30 @@ export function WindowFrame({ window }: WindowFrameProps) {
     minimizeWindow,
   } = useOs()
   const { hasImmersiveFullscreen, chromeRevealed } = useFullscreenChromeReveal()
-  const AppComponent = isGeneratedAppId(window.appId)
-    ? undefined
-    : APP_COMPONENTS[window.appId as BuiltinAppId]
   const isActive = activeWindowId === window.id
   const isAnchored = !window.fullscreen && (window.maximized || !!window.snap)
   const isDesktopRevealed = desktopRevealed && !window.minimized
+  const windowBounds = useMemo(
+    () => ({
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+    }),
+    [window.x, window.y, window.width, window.height],
+  )
+  const {
+    frameRef: flip3dFrameRef,
+    inFlip3d,
+    transform: flip3dTransform,
+    zIndex: flip3dZIndex,
+    opacity: flip3dOpacity,
+    skipTransition: flip3dInstant,
+    selectWindow: selectFlip3dWindow,
+  } = useFlip3dFrame(window.id, windowBounds)
+  const layoutLocked = isDesktopRevealed || inFlip3d
   const canResize =
-    !window.fullscreen && !window.minimized && !isDesktopRevealed
+    !window.fullscreen && !window.minimized && !layoutLocked
   const getDragBounds = useCallback(
     () => ({
       x: window.x,
@@ -65,7 +399,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
     releaseAnchoredWindow,
     applyWindowSnap,
     () => toggleMaximize(window.id),
-    !window.fullscreen && !window.minimized && !isDesktopRevealed,
+    !window.fullscreen && !window.minimized && !layoutLocked,
   )
   const { resizing, onResizeHandlePointerDown, onResizeHandleDoubleClick } = useWindowResize(
     window.id,
@@ -76,15 +410,6 @@ export function WindowFrame({ window }: WindowFrameProps) {
     window.snap,
   )
   const isAnchoredLayout = window.maximized || !!window.snap || window.fullscreen
-  const windowBounds = useMemo(
-    () => ({
-      x: window.x,
-      y: window.y,
-      width: window.width,
-      height: window.height,
-    }),
-    [window.x, window.y, window.width, window.height],
-  )
   const [minimizeTransform, setMinimizeTransform] = useState<string | undefined>(undefined)
   const desktopRevealTransform = useMemo(
     () => buildDesktopRevealTransform(windowBounds),
@@ -98,6 +423,9 @@ export function WindowFrame({ window }: WindowFrameProps) {
   const immersiveFullscreen = window.fullscreen && hasImmersiveFullscreen
   const showImmersiveChrome = immersiveFullscreen && chromeRevealed && isActive
   const showMinimizeVisual = isMinimizing || minimizeVisualSettled
+  const closeDisabled = !!window.chromeCloseDisabled
+  const minimizeDisabled = !!window.chromeMinimizeDisabled
+  const zoomDisabled = !!window.chromeZoomDisabled
 
   useLayoutEffect(() => {
     const wasMinimized = prevMinimizedRef.current
@@ -125,24 +453,28 @@ export function WindowFrame({ window }: WindowFrameProps) {
     ? minimizeTransform
     : isClosing || isEntering
       ? undefined
-      : isDesktopRevealed
-        ? desktopRevealTransform
-        : undefined
+      : inFlip3d
+        ? flip3dTransform
+        : isDesktopRevealed
+          ? desktopRevealTransform
+          : undefined
 
   return (
     <>
       {dragging && <SnapPreview target={snapPreview} />}
       <section
-        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
+        ref={flip3dFrameRef}
+        data-flip3d-window={window.id}
+        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
         aria-hidden={showMinimizeVisual || isClosing ? true : undefined}
         style={{
-          zIndex: window.zIndex,
+          zIndex: flip3dZIndex ?? window.zIndex,
           left: `${window.x}px`,
           top: `${window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
           transform: isEntering ? undefined : frameTransform,
-          opacity: showMinimizeVisual ? 0 : undefined,
+          opacity: showMinimizeVisual ? 0 : inFlip3d ? flip3dOpacity : undefined,
         }}
         onAnimationEnd={(event) => {
           if (event.animationName === 'window-frame-open') {
@@ -153,12 +485,22 @@ export function WindowFrame({ window }: WindowFrameProps) {
           }
         }}
         onPointerDownCapture={(event) => {
-          if (isDesktopRevealed || isClosing || event.button !== 0) {
+          if (isClosing || event.button !== 0) {
+            return
+          }
+          if (inFlip3d) {
+            event.preventDefault()
+            event.stopPropagation()
+            selectFlip3dWindow()
+            return
+          }
+          if (isDesktopRevealed) {
             return
           }
           focusWindow(window.id)
         }}
       >
+        <Flip3dCastShadow hidden={inFlip3d || isAnchored || window.fullscreen || showMinimizeVisual} />
         <div class="window-frame__chrome">
           <header
             class="window-frame__titlebar"
@@ -169,35 +511,52 @@ export function WindowFrame({ window }: WindowFrameProps) {
                 type="button"
                 class="window-frame__control window-frame__control--close"
                 aria-label="关闭"
-                onClick={() => closeWindow(window.id)}
+                disabled={closeDisabled}
+                aria-disabled={closeDisabled || undefined}
+                onClick={() => {
+                  if (closeDisabled) return
+                  closeWindow(window.id)
+                }}
               />
               <button
                 type="button"
                 class="window-frame__control window-frame__control--minimize"
                 aria-label="最小化"
-                onClick={() => minimizeWindow(window.id)}
+                disabled={minimizeDisabled}
+                aria-disabled={minimizeDisabled || undefined}
+                onClick={() => {
+                  if (minimizeDisabled) return
+                  minimizeWindow(window.id)
+                }}
               />
               <button
                 type="button"
                 class="window-frame__control window-frame__control--fullscreen"
                 aria-label={window.fullscreen ? '退出全屏' : '全屏'}
-                onClick={() => toggleFullscreen(window.id)}
+                disabled={zoomDisabled}
+                aria-disabled={zoomDisabled || undefined}
+                onClick={() => {
+                  if (zoomDisabled) return
+                  toggleFullscreen(window.id)
+                }}
               />
             </div>
-            <span class="window-frame__title">{window.title}</span>
+            <span class="window-frame__title">
+              {window.documentReadOnly ? (
+                <span class="window-frame__title-prefix">只读 - </span>
+              ) : undefined}
+              {window.title}
+            </span>
+            <span class="window-frame__title-trailing" aria-live="polite">
+              {window.documentEdited ? '已编辑' : ''}
+            </span>
           </header>
           <div class="window-frame__content">
-            {!isActive && !isDesktopRevealed && (
+            {!isActive && !isDesktopRevealed && !inFlip3d && (
               <div class="window-frame__focus-catcher" aria-hidden="true" />
             )}
             <WindowModalProvider>
-              {isExtAppId(window.appId) ? (
-                <ExtApp appId={window.appId} windowId={window.id} />
-              ) : isGeneratedAppId(window.appId) ? (
-                <GeneratedApp appId={window.appId} windowId={window.id} />
-              ) : (
-                AppComponent && <AppComponent />
-              )}
+              <WindowAppBody window={window} />
             </WindowModalProvider>
           </div>
         </div>
@@ -226,18 +585,131 @@ export function WindowFrame({ window }: WindowFrameProps) {
   )
 }
 
+export function WindowFrame({ window }: WindowFrameProps) {
+  if (window.windowless) {
+    return <WindowlessAppHost window={window} />
+  }
+  return <ChromeWindowFrame window={window} />
+}
+
 export function WindowManager() {
   const { windows, desktopRevealRestoring } = useOs()
+  const { flip3dActive, cycleFlip3d, exitFlip3d } = useFlip3dScene()
+  const { flip3dOrder, flip3dGhosts, dismissFlip3dGhostFrame } = useFlip3dLayers()
+
+  useEffect(() => {
+    if (!flip3dActive) {
+      return
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        event.preventDefault()
+        event.stopPropagation()
+        cycleFlip3d(1)
+        return
+      }
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        event.stopPropagation()
+        cycleFlip3d(-1)
+        return
+      }
+      if (event.key === 'Escape' || event.key === 'Enter') {
+        event.preventDefault()
+        event.stopPropagation()
+        exitFlip3d()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [cycleFlip3d, exitFlip3d, flip3dActive])
+
+  useWheelStepGesture(
+    flip3dActive,
+    (event) => flip3dWheelDelta(event.deltaX, event.deltaY),
+    cycleFlip3d,
+  )
+
+  const onScenePointerDown = flip3dActive
+    ? (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0) {
+          return
+        }
+        const scene = event.currentTarget
+        const rect = scene.getBoundingClientRect()
+        const boundsById = new Map(
+          windows.map((frame) => [
+            frame.id,
+            { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
+          ]),
+        )
+        const hitId = hitTestFlip3dWindowId(
+          event.clientX - rect.left,
+          event.clientY - rect.top,
+          flip3dOrder,
+          boundsById,
+          { width: rect.width, height: rect.height },
+        )
+        event.preventDefault()
+        event.stopPropagation()
+        exitFlip3d(hitId)
+      }
+    : undefined
+
+  return (
+    <Flip3dSceneChrome
+      desktopRevealRestoring={desktopRevealRestoring}
+      onScenePointerDown={onScenePointerDown}
+      extra={<DesktopRevealPeekLayer />}
+    >
+      {windows.map((frame) => (
+        <WindowFrame key={frame.id} window={frame} />
+      ))}
+      {flip3dGhosts.map((ghost) => (
+        <Flip3dGhostFrame
+          key={ghost.id}
+          ghost={ghost}
+          count={Math.max(flip3dOrder.length, 1)}
+          onDone={dismissFlip3dGhostFrame}
+        />
+      ))}
+    </Flip3dSceneChrome>
+  )
+}
+
+function Flip3dSceneChrome({
+  children,
+  extra,
+  desktopRevealRestoring,
+  onScenePointerDown,
+}: {
+  children: ComponentChildren
+  extra?: ComponentChildren
+  desktopRevealRestoring: boolean
+  onScenePointerDown?: (event: JSX.TargetedPointerEvent<HTMLDivElement>) => void
+}) {
+  const { flip3dActive, flip3dRestoring } = useFlip3dScene()
+  const { flip3dEntering } = useFlip3dLayers()
+  const flip3dShadowReveal = useFlip3dShadowReveal()
+  const inFlip3dScene = flip3dActive || flip3dRestoring
 
   return (
     <div
-      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}`}
+      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}${inFlip3dScene ? ' window-manager--flip3d' : ''}${flip3dEntering ? ' window-manager--flip3d-enter' : ''}${flip3dRestoring ? ' window-manager--flip3d-restore' : ''}${flip3dShadowReveal === 'hold' ? ' window-manager--flip3d-shadow-hold' : ''}${flip3dShadowReveal === 'fade' ? ' window-manager--flip3d-shadow-fade' : ''}${flip3dShadowReveal === 'settle' ? ' window-manager--flip3d-shadow-settle' : ''}`}
       aria-live="polite"
+      style={
+        inFlip3dScene
+          ? {
+              perspective: `${FLIP3D_PERSPECTIVE_PX}px`,
+              perspectiveOrigin: flip3dPerspectiveOrigin(),
+            }
+          : undefined
+      }
     >
-      {windows.map((window) => (
-        <WindowFrame key={window.id} window={window} />
-      ))}
-      <DesktopRevealPeekLayer />
+      <div class="window-manager__flip3d-scene" onPointerDown={onScenePointerDown}>
+        {children}
+      </div>
+      {extra}
     </div>
   )
 }

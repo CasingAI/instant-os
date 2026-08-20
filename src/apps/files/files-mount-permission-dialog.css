@@ -1,0 +1,19 @@
+/* 挂载权限确认：全屏压暗，略低于终端特权框，避免叠层冲突 */
+
+.files-mount-permission-host {
+  position: fixed;
+  inset: 0;
+  z-index: 11900;
+  pointer-events: none;
+}
+
+.files-mount-permission-host .window-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  background:
+    radial-gradient(ellipse at center, rgba(40, 36, 28, 0.35) 0%, rgba(0, 0, 0, 0.72) 72%),
+    rgba(0, 0, 0, 0.55);
+  backdrop-filter: none;
+  padding: 28px 20px;
+}

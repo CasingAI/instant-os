@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { loadNotificationCenterWidgetsCache } from '../../os/notification-center-widgets-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { generateWeatherDetail } from './weather-agent.ts'
@@ -14,6 +11,7 @@ import {
   removeCity,
   setActiveCity,
   setDefaultDisplay,
+  subscribeWeatherStore,
   updateCityWeather,
   upsertCityWeather,
   writeWeatherStore,
@@ -165,13 +163,10 @@ function isWidgetDefaultCity(store: WeatherStore, cityId: string | undefined): b
 }
 
 export function WeatherApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
 
   const widgetCache = useMemo(() => loadNotificationCenterWidgetsCache(), [])
-  const [store, setStore] = useState<WeatherStore>(() =>
-    bootstrapWeatherStoreFromWidgetCache(widgetCache.weather),
-  )
+  const [store, setStore] = useState<WeatherStore | undefined>(undefined)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSheetOpen, setSearchSheetOpen] = useState(false)
   const [searchSheetQuery, setSearchSheetQuery] = useState('')
@@ -179,24 +174,35 @@ export function WeatherApp() {
   const [addingCityName, setAddingCityName] = useState<string | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
 
-  const activeCity = useMemo(() => getActiveCity(store), [store])
+  const activeCity = useMemo(() => (store ? getActiveCity(store) : undefined), [store])
 
   useEffect(() => {
     setAppWindowTitle('weather', '天气')
   }, [setAppWindowTitle])
 
   useEffect(() => {
-    const onChanged = () => setStore(readWeatherStore())
-    window.addEventListener('instant-os:weather-store-changed', onChanged)
-    return () => window.removeEventListener('instant-os:weather-store-changed', onChanged)
-  }, [])
+    let alive = true
+    const load = () => {
+      bootstrapWeatherStoreFromWidgetCache(widgetCache.weather).then((next) => {
+        if (alive) {
+          setStore(next)
+        }
+      })
+    }
+    load()
+    const unsubscribe = subscribeWeatherStore(load)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [widgetCache.weather])
 
   const fetchCityDetail = useCallback(async (cityId: string, cityName: string) => {
     setLoadingCityId(cityId)
     setError(undefined)
     try {
       const detail = await generateWeatherDetail(cityName)
-      const next = updateCityWeather(cityId, detail)
+      const next = await updateCityWeather(cityId, detail)
       setStore(next)
     } catch (err) {
       setError(err instanceof Error ? err.message : '天气生成失败')
@@ -228,12 +234,12 @@ export function WeatherApp() {
     setError(undefined)
     try {
       const detail = await generateWeatherDetail(suggestion.name)
-      let next = upsertCityWeather(readWeatherStore(), {
+      let next = upsertCityWeather(await readWeatherStore(), {
         name: suggestion.name,
         region: suggestion.region,
         weather: detail,
       })
-      writeWeatherStore(next)
+      await writeWeatherStore(next)
       setStore(next)
       setSearchSheetOpen(false)
       setSearchQuery('')
@@ -244,21 +250,21 @@ export function WeatherApp() {
     }
   }, [])
 
-  const handleSelectCity = useCallback((cityId: string) => {
-    const next = setActiveCity(cityId)
+  const handleSelectCity = useCallback(async (cityId: string) => {
+    const next = await setActiveCity(cityId)
     setStore(next)
   }, [])
 
-  const handleSetWidgetDefault = useCallback(() => {
-    if (!activeCity) {
+  const handleSetWidgetDefault = useCallback(async () => {
+    if (!activeCity || !store) {
       return
     }
     const next =
       activeCity.id === store.myLocationCityId
-        ? setDefaultDisplay('my-location')
-        : setDefaultDisplay(activeCity.id)
+        ? await setDefaultDisplay('my-location')
+        : await setDefaultDisplay(activeCity.id)
     setStore(next)
-  }, [activeCity, store.myLocationCityId])
+  }, [activeCity, store?.myLocationCityId])
 
   const handleRefresh = useCallback(async () => {
     if (!activeCity) {
@@ -267,41 +273,12 @@ export function WeatherApp() {
     await fetchCityDetail(activeCity.id, activeCity.name)
   }, [activeCity, fetchCityDetail])
 
-  const handleRemoveCity = useCallback(
-    (cityId: string) => {
-      const next = removeCity(cityId)
-      setStore(next)
-    },
-    [],
-  )
+  const handleRemoveCity = useCallback(async (cityId: string) => {
+    const next = await removeCity(cityId)
+    setStore(next)
+  }, [])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'weather' && !window.minimized)
-
-    return [
-      {
-        label: '天气',
-        items: [
-          ...aboutAppMenuPrefix('关于 天气', () => showBuiltinAbout('weather')),
-          {
-            type: 'action',
-            label: '隐藏天气',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出天气',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('weather'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('weather', menuBar)
+  useAppMenuBar('weather', [])
 
   const activeWeather = activeCity?.weather
   const loadingActive = activeCity !== undefined && loadingCityId === activeCity.id
@@ -344,7 +321,7 @@ export function WeatherApp() {
         </button>
       </div>
 
-      {store.cities.length > 0 && (
+      {store && store.cities.length > 0 && (
         <div class="weather-app__city-bar" role="tablist" aria-label="城市列表">
           {store.cities.map((city) => {
             const selected = city.id === store.activeCityId
@@ -387,6 +364,12 @@ export function WeatherApp() {
       )}
 
       <div class="weather-app__body">
+        {store === undefined && !loadingActive && (
+          <div class="weather-app__loading" role="status" aria-live="polite">
+            <div class="weather-app__loading-spinner" aria-hidden="true" />
+            <p>正在加载</p>
+          </div>
+        )}
         {loadingActive && !activeWeather && (
           <div class="weather-app__loading" role="status" aria-live="polite">
             <div class="weather-app__loading-spinner" aria-hidden="true" />
@@ -397,7 +380,7 @@ export function WeatherApp() {
         {!activeCity && !loadingActive && (
           <p class="weather-app__hint">搜索并添加城市，或在通知中心生成「我的位置」天气。</p>
         )}
-        {activeWeather && (
+        {activeWeather && store && (
           <WeatherDetailPanel
             weather={activeWeather}
             isMyLocation={activeCity?.id === store.myLocationCityId}

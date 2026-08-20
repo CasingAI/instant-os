@@ -1,12 +1,23 @@
+import type OpenAI from 'openai'
 import { formatStreamEventResponse } from './ai-event-log-serialize.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
 import { finishAiEventLogSession, startAiEventLogSession } from './ai-event-log.ts'
-import type { AiEventLogMessage } from './ai-event-log-types.ts'
+import type { AiEventLogMessage, AiEventLogMessageRole } from './ai-event-log-types.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import { snapshotFromOpenAiUsage } from './openai-usage.ts'
 import { recordAiTokenUsage } from './ai-token-usage.ts'
-import { mergeOpenAiConfig } from './openai-config.ts'
+import { resolveUsageEstimated } from '../apps/browser/estimate-token-usage.ts'
+import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
+import { createChatCompletionStream, isStreamAbortError } from './stream-abort.ts'
+import {
+  createStreamIdleAbortSession,
+  createStreamIdleTimeoutError,
+  isStreamIdleTimeoutError,
+  resolveStreamIdleTimeoutError,
+  STREAM_IDLE_ERROR,
+} from './stream-idle-timeout.ts'
+import { appendOsDateTimeSystemSection } from './os-datetime-system-context.ts'
 
 export type StreamChatActivity = 'reasoning' | 'content'
 
@@ -20,6 +31,21 @@ export type StreamChatOptions = {
   user: string
   /** 首条 user 之后的对话轮次（assistant / user 交替） */
   followUp?: StreamChatTurn[]
+  /**
+   * 直接指定完整消息数组（system / user / assistant 任意穿插）。
+   * 提供时忽略 system / user / followUp。
+   */
+  messages?: OpenAI.Chat.ChatCompletionMessageParam[]
+  /** 采样温度（0~2），缺省使用模型默认 */
+  temperature?: number
+  /** 核采样 top_p（0~1），缺省使用模型默认 */
+  topP?: number
+  /** 频率惩罚（-2~2），缺省使用模型默认 */
+  frequencyPenalty?: number
+  /** 出现惩罚（-2~2），缺省使用模型默认 */
+  presencePenalty?: number
+  /** 停止序列，缺省使用模型默认 */
+  stop?: string | string[]
   onChunk: (delta: string, accumulated: string) => void
   /** 思考链增量（若模型返回 reasoning_content） */
   onReasoningChunk?: (delta: string, accumulated: string) => void
@@ -34,28 +60,70 @@ export type StreamChatOptions = {
   usageContext?: AiUsageContext
   /** API 最大输出 token 数（默认不设，使用模型默认上限） */
   maxCompletionTokens?: number
+  /** 外部取消信号（用户停止、新请求覆盖等） */
+  signal?: AbortSignal
+  /** 覆盖默认 OpenAI 配置（如指定模型） */
+  config?: Partial<OpenAiConfig>
+  /** 允许模型返回空内容（代码补全等场景） */
+  allowEmpty?: boolean
+  /** 允许输出因 token 上限截断，仍返回已生成文本 */
+  allowTruncation?: boolean
 }
 
-const STREAM_IDLE_ERROR = 'STREAM_IDLE_TIMEOUT'
+export { isStreamIdleTimeoutError, STREAM_IDLE_ERROR }
 
-export function isStreamIdleTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.message === STREAM_IDLE_ERROR
+function createAbortError(): DOMException {
+  return new DOMException('Aborted', 'AbortError')
+}
+
+function toEventLogMessages(
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+): AiEventLogMessage[] {
+  const result: AiEventLogMessage[] = []
+  for (const message of messages) {
+    if (typeof message.content !== 'string') {
+      continue
+    }
+    const role = message.role
+    const mappedRole: AiEventLogMessageRole =
+      role === 'function' ? 'tool' : role === 'developer' ? 'system' : role
+    result.push({ role: mappedRole, content: message.content })
+  }
+  return result
 }
 
 export async function streamChatCompletion(options: StreamChatOptions): Promise<string> {
-  const config = mergeOpenAiConfig()
+  const config = mergeOpenAiConfig(options.config)
   const client = getOpenAiClient(config)
   const model = config.defaultModel
   const thinkingEnabled = options.thinkingEnabled ?? config.thinkingEnabled
-  const idleTimeoutMs = options.idleTimeoutMs ?? 0
-  const abortController = idleTimeoutMs > 0 ? new AbortController() : undefined
+  const idle = createStreamIdleAbortSession({
+    idleTimeoutMs: options.idleTimeoutMs,
+    externalSignal: options.signal,
+  })
+  const externalSignal = options.signal
+
+  if (externalSignal?.aborted) {
+    idle.dispose()
+    throw createAbortError()
+  }
+
+  const system = appendOsDateTimeSystemSection(options.system)
+
+  const requestMessages: OpenAI.Chat.ChatCompletionMessageParam[] = options.messages ?? [
+    { role: 'system', content: system },
+    { role: 'user', content: options.user },
+    ...(options.followUp ?? []),
+  ]
 
   const eventMessages: AiEventLogMessage[] | undefined = options.usageContext
-    ? [
-        { role: 'system', content: options.system },
-        { role: 'user', content: options.user },
-        ...(options.followUp ?? []),
-      ]
+    ? options.messages
+      ? toEventLogMessages(options.messages)
+      : [
+          { role: 'system', content: system },
+          { role: 'user', content: options.user },
+          ...(options.followUp ?? []),
+        ]
     : undefined
   const logSession = options.usageContext && eventMessages
     ? startAiEventLogSession(options.usageContext, {
@@ -65,45 +133,38 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
       })
     : undefined
 
-  let idleTimer: ReturnType<typeof setTimeout> | undefined
-
-  const resetIdleTimer = () => {
-    if (!abortController || idleTimeoutMs <= 0) {
-      return
-    }
-    if (idleTimer) {
-      clearTimeout(idleTimer)
-    }
-    idleTimer = setTimeout(() => {
-      abortController.abort(new Error(STREAM_IDLE_ERROR))
-    }, idleTimeoutMs)
-  }
-
-  const clearIdleTimer = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer)
-    }
-    idleTimer = undefined
-  }
-
   try {
-    const stream = await client.chat.completions.create({
-      model,
-      stream: true,
-      ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
-      ...(options.maxCompletionTokens !== undefined
-        ? { max_tokens: options.maxCompletionTokens }
-        : {}),
-      messages: [
-        { role: 'system', content: options.system },
-        { role: 'user', content: options.user },
-        ...(options.followUp ?? []),
-      ],
-      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
-      ...(abortController ? { signal: abortController.signal } : {}),
-    })
+    idle.resetIdleTimer()
+    const stream = await createChatCompletionStream(
+      client,
+      {
+        model,
+        stream: true,
+        ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
+        ...(options.maxCompletionTokens !== undefined
+          ? { max_tokens: options.maxCompletionTokens }
+          : {}),
+        messages: requestMessages,
+        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+        ...(options.topP !== undefined ? { top_p: options.topP } : {}),
+        ...(options.frequencyPenalty !== undefined
+          ? { frequency_penalty: options.frequencyPenalty }
+          : {}),
+        ...(options.presencePenalty !== undefined
+          ? { presence_penalty: options.presencePenalty }
+          : {}),
+        ...(options.stop !== undefined ? { stop: options.stop } : {}),
+        ...buildThinkingRequestExtras(
+          config.providerId,
+          thinkingEnabled,
+          model,
+          config.thinkingEffort,
+        ),
+      },
+      idle.signal,
+    )
 
-    resetIdleTimer()
+    idle.resetIdleTimer()
 
     let text = ''
     let reasoningText = ''
@@ -111,7 +172,11 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     let finishReason: string | undefined
 
     for await (const chunk of stream) {
-      resetIdleTimer()
+      if (idle.signal?.aborted) {
+        const reason = idle.signal.reason
+        throw reason instanceof Error ? reason : createAbortError()
+      }
+      idle.resetIdleTimer()
       options.onAnyStreamChunk?.()
 
       const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
@@ -147,21 +212,33 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     }
 
     if (!text.trim()) {
+      if (options.allowEmpty) {
+        if (options.usageContext && logSession) {
+          recordAiTokenUsage(options.usageContext, usage, model)
+          finishAiEventLogSession(logSession, options.usageContext, {
+            response: formatStreamEventResponse(reasoningText, ''),
+            usage,
+            usageEstimated: resolveUsageEstimated(Boolean(usage), model),
+            status: 'success',
+          })
+        }
+        return ''
+      }
       throw new Error('AI 未返回任何内容')
     }
 
     const trimmed = text.trim()
     if (options.usageContext && logSession) {
-      recordAiTokenUsage(options.usageContext, usage)
+      recordAiTokenUsage(options.usageContext, usage, model)
       finishAiEventLogSession(logSession, options.usageContext, {
         response: formatStreamEventResponse(reasoningText, trimmed),
         usage,
-        usageEstimated: usage ? false : undefined,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'success',
       })
     }
 
-    if (finishReason === 'length') {
+    if (finishReason === 'length' && !options.allowTruncation) {
       throw new Error(
         `AI 输出被截断：达到 token 上限（${options.maxCompletionTokens ?? '模型默认'}）。全文 ${trimmed.length} 字符，最后 100 字符：…${trimmed.slice(-100)}`,
       )
@@ -169,6 +246,12 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
 
     return trimmed
   } catch (error) {
+    const idleTimedOut = Boolean(resolveStreamIdleTimeoutError(error, idle.signal))
+    const userCancelled =
+      !idleTimedOut &&
+      (externalSignal?.aborted === true ||
+        (Boolean(externalSignal) && isStreamAbortError(error, idle.signal)))
+
     if (options.usageContext && logSession) {
       const snapshot = logSession.snapshot()
       if (snapshot) {
@@ -184,19 +267,26 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
               : undefined,
           usageEstimated: snapshot.usageEstimated,
           status: 'error',
-          errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
+          errorMessage: userCancelled
+            ? '已取消'
+            : error instanceof Error
+              ? error.message
+              : 'AI 请求失败',
         })
       }
     }
 
-    if (abortController?.signal.aborted && abortController.signal.reason instanceof Error) {
-      throw abortController.signal.reason
+    if (userCancelled) {
+      throw createAbortError()
     }
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(STREAM_IDLE_ERROR)
+    if (idleTimedOut) {
+      throw createStreamIdleTimeoutError()
+    }
+    if (error instanceof Error && error.name === 'AbortError' && (options.idleTimeoutMs ?? 0) > 0) {
+      throw createStreamIdleTimeoutError()
     }
     throw error
   } finally {
-    clearIdleTimer()
+    idle.dispose()
   }
 }

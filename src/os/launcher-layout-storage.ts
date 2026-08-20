@@ -1,4 +1,11 @@
 import { APP_REGISTRY } from './app-registry.tsx'
+import {
+  applyDefaultLauncherFolders,
+  buildDefaultLauncherFolders,
+  DEVELOPER_TOOLS_FOLDER_ID,
+  isDefaultFolderGroupedAppId,
+  LAUNCHER_LAYOUT_VERSION,
+} from './builtin-app-launcher-groups.ts'
 import { reconcileDesktopItemOrder, removeAppFromFolders } from './desktop-folder-operations.ts'
 import type { DesktopFolder, DesktopItemId } from './desktop-folder-types.ts'
 import { isDesktopFolderId } from './desktop-folder-types.ts'
@@ -30,15 +37,18 @@ export const DESKTOP_ICON_GAP_X = 24
 export const DESKTOP_ICON_GAP_Y = 28
 
 export type LauncherLayoutState = {
+  /** 缺省视为 1（无默认开发工具文件夹）。 */
+  layoutVersion?: number
   pinnedDockItemIds: DesktopItemId[]
   desktopIconOrder: DesktopItemId[]
   desktopFolders: DesktopFolder[]
 }
 
-const DEFAULT_DOCK_PINNED_BUILTIN_COUNT = 4
+/** 出厂程序坞固定区。文件由 reconcile 保证始终存在。 */
+const DEFAULT_DOCK_PINNED_APP_IDS: readonly BuiltinAppId[] = ['files', 'appstore', 'browser', 'settings']
 
 /** 始终保留在程序坞固定区，不可移除。 */
-export const PERMANENTLY_PINNED_DOCK_APP_IDS: readonly BuiltinAppId[] = ['settings']
+export const PERMANENTLY_PINNED_DOCK_APP_IDS: readonly BuiltinAppId[] = ['files']
 
 export function isPermanentlyPinnedToDock(appId: AppId): boolean {
   return PERMANENTLY_PINNED_DOCK_APP_IDS.includes(appId as BuiltinAppId)
@@ -66,29 +76,30 @@ export function reconcilePinnedDockItemIds(
     ordered.push(itemId)
   }
 
-  for (const appId of PERMANENTLY_PINNED_DOCK_APP_IDS) {
-    if (!ordered.includes(appId)) {
-      ordered.push(appId)
-    }
+  const missingPermanent = PERMANENTLY_PINNED_DOCK_APP_IDS.filter((appId) => !ordered.includes(appId))
+  if (missingPermanent.length > 0) {
+    ordered.unshift(...missingPermanent)
   }
 
   return ordered
 }
 
 export function getDefaultPinnedDockItemIds(): DesktopItemId[] {
-  const leading = APP_REGISTRY.slice(0, DEFAULT_DOCK_PINNED_BUILTIN_COUNT).map((app) => app.id)
-  return reconcilePinnedDockItemIds(leading)
+  return reconcilePinnedDockItemIds([...DEFAULT_DOCK_PINNED_APP_IDS])
 }
 
 export function getDefaultDesktopIconOrder(): AppId[] {
-  return APP_REGISTRY.filter((app) => isBuiltinAppVisibleOnDesktop(app)).map((app) => app.id)
+  return APP_REGISTRY.filter(
+    (app) => isBuiltinAppVisibleOnDesktop(app) && !isDefaultFolderGroupedAppId(app.id),
+  ).map((app) => app.id)
 }
 
 export function getDefaultLauncherLayout(): LauncherLayoutState {
   return {
+    layoutVersion: LAUNCHER_LAYOUT_VERSION,
     pinnedDockItemIds: getDefaultPinnedDockItemIds(),
-    desktopIconOrder: [],
-    desktopFolders: [],
+    desktopIconOrder: [...getDefaultDesktopIconOrder(), DEVELOPER_TOOLS_FOLDER_ID],
+    desktopFolders: buildDefaultLauncherFolders(),
   }
 }
 
@@ -170,13 +181,30 @@ function readLauncherLayout(): LauncherLayoutState {
       : []
 
     const pinnedDockItemIds = reconcilePinnedDockItemIds(storedPinnedDockItemIds, desktopFolders)
-    const state: LauncherLayoutState = { pinnedDockItemIds, desktopIconOrder, desktopFolders }
+    let state: LauncherLayoutState = {
+      layoutVersion: typeof parsed.layoutVersion === 'number' ? parsed.layoutVersion : 1,
+      pinnedDockItemIds,
+      desktopIconOrder,
+      desktopFolders,
+    }
+
+    const foldersMigrated = (state.layoutVersion ?? 1) < LAUNCHER_LAYOUT_VERSION
+    if (foldersMigrated) {
+      const grouped = applyDefaultLauncherFolders(state)
+      state = {
+        ...state,
+        layoutVersion: LAUNCHER_LAYOUT_VERSION,
+        desktopIconOrder: grouped.desktopIconOrder,
+        desktopFolders: grouped.desktopFolders,
+      }
+    }
+
     const pinsMigrated =
       pinnedDockItemIds.some((itemId, index) => storedPinnedDockItemIds[index] !== itemId) ||
       pinnedDockItemIds.length !== storedPinnedDockItemIds.length ||
       legacyPinnedDockAppIds !== undefined
 
-    if (pinsMigrated) {
+    if (pinsMigrated || foldersMigrated) {
       writeLauncherLayout(state)
     }
 

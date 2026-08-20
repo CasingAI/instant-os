@@ -1,0 +1,11 @@
+/**
+ * @deprecated 模拟终端已弃用，此样式表随 simulated-terminal app 一并保留，后续移除。
+ * 真终端使用 terminal-repl-shell.css，模拟终端 UI 使用 terminal-panel.css。
+ */
+.simulated-terminal-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #1c1c1e;
+}

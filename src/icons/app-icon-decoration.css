@@ -1,0 +1,61 @@
+.app-icon-decoration {
+  position: relative;
+  display: inline-flex;
+}
+
+/* 与图标同圆角裁切；clip-path 才能裁住旋转后的丝带 */
+.app-icon-decoration__overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--r);
+  clip-path: inset(0 round var(--r));
+  isolation: isolate;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.app-icon-ribbon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.app-icon-ribbon__band {
+  fill: var(--app-icon-ribbon-color, #ff453a);
+}
+
+.app-icon-ribbon__label {
+  fill: #fff;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-weight: 800;
+  font-style: normal;
+  letter-spacing: 0.04em;
+}
+
+.app-icon-sleeve {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--d) * 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(var(--d) * 0.04);
+  background: var(--app-icon-sleeve-color, rgba(16, 16, 22, 0.72));
+  color: #fff;
+  font-size: calc(var(--d) * 0.145);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}

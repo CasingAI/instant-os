@@ -1,16 +1,45 @@
+import type OpenAI from 'openai'
+import { isStreamIdleTimeoutError } from './stream-idle-timeout.ts'
+
 function createAbortError(): DOMException {
   return new DOMException('Aborted', 'AbortError')
 }
 
+function rejectReasonFromSignal(signal: AbortSignal): Error {
+  const reason = signal.reason
+  if (reason instanceof Error) {
+    return reason
+  }
+  return createAbortError()
+}
+
+/** OpenAI SDK 的 signal 须在 create 第二参数，不能放进 body */
+export function createChatCompletionStream(
+  client: OpenAI,
+  body: OpenAI.Chat.ChatCompletionCreateParamsStreaming,
+  signal?: AbortSignal,
+) {
+  return client.chat.completions.create(body, signal ? { signal } : undefined)
+}
+
 export function throwIfStreamAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    throw createAbortError()
+    throw rejectReasonFromSignal(signal)
   }
 }
 
+/** 用户取消（不含空闲超时） */
 export function isStreamAbortError(error: unknown, signal?: AbortSignal): boolean {
+  if (isStreamIdleTimeoutError(error)) {
+    return false
+  }
+  if (signal?.aborted === true) {
+    if (isStreamIdleTimeoutError(signal.reason)) {
+      return false
+    }
+    return true
+  }
   return (
-    signal?.aborted === true ||
     (error instanceof DOMException && error.name === 'AbortError') ||
     (error instanceof Error && error.name === 'AbortError')
   )
@@ -25,13 +54,13 @@ export function raceWithAbortSignal<T>(
   }
 
   if (signal.aborted) {
-    return Promise.reject(createAbortError())
+    return Promise.reject(rejectReasonFromSignal(signal))
   }
 
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       cleanup()
-      reject(createAbortError())
+      reject(rejectReasonFromSignal(signal))
     }
 
     const cleanup = () => {
@@ -52,13 +81,30 @@ export function raceWithAbortSignal<T>(
   })
 }
 
+type AbortableStream<T> = AsyncIterable<T> & {
+  controller?: AbortController
+}
+
 export async function forEachStreamChunk<T>(
-  stream: AsyncIterable<T>,
+  stream: AbortableStream<T>,
   onChunk: (chunk: T) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   throwIfStreamAborted(signal)
   const iterator = stream[Symbol.asyncIterator]()
+
+  const abortStreamController = () => {
+    if (!stream.controller || stream.controller.signal.aborted) return
+    stream.controller.abort()
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      abortStreamController()
+      throw rejectReasonFromSignal(signal)
+    }
+    signal.addEventListener('abort', abortStreamController, { once: true })
+  }
 
   try {
     while (true) {
@@ -69,7 +115,16 @@ export async function forEachStreamChunk<T>(
       }
       onChunk(next.value)
     }
+    throwIfStreamAborted(signal)
+  } catch (error) {
+    abortStreamController()
+    throw error
   } finally {
-    await iterator.return?.()
+    signal?.removeEventListener('abort', abortStreamController)
+    try {
+      await iterator.return?.()
+    } catch {
+      // 流已因 abort 关闭时忽略 return 错误
+    }
   }
 }

@@ -1,9 +1,10 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
-import type { TokenUsageSnapshot } from '../browser/browser-token-usage.ts'
+import { cachedPromptTokensOf, type TokenUsageSnapshot } from '../browser/browser-token-usage.ts'
 
 export type NewsTokenUsageRecord = {
   totalPromptTokens: number
   totalCompletionTokens: number
+  totalCachedPromptTokens: number
   totalTokens: number
   articleGenCount: number
   commentGenCount: number
@@ -15,6 +16,7 @@ const STORAGE_KEY = DEVICE_STORAGE_KEYS.newsTokenUsage
 const EMPTY_RECORD: NewsTokenUsageRecord = {
   totalPromptTokens: 0,
   totalCompletionTokens: 0,
+  totalCachedPromptTokens: 0,
   totalTokens: 0,
   articleGenCount: 0,
   commentGenCount: 0,
@@ -31,6 +33,7 @@ export function loadNewsTokenUsage(): NewsTokenUsageRecord {
     return {
       totalPromptTokens: parsed.totalPromptTokens ?? 0,
       totalCompletionTokens: parsed.totalCompletionTokens ?? 0,
+      totalCachedPromptTokens: parsed.totalCachedPromptTokens ?? 0,
       totalTokens: parsed.totalTokens ?? 0,
       articleGenCount: parsed.articleGenCount ?? 0,
       commentGenCount: parsed.commentGenCount ?? 0,
@@ -54,6 +57,7 @@ export function recordNewsTokenUsage(
   const record = loadNewsTokenUsage()
   record.totalPromptTokens += usage.promptTokens
   record.totalCompletionTokens += usage.completionTokens
+  record.totalCachedPromptTokens += cachedPromptTokensOf(usage)
   record.totalTokens += usage.totalTokens
   if (kind === 'article') {
     record.articleGenCount += 1

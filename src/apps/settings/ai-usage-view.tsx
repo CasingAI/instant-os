@@ -3,12 +3,15 @@ import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import {
   AI_TOKEN_USAGE_CHANGED_EVENT,
   clearAiTokenUsage,
+  formatCacheHitRate,
   formatUsageDayLabel,
+  formatUsageModelLabel,
   formatUsageTime,
   getActorUsageList,
   getAiUsageRequestsForDay,
   getBehaviorUsageList,
   getDayUsageList,
+  getModelUsageList,
   loadAiTokenUsage,
   resolveRequestActorLabel,
   type ActorTokenUsage,
@@ -26,6 +29,7 @@ import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 const AI_USAGE_NAV_LABEL = 'AI 用量'
 const DAY_PREVIEW_COUNT = 14
 const ACTOR_PREVIEW_COUNT = 12
+const MODEL_PREVIEW_COUNT = 12
 const REQUEST_PREVIEW_COUNT = 30
 const BEHAVIOR_PREVIEW_COUNT = 20
 
@@ -34,7 +38,7 @@ type AiUsageViewProps = {
   installedApps?: GeneratedAppRecord[]
 }
 
-type Screen = 'overview' | 'day' | 'actor'
+type Screen = 'overview' | 'day' | 'actor' | 'model'
 
 function resolveActorDisplayName(
   actor: string,
@@ -79,15 +83,19 @@ function enrichDayLabels(days: DayTokenUsage[]): Array<DayTokenUsage & { label: 
 function SummaryBox({
   title,
   promptTokens,
+  cachedPromptTokens,
   completionTokens,
   totalTokens,
   requestCount,
+  cacheHitRate,
 }: {
   title?: string
   promptTokens: number
+  cachedPromptTokens: number
   completionTokens: number
   totalTokens: number
   requestCount: number
+  cacheHitRate?: string
 }) {
   return (
     <div class="settings__box" aria-label={title ?? 'AI 用量摘要'}>
@@ -100,9 +108,19 @@ function SummaryBox({
         <dd>{formatTokenCount(promptTokens)}</dd>
       </dl>
       <dl class="settings__form-row">
+        <dt>缓存输入 Tokens</dt>
+        <dd>{formatTokenCount(cachedPromptTokens)}</dd>
+      </dl>
+      <dl class="settings__form-row">
         <dt>输出 Tokens</dt>
         <dd>{formatTokenCount(completionTokens)}</dd>
       </dl>
+      {cacheHitRate !== undefined && (
+        <dl class="settings__form-row">
+          <dt>缓存命中率</dt>
+          <dd>{cacheHitRate}</dd>
+        </dl>
+      )}
       <dl class="settings__form-row">
         <dt>请求次数</dt>
         <dd>{requestCount.toLocaleString('zh-CN')} 次</dd>
@@ -161,6 +179,7 @@ function RequestRow({
         <span class="settings__row-hint">{request.behaviorLabel}</span>
       </span>
       <span class="settings__row-size">{formatTokenCount(request.promptTokens)}</span>
+      <span class="settings__row-size">{formatTokenCount(request.cachedPromptTokens)}</span>
       <span class="settings__row-size">{formatTokenCount(request.completionTokens)}</span>
       <span class="settings__row-size">{formatTokenCount(request.totalTokens)}</span>
     </div>
@@ -171,10 +190,12 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
   const [screen, setScreen] = useState<Screen>('overview')
   const [selectedDay, setSelectedDay] = useState<string | undefined>()
   const [selectedActor, setSelectedActor] = useState<string | undefined>()
+  const [selectedModel, setSelectedModel] = useState<string | undefined>()
   const [record, setRecord] = useState<AiTokenUsageRecord | undefined>()
   const [dayRequests, setDayRequests] = useState<AiUsageRequestRecord[]>([])
   const [daysExpanded, setDaysExpanded] = useState(false)
   const [actorsExpanded, setActorsExpanded] = useState(false)
+  const [modelsExpanded, setModelsExpanded] = useState(false)
   const [requestsExpanded, setRequestsExpanded] = useState(false)
   const [behaviorsExpanded, setBehaviorsExpanded] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -218,12 +239,14 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
     [record, installedApps],
   )
   const days = useMemo(() => (record ? enrichDayLabels(getDayUsageList(record)) : []), [record])
+  const models = useMemo(() => (record ? getModelUsageList(record) : []), [record])
   const selectedEntry = selectedActor && record ? record.byActor[selectedActor] : undefined
   const selectedBehaviors = useMemo(
     () => (selectedEntry ? getBehaviorUsageList(selectedEntry) : []),
     [selectedEntry],
   )
   const selectedDaySummary = selectedDay && record ? record.byDay[selectedDay] : undefined
+  const selectedModelEntry = selectedModel && record ? record.byModel?.[selectedModel] : undefined
 
   const canExpandDays = days.length > DAY_PREVIEW_COUNT
   const showExpandDays = canExpandDays && !daysExpanded
@@ -232,6 +255,10 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
   const canExpandActors = actors.length > ACTOR_PREVIEW_COUNT
   const showExpandActors = canExpandActors && !actorsExpanded
   const visibleActors = showExpandActors ? actors.slice(0, ACTOR_PREVIEW_COUNT) : actors
+
+  const canExpandModels = models.length > MODEL_PREVIEW_COUNT
+  const showExpandModels = canExpandModels && !modelsExpanded
+  const visibleModels = showExpandModels ? models.slice(0, MODEL_PREVIEW_COUNT) : models
 
   const canExpandRequests = dayRequests.length > REQUEST_PREVIEW_COUNT
   const showExpandRequests = canExpandRequests && !requestsExpanded
@@ -250,6 +277,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
       setScreen('overview')
       setSelectedDay(undefined)
       setSelectedActor(undefined)
+      setSelectedModel(undefined)
       setDayRequests([])
       void refreshSummary()
     })
@@ -258,19 +286,29 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
   const openDay = (day: string) => {
     setSelectedDay(day)
     setSelectedActor(undefined)
+    setSelectedModel(undefined)
     setScreen('day')
   }
 
   const openActor = (actor: string) => {
     setSelectedActor(actor)
     setSelectedDay(undefined)
+    setSelectedModel(undefined)
     setScreen('actor')
+  }
+
+  const openModel = (model: string) => {
+    setSelectedModel(model)
+    setSelectedDay(undefined)
+    setSelectedActor(undefined)
+    setScreen('model')
   }
 
   const backToOverview = () => {
     setScreen('overview')
     setSelectedDay(undefined)
     setSelectedActor(undefined)
+    setSelectedModel(undefined)
     setDayRequests([])
   }
 
@@ -289,7 +327,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
 
   if (screen === 'day' && selectedDay && selectedDaySummary) {
     return (
-      <div class="settings">
+      <div class="settings" data-settings-subpage>
         <div class="settings__nav">
           <IosNavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
         </div>
@@ -298,6 +336,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
             <h2 class="settings__section-title">{formatUsageDayLabel(selectedDay)}</h2>
             <SummaryBox
               promptTokens={selectedDaySummary.promptTokens}
+              cachedPromptTokens={selectedDaySummary.cachedPromptTokens}
               completionTokens={selectedDaySummary.completionTokens}
               totalTokens={selectedDaySummary.totalTokens}
               requestCount={selectedDaySummary.requestCount}
@@ -314,6 +353,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
                   <span>时间</span>
                   <span>来源</span>
                   <span>输入</span>
+                  <span>缓存</span>
                   <span>输出</span>
                   <span>合计</span>
                 </div>
@@ -341,7 +381,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
 
   if (screen === 'actor' && selectedEntry) {
     return (
-      <div class="settings">
+      <div class="settings" data-settings-subpage>
         <div class="settings__nav">
           <IosNavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
         </div>
@@ -352,6 +392,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
             </h2>
             <SummaryBox
               promptTokens={selectedEntry.promptTokens}
+              cachedPromptTokens={selectedEntry.cachedPromptTokens}
               completionTokens={selectedEntry.completionTokens}
               totalTokens={selectedEntry.totalTokens}
               requestCount={selectedEntry.requestCount}
@@ -367,6 +408,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
                 <div class="settings__list-head settings__list-head--ai-detail">
                   <span>行为</span>
                   <span>输入</span>
+                  <span>缓存</span>
                   <span>输出</span>
                   <span>合计</span>
                 </div>
@@ -380,6 +422,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
                         </span>
                       </span>
                       <span class="settings__row-size">{formatTokenCount(entry.promptTokens)}</span>
+                      <span class="settings__row-size">{formatTokenCount(entry.cachedPromptTokens)}</span>
                       <span class="settings__row-size">{formatTokenCount(entry.completionTokens)}</span>
                       <span class="settings__row-size">{formatTokenCount(entry.totalTokens)}</span>
                     </div>
@@ -402,13 +445,41 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
     )
   }
 
+  if (screen === 'model' && selectedModelEntry) {
+    return (
+      <div class="settings" data-settings-subpage>
+        <div class="settings__nav">
+          <IosNavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
+        </div>
+        <div class="settings__content settings__content--compact">
+          <section class="settings__section">
+            <h2 class="settings__section-title">{formatUsageModelLabel(selectedModelEntry.model)}</h2>
+            <SummaryBox
+              promptTokens={selectedModelEntry.promptTokens}
+              cachedPromptTokens={selectedModelEntry.cachedPromptTokens}
+              completionTokens={selectedModelEntry.completionTokens}
+              totalTokens={selectedModelEntry.totalTokens}
+              requestCount={selectedModelEntry.requestCount}
+              cacheHitRate={formatCacheHitRate(
+                selectedModelEntry.cachedPromptTokens,
+                selectedModelEntry.cacheReadPromptTokens ?? 0,
+              )}
+            />
+          </section>
+        </div>
+      </div>
+    )
+  }
+
   const usageRecord = record ?? {
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
+    totalCachedPromptTokens: 0,
     totalTokens: 0,
     requestCount: 0,
     byActor: {},
     byDay: {},
+    byModel: {},
   }
 
   return (
@@ -421,6 +492,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
           <h2 class="settings__section-title">总用量</h2>
           <SummaryBox
             promptTokens={usageRecord.totalPromptTokens}
+            cachedPromptTokens={usageRecord.totalCachedPromptTokens}
             completionTokens={usageRecord.totalCompletionTokens}
             totalTokens={usageRecord.totalTokens}
             requestCount={usageRecord.requestCount}
@@ -493,6 +565,45 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
                     onClick={() => setActorsExpanded(true)}
                   >
                     显示全部应用
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section class="settings__section">
+          <h2 class="settings__section-title">按模型</h2>
+          {models.length === 0 ? (
+            <div class="settings__box settings__empty">
+              暂无按模型统计（接入后的请求才会归类）
+            </div>
+          ) : (
+            <div class="settings__list">
+              <div class="settings__list-head settings__list-head--ai-nav">
+                <span>模型</span>
+                <span>请求</span>
+                <span>Tokens</span>
+                <span class="settings__list-head-spacer" aria-hidden="true" />
+              </div>
+              <div class="settings__list-body settings__list-body--apps">
+                {visibleModels.map((entry) => (
+                  <UsageNavRow
+                    key={entry.model}
+                    label={formatUsageModelLabel(entry.model)}
+                    hint={`缓存命中率 ${formatCacheHitRate(entry.cachedPromptTokens, entry.cacheReadPromptTokens ?? 0)}`}
+                    countLabel={entry.requestCount.toLocaleString('zh-CN')}
+                    tokenLabel={formatTokenCount(entry.totalTokens)}
+                    onClick={() => openModel(entry.model)}
+                  />
+                ))}
+                {showExpandModels && (
+                  <button
+                    type="button"
+                    class="settings__row settings__row--show-all"
+                    onClick={() => setModelsExpanded(true)}
+                  >
+                    显示全部模型
                   </button>
                 )}
               </div>

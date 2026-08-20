@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
-/** 与 window-snap 中 NARROW_WORK_AREA_WIDTH 保持一致 */
-export const APP_NARROW_LAYOUT_MAX_WIDTH = 640
+/** 进入窄屏布局的上限（含），与 window-snap 中 NARROW_WORK_AREA_WIDTH 对齐 */
+export const APP_NARROW_LAYOUT_MAX_WIDTH = 520
+
+/**
+ * 退出窄屏布局的下限（不含）。
+ * 与进入阈值拉开滞回，避免卡在临界宽度时布局来回跳。
+ */
+export const APP_NARROW_LAYOUT_EXIT_WIDTH = 580
 
 export function useAppNarrowLayout(): {
   hostRef: (node: HTMLElement | null) => void
@@ -23,8 +29,14 @@ export function useAppNarrowLayout(): {
     }
 
     const sync = () => {
-      setNarrow(node.clientWidth <= APP_NARROW_LAYOUT_MAX_WIDTH)
-      setLayoutReady(true)
+      const width = node.clientWidth
+      setNarrow((current) => {
+        if (current) {
+          return width < APP_NARROW_LAYOUT_EXIT_WIDTH
+        }
+        return width <= APP_NARROW_LAYOUT_MAX_WIDTH
+      })
+      setLayoutReady((ready) => ready || true)
     }
 
     sync()

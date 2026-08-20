@@ -3,6 +3,9 @@ import type { WindowSnap } from '../os/types.ts'
 
 export const MIN_WINDOW_WIDTH = 280
 export const MIN_WINDOW_HEIGHT = 160
+/** 小型对话框窗口（进度面板等）允许更矮 */
+export const MIN_DIALOG_WINDOW_WIDTH = 280
+export const MIN_DIALOG_WINDOW_HEIGHT = 96
 export const RESIZE_HANDLE_SIZE = 6
 
 export type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
@@ -71,11 +74,19 @@ export function computeEdgeExtremeBounds(
   return { x, y, width, height }
 }
 
-export function clampFloatingSize(width: number, height: number): Pick<WindowBounds, 'width' | 'height'> {
+export function clampFloatingSize(
+  width: number,
+  height: number,
+  options?: { minWidth?: number; minHeight?: number },
+): Pick<WindowBounds, 'width' | 'height'> {
   const work = getMaximizedBounds()
+  const minWidth = options?.minWidth ?? MIN_WINDOW_WIDTH
+  const minHeight = options?.minHeight ?? MIN_WINDOW_HEIGHT
+  const safeWidth = Number.isFinite(width) ? width : minWidth
+  const safeHeight = Number.isFinite(height) ? height : minHeight
   return {
-    width: Math.max(MIN_WINDOW_WIDTH, Math.min(width, work.width)),
-    height: Math.max(MIN_WINDOW_HEIGHT, Math.min(height, work.height)),
+    width: Math.max(minWidth, Math.min(safeWidth, work.width)),
+    height: Math.max(minHeight, Math.min(safeHeight, work.height)),
   }
 }
 

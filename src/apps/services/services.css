@@ -1,0 +1,151 @@
+/* 服务 — 钥匙串式整页；宽屏左右两栏撑满窗口 */
+
+.services-host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.services-host--narrow {
+  min-height: 0;
+}
+
+.services-host--narrow > .keychain-stack {
+  flex: 1;
+  min-height: 0;
+}
+
+.services-split {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(220px, 36%) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  gap: 0;
+  overflow: visible;
+}
+
+.services-split__pane {
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+
+.services-split__pane--list {
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
+}
+
+.services-split__pane--detail {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+/* 分栏 pane 已是窗口的一部分，不适用整页 860px 居中留白 */
+@container app-window (min-width: 700px) {
+  .services-split__pane > .settings__content--compact {
+    --settings-content-pad-x: 18px;
+    padding: 14px 18px 18px;
+  }
+}
+
+/* 宽屏列表选中行：不用 settings__row--button，避免导航行 hover 白字 */
+.services__pick-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 4px 10px;
+  min-height: 36px;
+  border: none;
+  border-bottom: 1px solid #ececec;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+
+.services__pick-row:last-child {
+  border-bottom: none;
+}
+
+.services__pick-row:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.services__pick-row--selected,
+.services__pick-row--selected:hover {
+  background: linear-gradient(180deg, #d6e8fb 0%, #c2dbf5 100%);
+  color: inherit;
+}
+
+.services__pick-row .settings__row-size {
+  text-align: right;
+}
+
+.services__pick-row--selected .settings__row-size,
+.services__pick-row:hover .settings__row-size {
+  color: #666;
+}
+
+.services__row-size--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.services__detail-lead {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.services__detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* tooltip 式左向尖尖，对齐左侧选中行中心（仅宽屏） */
+.services__detail-caret {
+  position: absolute;
+  top: var(--services-caret-y, 50%);
+  left: var(--services-caret-x, 36%);
+  z-index: 4;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.services__detail-caret::before,
+.services__detail-caret::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.services__detail-caret::before {
+  border-width: 9px 9px 9px 0;
+  border-color: transparent rgba(0, 0, 0, 0.18) transparent transparent;
+}
+
+.services__detail-caret::after {
+  border-width: 8px 8px 8px 0;
+  border-color: transparent var(--services-caret-fill, #ececec) transparent transparent;
+  right: -1px;
+}

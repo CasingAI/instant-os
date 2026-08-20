@@ -1,17 +1,23 @@
+import { formatStorageSize } from './format-storage-size.ts'
+import { beginIdbTransaction } from './idb-transaction.ts'
 import { osNowMs } from './os-clock.ts'
-/** IndexedDB 数据空间硬上限 50 MB */
-export const DATA_CAPACITY_BYTES = 50 * 1024 * 1024
+/** IndexedDB 数据空间硬上限 4 GB */
+export const DATA_CAPACITY_BYTES = 4 * 1024 * 1024 * 1024
 
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
 export const DATA_DB_NAME = 'instant-os-data'
-export const DATA_DB_VERSION = 6
+export const DATA_DB_VERSION = 10
 export const BOOK_CHAPTERS_STORE = 'book-chapters'
 export const BOOK_DETAILS_STORE = 'book-details'
 export const SAFARI_PAGE_CACHE_STORE = 'safari-page-cache'
 export const AI_TOKEN_USAGE_STORE = 'ai-token-usage'
 export const AI_EVENT_LOG_STORE = 'ai-event-log'
+export const VSCODE_AI_CHAT_STORE = 'vscode-ai-chat'
 export const FOLDER_ICON_SNAPSHOTS_STORE = 'folder-icon-snapshots'
+export const MODEL_VISION_RESULTS_STORE = 'model-vision-results'
+export const MODEL_VISION_MEDIA_STORE = 'model-vision-media'
+export const MUSIC_TRACKS_STORE = 'music-tracks'
 export const DATA_META_STORE = 'data-meta'
 
 export type BookChapterRecord = {
@@ -43,6 +49,13 @@ export type SafariPageCacheRecord = {
   byteSize: number
 }
 
+/** 音乐 App 导入曲库的音频文件体（blob 直接存 IDB，按 byteSize 记账到数据空间） */
+export type MusicTrackRecord = {
+  id: string
+  blob: Blob
+  byteSize: number
+}
+
 type DataMetaRecord = {
   key: 'byte-total'
   totalBytes: number
@@ -50,7 +63,7 @@ type DataMetaRecord = {
 
 export class DeviceDataStorageFullError extends Error {
   constructor() {
-    super('数据空间已满（50 MB 上限）')
+    super(`数据空间已满（${formatStorageSize(DATA_CAPACITY_BYTES)} 上限）`)
     this.name = 'DeviceDataStorageFullError'
   }
 }
@@ -137,6 +150,18 @@ function openDataDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(FOLDER_ICON_SNAPSHOTS_STORE)) {
         db.createObjectStore(FOLDER_ICON_SNAPSHOTS_STORE, { keyPath: 'key' })
       }
+      if (!db.objectStoreNames.contains(MODEL_VISION_RESULTS_STORE)) {
+        db.createObjectStore(MODEL_VISION_RESULTS_STORE, { keyPath: 'modelId' })
+      }
+      if (!db.objectStoreNames.contains(MODEL_VISION_MEDIA_STORE)) {
+        db.createObjectStore(MODEL_VISION_MEDIA_STORE, { keyPath: 'modelId' })
+      }
+      if (!db.objectStoreNames.contains(VSCODE_AI_CHAT_STORE)) {
+        db.createObjectStore(VSCODE_AI_CHAT_STORE, { keyPath: 'workspaceKey' })
+      }
+      if (!db.objectStoreNames.contains(MUSIC_TRACKS_STORE)) {
+        db.createObjectStore(MUSIC_TRACKS_STORE, { keyPath: 'id' })
+      }
     }
 
     request.onsuccess = () => resolve(request.result)
@@ -157,7 +182,7 @@ export function runDataStoreTransaction<T>(
   return openDataDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const tx = db.transaction(storeName, mode)
+        const tx = beginIdbTransaction(db, storeName, mode)
         const store = tx.objectStore(storeName)
         const result = fn(store)
 
@@ -201,6 +226,30 @@ function emitDataStorageChanged(): void {
 
 export async function getTotalDataStorageBytes(): Promise<number> {
   return readByteTotal()
+}
+
+async function getFilesBytesForQuota(): Promise<number> {
+  try {
+    const { getFilesTotalBytes } = await import('../apps/files/files-storage.ts')
+    return await getFilesTotalBytes()
+  } catch {
+    return 0
+  }
+}
+
+/** 数据空间已用（核心 IndexedDB）+ 文件用户数据。 */
+export async function getCombinedDataStorageBytes(): Promise<number> {
+  const [dataBytes, filesBytes] = await Promise.all([
+    getTotalDataStorageBytes(),
+    getFilesBytesForQuota(),
+  ])
+  return dataBytes + filesBytes
+}
+
+/** 核心数据写入后的 projectedTotal（不含文件）是否会使合并数据空间超限。 */
+export async function wouldExceedDataCapacity(projectedCoreDataTotal: number): Promise<boolean> {
+  const filesBytes = await getFilesBytesForQuota()
+  return projectedCoreDataTotal + filesBytes > DATA_CAPACITY_BYTES
 }
 
 async function sumStoreBytes(storeName: string): Promise<number> {
@@ -277,7 +326,7 @@ export async function putBookDetailRecord(input: {
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return false
   }
 
@@ -301,6 +350,60 @@ export async function deleteBookDetailRecord(slug: string): Promise<void> {
     }
 
     await runDataStoreTransaction(BOOK_DETAILS_STORE, 'readwrite', (store) => store.delete(slug))
+    const currentTotal = await readByteTotal()
+    await writeByteTotal(Math.max(0, currentTotal - existing.byteSize))
+    emitDataStorageChanged()
+  } catch {
+    // ignore
+  }
+}
+
+export async function getMusicTracksBytes(): Promise<number> {
+  try {
+    return sumStoreBytes(MUSIC_TRACKS_STORE)
+  } catch {
+    return 0
+  }
+}
+
+export async function getMusicTrack(id: string): Promise<MusicTrackRecord | undefined> {
+  try {
+    return await runDataStoreTransaction<MusicTrackRecord | undefined>(
+      MUSIC_TRACKS_STORE,
+      'readonly',
+      (store) => store.get(id),
+    )
+  } catch {
+    return undefined
+  }
+}
+
+/** 写入音乐曲目音频体；超数据空间配额返回 false。 */
+export async function putMusicTrack(id: string, blob: Blob): Promise<boolean> {
+  const byteSize = blob.size
+  const existing = await getMusicTrack(id)
+  const currentTotal = await readByteTotal()
+  const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
+
+  if (await wouldExceedDataCapacity(projectedTotal)) {
+    return false
+  }
+
+  const record: MusicTrackRecord = { id, blob, byteSize }
+  await runDataStoreTransaction(MUSIC_TRACKS_STORE, 'readwrite', (store) => store.put(record))
+  await writeByteTotal(projectedTotal)
+  emitDataStorageChanged()
+  return true
+}
+
+export async function deleteMusicTrack(id: string): Promise<void> {
+  try {
+    const existing = await getMusicTrack(id)
+    if (!existing) {
+      return
+    }
+
+    await runDataStoreTransaction(MUSIC_TRACKS_STORE, 'readwrite', (store) => store.delete(id))
     const currentTotal = await readByteTotal()
     await writeByteTotal(Math.max(0, currentTotal - existing.byteSize))
     emitDataStorageChanged()
@@ -356,7 +459,7 @@ export async function putSafariPageCacheRecord(input: {
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return false
   }
 
@@ -461,7 +564,7 @@ export async function putBookChapter(input: {
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return false
   }
 
@@ -564,22 +667,153 @@ export async function getFolderIconSnapshotsBytes(): Promise<number> {
   }
 }
 
+export async function getModelVisionResultsBytes(): Promise<number> {
+  try {
+    const [resultsBytes, mediaBytes] = await Promise.all([
+      sumStoreBytes(MODEL_VISION_RESULTS_STORE),
+      sumStoreBytes(MODEL_VISION_MEDIA_STORE),
+    ])
+    return resultsBytes + mediaBytes
+  } catch {
+    return 0
+  }
+}
+
 export async function rebuildDataByteTotal(): Promise<number> {
   try {
-    const [bookChapterBytes, bookDetailBytes, cacheBytes, aiUsageBytes, aiEventLogBytes, folderIconSnapshotBytes] =
-      await Promise.all([
+    const [
+      bookChapterBytes,
+      bookDetailBytes,
+      cacheBytes,
+      aiUsageBytes,
+      aiEventLogBytes,
+      vscodeAiChatBytes,
+      folderIconSnapshotBytes,
+      modelVisionBytes,
+      musicTrackBytes,
+    ] = await Promise.all([
       sumStoreBytes(BOOK_CHAPTERS_STORE),
       sumStoreBytes(BOOK_DETAILS_STORE),
       sumStoreBytes(SAFARI_PAGE_CACHE_STORE),
       sumStoreBytes(AI_TOKEN_USAGE_STORE),
       sumStoreBytes(AI_EVENT_LOG_STORE),
+      sumStoreBytes(VSCODE_AI_CHAT_STORE),
       sumStoreBytes(FOLDER_ICON_SNAPSHOTS_STORE),
+      sumStoreBytes(MODEL_VISION_RESULTS_STORE).then(async (resultsBytes) => {
+        const mediaBytes = await sumStoreBytes(MODEL_VISION_MEDIA_STORE)
+        return resultsBytes + mediaBytes
+      }),
+      sumStoreBytes(MUSIC_TRACKS_STORE),
     ])
     const total =
-      bookChapterBytes + bookDetailBytes + cacheBytes + aiUsageBytes + aiEventLogBytes + folderIconSnapshotBytes
+      bookChapterBytes +
+      bookDetailBytes +
+      cacheBytes +
+      aiUsageBytes +
+      aiEventLogBytes +
+      vscodeAiChatBytes +
+      folderIconSnapshotBytes +
+      modelVisionBytes +
+      musicTrackBytes
     await writeByteTotal(total)
     emitDataStorageChanged()
     return total
+  } catch {
+    return 0
+  }
+}
+
+const DEV_DATA_FILL_HOSTNAME = 'dev-data-fill'
+const DEV_DATA_FILL_URL_PREFIX = 'instant-os://dev-data-fill/'
+const DEV_DATA_FILL_CHUNK_HTML_CHARS = 2 * 1024 * 1024
+
+/** 开发者调试：将数据空间写入至硬上限（以网页缓存条目形式落盘）。 */
+export async function fillDataStorageToCapacityForDev(): Promise<{
+  addedBytes: number
+  totalBytes: number
+}> {
+  const filesBytes = await getFilesBytesForQuota()
+  const startTotal = await readByteTotal()
+  let currentTotal = startTotal
+  let chunkIndex = 0
+
+  while (true) {
+    const remaining = DATA_CAPACITY_BYTES - (currentTotal + filesBytes)
+    if (remaining <= 0) {
+      break
+    }
+
+    const baseFields = {
+      url: `${DEV_DATA_FILL_URL_PREFIX}${chunkIndex}`,
+      hostname: DEV_DATA_FILL_HOSTNAME,
+      title: '开发者数据空间填充',
+      pageTokens: undefined as number | undefined,
+      cachedAt: Date.now(),
+    }
+
+    const emptyBytes = estimateSafariPageCacheBytes({ ...baseFields, html: '' })
+    if (emptyBytes > remaining) {
+      break
+    }
+
+    let low = 0
+    let high = Math.min(DEV_DATA_FILL_CHUNK_HTML_CHARS, remaining)
+    let bestHtml = ''
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2)
+      const html = 'x'.repeat(mid)
+      const size = estimateSafariPageCacheBytes({ ...baseFields, html })
+      if (size <= remaining) {
+        bestHtml = html
+        low = mid + 1
+      } else {
+        high = mid - 1
+      }
+    }
+
+    const input = { ...baseFields, html: bestHtml }
+    const byteSize = estimateSafariPageCacheBytes(input)
+    const existing = await getSafariPageCacheRecord(input.url)
+    const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
+    if (await wouldExceedDataCapacity(projectedTotal)) {
+      break
+    }
+
+    const record: SafariPageCacheRecord = { ...input, byteSize }
+    await runDataStoreTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => store.put(record))
+    currentTotal = projectedTotal
+    await writeByteTotal(currentTotal)
+    chunkIndex += 1
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 0)
+    })
+  }
+
+  if (currentTotal !== startTotal) {
+    emitDataStorageChanged()
+  }
+
+  return {
+    addedBytes: currentTotal - startTotal,
+    totalBytes: currentTotal + filesBytes,
+  }
+}
+
+/** 开发者调试：清除「写满数据空间」产生的填充数据。 */
+export async function clearDevDataStorageFill(): Promise<void> {
+  await clearSafariPageCacheByHostname(DEV_DATA_FILL_HOSTNAME)
+}
+
+/** 开发者调试填充占用的字节数（计入数据空间「其他」）。 */
+export async function getDevDataStorageFillBytes(): Promise<number> {
+  try {
+    const records = await runDataStoreTransaction<SafariPageCacheRecord[]>(
+      SAFARI_PAGE_CACHE_STORE,
+      'readonly',
+      (store) => store.index('hostname').getAll(DEV_DATA_FILL_HOSTNAME),
+    )
+    return records.reduce((total, record) => total + record.byteSize, 0)
   } catch {
     return 0
   }

@@ -1,4 +1,4 @@
-import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import { createRegistryStore } from '../../os/registry-store.ts'
 import type {
   NotificationStockItem,
   NotificationStockSnapshot,
@@ -6,7 +6,50 @@ import type {
 import { saveNotificationCenterWidgetsCache } from '../../os/notification-center-widgets-storage.ts'
 import type { StockBoard, StockDetail, StocksStore, StockWatchEntry } from './stocks-types.ts'
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.stocks
+const registryStore = createRegistryStore<StocksStore>({
+  appId: 'stocks',
+  defaultValue: emptyStore,
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'defaultWatchId',
+      read: (store) => store.defaultWatchId,
+      write: (value, draft) => ({ ...draft, defaultWatchId: value }),
+      serialize: (value) => value ?? '',
+      deserialize: (raw) => (raw ? raw : undefined),
+    },
+    {
+      key: 'defaultDisplay',
+      read: (store) => store.defaultDisplay,
+      write: (value, draft) => ({ ...draft, defaultDisplay: value }),
+      serialize: (value) => value,
+      deserialize: (raw) => (raw ? raw : 'default-watch'),
+    },
+    {
+      key: 'marketBoard',
+      valueType: 'json',
+      read: (store) => store.marketBoard,
+      write: (value, draft) => ({ ...draft, marketBoard: value }),
+      normalize: normalizeMarketBoard,
+    },
+    {
+      key: 'watchlist',
+      valueType: 'json',
+      read: (store) => store.watchlist,
+      write: (value, draft) => ({ ...draft, watchlist: value }),
+      normalize: normalizeWatchlist,
+    },
+    {
+      key: 'activeWatchId',
+      read: (store) => store.activeWatchId,
+      write: (value, draft) => ({ ...draft, activeWatchId: value }),
+      serialize: (value) => value ?? '',
+      deserialize: (raw) => (raw ? raw : undefined),
+    },
+  ],
+  finalize: normalizeCrossFieldInvariants,
+  changedEventName: 'instant-os:stocks-store-changed',
+})
 
 function emptyStore(): StocksStore {
   return {
@@ -15,6 +58,51 @@ function emptyStore(): StocksStore {
     marketBoard: undefined,
     watchlist: [],
     activeWatchId: undefined,
+  }
+}
+
+function normalizeCrossFieldInvariants(store: StocksStore): StocksStore {
+  const defaultWatchId =
+    typeof store.defaultWatchId === 'string' &&
+    (store.defaultWatchId === '' || store.watchlist.some((item) => item.id === store.defaultWatchId))
+      ? store.defaultWatchId
+      : undefined
+
+  let defaultDisplay: StocksStore['defaultDisplay'] = store.defaultDisplay
+
+  const validWatchDisplay =
+    defaultDisplay !== 'default-watch' &&
+    defaultDisplay !== 'market-board' &&
+    defaultDisplay !== undefined &&
+    store.watchlist.some((item) => item.id === defaultDisplay)
+
+  if (defaultDisplay !== 'market-board' && defaultDisplay !== 'default-watch' && !validWatchDisplay) {
+    defaultDisplay = defaultWatchId ? 'default-watch' : store.marketBoard ? 'market-board' : 'default-watch'
+  }
+
+  if (defaultDisplay === 'default-watch' && !defaultWatchId) {
+    defaultDisplay = store.marketBoard ? 'market-board' : 'default-watch'
+  }
+
+  if (defaultDisplay === 'market-board' && !store.marketBoard) {
+    defaultDisplay = defaultWatchId ? 'default-watch' : 'market-board'
+  }
+
+  const partial = {
+    defaultDisplay,
+    defaultWatchId,
+    watchlist: store.watchlist,
+    marketBoard: store.marketBoard,
+    activeWatchId: undefined as string | undefined,
+  }
+  const validActiveWatchId = resolveActiveWatchId(partial)
+
+  return {
+    defaultWatchId,
+    defaultDisplay,
+    marketBoard: store.marketBoard,
+    watchlist: store.watchlist,
+    activeWatchId: validActiveWatchId,
   }
 }
 
@@ -108,6 +196,15 @@ function normalizeMarketBoard(raw: unknown): StockBoard | undefined {
   }
 }
 
+function normalizeWatchlist(raw: unknown): StockWatchEntry[] {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  return raw
+    .map((item) => normalizeWatchEntry(item))
+    .filter((item): item is StockWatchEntry => item !== undefined)
+}
+
 function resolveActiveWatchId(
   store: Pick<StocksStore, 'defaultDisplay' | 'defaultWatchId' | 'activeWatchId' | 'watchlist'>,
 ): string | undefined {
@@ -140,83 +237,16 @@ function resolveActiveWatchId(
   return watchlist[0]?.id
 }
 
-function normalizeStore(raw: unknown): StocksStore {
-  if (!raw || typeof raw !== 'object') {
-    return emptyStore()
-  }
-  const record = raw as Record<string, unknown>
-  const watchlist = Array.isArray(record.watchlist)
-    ? record.watchlist
-        .map((item) => normalizeWatchEntry(item))
-        .filter((item): item is StockWatchEntry => item !== undefined)
-    : []
-
-  const marketBoard = normalizeMarketBoard(record.marketBoard)
-  const defaultWatchId =
-    typeof record.defaultWatchId === 'string' && watchlist.some((item) => item.id === record.defaultWatchId)
-      ? record.defaultWatchId
-      : undefined
-
-  let defaultDisplay: StocksStore['defaultDisplay'] =
-    record.defaultDisplay === 'default-watch' ||
-    record.defaultDisplay === 'market-board' ||
-    typeof record.defaultDisplay === 'string'
-      ? (record.defaultDisplay as StocksStore['defaultDisplay'])
-      : 'default-watch'
-
-  if (
-    defaultDisplay !== 'market-board' &&
-    defaultDisplay !== 'default-watch' &&
-    !watchlist.some((item) => item.id === defaultDisplay)
-  ) {
-    defaultDisplay = defaultWatchId ? 'default-watch' : marketBoard ? 'market-board' : 'default-watch'
-  }
-
-  if (defaultDisplay === 'default-watch' && !defaultWatchId) {
-    defaultDisplay = marketBoard ? 'market-board' : 'default-watch'
-  }
-
-  const partial = { defaultDisplay, defaultWatchId, watchlist, activeWatchId: undefined as string | undefined }
-  const validActiveWatchId = resolveActiveWatchId({
-    ...partial,
-    activeWatchId: typeof record.activeWatchId === 'string' ? record.activeWatchId : undefined,
-  })
-
-  return {
-    defaultWatchId,
-    defaultDisplay,
-    marketBoard,
-    watchlist,
-    activeWatchId: validActiveWatchId,
-  }
+export function subscribeStocksStore(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-function loadStore(): StocksStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    return normalizeStore(JSON.parse(raw))
-  } catch {
-    return emptyStore()
-  }
+export async function readStocksStore(): Promise<StocksStore> {
+  return registryStore.read()
 }
 
-function saveStore(store: StocksStore): boolean {
-  const ok = writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
-  if (ok && typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('instant-os:stocks-store-changed'))
-  }
-  return ok
-}
-
-export function readStocksStore(): StocksStore {
-  return loadStore()
-}
-
-export function writeStocksStore(store: StocksStore): boolean {
-  return saveStore(store)
+export async function writeStocksStore(store: StocksStore): Promise<void> {
+  await registryStore.write(store)
 }
 
 export function createWatchId(symbol: string): string {
@@ -352,7 +382,7 @@ export function getWidgetDisplaySnapshot(store: StocksStore): NotificationStockS
   }
 }
 
-export function syncWidgetStocksFromStore(store: StocksStore = readStocksStore()): void {
+export function syncWidgetStocksFromStore(store: StocksStore): void {
   const stocks = getWidgetDisplaySnapshot(store)
   if (!stocks) {
     return
@@ -363,13 +393,15 @@ export function syncWidgetStocksFromStore(store: StocksStore = readStocksStore()
   }
 }
 
-export function ensureDefaultWatchFromNotification(snapshot: NotificationStockSnapshot): StocksStore {
-  const store = readStocksStore()
+export async function ensureDefaultWatchFromNotification(
+  snapshot: NotificationStockSnapshot,
+): Promise<StocksStore> {
+  const store = await readStocksStore()
 
   if (store.defaultWatchId) {
     const next = store.marketBoard ? store : { ...store, marketBoard: snapshotToStockBoard(snapshot) }
     if (next !== store) {
-      writeStocksStore(next)
+      await writeStocksStore(next)
       syncWidgetStocksFromStore(next)
     }
     return next
@@ -396,15 +428,15 @@ export function ensureDefaultWatchFromNotification(snapshot: NotificationStockSn
     marketBoard: next.marketBoard ?? snapshotToStockBoard(snapshot),
   }
 
-  writeStocksStore(next)
+  await writeStocksStore(next)
   syncWidgetStocksFromStore(next)
   return next
 }
 
-export function bootstrapStocksStoreFromWidgetCache(
+export async function bootstrapStocksStoreFromWidgetCache(
   snapshot: NotificationStockSnapshot | undefined,
-): StocksStore {
-  let store = readStocksStore()
+): Promise<StocksStore> {
+  let store = await readStocksStore()
   let changed = false
 
   if (!store.marketBoard && snapshot) {
@@ -439,23 +471,25 @@ export function bootstrapStocksStoreFromWidgetCache(
   }
 
   if (changed) {
-    writeStocksStore(store)
+    await writeStocksStore(store)
     syncWidgetStocksFromStore(store)
   }
 
   return store
 }
 
-export function setDefaultDisplay(defaultDisplay: StocksStore['defaultDisplay']): StocksStore {
-  const store = { ...readStocksStore(), defaultDisplay }
-  writeStocksStore(store)
+export async function setDefaultDisplay(
+  defaultDisplay: StocksStore['defaultDisplay'],
+): Promise<StocksStore> {
+  const store = { ...(await readStocksStore()), defaultDisplay }
+  await writeStocksStore(store)
   syncWidgetStocksFromStore(store)
   return store
 }
 
-export function updateMarketBoard(board: StockBoard): StocksStore {
-  const store = { ...readStocksStore(), marketBoard: board }
-  writeStocksStore(store)
+export async function updateMarketBoard(board: StockBoard): Promise<StocksStore> {
+  const store = { ...(await readStocksStore()), marketBoard: board }
+  await writeStocksStore(store)
   if (store.defaultDisplay === 'market-board') {
     syncWidgetStocksFromStore(store)
   }
@@ -489,20 +523,20 @@ export function upsertWatchEntry(
   return { ...store, watchlist, activeWatchId: id }
 }
 
-export function setActiveWatch(watchId: string): StocksStore {
-  const store = { ...readStocksStore(), activeWatchId: watchId }
-  writeStocksStore(store)
+export async function setActiveWatch(watchId: string): Promise<StocksStore> {
+  const store = { ...(await readStocksStore()), activeWatchId: watchId }
+  await writeStocksStore(store)
   return store
 }
 
-export function clearActiveWatch(): StocksStore {
-  const store = { ...readStocksStore(), activeWatchId: undefined }
-  writeStocksStore(store)
+export async function clearActiveWatch(): Promise<StocksStore> {
+  const store = { ...(await readStocksStore()), activeWatchId: undefined }
+  await writeStocksStore(store)
   return store
 }
 
-export function updateWatchDetail(watchId: string, detail: StockDetail): StocksStore {
-  const store = readStocksStore()
+export async function updateWatchDetail(watchId: string, detail: StockDetail): Promise<StocksStore> {
+  const store = await readStocksStore()
   const watchlist = store.watchlist.map((item) =>
     item.id === watchId
       ? {
@@ -515,7 +549,7 @@ export function updateWatchDetail(watchId: string, detail: StockDetail): StocksS
       : item,
   )
   const next = { ...store, watchlist }
-  writeStocksStore(next)
+  await writeStocksStore(next)
 
   if (
     next.defaultDisplay === watchId ||
@@ -527,8 +561,8 @@ export function updateWatchDetail(watchId: string, detail: StockDetail): StocksS
   return next
 }
 
-export function removeWatchEntry(watchId: string): StocksStore {
-  const store = readStocksStore()
+export async function removeWatchEntry(watchId: string): Promise<StocksStore> {
+  const store = await readStocksStore()
   if (store.defaultWatchId === watchId) {
     return store
   }
@@ -545,7 +579,7 @@ export function removeWatchEntry(watchId: string): StocksStore {
   }
 
   const next = { ...store, watchlist, activeWatchId, defaultDisplay }
-  writeStocksStore(next)
+  await writeStocksStore(next)
   syncWidgetStocksFromStore(next)
   return next
 }

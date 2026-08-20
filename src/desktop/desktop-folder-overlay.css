@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px calc(24px + var(--dock-reserve, 96px));
+  padding: 24px 16px calc(24px + var(--dock-reserve, 80px));
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.42);
 }
@@ -33,7 +33,7 @@
   display: flex;
   flex-direction: column;
   width: min(400px, 100%);
-  max-height: min(640px, calc(100vh - 48px - var(--dock-reserve, 96px)));
+  max-height: min(640px, calc(100vh - 48px - var(--dock-reserve, 80px)));
   padding: 10px 10px 9px;
   border-radius: 18px;
   overflow: hidden;
@@ -251,7 +251,6 @@
   max-width: 80px;
   color: #f2f2f4;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
-  transition: transform 0.14s ease;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
@@ -259,13 +258,15 @@
   user-select: none;
 }
 
-.desktop-folder-overlay__icon:active {
+/* Scale the glyph only — scaling the button shrinks hit-testing and drops corner clicks. */
+.desktop-folder-overlay__icon:active .desktop-folder-overlay__icon-image {
   transform: scale(0.92);
 }
 
 .desktop-folder-overlay__icon-image {
   position: relative;
   display: flex;
+  transition: transform 0.14s ease;
 }
 
 .desktop-folder-overlay__icon-image .app-icon-tile__tile {

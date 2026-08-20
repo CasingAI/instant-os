@@ -1,0 +1,446 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { MonacoProblemTreeDecoration } from '../../monaco/monaco-markers.ts'
+import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
+import { filesList, filesStat, type FilesApiEntry } from '../files/files-api.ts'
+import { FILES_VFS_CHANGED_EVENT } from '../files/files-vfs.ts'
+import { parseFilesAbsolutePath } from '../files/files-path.ts'
+import { VscodeFileIcon, VscodeFolderIcon, VscodeTreeTwistie } from './vscode-file-icons.tsx'
+import { relativeToWorkspace } from './vscode-workspace-search-ignore.ts'
+
+type VscodeExplorerProps = {
+  workspaceFolder?: string
+  selectedPath?: string
+  revealPath?: string
+  /** 递增以强制再次展开 / 滚入视口（同一路径再次「在列表显示」） */
+  revealNonce?: number
+  /** 已展开文件夹路径；缺省未记住时由父级传入默认根路径 */
+  expandedPaths: readonly string[]
+  onToggleExpandedPath: (path: string, next: boolean) => void
+  problemDecorations?: Map<string, MonacoProblemTreeDecoration>
+  onOpenFile: (path: string) => void
+  onOpenFolder: () => void
+  onOpenInFiles: (path: string) => void
+  /** 在文件夹中查找（预填 Search include） */
+  onFindInFolder?: (folderPath: string) => void
+}
+
+type TreeNodeProps = {
+  entry: FilesApiEntry
+  depth: number
+  selectedPath?: string
+  revealPath?: string
+  revealNonce?: number
+  /** VFS 变更世代：递增时已展开目录后台刷新（保留旧列表） */
+  vfsEpoch?: number
+  expandedPaths: ReadonlySet<string>
+  onToggleExpanded: (path: string, next: boolean) => void
+  problemDecorations?: Map<string, MonacoProblemTreeDecoration>
+  workspaceFolder?: string
+  onOpenFile: (path: string) => void
+  onOpenInFiles: (path: string) => void
+  onFindInFolder?: (folderPath: string) => void
+}
+
+function pathInWorkspace(workspaceFolder: string | undefined, path: string): boolean {
+  if (!workspaceFolder) return false
+  const root = workspaceFolder.replace(/\/+$/, '') || '/'
+  return path === root || path.startsWith(`${root}/`)
+}
+
+function copyToClipboard(text: string) {
+  void navigator.clipboard.writeText(text).catch(() => {
+    // clipboard unavailable
+  })
+}
+
+function sortEntries(entries: FilesApiEntry[]): FilesApiEntry[] {
+  return [...entries].sort((a, b) => {
+    const aFolder = a.kind === 'folder'
+    const bFolder = b.kind === 'folder'
+    if (aFolder !== bFolder) return aFolder ? -1 : 1
+    return a.name.localeCompare(b.name, 'zh-CN')
+  })
+}
+
+/** 目录符号链接在树里按文件夹展开（filesList 会跟随链接） */
+async function listExplorerChildren(dirPath: string): Promise<FilesApiEntry[]> {
+  const listed = await filesList(dirPath)
+  const enriched = await Promise.all(
+    listed.map(async (entry) => {
+      if (entry.kind !== 'symlink') return entry
+      const followed = await filesStat(entry.path)
+      if (followed?.kind === 'folder') {
+        return { ...entry, kind: 'folder' as const }
+      }
+      return entry
+    }),
+  )
+  return sortEntries(enriched)
+}
+
+function folderDisplayName(path: string, name: string): string {
+  if (path === '/') return '/'
+  return name || path.split('/').filter(Boolean).pop() || path
+}
+
+function decorationClassName(decoration: MonacoProblemTreeDecoration | undefined): string {
+  if (!decoration) return ''
+  if (decoration.errors > 0) return ' vscode__tree-item--has-error'
+  if (decoration.warnings > 0) return ' vscode__tree-item--has-warning'
+  return ''
+}
+
+function decorationTitle(
+  path: string,
+  decoration: MonacoProblemTreeDecoration | undefined,
+): string {
+  if (!decoration || (decoration.errors === 0 && decoration.warnings === 0)) {
+    return path
+  }
+  const parts: string[] = []
+  if (decoration.errors > 0) parts.push(`${decoration.errors} 个错误`)
+  if (decoration.warnings > 0) parts.push(`${decoration.warnings} 个警告`)
+  return `${path}\n${parts.join('，')}`
+}
+
+function TreeNode({
+  entry,
+  depth,
+  selectedPath,
+  revealPath,
+  revealNonce = 0,
+  vfsEpoch = 0,
+  expandedPaths,
+  onToggleExpanded,
+  problemDecorations,
+  workspaceFolder,
+  onOpenFile,
+  onOpenInFiles,
+  onFindInFolder,
+}: TreeNodeProps) {
+  const { showIconContextMenu } = useIconContextMenu()
+  const isFolder = entry.kind === 'folder'
+  const shouldReveal =
+    revealPath !== undefined &&
+    (revealPath === entry.path || revealPath.startsWith(`${entry.path}/`))
+  const isRevealTarget = revealPath === entry.path
+  const expanded = isFolder && expandedPaths.has(entry.path)
+  const [children, setChildren] = useState<FilesApiEntry[] | undefined>(undefined)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const itemRef = useRef<HTMLButtonElement>(null)
+  const childrenRef = useRef(children)
+  childrenRef.current = children
+  const decoration = problemDecorations?.get(entry.path)
+  const problemCount = decoration ? decoration.errors + decoration.warnings : 0
+
+  const loadChildren = useCallback(
+    async (opts?: { quiet?: boolean }) => {
+      const quiet = opts?.quiet === true && childrenRef.current !== undefined
+      if (!quiet) setLoading(true)
+      setError(undefined)
+      try {
+        const listed = await listExplorerChildren(entry.path)
+        setChildren(listed)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '无法列出目录')
+        if (!quiet) setChildren([])
+      } finally {
+        setLoading(false)
+      }
+    },
+    [entry.path],
+  )
+
+  // npm install 等会边写边链：已展开目录跟随 VFS 世代后台刷新，保留旧列表避免闪空
+  useEffect(() => {
+    if (!isFolder || !expanded || vfsEpoch === 0) return
+    void loadChildren({ quiet: true })
+  }, [expanded, isFolder, loadChildren, vfsEpoch])
+
+  const openEntryContextMenu = useCallback(
+    (event: MouseEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const canCopyRelative = pathInWorkspace(workspaceFolder, entry.path)
+      const canOpenInFiles = parseFilesAbsolutePath(entry.path) !== undefined
+      showIconContextMenu(event, [
+        ...(isFolder
+          ? [
+              {
+                type: 'action' as const,
+                label: '在文件夹中查找',
+                disabled: !onFindInFolder,
+                onClick: () => onFindInFolder?.(entry.path),
+              },
+              { type: 'separator' as const },
+            ]
+          : [
+              {
+                type: 'action' as const,
+                label: '打开',
+                onClick: () => onOpenFile(entry.path),
+              },
+              { type: 'separator' as const },
+            ]),
+        {
+          type: 'action',
+          label: '复制路径',
+          onClick: () => copyToClipboard(entry.path),
+        },
+        {
+          type: 'action',
+          label: '复制相对路径',
+          disabled: !canCopyRelative || !workspaceFolder,
+          onClick: () => {
+            if (!workspaceFolder) return
+            copyToClipboard(relativeToWorkspace(workspaceFolder, entry.path))
+          },
+        },
+        { type: 'separator' },
+        {
+          type: 'action',
+          label: '在文件中显示',
+          disabled: !canOpenInFiles,
+          onClick: () => onOpenInFiles(entry.path),
+        },
+      ])
+    },
+    [
+      entry.path,
+      isFolder,
+      onFindInFolder,
+      onOpenFile,
+      onOpenInFiles,
+      showIconContextMenu,
+      workspaceFolder,
+    ],
+  )
+
+  // 仅在 reveal 目标变化时自动展开；不要把 expanded 放进依赖，
+  // 否则用户手动收起后会被 shouldReveal 立刻顶回去。
+  useEffect(() => {
+    if (!isFolder || !shouldReveal) return
+    if (expandedPaths.has(entry.path)) return
+    onToggleExpanded(entry.path, true)
+  }, [entry.path, expandedPaths, isFolder, onToggleExpanded, revealNonce, revealPath, shouldReveal])
+
+  useEffect(() => {
+    if (!isFolder || !expanded) return
+    if (children !== undefined) return
+    void loadChildren()
+  }, [children, expanded, isFolder, loadChildren])
+
+  useEffect(() => {
+    if (!isRevealTarget) return
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const behavior: ScrollBehavior = reduceMotion ? 'auto' : 'smooth'
+    const scroll = () => {
+      itemRef.current?.scrollIntoView({ block: 'nearest', behavior })
+    }
+    // 父目录异步展开后节点才挂载；再补一次以覆盖布局稳定前的空滚
+    const frame = window.requestAnimationFrame(scroll)
+    const timer = window.setTimeout(scroll, 120)
+    const timer2 = window.setTimeout(scroll, 360)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+      window.clearTimeout(timer2)
+    }
+  }, [isRevealTarget, revealNonce, revealPath])
+
+  if (!isFolder) {
+    const selected = selectedPath === entry.path
+    return (
+      <button
+        ref={itemRef}
+        type="button"
+        class={`vscode__tree-item vscode__tree-item--file${selected ? ' vscode__tree-item--selected' : ''}${decorationClassName(decoration)}`}
+        style={{ paddingLeft: `${10 + depth * 12}px` }}
+        title={decorationTitle(entry.path, decoration)}
+        onClick={() => onOpenFile(entry.path)}
+        onContextMenu={openEntryContextMenu}
+      >
+        <span class="vscode__tree-chevron vscode__tree-chevron--spacer" aria-hidden="true" />
+        <VscodeFileIcon fileName={entry.name} selected={selected} />
+        <span class="vscode__tree-label">{entry.name}</span>
+        {problemCount > 0 ? (
+          <span class="vscode__tree-badge" aria-hidden="true">
+            {problemCount}
+          </span>
+        ) : undefined}
+      </button>
+    )
+  }
+
+  return (
+    <div class="vscode__tree-folder">
+      <button
+        ref={itemRef}
+        type="button"
+        class={`vscode__tree-item vscode__tree-item--folder${selectedPath === entry.path ? ' vscode__tree-item--selected' : ''}${decorationClassName(decoration)}`}
+        style={{ paddingLeft: `${10 + depth * 12}px` }}
+        title={decorationTitle(entry.path, decoration)}
+        onClick={() => onToggleExpanded(entry.path, !expanded)}
+        onContextMenu={openEntryContextMenu}
+      >
+        <span class="vscode__tree-chevron" aria-hidden="true">
+          <VscodeTreeTwistie expanded={expanded} />
+        </span>
+        <VscodeFolderIcon expanded={expanded} selected={selectedPath === entry.path} />
+        <span class="vscode__tree-label">{folderDisplayName(entry.path, entry.name)}</span>
+        {problemCount > 0 ? (
+          <span class="vscode__tree-badge" aria-hidden="true">
+            {problemCount}
+          </span>
+        ) : undefined}
+      </button>
+      {expanded ? (
+        <div class="vscode__tree-children">
+          {loading && children === undefined ? (
+            <div class="vscode__tree-hint">加载中…</div>
+          ) : undefined}
+          {error ? <div class="vscode__tree-hint vscode__tree-hint--error">{error}</div> : undefined}
+          {children?.map((child) => (
+            <TreeNode
+              key={child.path}
+              entry={child}
+              depth={depth + 1}
+              selectedPath={selectedPath}
+              revealPath={revealPath}
+              revealNonce={revealNonce}
+              vfsEpoch={vfsEpoch}
+              expandedPaths={expandedPaths}
+              onToggleExpanded={onToggleExpanded}
+              problemDecorations={problemDecorations}
+              workspaceFolder={workspaceFolder}
+              onOpenFile={onOpenFile}
+              onOpenInFiles={onOpenInFiles}
+              onFindInFolder={onFindInFolder}
+            />
+          ))}
+        </div>
+      ) : undefined}
+    </div>
+  )
+}
+
+export function VscodeExplorer({
+  workspaceFolder,
+  selectedPath,
+  revealPath,
+  revealNonce = 0,
+  expandedPaths,
+  onToggleExpandedPath,
+  problemDecorations,
+  onOpenFile,
+  onOpenFolder,
+  onOpenInFiles,
+  onFindInFolder,
+}: VscodeExplorerProps) {
+  const [root, setRoot] = useState<FilesApiEntry | undefined>(undefined)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [loading, setLoading] = useState(false)
+  const [vfsEpoch, setVfsEpoch] = useState(0)
+
+  const expandedPathSet = useMemo(() => new Set(expandedPaths), [expandedPaths])
+
+  useEffect(() => {
+    let trailingTimer: number | undefined
+    let maxTimer: number | undefined
+    const flush = () => {
+      window.clearTimeout(trailingTimer)
+      window.clearTimeout(maxTimer)
+      trailingTimer = undefined
+      maxTimer = undefined
+      setVfsEpoch((value) => value + 1)
+    }
+    const onVfsChanged = () => {
+      window.clearTimeout(trailingTimer)
+      trailingTimer = window.setTimeout(flush, 80)
+      if (maxTimer === undefined) {
+        maxTimer = window.setTimeout(flush, 300)
+      }
+    }
+    window.addEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    return () => {
+      window.clearTimeout(trailingTimer)
+      window.clearTimeout(maxTimer)
+      window.removeEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!workspaceFolder) {
+      setRoot(undefined)
+      setError(undefined)
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setRoot((current) => (current?.path === workspaceFolder ? current : undefined))
+    setLoading(true)
+    void (async () => {
+      try {
+        const entry = await filesStat(workspaceFolder)
+        if (cancelled) return
+        if (!entry || entry.kind !== 'folder') {
+          setRoot(undefined)
+          setError('工作区文件夹不存在或不是文件夹')
+          return
+        }
+        setRoot(entry)
+        setError(undefined)
+      } catch (err) {
+        if (cancelled) return
+        setRoot(undefined)
+        setError(err instanceof Error ? err.message : '无法加载工作区')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceFolder])
+
+  return (
+    <div class="vscode__explorer">
+      <div class="vscode__sidebar-header">工作区</div>
+      {!workspaceFolder ? (
+        <div class="vscode__explorer-empty">
+          <p class="vscode__tree-hint">尚未打开文件夹</p>
+          <button type="button" class="vscode__explorer-open-btn" onClick={onOpenFolder}>
+            打开文件夹
+          </button>
+        </div>
+      ) : undefined}
+      {workspaceFolder && loading && !root ? (
+        <div class="vscode__tree-hint">加载中…</div>
+      ) : undefined}
+      {error ? <div class="vscode__tree-hint vscode__tree-hint--error">{error}</div> : undefined}
+      {root ? (
+        <div class="vscode__tree">
+          <TreeNode
+            key={root.path}
+            entry={root}
+            depth={0}
+            selectedPath={selectedPath}
+            revealPath={revealPath}
+            revealNonce={revealNonce}
+            vfsEpoch={vfsEpoch}
+            expandedPaths={expandedPathSet}
+            onToggleExpanded={onToggleExpandedPath}
+            problemDecorations={problemDecorations}
+            workspaceFolder={workspaceFolder}
+            onOpenFile={onOpenFile}
+            onOpenInFiles={onOpenInFiles}
+            onFindInFolder={onFindInFolder}
+          />
+        </div>
+      ) : undefined}
+    </div>
+  )
+}

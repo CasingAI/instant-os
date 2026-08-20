@@ -1,0 +1,230 @@
+import type {
+  ChromoConsoleEntry,
+  ChromoNetworkBodyReadResult,
+  ChromoNetworkBodyReadLinesOptions,
+  ChromoNetworkBodyReadLinesResult,
+  ChromoNetworkEntry,
+  ChromoNetworkHotProbeResult,
+  ChromoNetworkOptions,
+} from './page-bridge.ts'
+import type { ChromoApplicationApi } from '../apps/chromo/chromo-application-panel.tsx'
+import type { ChromoConsoleDisplayEntry } from '../apps/chromo/chromo-console-types.ts'
+import type { ChromoPageFault } from './page-fault.ts'
+
+export type ChromoDevToolsPanelTab = 'console' | 'network' | 'extensions' | 'application'
+export type ChromoDevToolsDockSide = 'bottom' | 'left' | 'right'
+export type PageDevToolsPanelTab = ChromoDevToolsPanelTab
+export type PageDevToolsDockSide = ChromoDevToolsDockSide
+
+export type ChromoDevToolsSessionKey = string
+export type PageDevToolsSessionKey = ChromoDevToolsSessionKey
+
+export type ChromoDevToolsSnapshot = {
+  /** Host window id (Chromo) or WebView unit id. */
+  hostId: string
+  /** @deprecated Prefer hostId */
+  parentWindowId: string
+  tabId: string
+  pageTitle: string
+  pageUrl: string
+  pageReady: boolean
+  pageLoading: boolean
+  pageError?: string
+  pageFault?: ChromoPageFault
+  panelTab: ChromoDevToolsPanelTab
+  dockSide: ChromoDevToolsDockSide
+  preserveLog: boolean
+  consoleEntries: ChromoConsoleEntry[]
+  replEntries: ChromoConsoleDisplayEntry[]
+  replHistory: string[]
+  networkEntries: ChromoNetworkEntry[]
+  selectedNetworkId: string
+  disableNetworkCache: boolean
+  vConsoleEnabled: boolean
+  vConsoleBusy: boolean
+  vConsoleError?: string
+  debugPanelEnabled: boolean
+  viewerReady: boolean
+}
+
+export type PageDevToolsSnapshot = ChromoDevToolsSnapshot
+
+export type ChromoDevToolsHandlers = {
+  evalInPage: (code: string) => Promise<unknown>
+  readNetworkBody: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  readNetworkBodyLines: (
+    entryId: string,
+    options?: ChromoNetworkBodyReadLinesOptions,
+  ) => Promise<ChromoNetworkBodyReadLinesResult>
+  probeNetworkHot: (method: string, url: string) => Promise<ChromoNetworkHotProbeResult>
+  setNetworkOptions: (options: ChromoNetworkOptions) => void
+  application: ChromoApplicationApi
+  onPanelTabChange: (tab: ChromoDevToolsPanelTab) => void
+  onPreserveLogChange: (preserve: boolean) => void
+  onClear: () => void
+  onAppendEntries: (entries: ChromoConsoleDisplayEntry[]) => void
+  onReplHistoryChange: (history: string[]) => void
+  onSelectNetwork: (entry: ChromoNetworkEntry) => void
+  onCloseNetworkDetail: () => void
+  onDisableNetworkCacheChange: (disable: boolean) => void
+  onVConsoleEnabledChange: (enabled: boolean) => void
+  onDebugPanelEnabledChange: (enabled: boolean) => void
+  onClearBrowsingData: () => Promise<void>
+  onRedock: (side: ChromoDevToolsDockSide) => void
+  onDetachedClosed: () => void
+}
+
+type SessionRecord = {
+  snapshot: ChromoDevToolsSnapshot
+  handlers: ChromoDevToolsHandlers
+  listeners: Set<() => void>
+}
+
+const sessions = new Map<ChromoDevToolsSessionKey, SessionRecord>()
+const pendingListeners = new Map<ChromoDevToolsSessionKey, Set<() => void>>()
+
+export function makePageDevToolsSessionKey(hostId: string, tabId: string): string {
+  return `${hostId}:${tabId}`
+}
+
+/** @deprecated Prefer makePageDevToolsSessionKey */
+export function makeChromoDevToolsSessionKey(parentWindowId: string, tabId: string): string {
+  return makePageDevToolsSessionKey(parentWindowId, tabId)
+}
+
+export function parsePageDevToolsSessionKey(
+  documentId: string | undefined,
+): { hostId: string; parentWindowId: string; tabId: string } | undefined {
+  if (!documentId) {
+    return undefined
+  }
+  const sep = documentId.indexOf(':')
+  if (sep <= 0 || sep >= documentId.length - 1) {
+    return undefined
+  }
+  const hostId = documentId.slice(0, sep)
+  return {
+    hostId,
+    parentWindowId: hostId,
+    tabId: documentId.slice(sep + 1),
+  }
+}
+
+/** @deprecated Prefer parsePageDevToolsSessionKey */
+export function parseChromoDevToolsSessionKey(
+  documentId: string | undefined,
+): { parentWindowId: string; tabId: string } | undefined {
+  const parsed = parsePageDevToolsSessionKey(documentId)
+  if (!parsed) return undefined
+  return { parentWindowId: parsed.hostId, tabId: parsed.tabId }
+}
+
+export function registerPageDevToolsSession(
+  key: PageDevToolsSessionKey,
+  snapshot: PageDevToolsSnapshot,
+  handlers: ChromoDevToolsHandlers,
+): void {
+  registerChromoDevToolsSession(key, snapshot, handlers)
+}
+
+export function registerChromoDevToolsSession(
+  key: ChromoDevToolsSessionKey,
+  snapshot: ChromoDevToolsSnapshot,
+  handlers: ChromoDevToolsHandlers,
+): void {
+  const normalized: ChromoDevToolsSnapshot = {
+    ...snapshot,
+    hostId: snapshot.hostId || snapshot.parentWindowId,
+    parentWindowId: snapshot.parentWindowId || snapshot.hostId,
+  }
+  const existing = sessions.get(key)
+  if (existing) {
+    existing.snapshot = normalized
+    existing.handlers = handlers
+    notify(key, existing)
+    return
+  }
+
+  const pending = pendingListeners.get(key)
+  const listeners = pending ?? new Set<() => void>()
+  pendingListeners.delete(key)
+
+  const record: SessionRecord = { snapshot: normalized, handlers, listeners }
+  sessions.set(key, record)
+  notify(key, record)
+}
+
+export function updateChromoDevToolsSnapshot(
+  key: ChromoDevToolsSessionKey,
+  snapshot: ChromoDevToolsSnapshot,
+): void {
+  const existing = sessions.get(key)
+  if (!existing) {
+    return
+  }
+  existing.snapshot = snapshot
+  notify(key, existing)
+}
+
+export function updateChromoDevToolsHandlers(
+  key: ChromoDevToolsSessionKey,
+  handlers: ChromoDevToolsHandlers,
+): void {
+  const existing = sessions.get(key)
+  if (!existing) {
+    return
+  }
+  existing.handlers = handlers
+}
+
+export function unregisterChromoDevToolsSession(key: ChromoDevToolsSessionKey): void {
+  const existing = sessions.get(key)
+  if (!existing) {
+    return
+  }
+  sessions.delete(key)
+  notify(key, existing)
+}
+
+export function getChromoDevToolsSession(
+  key: ChromoDevToolsSessionKey,
+): { snapshot: ChromoDevToolsSnapshot; handlers: ChromoDevToolsHandlers } | undefined {
+  const existing = sessions.get(key)
+  if (!existing) {
+    return undefined
+  }
+  return { snapshot: existing.snapshot, handlers: existing.handlers }
+}
+
+export function subscribeChromoDevToolsSession(
+  key: ChromoDevToolsSessionKey,
+  listener: () => void,
+): () => void {
+  const existing = sessions.get(key)
+  if (existing) {
+    existing.listeners.add(listener)
+    return () => {
+      existing.listeners.delete(listener)
+    }
+  }
+
+  let pending = pendingListeners.get(key)
+  if (!pending) {
+    pending = new Set()
+    pendingListeners.set(key, pending)
+  }
+  pending.add(listener)
+  return () => {
+    pending?.delete(listener)
+    if (pending && pending.size === 0) {
+      pendingListeners.delete(key)
+    }
+    sessions.get(key)?.listeners.delete(listener)
+  }
+}
+
+function notify(_key: ChromoDevToolsSessionKey, session: SessionRecord): void {
+  for (const listener of [...session.listeners]) {
+    listener()
+  }
+}

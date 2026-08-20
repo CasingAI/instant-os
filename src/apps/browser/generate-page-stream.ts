@@ -2,13 +2,17 @@ import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from '../../ai/ai-thinking.ts'
 import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
+import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { TokenUsageSnapshot } from './browser-token-usage.ts'
 import {
   buildLiveTokenUsage,
-  estimatePromptTokens,
+  estimatePromptTokensAsync,
   finalizeTokenUsage,
+  HTML_COMPLETION_MIN_CHARS_PER_TOKEN,
+  prepareTokenEstimation,
+  resolveUsageEstimated,
   type LiveTokenUsage,
 } from './estimate-token-usage.ts'
 import {
@@ -51,10 +55,10 @@ export function isSiteNotFoundResponse(text: string): boolean {
   return body === BROWSER_PAGE_ERROR_SITE_NOT_FOUND
 }
 
-const PAGE_BUILDER_PROMPT = `你是 Instant OS 网络浏览器的网页生成器。你的首要目标是**尽可能逼真地还原**目标 URL 在真实浏览器中打开后的页面——让用户一眼就能认出是哪个网站、哪类页面。
+const PAGE_BUILDER_PROMPT = `你是 Instant OS 网页浏览器的网页生成器。你的首要目标是**尽可能逼真地还原**目标 URL 在真实浏览器中打开后的页面——让用户一眼就能认出是哪个网站、哪类页面。
 
 ## 运行环境
-Instant OS 内置网络浏览器。你生成的 HTML 渲染在 iframe 内，尺寸以用户消息中的「当前页面视窗」宽高为准。
+Instant OS 内置网页浏览器。你生成的 HTML 渲染在 iframe 内，尺寸以用户消息中的「当前页面视窗」宽高为准。
 浏览器外壳（地址栏、前进后退）由系统提供——不要绘制浏览器 UI。
 
 ## 核心原则：高保真静态快照，不要伪装导航
@@ -174,6 +178,8 @@ export type PageGenerationResult = {
 
 const HTML_EMIT_INTERVAL_MS = 150
 const RAW_EMIT_INTERVAL_MS = 48
+/** token 角标单独节流：全文 encode 比 raw 更新贵，不必跟 48ms 同步 */
+const USAGE_EMIT_INTERVAL_MS = 500
 const REFERRER_HTML_MAX_CHARS = 8000
 const SITE_ROOT_HTML_MAX_CHARS = 8000
 
@@ -286,7 +292,7 @@ function buildPageUserPrompt(
 }
 
 function createSafariAiLogger(url: string) {
-  const tag = `[网络浏览器 AI] ${url}`
+  const tag = `[网页浏览器 AI] ${url}`
 
   return {
     start(model: string, userPrompt: string) {
@@ -309,25 +315,6 @@ function createSafariAiLogger(url: string) {
   }
 }
 
-function snapshotFromUsage(usage: OpenAIUsage | undefined): TokenUsageSnapshot | undefined {
-  if (!usage) {
-    return undefined
-  }
-
-  return {
-    promptTokens: usage.prompt_tokens ?? 0,
-    completionTokens: usage.completion_tokens ?? 0,
-    totalTokens: usage.total_tokens ?? 0,
-  }
-}
-
-// OpenAI types via import - check if we need to use inline type
-type OpenAIUsage = {
-  prompt_tokens?: number
-  completion_tokens?: number
-  total_tokens?: number
-}
-
 export async function generatePageHtmlStreaming(
   context: PageGenerationContext,
   onUpdate: (update: PageGenerationUpdate) => void,
@@ -339,7 +326,8 @@ export async function generatePageHtmlStreaming(
   const systemPrompt = buildPageBuilderPrompt(allowAiRefuseSite)
   const userPrompt = buildPageUserPrompt(context, allowAiRefuseSite)
   const log = createSafariAiLogger(context.url)
-  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userPrompt, model)
+  await prepareTokenEstimation(model)
+  const promptTokenEstimate = await estimatePromptTokensAsync(systemPrompt, userPrompt, model)
   const usageContext = {
     actor: 'browser' as const,
     behavior: 'generate-page' as const,
@@ -361,7 +349,19 @@ export async function generatePageHtmlStreaming(
   let lastRawEmitAt = 0
   let lastUsageEmitAt = 0
   let usage: TokenUsageSnapshot | undefined
-  let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '', true, model)
+  let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '', true, model, {
+    minCharsPerToken: HTML_COMPLETION_MIN_CHARS_PER_TOKEN,
+  })
+
+  const refreshLiveUsage = () => {
+    if (usage) {
+      liveUsage = finalizeTokenUsage(liveUsage, usage)
+      return
+    }
+    liveUsage = buildLiveTokenUsage(promptTokenEstimate, text, true, model, {
+      minCharsPerToken: HTML_COMPLETION_MIN_CHARS_PER_TOKEN,
+    })
+  }
 
   const emit = (force = false) => {
     // 节流必须用单调真实时钟：osNowMs() 在虚拟历史时间（公元 1970 前）下会恒小于初值 0，导致整段流式更新被吞掉
@@ -375,7 +375,7 @@ export async function generatePageHtmlStreaming(
         stabilized !== lastHtml &&
         now - lastHtmlEmitAt >= HTML_EMIT_INTERVAL_MS)
     const rawDue = force || now - lastRawEmitAt >= RAW_EMIT_INTERVAL_MS
-    const usageDue = force || now - lastUsageEmitAt >= RAW_EMIT_INTERVAL_MS
+    const usageDue = force || now - lastUsageEmitAt >= USAGE_EMIT_INTERVAL_MS
 
     if (!htmlDue && !rawDue && !usageDue) {
       return
@@ -391,7 +391,7 @@ export async function generatePageHtmlStreaming(
     }
 
     if (usageDue) {
-      liveUsage = buildLiveTokenUsage(promptTokenEstimate, text, !usage, model)
+      refreshLiveUsage()
       lastUsageEmitAt = now
     }
 
@@ -425,7 +425,7 @@ export async function generatePageHtmlStreaming(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
     })
 
     for await (const chunk of stream) {
@@ -433,7 +433,13 @@ export async function generatePageHtmlStreaming(
       const { reasoning, content } = readStreamDelta(choice?.delta)
 
       if (chunk.usage) {
-        usage = snapshotFromUsage(chunk.usage)
+        usage = snapshotFromOpenAiUsage(chunk.usage)
+        refreshLiveUsage()
+        logSession.update({
+          response: formatStreamEventResponse(reasoningText, text),
+          usage,
+        })
+        emit(true)
       }
 
       if (reasoning) {
@@ -473,13 +479,14 @@ export async function generatePageHtmlStreaming(
     const finalUsage = usage ?? {
       promptTokens: liveUsage.promptTokens,
       completionTokens: liveUsage.completionTokens,
+      cachedPromptTokens: liveUsage.cachedPromptTokens ?? 0,
       totalTokens: liveUsage.totalTokens,
     }
-    recordAiTokenUsage(usageContext, usage)
+    recordAiTokenUsage(usageContext, usage, model)
     finishAiEventLogSession(logSession, usageContext, {
       response: formatStreamEventResponse(reasoningText, text),
       usage: finalUsage,
-      usageEstimated: !usage,
+      usageEstimated: resolveUsageEstimated(Boolean(usage), model),
       status: 'success',
     })
 

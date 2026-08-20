@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -15,8 +13,7 @@ const SYSTEM_LANGUAGE_LABEL = '中文'
 type TranslateDirection = 'zh-to-fictional' | 'fictional-to-zh'
 
 export function TranslateApp() {
-  const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle } = useOs()
 
   const [direction, setDirection] = useState<TranslateDirection>('zh-to-fictional')
   const [languageId, setLanguageId] = useState<FictionalLanguageId>('haqiululu')
@@ -87,28 +84,7 @@ export function TranslateApp() {
   }, [setAppWindowTitle])
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const appWindow = windows.find((window) => window.appId === 'translate' && !window.minimized)
-
     return [
-      {
-        label: '翻译',
-        items: [
-          ...aboutAppMenuPrefix('关于 翻译', () => showBuiltinAbout('translate')),
-          {
-            type: 'action',
-            label: '隐藏翻译',
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出翻译',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('translate'),
-          },
-        ],
-      },
       {
         label: '编辑',
         items: [
@@ -127,7 +103,7 @@ export function TranslateApp() {
         ],
       },
     ]
-  }, [closeWindowsForApp, handleClear, minimizeWindow, runTranslate, showBuiltinAbout, windows])
+  }, [handleClear, runTranslate])
 
   useAppMenuBar('translate', menuBar)
 

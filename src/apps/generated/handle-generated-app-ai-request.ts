@@ -3,6 +3,7 @@ import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
 import { finishAiEventLogSession, startAiEventLogSession, toEventLogMessages } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { recordOpenAiCompletionUsage, snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
+import { resolveUsageEstimated } from '../browser/estimate-token-usage.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { BridgeAppId } from './generated-app-ai-types.ts'
@@ -259,7 +260,7 @@ export async function handleGeneratedAppAiRequest(
     max_tokens: body.max_tokens,
     top_p: body.top_p,
     response_format: body.response_format,
-    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
   }
 
   try {
@@ -279,7 +280,7 @@ export async function handleGeneratedAppAiRequest(
         const usage = snapshotFromOpenAiUsage(chunk.usage)
         if (usage) {
           streamUsage = usage
-          recordAiTokenUsage(context, usage)
+          recordAiTokenUsage(context, usage, config.defaultModel)
         }
 
         const delta = chunk.choices[0]?.delta?.content
@@ -299,7 +300,7 @@ export async function handleGeneratedAppAiRequest(
       finishAiEventLogSession(logSession, context, {
         response: streamResponse,
         usage: streamUsage,
-        usageEstimated: !streamUsage,
+        usageEstimated: resolveUsageEstimated(Boolean(streamUsage), config.defaultModel),
         status: 'success',
       })
 

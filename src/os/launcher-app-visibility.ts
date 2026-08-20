@@ -1,7 +1,7 @@
 import type { ExperimentalSettings } from './experimental-settings-storage.ts'
 import type { AppDefinition } from './types.ts'
 
-/** 语音识别（speech）为未完成的实验特性，仅在 experimental.speechApp 开启时可见。 */
+/** 语音实验室（speech）为未完成的实验特性，仅在 experimental.speechApp 开启时可见。 */
 export function isBuiltinAppVisibleOnDesktop(
   app: AppDefinition,
   experimental?: ExperimentalSettings,

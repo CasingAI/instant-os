@@ -95,6 +95,23 @@
   fill: #fff;
 }
 
+/* 云服务菜单栏图标：工作态 spinner 旋转 */
+.ethernet-icon {
+  display: block;
+  transition: transform 0.18s ease;
+}
+
+.ethernet-icon__spinner {
+  animation: ethernet-icon-spin 0.8s linear infinite;
+  transform-origin: 8px 7px;
+}
+
+@keyframes ethernet-icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .menu-bar__menu--brand {
   margin-right: 2px;
 }
@@ -133,11 +150,6 @@
 .menu-bar__trigger:hover,
 .menu-bar__trigger--open {
   background: var(--menu-bar-hover, rgba(255, 255, 255, 0.18));
-}
-
-.menu-bar__fallback-name {
-  padding: 0 10px;
-  font-weight: 600;
 }
 
 .menu-bar__datetime {
@@ -190,6 +202,7 @@
   padding: 5px 0;
   color: #1a1a1a;
   text-shadow: none;
+  cursor: default;
   background: linear-gradient(180deg, #ffffff 0%, #f0f0f0 100%);
   border: 1px solid rgba(0, 0, 0, 0.3);
   border-radius: 6px;
@@ -210,6 +223,7 @@
   font-size: 13px;
   text-align: left;
   white-space: nowrap;
+  cursor: default;
 }
 
 .menu-bar__dropdown-item:hover:not(:disabled) {
@@ -244,6 +258,7 @@
   margin: 5px 0;
   background: rgba(0, 0, 0, 0.15);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  pointer-events: none;
 }
 
 .menu-bar__dropdown-item--nav {

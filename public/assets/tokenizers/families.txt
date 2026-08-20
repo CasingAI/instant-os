@@ -1,0 +1,11 @@
+deepseek-v3
+deepseek-v4
+glm-4
+glm-5
+kimi
+mimo-v2-flash
+mimo-v2.5
+minimax-m2
+minimax-m3
+qwen2.5
+qwen3

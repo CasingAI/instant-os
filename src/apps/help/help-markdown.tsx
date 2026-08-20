@@ -1,36 +1,9 @@
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
-import { useMemo } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { MarkdownHtmlView } from '../../markdown/markdown-html-view.tsx'
+import { renderMarkdownHtml } from '../../markdown/render-markdown-html.ts'
 
-const ALLOWED_TAGS = [
-  'p',
-  'br',
-  'strong',
-  'em',
-  'del',
-  'code',
-  'pre',
-  'ul',
-  'ol',
-  'li',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'blockquote',
-  'hr',
-  'a',
-  'table',
-  'thead',
-  'tbody',
-  'tr',
-  'th',
-  'td',
-] as const
-
-const ALLOWED_ATTR = ['href', 'title', 'align'] as const
+/** 流式阶段降低 Markdown 全量重解析频率，减轻分配与主线程压力 */
+const STREAMING_MARKDOWN_MIN_INTERVAL_MS = 120
 
 /** 把模型常写出的「假换行」收成真正换行，并给挤成一团的中文步骤补断行 */
 function normalizeHelpMarkdownSource(text: string): string {
@@ -40,8 +13,9 @@ function normalizeHelpMarkdownSource(text: string): string {
     // 字面量 \n / \n\n（常见于把 JSON/转义习惯带进正文）
     .replace(/\\n/g, '\n')
 
-  // 「……。1. 下一步」或「…… 2. 下一步」挤在同一行时，在序号前断开
-  next = next.replace(/([^\n])(?=\d{1,2}\.\s+\S)/g, '$1\n')
+  // 「……。1. 下一步」或「…… 2. 下一步」挤在同一行时，在序号前断开。
+  // 勿在 * / _ 后断开，否则会拆坏 **1. 标题** / __1. 标题__ 的加粗。
+  next = next.replace(/([^\n*_])(?=\d{1,2}\.\s+\S)/g, '$1\n')
 
   const newlineCount = (next.match(/\n/g) ?? []).length
   const sentenceEnds = (next.match(/[。！？；]/g) ?? []).length
@@ -53,28 +27,11 @@ function normalizeHelpMarkdownSource(text: string): string {
   return next
 }
 
-function wrapMarkdownTables(html: string): string {
-  return html.replace(/<table\b[\s\S]*?<\/table>/gi, (tableHtml) => {
-    return `<div class="help-app__markdown-table-wrap">${tableHtml}</div>`
-  })
-}
-
 function renderHelpMarkdown(text: string): string {
-  if (!text.trim()) {
-    return ''
-  }
-
-  const source = normalizeHelpMarkdownSource(text)
-  const raw = marked.parse(source, {
-    async: false,
-    gfm: true,
-    breaks: true,
+  return renderMarkdownHtml(text, {
+    normalize: normalizeHelpMarkdownSource,
+    tableWrapClass: 'help-app__markdown-table-wrap',
   })
-  const sanitized = DOMPurify.sanitize(raw, {
-    ALLOWED_TAGS: [...ALLOWED_TAGS],
-    ALLOWED_ATTR: [...ALLOWED_ATTR],
-  })
-  return wrapMarkdownTables(sanitized)
 }
 
 const STREAM_CARET =
@@ -102,19 +59,80 @@ type HelpMarkdownProps = {
   streaming?: boolean
 }
 
+export function buildLiveAnswerClassName(options: {
+  streaming?: boolean
+  separated?: boolean
+}): string {
+  const parts = ['help-app__live-answer']
+  if (options.separated) {
+    parts.push('help-app__live-answer--separated')
+  }
+  if (options.streaming) {
+    parts.push('help-app__live-answer--streaming')
+  }
+  return parts.join(' ')
+}
+
 export function HelpMarkdown({ text, class: className, streaming }: HelpMarkdownProps) {
-  const html = useMemo(() => {
-    const rendered = renderHelpMarkdown(text)
-    return streaming ? appendStreamCaret(rendered) : rendered
+  const [renderText, setRenderText] = useState(text)
+  const lastFlushAtRef = useRef(0)
+  const pendingTimerRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (!streaming) {
+      if (pendingTimerRef.current !== undefined) {
+        window.clearTimeout(pendingTimerRef.current)
+        pendingTimerRef.current = undefined
+      }
+      setRenderText(text)
+      lastFlushAtRef.current = Date.now()
+      return
+    }
+
+    const now = Date.now()
+    const elapsed = now - lastFlushAtRef.current
+    if (elapsed >= STREAMING_MARKDOWN_MIN_INTERVAL_MS) {
+      if (pendingTimerRef.current !== undefined) {
+        window.clearTimeout(pendingTimerRef.current)
+        pendingTimerRef.current = undefined
+      }
+      lastFlushAtRef.current = now
+      setRenderText(text)
+      return
+    }
+
+    if (pendingTimerRef.current !== undefined) {
+      window.clearTimeout(pendingTimerRef.current)
+    }
+    pendingTimerRef.current = window.setTimeout(() => {
+      pendingTimerRef.current = undefined
+      lastFlushAtRef.current = Date.now()
+      setRenderText(text)
+    }, STREAMING_MARKDOWN_MIN_INTERVAL_MS - elapsed)
+
+    return () => {
+      if (pendingTimerRef.current !== undefined) {
+        window.clearTimeout(pendingTimerRef.current)
+        pendingTimerRef.current = undefined
+      }
+    }
   }, [text, streaming])
+
+  // 流式结束时用最终 text，避免末尾节流残留旧稿
+  const source = streaming ? renderText : text
+
+  const html = useMemo(() => {
+    const rendered = renderHelpMarkdown(source)
+    return streaming ? appendStreamCaret(rendered) : rendered
+  }, [source, streaming])
   if (!html) {
     return undefined
   }
 
   return (
-    <div
+    <MarkdownHtmlView
       class={`help-app__markdown${className ? ` ${className}` : ''}`}
-      dangerouslySetInnerHTML={{ __html: html }}
+      html={html}
     />
   )
 }

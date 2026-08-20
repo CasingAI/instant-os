@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { createContext } from 'preact'
-import { useContext, useEffect, useMemo, useState } from 'preact/hooks'
+import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
 import './window-modal.css'
 
@@ -15,6 +15,8 @@ export type WindowModalAction = {
   label: string
   tone?: WindowModalActionTone
   disabled?: boolean
+  /** 在按钮文案前显示转圈（用于异步提交） */
+  busy?: boolean
   onClick: () => void | boolean | Promise<void | boolean>
 }
 
@@ -49,15 +51,43 @@ export function WindowModal({
   children,
   actions,
 }: WindowModalProps) {
-  const resolvedTitleId = useMemo(
-    () => titleId ?? `window-modal-${slugifyTitle(title)}-title`,
-    [title, titleId],
-  )
-
   const overlayRoot = useContext(WindowModalOverlayContext)
-  const actionsMode = (actions?.length ?? 0) > 2 ? 'many' : 'pair'
   const [visible, setVisible] = useState(open)
   const [closing, setClosing] = useState(false)
+  // 关闭动画期间父级常把 children/actions 清空；保留最后一帧内容避免闪成空壳
+  const contentRef = useRef({
+    title,
+    role,
+    themeColor,
+    wide,
+    scrollBody,
+    titleId,
+    panelClass,
+    onClose,
+    children,
+    actions,
+  })
+  if (open) {
+    contentRef.current = {
+      title,
+      role,
+      themeColor,
+      wide,
+      scrollBody,
+      titleId,
+      panelClass,
+      onClose,
+      children,
+      actions,
+    }
+  }
+  const display = contentRef.current
+  const displayActions = display.actions
+  const actionsMode = (displayActions?.length ?? 0) > 2 ? 'many' : 'pair'
+  const displayTitleId = useMemo(
+    () => display.titleId ?? `window-modal-${slugifyTitle(display.title)}-title`,
+    [display.title, display.titleId],
+  )
 
   useEffect(() => {
     if (open) {
@@ -79,49 +109,59 @@ export function WindowModal({
     return () => window.clearTimeout(timer)
   }, [open, visible])
 
-  if (!visible) {
+  if (!visible && !open) {
     return undefined
   }
 
-  const panelStyle = themeColor
-    ? ({ '--window-modal-theme': themeColor } as Record<string, string>)
+  const panelStyle = display.themeColor
+    ? ({ '--window-modal-theme': display.themeColor } as Record<string, string>)
     : undefined
 
   const modal = (
     <div
       class={`window-modal-backdrop${closing ? ' window-modal-backdrop--closing' : ''}`}
       role="presentation"
-      onClick={onClose}
+      onClick={display.onClose}
     >
       <div
-        class={`window-modal${wide ? ' window-modal--wide' : ''}${closing ? ' window-modal--closing' : ''}${panelClass ? ` ${panelClass}` : ''}`}
+        class={`window-modal${display.wide ? ' window-modal--wide' : ''}${closing ? ' window-modal--closing' : ''}${display.panelClass ? ` ${display.panelClass}` : ''}`}
         style={panelStyle}
-        role={role}
+        role={display.role}
         aria-modal="true"
-        aria-labelledby={resolvedTitleId}
+        aria-labelledby={displayTitleId}
         onClick={(event) => event.stopPropagation()}
       >
         <div class="window-modal__header">
-          <h3 class="window-modal__title" id={resolvedTitleId}>
-            {title}
+          <h3 class="window-modal__title" id={displayTitleId}>
+            {display.title}
           </h3>
         </div>
-        {children && (
-          <div class={`window-modal__body${scrollBody ? ' window-modal__body--scroll' : ''}`}>
-            {children}
+        {display.children && (
+          <div
+            class={`window-modal__body${display.scrollBody ? ' window-modal__body--scroll' : ''}`}
+          >
+            {display.children}
           </div>
         )}
-        {actions && actions.length > 0 && (
+        {displayActions && displayActions.length > 0 && (
           <div class={`window-modal__actions window-modal__actions--${actionsMode}`}>
-            {actions.map((action) => (
+            {displayActions.map((action) => (
               <button
                 key={action.key ?? action.label}
                 type="button"
-                class={`window-modal__btn window-modal__btn--${action.tone ?? 'secondary'}`}
-                disabled={action.disabled}
+                class={`window-modal__btn window-modal__btn--${action.tone ?? 'secondary'}${
+                  action.busy ? ' window-modal__btn--busy' : ''
+                }`}
+                disabled={action.disabled || closing}
+                aria-busy={action.busy || undefined}
+                aria-label={action.busy ? action.label : undefined}
                 onClick={() => void action.onClick()}
               >
-                {action.label}
+                {action.busy ? (
+                  <span class="window-modal__btn-spinner" aria-hidden="true" />
+                ) : (
+                  action.label
+                )}
               </button>
             ))}
           </div>

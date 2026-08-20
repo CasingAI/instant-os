@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
   EXPERIMENTAL_SETTINGS_CHANGED_EVENT,
 } from '../../os/experimental-settings-storage.ts'
@@ -11,10 +9,11 @@ import {
 import {
   isGeneratedAppStorageMessage,
   loadGeneratedAppData,
-  saveGeneratedAppData,
+  saveGeneratedAppDataAsync,
 } from '../../os/generated-app-data-storage.ts'
-import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
+import { GENERATED_APP_STORAGE_ERROR_MESSAGE_TYPE } from '../../os/generated-app-data-storage.ts'
+import { getRegistryUsedBytesSync, getRegistryWriteLimitBytes, hydrateAppRegistry } from '../../os/app-registry.ts'
+import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
@@ -27,9 +26,12 @@ import {
   logRuntimeErrorToHostConsole,
 } from './generated-app-runtime-errors.ts'
 import { installGeneratedAppAiHandler } from './install-generated-app-ai-handler.ts'
+import { installGeneratedAppFilesHandler } from './install-generated-app-files-handler.ts'
+import { installGeneratedAppTerminalHandler } from './install-generated-app-terminal-handler.ts'
 import { injectGeneratedAppHeartbeatBridge } from './inject-generated-app-heartbeat-bridge.ts'
 import { prepareGeneratedAppRuntimeHtml } from './prepare-generated-app-runtime-html.ts'
 import { useGeneratedHtmlIframe } from './use-generated-html-iframe.ts'
+import { APP_CAPABILITY_TAG_FILES, APP_CAPABILITY_TAG_TERMINAL, hasAppCapabilityTag } from '../appstore/app-capability-tags.ts'
 import './generated-app.css'
 
 type GeneratedAppProps = {
@@ -38,10 +40,9 @@ type GeneratedAppProps = {
 }
 
 export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
-  const { focusWindow, closeWindow, closeWindowsForApp, minimizeWindow, windows } = useOs()
+  const { focusWindow, closeWindow } = useOs()
   const { getInstalledApp, getAppDataRevision, getFailedInstall, installListing, dismissFailedInstall } =
     useGeneratedApps()
-  const { showAbout } = useAboutApp()
   const app = getInstalledApp(appId)
   const failedInstall = getFailedInstall(appId)
   const dataRevision = getAppDataRevision(appId)
@@ -52,6 +53,8 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   const [runtimeErrorDetailsOpen, setRuntimeErrorDetailsOpen] = useState(false)
   const suppressRuntimeErrorAlertRef = useRef(false)
   const [processIsolated, setProcessIsolated] = useState(() => isGeneratedAppProcessIsolationActive())
+  const [registryHydrated, setRegistryHydrated] = useState(false)
+  const [storageLimitBytes, setStorageLimitBytes] = useState(DATA_CAPACITY_BYTES)
   const {
     registerHeartbeat,
     unregisterHeartbeat,
@@ -86,17 +89,59 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     return () => observer.disconnect()
   }, [])
 
+  useEffect(() => {
+    let alive = true
+    hydrateAppRegistry(appId)
+      .then(() => {
+        if (alive) {
+          setRegistryHydrated(true)
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          // hydrate 失败按空数据渲染，后续写入仍会走注册表（失败再回传 iframe）
+          setRegistryHydrated(true)
+        }
+      })
+    return () => {
+      alive = false
+    }
+  }, [appId])
+
+  useEffect(() => {
+    if (!registryHydrated) {
+      return
+    }
+    let alive = true
+    void getRegistryWriteLimitBytes(appId).then((limit) => {
+      if (alive) {
+        setStorageLimitBytes(limit)
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [appId, dataRevision, registryHydrated])
+
   const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}-${processIsolated ? 'iso' : 'std'}`
 
   const preparedHtml = useMemo(() => {
-    if (!app) {
+    if (!app || !registryHydrated) {
       return undefined
     }
 
     const initialData = loadGeneratedAppData(appId)
-    const runtimeHtml = prepareGeneratedAppRuntimeHtml(app.html, appId, initialData, { processIsolated })
+    const runtimeHtml = prepareGeneratedAppRuntimeHtml(app.html, appId, initialData, {
+      processIsolated,
+      enableFiles: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES),
+      enableTerminal: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL),
+      storageQuota: {
+        usedBytes: getRegistryUsedBytesSync(appId),
+        limitBytes: storageLimitBytes,
+      },
+    })
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, appId, windowId)
-  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, windowId])
+  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, registryHydrated, storageLimitBytes, windowId])
 
   const handleIframeReady = useCallback(() => {
     setHeartbeatContentWindow(windowId, iframeRef.current?.contentWindow ?? undefined)
@@ -136,46 +181,6 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     [app?.name, appId, runtimeErrorAlertOpen, runtimeErrorDetailsOpen],
   )
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    if (!app) {
-      return []
-    }
-
-    const appWindow = windows.find((window) => window.appId === appId && !window.minimized)
-
-    return [
-      {
-        label: app.name,
-        items: [
-          ...aboutAppMenuPrefix(`关于 ${app.name}`, () =>
-            showAbout({
-              title: app.name,
-              version: app.category,
-              iconEmoji: app.iconEmoji,
-              themeColor: app.themeColor,
-              paragraphs: [app.description],
-            }),
-          ),
-          {
-            type: 'action',
-            label: `隐藏 ${app.name}`,
-            shortcut: '⌘H',
-            onClick: () => appWindow && minimizeWindow(appWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: `退出 ${app.name}`,
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp(appId),
-          },
-        ],
-      },
-    ]
-  }, [app, appId, closeWindowsForApp, minimizeWindow, showAbout, windows])
-
-  useAppMenuBar(appId, menuBar)
-
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) {
@@ -199,7 +204,32 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
         return
       }
 
-      saveGeneratedAppData(appId, event.data.data)
+      void saveGeneratedAppDataAsync(appId, event.data.data).then((failures) => {
+        if (failures.length === 0) {
+          return
+        }
+        const quotaFailed = failures.some(
+          (failure) => failure.error.name === 'RegistryQuotaExceededError',
+        )
+        const previousSnapshot: Record<string, string | undefined> = {}
+        for (const failure of failures) {
+          previousSnapshot[failure.key] = failure.previous
+        }
+        try {
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: GENERATED_APP_STORAGE_ERROR_MESSAGE_TYPE,
+              appId,
+              error: quotaFailed ? 'quota-exceeded' : 'unknown',
+              failedKeys: failures.map((failure) => failure.key),
+              previousSnapshot,
+            },
+            '*',
+          )
+        } catch {
+          // iframe 已卸载时忽略回传失败
+        }
+      })
     }
 
     window.addEventListener('message', onMessage)
@@ -213,6 +243,28 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
       getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
     })
   }, [app?.name, appId])
+
+  useEffect(() => {
+    if (!app) return
+    if (!hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES)) return
+
+    return installGeneratedAppFilesHandler({
+      appId,
+      getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
+      isAllowed: () => hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES),
+    })
+  }, [app, appId])
+
+  useEffect(() => {
+    if (!app) return
+    if (!hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL)) return
+
+    return installGeneratedAppTerminalHandler({
+      appId,
+      getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
+      isAllowed: () => hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL),
+    })
+  }, [app, appId])
 
   if (!app) {
     return (

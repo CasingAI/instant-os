@@ -25,3 +25,40 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Music source separation weights (HTDemucs 6-stem ONNX, ~285 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-demucs.sh
+public/assets/demucs/models/
+
+# Phoneme recognition weights (wav2vec2 ONNX, ~230 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-phoneme.sh
+public/assets/phoneme/models/
+
+# MDX-NET vocal/instrumental 2-stem weights (ONNX, ~67 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-mdx.sh
+public/assets/mdx/models/
+
+# Zipformer-CTC Chinese ASR weights (ONNX, ~350 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-zipformer-ctc.sh
+public/assets/zipformer-ctc/models/
+
+# Zipformer-CTC English ASR weights (ONNX, ~70 MB) — not committed to git.
+public/assets/zipformer-ctc-en/models/*.onnx
+
+# SenseVoice multilingual ASR weights (ONNX, ~237 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-sense-voice.sh
+public/assets/sense-voice/models/
+
+# AttuneBench 评测数据集（~19 MB）— not committed to git.
+# Fetch via: bash scripts/vendor-attunebench.sh
+public/assets/attunebench/
+
+# ZCode agent session artifacts
+.zcode/
+
+# Wrangler local state
+workers/model-gateway/.wrangler/
+
+# 临时测试残留
+dummy-non-existing-folder/
+/.wrangler

@@ -1,20 +1,19 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
-import { useAboutApp } from '../../os/about-app-context.tsx'
-import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { generatedAppIdToSlug } from '../appstore/store-agent.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import { isGeneratedAppId } from '../../os/types.ts'
 import {
   DEVICE_CAPACITY_BYTES,
   findManagedApp,
+  getManagedAppTotalBytes,
   getStorageSummary,
   loadDataStorageBreakdown,
+  buildSystemSpaceBreakdown,
   type ManagedAppEntry,
 } from './app-storage.ts'
 import { DATA_CAPACITY_BYTES, DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
@@ -23,41 +22,76 @@ import { formatStorageSize } from './format-storage-size.ts'
 import { initBrowserPageCache } from '../browser/browser-page-cache.ts'
 import { AiUsageView } from './ai-usage-view.tsx'
 import { SafariUsageView } from './safari-usage-view.tsx'
+import { ModelCacheView } from './model-cache-view.tsx'
 import { AppsStorageView } from './apps-storage-view.tsx'
 import { OtherStorageView } from './other-storage-view.tsx'
+import { DataOtherStorageView } from './data-other-storage-view.tsx'
 import { EventLogStorageView } from './event-log-storage-view.tsx'
+import { FilesStorageView } from './files-storage-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { DateTimeSettingsView } from './date-time-settings-view.tsx'
 import { NotificationCenterSettingsView } from './notification-center-settings-view.tsx'
+import { SoundSettingsView } from './sound-settings-view.tsx'
+import { SpeechSettingsView } from './speech-settings-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { DockSettingsView } from './dock-settings-view.tsx'
 import { DeveloperSettingsView } from './developer-settings-view.tsx'
 import { ExternalBridgeConsentsView } from './external-bridge-consents-view.tsx'
+import { ProxyServerSettingsView } from './proxy-server-settings-view.tsx'
+import { ResetSettingsView } from './reset-settings-view.tsx'
+import { BackgroundRefreshSettingsView } from './background-refresh-settings-view.tsx'
+import { BackgroundRefreshTaskDetailView } from './background-refresh-task-detail-view.tsx'
+import { NpmSettingsView } from './npm-settings-view.tsx'
+import { StartupItemsSettingsView } from './startup-items-settings-view.tsx'
 import { WallpaperView } from './wallpaper-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
 import { Resources3dDetailView } from './resources-3d-detail-view.tsx'
 import { NewsManagementView } from './news-management-view.tsx'
+import { LegacyStorageCleanupView } from './legacy-storage-cleanup-view.tsx'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import {
   getNewsCommentStats,
-  getNewsStorageBytes,
   readNewsStore,
+  type NewsCommentStats,
 } from '../news/news-storage.ts'
+import type { NewsStore } from '../news/news-types.ts'
 import { loadNewsTokenUsage } from '../news/news-token-usage.ts'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { SettingsKeepLayer } from './settings-keep-layer.tsx'
 import {
+  getVisibleSettingsPaneGroups,
   isNestedSettingsRoute,
+  isSettingsRouteVisible,
   paneIdForRoute,
   SETTINGS_DEFAULT_ROUTE,
-  SETTINGS_PANES,
   SETTINGS_WIDE_DEFAULT_ROUTE,
   SETTINGS_WIDE_LAYOUT_MIN_WIDTH,
   type SettingsRoute,
 } from './settings-panes.ts'
-import { OPEN_SETTINGS_USAGE_EVENT } from '../../os/storage-warning.ts'
+import {
+  EXPERIMENTAL_SETTINGS_CHANGED_EVENT,
+  loadExperimentalSettings,
+} from '../../os/experimental-settings-storage.ts'
+import {
+  consumePendingOpenProxyServerView,
+  OPEN_SETTINGS_PROXY_SERVER_EVENT,
+} from '../../os/proxy-server-settings-storage.ts'
+import {
+  consumePendingOpenSettingsUsageView,
+  OPEN_SETTINGS_USAGE_EVENT,
+} from '../../os/storage-warning.ts'
+import {
+  consumePendingOpenSoundsView,
+  OPEN_SETTINGS_SOUNDS_EVENT,
+} from '../../os/system-volume.ts'
+import {
+  consumePendingOpenSettingsAccountView,
+  consumePendingOpenSettingsDateTimeView,
+  OPEN_SETTINGS_ACCOUNT_EVENT,
+  OPEN_SETTINGS_DATE_TIME_EVENT,
+} from '../../os/settings-route-open.ts'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
 
@@ -66,8 +100,7 @@ const SETTINGS_WINDOW_TITLE = '系统设置'
 const INSTALLED_APPS_PREVIEW_COUNT = 10
 
 export function SettingsApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, openApp } = useOs()
-  const { showBuiltinAbout } = useAboutApp()
+  const { setAppWindowTitle, openApp } = useOs()
   const [route, setRoute] = useState<SettingsRoute>(SETTINGS_DEFAULT_ROUTE)
   const hostRef = useRef<HTMLDivElement>(null)
   const [cacheRevision, setCacheRevision] = useState(0)
@@ -77,9 +110,23 @@ export function SettingsApp() {
     booksDataBytes: 0,
     aiUsageBytes: 0,
     aiEventLogBytes: 0,
+    vscodeAiChatBytes: 0,
     folderIconSnapshotsBytes: 0,
+    modelVisionBytes: 0,
+    filesBytes: 0,
+    appDataBytesByApp: {} as Record<string, number>,
+    registryBytesByApp: {} as Record<string, number>,
   })
   const { installedApps, storageRevision } = useGeneratedApps()
+  const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
+  const experimentalSettings = useMemo(
+    () => loadExperimentalSettings(),
+    [experimentalSettingsVersion],
+  )
+  const visibleGroups = useMemo(
+    () => getVisibleSettingsPaneGroups(experimentalSettings),
+    [experimentalSettings],
+  )
   const summary = useMemo(
     () => getStorageSummary(installedApps, dataStorage),
     [installedApps, cacheRevision, storageRevision, dataStorage],
@@ -102,6 +149,25 @@ export function SettingsApp() {
       window.removeEventListener(STORAGE_CHANGED_EVENT, refreshSystemBytes)
     }
   }, [cacheRevision, storageRevision])
+
+  useEffect(() => {
+    const handleExperimentalChange = () => {
+      setExperimentalSettingsVersion((value) => value + 1)
+    }
+    window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleExperimentalChange)
+    return () => {
+      window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleExperimentalChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isSettingsRouteVisible(route, experimentalSettings)) {
+      return
+    }
+    const host = hostRef.current
+    const wide = host !== null && host.clientWidth >= SETTINGS_WIDE_LAYOUT_MIN_WIDTH
+    setRoute(wide ? SETTINGS_WIDE_DEFAULT_ROUTE : SETTINGS_DEFAULT_ROUTE)
+  }, [route, experimentalSettings])
 
   const selectedApp =
     route.view === 'app-detail' ? findManagedApp(summary.entries, route.appId) : undefined
@@ -134,41 +200,63 @@ export function SettingsApp() {
 
   useEffect(() => {
     const handleOpenUsage = () => {
+      consumePendingOpenSettingsUsageView()
+      setCacheRevision((value) => value + 1)
+      setRoute({ view: 'usage' })
+    }
+    const handleOpenProxyServer = () => {
+      consumePendingOpenProxyServerView()
+      setRoute({ view: 'proxy-server' })
+    }
+    const handleOpenSounds = () => {
+      consumePendingOpenSoundsView()
+      setRoute({ view: 'sounds' })
+    }
+    const handleOpenAccount = () => {
+      consumePendingOpenSettingsAccountView()
+      setRoute({ view: 'account' })
+    }
+    const handleOpenDateTime = () => {
+      consumePendingOpenSettingsDateTimeView()
+      setRoute({ view: 'date-time' })
+    }
+
+    if (consumePendingOpenSettingsUsageView()) {
       setCacheRevision((value) => value + 1)
       setRoute({ view: 'usage' })
     }
 
+    if (consumePendingOpenProxyServerView()) {
+      setRoute({ view: 'proxy-server' })
+    }
+
+    if (consumePendingOpenSoundsView()) {
+      setRoute({ view: 'sounds' })
+    }
+
+    if (consumePendingOpenSettingsAccountView()) {
+      setRoute({ view: 'account' })
+    }
+
+    if (consumePendingOpenSettingsDateTimeView()) {
+      setRoute({ view: 'date-time' })
+    }
+
     window.addEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
-    return () => window.removeEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
+    window.addEventListener(OPEN_SETTINGS_PROXY_SERVER_EVENT, handleOpenProxyServer)
+    window.addEventListener(OPEN_SETTINGS_SOUNDS_EVENT, handleOpenSounds)
+    window.addEventListener(OPEN_SETTINGS_ACCOUNT_EVENT, handleOpenAccount)
+    window.addEventListener(OPEN_SETTINGS_DATE_TIME_EVENT, handleOpenDateTime)
+    return () => {
+      window.removeEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
+      window.removeEventListener(OPEN_SETTINGS_PROXY_SERVER_EVENT, handleOpenProxyServer)
+      window.removeEventListener(OPEN_SETTINGS_SOUNDS_EVENT, handleOpenSounds)
+      window.removeEventListener(OPEN_SETTINGS_ACCOUNT_EVENT, handleOpenAccount)
+      window.removeEventListener(OPEN_SETTINGS_DATE_TIME_EVENT, handleOpenDateTime)
+    }
   }, [])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    const settingsWindow = windows.find((window) => window.appId === 'settings' && !window.minimized)
-
-    return [
-      {
-        label: '系统设置',
-        items: [
-          ...aboutAppMenuPrefix('关于系统设置', () => showBuiltinAbout('settings')),
-          {
-            type: 'action',
-            label: '隐藏系统设置',
-            shortcut: '⌘H',
-            onClick: () => settingsWindow && minimizeWindow(settingsWindow.id),
-          },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '退出系统设置',
-            shortcut: '⌘Q',
-            onClick: () => closeWindowsForApp('settings'),
-          },
-        ],
-      },
-    ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
-
-  useAppMenuBar('settings', menuBar)
+  useAppMenuBar('settings', [])
 
   const view = route.view
   const showRoot = view === 'root'
@@ -179,21 +267,36 @@ export function SettingsApp() {
     view === 'app-detail' ||
     view === 'apps-storage' ||
     view === 'other-storage' ||
-    view === 'event-log-storage'
+    view === 'data-other-storage' ||
+    view === 'legacy-storage' ||
+    view === 'event-log-storage' ||
+    view === 'files-storage'
   const showAppsStorage = view === 'apps-storage'
   const showOtherStorage = view === 'other-storage'
+  const showDataOtherStorage = view === 'data-other-storage'
   const showEventLogStorage = view === 'event-log-storage'
+  const showFilesStorage = view === 'files-storage'
   const showAppDetail = view === 'app-detail' && selectedApp
   const showDisplay = view === 'display'
   const showDateTime = view === 'date-time'
+  const showSpeech = view === 'speech'
+  const showSounds = view === 'sounds'
   const showNotificationCenter = view === 'notification-center'
   const keepDisplay =
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
   const showWallpaper = view === 'wallpaper'
   const showDock = view === 'dock'
+  const showProxyServer = view === 'proxy-server'
+  const showBackgroundRefresh = view === 'background-refresh'
+  const keepBackgroundRefresh =
+    showBackgroundRefresh || view === 'background-refresh-task'
+  const showBackgroundRefreshTask = view === 'background-refresh-task'
+  const showNpm = view === 'npm'
+  const showStartupItems = view === 'startup-items'
   const showEmoji = view === 'display-emoji' || view === 'display-emoji-calibration'
   const showEmojiCalibration = view === 'display-emoji-calibration'
   const showSafari = view === 'safari-usage'
+  const showModelCache = view === 'model-cache'
   const showResources = view === 'resources'
   const keepResources =
     showResources || view === 'resources-3d' || view === 'resources-3d-detail'
@@ -201,8 +304,10 @@ export function SettingsApp() {
   const keepResources3d = showResources3d || view === 'resources-3d-detail'
   const showResources3dDetail = view === 'resources-3d-detail'
   const showNews = view === 'news'
+  const showReset = view === 'reset'
   const showExperimental = view === 'experimental'
   const showExternalBridgeConsent = view === 'external-bridge-consent'
+  const showLegacyStorage = view === 'legacy-storage'
   const activePaneId = paneIdForRoute(route)
   const nestedRoute = isNestedSettingsRoute(route)
 
@@ -225,54 +330,71 @@ export function SettingsApp() {
     >
       <div class="settings__shell">
         <nav class="settings__sidebar" aria-label="设置分类">
-          <ul class="settings__sidebar-list">
-            {SETTINGS_PANES.map((pane) => {
-              const Icon = pane.Icon
-              const selected = activePaneId === pane.id
-              return (
-                <li key={pane.id}>
-                  <button
-                    type="button"
-                    class={`settings__sidebar-item${selected ? ' settings__sidebar-item--active' : ''}`}
-                    aria-current={selected ? 'page' : undefined}
-                    onClick={() => navigatePane(pane.route)}
-                  >
-                    <span class="settings__sidebar-icon" aria-hidden="true">
-                      <Icon />
-                    </span>
-                    <span class="settings__sidebar-label">{pane.label}</span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+          {visibleGroups.map(({ group, panes }) => (
+            <section class="settings__sidebar-group" key={group.id} aria-label={group.label}>
+              <h3 class="settings__sidebar-group-title">{group.label}</h3>
+              <ul class="settings__sidebar-list">
+                {panes.map((pane) => {
+                  const Icon = pane.Icon
+                  const selected = activePaneId === pane.id
+                  return (
+                    <li key={pane.id}>
+                      <button
+                        type="button"
+                        class={`settings__sidebar-item${selected ? ' settings__sidebar-item--active' : ''}`}
+                        aria-current={selected ? 'page' : undefined}
+                        onClick={() => navigatePane(pane.route)}
+                      >
+                        <span class="settings__sidebar-icon" aria-hidden="true">
+                          <span class="settings__sidebar-icon-scale">
+                            <Icon />
+                          </span>
+                        </span>
+                        <span class="settings__sidebar-label">{pane.label}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ))}
         </nav>
 
         <div class="settings__main">
           <SettingsKeepLayer show={showRoot} keep={showRoot}>
             <div class="settings">
-              <div class="settings__content">
+              <div class="settings__content settings__content--compact">
                 <div class="settings__welcome" aria-hidden={!showRoot}>
                   <h2 class="settings__welcome-title">系统设置</h2>
                   <p class="settings__welcome-text">从左侧列表中选择要更改的设置。</p>
                 </div>
-                <div class="settings__panes" aria-label="设置分类">
-                  {SETTINGS_PANES.map((pane) => {
-                    const Icon = pane.Icon
-                    return (
-                      <button
-                        key={pane.id}
-                        type="button"
-                        class="settings__pane"
-                        onClick={() => navigatePane(pane.route)}
-                      >
-                        <span class="settings__pane-icon" aria-hidden="true">
-                          <Icon />
-                        </span>
-                        <span class="settings__pane-label">{pane.label}</span>
-                      </button>
-                    )
-                  })}
+                <div class="settings__root-menu" aria-label="设置分类">
+                  {visibleGroups.map(({ group, panes }) => (
+                    <section class="settings__section" key={group.id}>
+                      <h2 class="settings__section-title">{group.label}</h2>
+                      <div class="settings__list">
+                        {panes.map((pane) => {
+                          const Icon = pane.Icon
+                          return (
+                            <button
+                              key={pane.id}
+                              type="button"
+                              class="settings__row settings__row--button settings__row--nav settings__row--pane"
+                              onClick={() => navigatePane(pane.route)}
+                            >
+                              <span class="settings__row-pane-icon" aria-hidden="true">
+                                <span class="settings__row-pane-icon-scale">
+                                  <Icon />
+                                </span>
+                              </span>
+                              <span class="settings__row-name">{pane.label}</span>
+                              <SettingsDisclosureIcon />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  ))}
                 </div>
               </div>
             </div>
@@ -292,14 +414,20 @@ export function SettingsApp() {
           onSelectApp={(appId) => setRoute({ view: 'app-detail', appId, from: 'usage' })}
           onOpenAppsStorage={() => setRoute({ view: 'apps-storage' })}
           onOpenOtherStorage={() => setRoute({ view: 'other-storage' })}
+          onOpenDataOtherStorage={() => setRoute({ view: 'data-other-storage' })}
+          onOpenLegacyStorage={() => setRoute({ view: 'legacy-storage' })}
           onOpenEventLogStorage={() => setRoute({ view: 'event-log-storage' })}
+          onOpenFilesStorage={() => setRoute({ view: 'files-storage' })}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showLegacyStorage} keep={showLegacyStorage}>
+        <LegacyStorageCleanupView onBack={() => setRoute({ view: 'usage' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showAppsStorage} keep={showAppsStorage}>
         <AppsStorageView
           entries={summary.entries}
-          totalBytes={summary.appsBytes}
           onBack={() => setRoute({ view: 'usage' })}
           onSelectApp={(entry) =>
             setRoute({ view: 'app-detail', appId: entry.id, from: 'apps-storage' })
@@ -314,8 +442,23 @@ export function SettingsApp() {
         />
       </SettingsKeepLayer>
 
+      <SettingsKeepLayer show={showDataOtherStorage} keep={showDataOtherStorage}>
+        <DataOtherStorageView
+          totalBytes={summary.dataOtherBytes}
+          onBack={() => setRoute({ view: 'usage' })}
+          onOpenSpaceSniffer={() => openApp('space-sniffer')}
+        />
+      </SettingsKeepLayer>
+
       <SettingsKeepLayer show={showEventLogStorage} keep={showEventLogStorage}>
         <EventLogStorageView onBack={() => setRoute({ view: 'usage' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showFilesStorage} keep={showFilesStorage}>
+        <FilesStorageView
+          onBack={() => setRoute({ view: 'usage' })}
+          onOpenSpaceSniffer={() => openApp('space-sniffer')}
+        />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={Boolean(showAppDetail)} keep={Boolean(showAppDetail)}>
@@ -352,6 +495,17 @@ export function SettingsApp() {
         <DateTimeSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
+      <SettingsKeepLayer show={showSpeech} keep={showSpeech}>
+        <SpeechSettingsView
+          onBack={() => setRoute({ view: 'root' })}
+          onOpenKeychain={() => openApp('keychain')}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showSounds} keep={showSounds}>
+        <SoundSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
       <SettingsKeepLayer show={showNotificationCenter} keep={showNotificationCenter}>
         <NotificationCenterSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
@@ -362,6 +516,34 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showDock} keep={showDock}>
         <DockSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showProxyServer} keep={showProxyServer}>
+        <ProxyServerSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showBackgroundRefresh} keep={keepBackgroundRefresh}>
+        <BackgroundRefreshSettingsView
+          onBack={() => setRoute({ view: 'root' })}
+          onOpenTask={(taskId) => setRoute({ view: 'background-refresh-task', taskId })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showBackgroundRefreshTask} keep={showBackgroundRefreshTask}>
+        {showBackgroundRefreshTask && (
+          <BackgroundRefreshTaskDetailView
+            taskId={route.taskId}
+            onBack={() => setRoute({ view: 'background-refresh' })}
+          />
+        )}
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showNpm} keep={showNpm}>
+        <NpmSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showStartupItems} keep={showStartupItems}>
+        <StartupItemsSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showEmoji && !showEmojiCalibration} keep={showEmoji}>
@@ -381,6 +563,10 @@ export function SettingsApp() {
           onCacheChange={() => setCacheRevision((value) => value + 1)}
           onHistoryChange={() => setCacheRevision((value) => value + 1)}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showModelCache} keep={showModelCache}>
+        <ModelCacheView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showResources} keep={keepResources}>
@@ -417,6 +603,10 @@ export function SettingsApp() {
         <DeveloperSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
+      <SettingsKeepLayer show={showReset} keep={showReset}>
+        <ResetSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
       <SettingsKeepLayer show={showExternalBridgeConsent} keep={showExternalBridgeConsent}>
         <ExternalBridgeConsentsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
@@ -445,7 +635,10 @@ type UsageViewProps = {
   onSelectApp: (appId: BuiltinAppId | GeneratedAppId) => void
   onOpenAppsStorage: () => void
   onOpenOtherStorage: () => void
+  onOpenDataOtherStorage: () => void
+  onOpenLegacyStorage: () => void
   onOpenEventLogStorage: () => void
+  onOpenFilesStorage: () => void
 }
 
 type StorageMeterSegment = {
@@ -454,10 +647,6 @@ type StorageMeterSegment = {
   bytes: number
   color: string
   free?: boolean
-}
-
-function residualBytes(usedBytes: number, attributedBytes: number): number {
-  return Math.max(0, usedBytes - attributedBytes)
 }
 
 function StorageMeter({
@@ -516,40 +705,30 @@ function UsageView({
   onSelectApp,
   onOpenAppsStorage,
   onOpenOtherStorage,
+  onOpenDataOtherStorage,
+  onOpenLegacyStorage,
   onOpenEventLogStorage,
+  onOpenFilesStorage,
 }: UsageViewProps) {
-  const newsCommentStats = useMemo(() => getNewsCommentStats(readNewsStore()), [])
-  const newsTokenUsage = useMemo(() => loadNewsTokenUsage(), [])
-
-  const systemAttributedBytes =
-    summary.appsBytes +
-    summary.mailDataBytes +
-    summary.newsDataBytes +
-    summary.booksIndexBytes +
-    summary.browserSystemBytes +
-    summary.otherBytes
-  const systemConfigBytes = residualBytes(summary.usedBytes, systemAttributedBytes)
+  const systemBreakdown = buildSystemSpaceBreakdown({
+    usedBytes: summary.usedBytes,
+    capacityBytes: DEVICE_CAPACITY_BYTES,
+    browserSystemBytes: summary.browserSystemBytes,
+    otherBytes: summary.otherBytes,
+  })
   const systemSegments: StorageMeterSegment[] = [
-    { id: 'apps', label: '应用程序', bytes: summary.appsBytes, color: '#4a90e2' },
-    { id: 'mail', label: '邮件', bytes: summary.mailDataBytes, color: '#5856d6' },
-    { id: 'news', label: '新闻', bytes: summary.newsDataBytes, color: '#ff9500' },
-    { id: 'books-index', label: '图书索引', bytes: summary.booksIndexBytes, color: '#34c759' },
-    { id: 'browser', label: '网络浏览器', bytes: summary.browserSystemBytes, color: '#5ac8fa' },
-    { id: 'system-config', label: '系统配置', bytes: systemConfigBytes, color: '#636366' },
+    { id: 'browser', label: '网页浏览器', bytes: summary.browserSystemBytes, color: '#5ac8fa' },
+    { id: 'system-config', label: '系统配置', bytes: systemBreakdown.systemConfigBytes, color: '#636366' },
     { id: 'other', label: '其他', bytes: summary.otherBytes, color: '#8e8e93' },
-    { id: 'free', label: '剩余', bytes: summary.availableBytes, color: '#d4d4d4', free: true },
+    { id: 'free', label: '剩余', bytes: systemBreakdown.availableBytes, color: '#d4d4d4', free: true },
   ]
 
-  const dataAttributedBytes =
-    summary.safariCacheBytes +
-    summary.booksDataBytes +
-    summary.aiUsageBytes +
-    summary.aiEventLogBytes +
-    summary.folderIconSnapshotsBytes
-  const dataOtherBytes = residualBytes(summary.dataUsedBytes, dataAttributedBytes)
+  const dataOtherBytes = summary.dataOtherBytes
   const dataSegments: StorageMeterSegment[] = [
-    { id: 'safari-cache', label: '网络浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
+    { id: 'safari-cache', label: '网页浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
     { id: 'books-data', label: '图书章节', bytes: summary.booksDataBytes, color: '#34c759' },
+    { id: 'files', label: '文件', bytes: summary.filesBytes, color: '#007aff' },
+    { id: 'app-data', label: '应用', bytes: summary.appDataBytes, color: '#4a90e2' },
     { id: 'ai-usage', label: 'AI 用量', bytes: summary.aiUsageBytes, color: '#af52de' },
     { id: 'event-log', label: '事件日志', bytes: summary.aiEventLogBytes, color: '#ff2d55' },
     {
@@ -557,6 +736,12 @@ function UsageView({
       label: '文件夹图标',
       bytes: summary.folderIconSnapshotsBytes,
       color: '#a2845e',
+    },
+    {
+      id: 'model-vision',
+      label: '模型识图',
+      bytes: summary.modelVisionBytes,
+      color: '#ff9f0a',
     },
     { id: 'data-other', label: '其他', bytes: dataOtherBytes, color: '#8e8e93' },
     {
@@ -590,7 +775,7 @@ function UsageView({
 
             <section class="settings__section">
               <h2 class="settings__section-title">数据空间</h2>
-              <p class="settings__section-subtitle">大体积正文与媒体（IndexedDB）</p>
+              <p class="settings__section-subtitle">大体积正文、媒体与用户文件（IndexedDB）</p>
               <div class="settings__box" aria-label="数据空间用量">
                 <div class="settings__meter-row">
                   <span>
@@ -611,15 +796,7 @@ function UsageView({
                 </div>
                 <div class="settings__list-body">
                   <StorageCategoryRow
-                    label="应用程序"
-                    bytes={summary.appsBytes}
-                    onClick={onOpenAppsStorage}
-                  />
-                  <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
-                  <StorageCategoryRow label="新闻" bytes={summary.newsDataBytes} hint={`${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`} />
-                  <StorageCategoryRow label="图书索引" bytes={summary.booksIndexBytes} />
-                  <StorageCategoryRow
-                    label="网络浏览器（历史/书签等）"
+                    label="网页浏览器（历史/书签等）"
                     bytes={summary.browserSystemBytes}
                     hint="历史、书签与 Token 统计；网页 HTML 缓存在数据空间"
                   />
@@ -628,6 +805,12 @@ function UsageView({
                     bytes={summary.otherBytes}
                     hint="未归类的 localStorage 键"
                     onClick={onOpenOtherStorage}
+                  />
+                  <StorageCategoryRow
+                    label="应用数据旧键"
+                    bytes={summary.legacyAppDataBytes}
+                    hint="已迁移应用残留的 localStorage 旧键"
+                    onClick={onOpenLegacyStorage}
                   />
                 </div>
               </div>
@@ -641,8 +824,20 @@ function UsageView({
                   <span>大小</span>
                 </div>
                 <div class="settings__list-body">
-                  <StorageCategoryRow label="网络浏览器网页缓存" bytes={summary.safariCacheBytes} />
+                  <StorageCategoryRow label="网页浏览器网页缓存" bytes={summary.safariCacheBytes} />
                   <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} />
+                  <StorageCategoryRow
+                    label="文件"
+                    bytes={summary.filesBytes}
+                    hint="「文件」应用中的用户文件"
+                    onClick={onOpenFilesStorage}
+                  />
+                  <StorageCategoryRow
+                    label="应用"
+                    bytes={summary.appDataBytes}
+                    hint="各应用 /Applications 下的 Data 与 Contents"
+                    onClick={onOpenAppsStorage}
+                  />
                   <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
                   <StorageCategoryRow
                     label="事件日志"
@@ -655,6 +850,17 @@ function UsageView({
                     bytes={summary.folderIconSnapshotsBytes}
                     hint="文件夹预览缩略图缓存"
                   />
+                  <StorageCategoryRow
+                    label="模型识图结果"
+                    bytes={summary.modelVisionBytes}
+                    hint="3D 模型视觉标注缓存"
+                  />
+                  <StorageCategoryRow
+                    label="其他"
+                    bytes={dataOtherBytes}
+                    hint="未归入已知分类的数据空间占用"
+                    onClick={onOpenDataOtherStorage}
+                  />
                 </div>
               </div>
             </section>
@@ -662,15 +868,16 @@ function UsageView({
 
           <section class="settings__section">
           <h2 class="settings__section-title">已安装的应用</h2>
+          <p class="settings__section-subtitle">点进应用查看明细</p>
           {summary.entries.length === 0 ? (
             <div class="settings__box settings__empty">暂无已安装应用</div>
           ) : (
             <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
             <p class="settings__section-footnote">
-              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节、事件日志、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
-              应用程序的用户数据通过 localStorage 桥接按应用独立存储。
-              系统空间上限 5 MB、数据空间上限 50 MB，均为硬限制。
+              系统空间存放配置与索引（上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间存放网页缓存、图书章节、文件、应用目录与注册表（上限{' '}
+              {formatStorageSize(DATA_CAPACITY_BYTES)}），均为硬限制。
+              应用文稿存放在注册表，计入数据空间总上限。
             </p>
           </section>
         </div>
@@ -770,14 +977,20 @@ function builtinDocumentsLabel(appId: BuiltinAppId): string {
       return '股票数据'
     case 'catgpt':
       return '对话记录'
+    case 'produde':
+      return '对话记录'
     case 'help':
       return '帮助对话'
     case 'gomoku':
       return '对局偏好'
     case 'icode':
       return '项目与对话'
+    case 'vscode':
+      return '编辑器偏好'
     case 'scene3d-lab':
       return '场景存档'
+    case 'model-vision':
+      return '识别结果'
     case 'appstore':
       return '商店清单'
     case 'settings':
@@ -787,17 +1000,21 @@ function builtinDocumentsLabel(appId: BuiltinAppId): string {
   }
 }
 
+function appFilesLabel(appId: string): string {
+  switch (appId) {
+    case 'books':
+      return '章节正文'
+    case 'browser':
+      return '网页缓存'
+    case 'model-vision':
+      return '识图结果'
+    default:
+      return '应用目录'
+  }
+}
+
 function AppListRow({ entry, onClick }: AppListRowProps) {
-  const systemBytes =
-    entry.appSizeBytes + entry.documentsBytes + entry.versionHistoryBytes
-  const dataBytes = entry.dataBytes
-  const totalBytes = systemBytes + dataBytes
-  const sizeLabel =
-    dataBytes > 0 && systemBytes > 0
-      ? `系统 ${formatStorageSize(systemBytes)} · 数据 ${formatStorageSize(dataBytes)}`
-      : dataBytes > 0
-        ? `数据 ${formatStorageSize(dataBytes)}`
-        : formatStorageSize(totalBytes)
+  const totalBytes = getManagedAppTotalBytes(entry)
 
   return (
     <button type="button" class="settings__row settings__row--button" onClick={onClick}>
@@ -806,9 +1023,7 @@ function AppListRow({ entry, onClick }: AppListRowProps) {
         {entry.name}
         {entry.icodeManaged && <span class="settings__row-badge">iCode</span>}
       </span>
-      <span class="settings__row-size" title={dataBytes > 0 ? '网页缓存等指标在数据空间' : undefined}>
-        {sizeLabel}
-      </span>
+      <span class="settings__row-size">{formatStorageSize(totalBytes)}</span>
       <SettingsDisclosureIcon />
     </button>
   )
@@ -822,7 +1037,8 @@ type AppDetailViewProps = {
 }
 
 function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }: AppDetailViewProps) {
-  const { uninstallApp, pruneAppVersionHistory, getAppVersionCount, clearAppData } =
+  const { openApp } = useOs()
+  const { uninstallApp, pruneAppVersionHistory, getAppVersionCount, clearAppData, openInstalledApp } =
     useGeneratedApps()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
@@ -831,9 +1047,25 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
     app.appSizeBytes + app.documentsBytes + app.dataBytes + app.versionHistoryBytes
   const versionCount = isGeneratedAppId(app.id) ? getAppVersionCount(generatedAppIdToSlug(app.id)) : 0
   const archivedVersionCount = Math.max(0, versionCount - 1)
-  const newsStore = app.id === 'news' ? readNewsStore() : undefined
-  const newsCommentStats = newsStore ? getNewsCommentStats(newsStore) : undefined
+  const [newsStore, setNewsStore] = useState<NewsStore | undefined>(undefined)
+  const [newsCommentStats, setNewsCommentStats] = useState<NewsCommentStats | undefined>(undefined)
   const newsTokenUsage = app.id === 'news' ? loadNewsTokenUsage() : undefined
+
+  useEffect(() => {
+    if (app.id !== 'news') {
+      return
+    }
+    let alive = true
+    readNewsStore().then((store) => {
+      if (alive) {
+        setNewsStore(store)
+        setNewsCommentStats(getNewsCommentStats(store))
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [app.id])
 
   const handleDelete = () => {
     if (!isGeneratedAppId(app.id)) {
@@ -860,6 +1092,14 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
     setClearDataConfirmOpen(false)
   }
 
+  const handleLaunch = () => {
+    if (isGeneratedAppId(app.id)) {
+      openInstalledApp(app.id)
+      return
+    }
+    openApp(app.id)
+  }
+
   return (
     <div class="settings">
       <ContentNav label="存储空间" onBack={onBack} />
@@ -881,10 +1121,12 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
         <section class="settings__section">
           <h2 class="settings__section-title">存储信息</h2>
           <div class="settings__box">
-            <dl class="settings__form-row">
-              <dt>应用大小</dt>
-              <dd>{formatStorageSize(app.appSizeBytes)}</dd>
-            </dl>
+            {app.appSizeBytes > 0 && (
+              <dl class="settings__form-row">
+                <dt>应用本体</dt>
+                <dd>{formatStorageSize(app.appSizeBytes)}</dd>
+              </dl>
+            )}
             {app.documentsBytes > 0 && (
               <dl class="settings__form-row">
                 <dt>
@@ -897,13 +1139,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
             )}
             {app.dataBytes > 0 && (
               <dl class="settings__form-row">
-                <dt>
-                  {app.id === 'books'
-                    ? '章节正文'
-                    : app.id === 'browser'
-                      ? '网页缓存'
-                      : '数据空间'}
-                </dt>
+                <dt>{appFilesLabel(app.id)}</dt>
                 <dd>{formatStorageSize(app.dataBytes)}</dd>
               </dl>
             )}
@@ -952,55 +1188,72 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
           </div>
         </section>
 
-        {app.removable && app.documentsBytes > 0 && (
-          <div class="settings__actions">
-            <button type="button" class="settings__btn" onClick={() => setClearDataConfirmOpen(true)}>
-              清除应用数据
+        <section class="settings__section">
+          <div class="settings__list">
+            <button type="button" class="settings__row settings__row--show-all" onClick={handleLaunch}>
+              启动程序
             </button>
-            <p class="settings__hint">删除该应用通过 localStorage 保存的全部用户数据，不影响应用本身。</p>
+            {app.id === 'browser' && onOpenSafariSettings ? (
+              <button type="button" class="settings__row settings__row--show-all" onClick={onOpenSafariSettings}>
+                管理网页浏览器缓存与用量
+              </button>
+            ) : undefined}
+            {app.id === 'news' && onOpenNewsSettings ? (
+              <button type="button" class="settings__row settings__row--show-all" onClick={onOpenNewsSettings}>
+                管理新闻存档与评论区
+              </button>
+            ) : undefined}
           </div>
-        )}
-
-        {app.removable && archivedVersionCount > 0 && (
-          <div class="settings__actions">
-            <button type="button" class="settings__btn" onClick={() => setPruneConfirmOpen(true)}>
-              清理旧版本
-            </button>
-            <p class="settings__hint">将删除除当前版本外的全部历史代码，不可恢复。</p>
-          </div>
-        )}
-
-        {app.id === 'browser' && onOpenSafariSettings && (
-          <div class="settings__actions">
-            <button type="button" class="settings__btn" onClick={onOpenSafariSettings}>
-              管理网络浏览器缓存与用量
-            </button>
-          </div>
-        )}
-
-        {app.id === 'news' && onOpenNewsSettings && (
-          <div class="settings__actions">
-            <button type="button" class="settings__btn" onClick={onOpenNewsSettings}>
-              管理新闻存档与评论区
-            </button>
-            <p class="settings__hint">
-              含报道、评论、点赞/举报记录及 AI 用量统计（当前占用{' '}
-              {formatStorageSize(getNewsStorageBytes())}）。
+          {app.id === 'news' && onOpenNewsSettings ? (
+            <p class="settings__section-footnote">
+              含报道、评论、点赞/举报记录及 AI 用量统计。
             </p>
-          </div>
-        )}
+          ) : undefined}
+        </section>
 
-        {app.removable && (
-          <div class="settings__actions">
-            <button
-              type="button"
-              class="settings__btn settings__btn--danger"
-              onClick={() => setConfirmOpen(true)}
-            >
-              卸载
-            </button>
-          </div>
-        )}
+        {app.removable && app.documentsBytes > 0 ? (
+          <section class="settings__section">
+            <div class="settings__list">
+              <button
+                type="button"
+                class="settings__row settings__row--show-all"
+                onClick={() => setClearDataConfirmOpen(true)}
+              >
+                清除应用数据
+              </button>
+            </div>
+            <p class="settings__section-footnote">删除该应用保存的全部用户数据，不影响应用本身。</p>
+          </section>
+        ) : undefined}
+
+        {app.removable && archivedVersionCount > 0 ? (
+          <section class="settings__section">
+            <div class="settings__list">
+              <button
+                type="button"
+                class="settings__row settings__row--show-all"
+                onClick={() => setPruneConfirmOpen(true)}
+              >
+                清理旧版本
+              </button>
+            </div>
+            <p class="settings__section-footnote">将删除除当前版本外的全部历史代码，不可恢复。</p>
+          </section>
+        ) : undefined}
+
+        {app.removable ? (
+          <section class="settings__section">
+            <div class="settings__list">
+              <button
+                type="button"
+                class="settings__row settings__row--show-all settings__row--destructive"
+                onClick={() => setConfirmOpen(true)}
+              >
+                卸载
+              </button>
+            </div>
+          </section>
+        ) : undefined}
       </div>
 
       {confirmOpen && (

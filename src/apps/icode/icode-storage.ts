@@ -1,11 +1,32 @@
-import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import { createRegistryStore } from '../../os/registry-store.ts'
 import { osNowMs } from '../../os/os-clock.ts'
+import { useEffect, useState } from 'preact/hooks'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
-import type { GeneratedAppId } from '../../os/types.ts'
-import { toGeneratedAppId } from '../appstore/store-agent.ts'
 import type { ICodeChatEditBlock, ICodeChatMessage, ICodeInternalProject } from './icode-types.ts'
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.icodeInternalProjects
+const registryStore = createRegistryStore<ICodeInternalProject[]>({
+  appId: 'icode',
+  defaultValue: () => [],
+  // 实际线上数据在旧版迁移后落在 'store' 键下，因此以 'store' 作为遗留单键。
+  legacyKey: 'store',
+  fields: [
+    {
+      key: 'projects',
+      valueType: 'json',
+      read: (projects) => projects,
+      write: (value) => value,
+      normalize: (raw) => {
+        if (!Array.isArray(raw)) {
+          return []
+        }
+        return raw.filter(isInternalProject)
+      },
+    },
+  ],
+  changedEventName: 'instant-os:icode-projects-changed',
+})
+
+void registryStore.hydrate()
 
 function isStringRecord(value: unknown): value is GeneratedAppDataStore {
   if (typeof value !== 'object' || value === undefined) {
@@ -69,29 +90,33 @@ function isInternalProject(value: unknown): value is ICodeInternalProject {
   )
 }
 
-export function loadInternalProjects(): ICodeInternalProject[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return []
-    }
-
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    return parsed.filter(isInternalProject)
-  } catch {
-    return []
-  }
+export function subscribeInternalProjects(listener: () => void): () => void {
+  return registryStore.subscribe(listener)
 }
 
-function saveInternalProjects(projects: ICodeInternalProject[]): boolean {
-  return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(projects))
+export function loadInternalProjectsSync(): ICodeInternalProject[] {
+  return registryStore.readSync() ?? []
 }
 
-export function createInternalProject(name: string, description: string): ICodeInternalProject {
+/** 订阅 iCode 内部项目列表；readSync 命中解析缓存时引用稳定。 */
+export function useInternalProjects(): ICodeInternalProject[] {
+  const [projects, setProjects] = useState(loadInternalProjectsSync)
+  useEffect(() => {
+    const sync = () => setProjects(loadInternalProjectsSync())
+    sync()
+    return subscribeInternalProjects(sync)
+  }, [])
+  return projects
+}
+
+export async function loadInternalProjects(): Promise<ICodeInternalProject[]> {
+  return registryStore.read()
+}
+
+export async function createInternalProject(
+  name: string,
+  description: string,
+): Promise<ICodeInternalProject> {
   const now = osNowMs()
   const id = `icode-${now}`
   const project: ICodeInternalProject = {
@@ -105,17 +130,17 @@ export function createInternalProject(name: string, description: string): ICodeI
     html: '',
     appData: {},
     chat: [],
-    linkedAppId: toGeneratedAppId(id) as GeneratedAppId,
+    linkedAppId: `gen:${id}`,
     createdAt: now,
     updatedAt: now,
   }
 
-  const projects = loadInternalProjects()
-  saveInternalProjects([...projects, project])
+  const projects = await loadInternalProjects()
+  await registryStore.write([...projects, project])
   return project
 }
 
-export function updateInternalProject(
+export async function updateInternalProject(
   projectId: string,
   patch: Partial<
     Pick<
@@ -132,8 +157,8 @@ export function updateInternalProject(
       | 'linkedAppId'
     >
   >,
-): ICodeInternalProject | undefined {
-  const projects = loadInternalProjects()
+): Promise<ICodeInternalProject | undefined> {
+  const projects = await loadInternalProjects()
   const index = projects.findIndex((project) => project.id === projectId)
   if (index < 0) {
     return undefined
@@ -146,22 +171,24 @@ export function updateInternalProject(
   }
   const next = [...projects]
   next[index] = updated
-  saveInternalProjects(next)
+  await registryStore.write(next)
   return updated
 }
 
-export function removeInternalProject(projectId: string): boolean {
-  const projects = loadInternalProjects()
+export async function removeInternalProject(projectId: string): Promise<boolean> {
+  const projects = await loadInternalProjects()
   const next = projects.filter((project) => project.id !== projectId)
   if (next.length === projects.length) {
     return false
   }
-  saveInternalProjects(next)
+  await registryStore.write(next)
   return true
 }
 
-export function getInternalProject(projectId: string): ICodeInternalProject | undefined {
-  return loadInternalProjects().find((project) => project.id === projectId)
+export async function getInternalProject(
+  projectId: string,
+): Promise<ICodeInternalProject | undefined> {
+  return (await loadInternalProjects()).find((project) => project.id === projectId)
 }
 
 export function previewAppIdForInternal(projectId: string): `gen:icode:${string}` {

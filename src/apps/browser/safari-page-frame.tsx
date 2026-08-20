@@ -17,6 +17,7 @@ type SafariPageFrameProps = {
   onNavigate: (url: string) => void
   onFocus?: () => void
   onContextMenu?: (request: SafariFrameContextMenuRequest) => void
+  onDismissOverlay?: () => void
 }
 
 export function SafariPageFrame({
@@ -28,6 +29,7 @@ export function SafariPageFrame({
   onNavigate,
   onFocus,
   onContextMenu,
+  onDismissOverlay,
 }: SafariPageFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [emojiFontEpoch, setEmojiFontEpoch] = useState(0)
@@ -38,11 +40,13 @@ export function SafariPageFrame({
   const onNavigateRef = useRef(onNavigate)
   const onFocusRef = useRef(onFocus)
   const onContextMenuRef = useRef(onContextMenu)
+  const onDismissOverlayRef = useRef(onDismissOverlay)
   const internalWriteRef = useRef(false)
 
   onNavigateRef.current = onNavigate
   onFocusRef.current = onFocus
   onContextMenuRef.current = onContextMenu
+  onDismissOverlayRef.current = onDismissOverlay
 
   useEffect(() => {
     const root = document.documentElement
@@ -72,19 +76,19 @@ export function SafariPageFrame({
       () => onFocusRef.current?.(),
       (request) => {
         const iframe = iframeRef.current
-        const parent = iframe?.parentElement
-        if (!parent) {
+        if (!iframe) {
           return
         }
 
+        // portal 菜单用视口坐标，与书签栏 / 桌面图标右键一致
         const iframeRect = iframe.getBoundingClientRect()
-        const parentRect = parent.getBoundingClientRect()
         onContextMenuRef.current?.({
-          x: iframeRect.left - parentRect.left + request.x,
-          y: iframeRect.top - parentRect.top + request.y,
+          x: iframeRect.left + request.x,
+          y: iframeRect.top + request.y,
           target: request.target,
         })
       },
+      () => onDismissOverlayRef.current?.(),
     )
   }, [])
 
@@ -222,7 +226,7 @@ export function SafariPageFrame({
       ref={iframeRef}
       class={`safari__frame ${streaming ? 'safari__frame--streaming' : ''}`}
       title={title}
-      sandbox="allow-scripts allow-same-origin allow-forms"
+      sandbox="allow-same-origin allow-forms"
       onContextMenu={(event) => event.preventDefault()}
     />
   )

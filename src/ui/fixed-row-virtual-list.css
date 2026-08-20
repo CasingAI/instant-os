@@ -1,0 +1,25 @@
+.fixed-row-virtual-list {
+  position: relative;
+  overflow: auto;
+  min-height: 0;
+}
+
+.fixed-row-virtual-list__spacer {
+  position: relative;
+  width: 100%;
+}
+
+.fixed-row-virtual-list__window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  will-change: transform;
+}
+
+.fixed-row-virtual-list__row {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+}

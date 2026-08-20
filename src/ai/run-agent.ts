@@ -1,8 +1,9 @@
 import type OpenAI from 'openai'
 import type { AgentTool } from './agent-tool.ts'
-import { toChatCompletionTool } from './agent-tool.ts'
+import { isAgentToolStructuredResult, toChatCompletionTool } from './agent-tool.ts'
 import { formatStreamEventResponse } from './ai-event-log-serialize.ts'
-import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
+import { buildThinkingRequestExtras, providerRequiresReasoningContentEcho, readStreamDelta } from './ai-thinking.ts'
+import type { AiReasoningEffort } from './ai-thinking.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import {
   finishAiEventLogSession,
@@ -14,15 +15,52 @@ import { snapshotFromOpenAiUsage } from './openai-usage.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
 import {
+  createChatCompletionStream,
   forEachStreamChunk,
   isStreamAbortError,
+  raceWithAbortSignal,
   throwIfStreamAborted,
 } from './stream-abort.ts'
+import {
+  createStreamIdleAbortSession,
+  createStreamIdleTimeoutError,
+  isStreamIdleTimeoutError,
+  resolveStreamIdleTimeoutError,
+} from './stream-idle-timeout.ts'
+import {
+  appendSelfCompactRubric,
+  applyToolObservationBudget,
+  cloneMessages,
+  createCompactContextTool,
+  createToolBudgetDedupState,
+  estimateMessagesTokensRough,
+  nextCompressionId,
+  resolveCompressionOptions,
+  runCompressionPipeline,
+  type AgentCompressionDetail,
+  type AgentCompressionEvent,
+  type AgentCompressionOptions,
+} from './context-compression/index.ts'
+import { appendOsDateTimeSystemSection } from './os-datetime-system-context.ts'
 
 export type AgentToolCallEvent = {
   step: number
+  /** 本轮 tool_calls 下标（与流式 delta 对齐） */
+  index?: number
   toolName: string
   arguments: Record<string, unknown>
+  /** 宿主合成（如 spill 自动读）；不计模型步数 */
+  synthetic?: boolean
+}
+
+export type AgentToolResultEvent = {
+  step: number
+  toolName: string
+  arguments: Record<string, unknown>
+  /** 与写入 messages 的 tool content 一致（已序列化） */
+  result: string
+  /** 宿主合成（如 spill 自动读）；不计模型步数 */
+  synthetic?: boolean
 }
 
 export type AgentStepEvent = {
@@ -43,6 +81,26 @@ export type AgentReasoningDeltaEvent = {
   accumulated: string
 }
 
+/** 工具调用参数流式增量（arguments 尚未 parse 完成） */
+export type AgentToolCallDeltaEvent = {
+  step: number
+  /** 本轮 stream 内 tool_calls 下标 */
+  index: number
+  id: string
+  toolName: string
+  /** 累计的 function.arguments 原始 JSON 字符串 */
+  argumentsRaw: string
+}
+
+/** 单轮 model 调用的 usage（非跨步累加；适合上下文占用展示） */
+export type AgentUsageEvent = {
+  step: number
+  promptTokens: number
+  completionTokens: number
+  cachedPromptTokens: number
+  totalTokens: number
+}
+
 export type RunAgentOptions = {
   prompt: string
   input?: string
@@ -54,19 +112,37 @@ export type RunAgentOptions = {
   config?: Partial<OpenAiConfig>
   usageContext?: AiUsageContext
   signal?: AbortSignal
+  /** 超过该毫秒数未收到任何流式分片则中断当前轮（默认 0=关闭） */
+  idleTimeoutMs?: number
+  /** 当前轮因空闲超时失败后的额外重试次数（默认 0；不含首次） */
+  idleRetryCount?: number
+  /** 上下文压缩；默认启用 */
+  compression?: AgentCompressionOptions
+  onContextCompression?: (event: AgentCompressionEvent) => void
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
+  onToolResult?: (event: AgentToolResultEvent) => void
+  onToolCallDelta?: (event: AgentToolCallDeltaEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
+  onUsage?: (event: AgentUsageEvent) => void
 }
 
 export type RunAgentResult = {
   text: string
+  /** 规范历史（完整，供续跑 / 编辑撤销） */
   messages: OpenAI.Chat.ChatCompletionMessageParam[]
+  /** 最后一轮实际发给模型的线历史 */
+  wireMessages?: OpenAI.Chat.ChatCompletionMessageParam[]
+  compressions?: AgentCompressionEvent[]
   steps: number
   /** 达到 maxSteps 仍有未完成的工具轮次，调用方可携带 messages 继续 */
   incomplete?: boolean
+  /** 某工具返回 stopRun，循环提前结束（调用方可据此换工具集续跑） */
+  stoppedByTool?: boolean
 }
+
+export type { AgentCompressionDetail, AgentCompressionEvent, AgentCompressionOptions }
 
 type AccumulatedToolCall = {
   id: string
@@ -109,6 +185,9 @@ function parseToolArguments(raw: string): Record<string, unknown> {
 }
 
 function serializeToolResult(result: unknown): string {
+  if (isAgentToolStructuredResult(result)) {
+    return result.content
+  }
   if (typeof result === 'string') {
     return result
   }
@@ -116,16 +195,44 @@ function serializeToolResult(result: unknown): string {
   return JSON.stringify(result)
 }
 
+function emitSyntheticActivities(
+  step: number,
+  result: unknown,
+  onToolCall?: (event: AgentToolCallEvent) => void,
+  onToolResult?: (event: AgentToolResultEvent) => void,
+): void {
+  if (!isAgentToolStructuredResult(result) || !result.syntheticActivities?.length) {
+    return
+  }
+  for (const activity of result.syntheticActivities) {
+    onToolCall?.({
+      step,
+      toolName: activity.toolName,
+      arguments: activity.arguments,
+      synthetic: true,
+    })
+    onToolResult?.({
+      step,
+      toolName: activity.toolName,
+      arguments: activity.arguments,
+      result: activity.result,
+      synthetic: true,
+    })
+  }
+}
+
 function applyToolCallDelta(
   toolCalls: Map<number, AccumulatedToolCall>,
   deltas: OpenAI.Chat.ChatCompletionChunk.Choice.Delta.ToolCall[] | undefined,
-): void {
+): number[] {
   if (!deltas?.length) {
-    return
+    return []
   }
 
+  const touched = new Set<number>()
   for (const delta of deltas) {
     const index = delta.index
+    touched.add(index)
     const existing = toolCalls.get(index)
     if (!existing) {
       toolCalls.set(index, {
@@ -149,6 +256,7 @@ function applyToolCallDelta(
       existing.function.arguments += delta.function.arguments
     }
   }
+  return [...touched]
 }
 
 function lastAssistantText(
@@ -172,7 +280,9 @@ function finishAgentUsage(options: {
   response: string
   promptTokens: number
   completionTokens: number
+  cachedPromptTokens: number
   totalTokens: number
+  model?: string
   status?: 'success' | 'error'
   errorMessage?: string
 }): void {
@@ -181,12 +291,13 @@ function finishAgentUsage(options: {
       ? {
           promptTokens: options.promptTokens,
           completionTokens: options.completionTokens,
+          cachedPromptTokens: options.cachedPromptTokens,
           totalTokens: options.totalTokens,
         }
       : undefined
 
   if (options.usageContext && usage) {
-    recordAiTokenUsage(options.usageContext, usage)
+    recordAiTokenUsage(options.usageContext, usage, options.model)
   }
 
   if (options.logSession && options.usageContext) {
@@ -207,11 +318,14 @@ async function streamAssistantTurn(options: {
   chatTools: OpenAI.Chat.ChatCompletionTool[] | undefined
   providerId: ReturnType<typeof mergeOpenAiConfig>['providerId']
   thinkingEnabled: boolean
+  thinkingEffort?: AiReasoningEffort
   includeUsage: boolean
   step: number
   signal?: AbortSignal
+  idleTimeoutMs?: number
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
+  onToolCallDelta?: (event: AgentToolCallDeltaEvent) => void
 }): Promise<{
   content: string
   reasoning: string
@@ -220,67 +334,127 @@ async function streamAssistantTurn(options: {
 }> {
   throwIfStreamAborted(options.signal)
 
-  const stream = await options.client.chat.completions.create({
-    model: options.model,
-    messages: options.messages,
-    tools: options.chatTools,
-    stream: true,
-    ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
-    ...buildThinkingRequestExtras(options.providerId, options.thinkingEnabled),
-    ...(options.signal ? { signal: options.signal } : {}),
+  const idle = createStreamIdleAbortSession({
+    idleTimeoutMs: options.idleTimeoutMs,
+    externalSignal: options.signal,
   })
+  const signal = idle.signal
 
-  let content = ''
-  let reasoning = ''
-  let usage: ReturnType<typeof snapshotFromOpenAiUsage>
-  const toolCallMap = new Map<number, AccumulatedToolCall>()
+  try {
+    idle.resetIdleTimer()
+    const stream = await raceWithAbortSignal(
+      createChatCompletionStream(
+        options.client,
+        {
+          model: options.model,
+          messages: options.messages,
+          tools: options.chatTools,
+          stream: true,
+          ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
+          ...buildThinkingRequestExtras(
+            options.providerId,
+            options.thinkingEnabled,
+            options.model,
+            options.thinkingEffort,
+          ),
+        },
+        signal,
+      ),
+      signal,
+    )
 
-  await forEachStreamChunk(
-    stream,
-    (chunk) => {
-      const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
-      if (chunkUsage) {
-        usage = chunkUsage
+    // create() 已返回后仍须把外部 abort 打到 SDK 内部 controller，才能取消 body
+    const abortStreamController = () => {
+      if (!stream.controller || stream.controller.signal.aborted) return
+      stream.controller.abort()
+    }
+    if (signal) {
+      if (signal.aborted) {
+        abortStreamController()
+        throwIfStreamAborted(signal)
       }
+      signal.addEventListener('abort', abortStreamController, { once: true })
+    }
 
-      const choice = chunk.choices[0]
-      if (!choice) {
-        return
-      }
+    let content = ''
+    let reasoning = ''
+    let usage: ReturnType<typeof snapshotFromOpenAiUsage>
+    const toolCallMap = new Map<number, AccumulatedToolCall>()
 
-      applyToolCallDelta(toolCallMap, choice.delta.tool_calls)
+    try {
+      await forEachStreamChunk(
+        stream,
+        (chunk) => {
+          idle.resetIdleTimer()
 
-      const { reasoning: reasoningDelta, content: contentDelta } = readStreamDelta(
-        choice.delta,
+          const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
+          if (chunkUsage) {
+            usage = chunkUsage
+          }
+
+          const choice = chunk.choices[0]
+          if (!choice) {
+            return
+          }
+
+          const touchedIndexes = applyToolCallDelta(toolCallMap, choice.delta.tool_calls)
+          if (options.onToolCallDelta && touchedIndexes.length > 0) {
+            for (const index of touchedIndexes) {
+              const toolCall = toolCallMap.get(index)
+              if (!toolCall) continue
+              options.onToolCallDelta({
+                step: options.step,
+                index,
+                id: toolCall.id,
+                toolName: toolCall.function.name,
+                argumentsRaw: toolCall.function.arguments,
+              })
+            }
+          }
+
+          const { reasoning: reasoningDelta, content: contentDelta } = readStreamDelta(
+            choice.delta,
+          )
+
+          if (reasoningDelta) {
+            reasoning += reasoningDelta
+            options.onReasoningDelta?.({
+              step: options.step,
+              delta: reasoningDelta,
+              accumulated: reasoning,
+            })
+          }
+
+          if (contentDelta) {
+            content += contentDelta
+            options.onTextDelta?.({
+              step: options.step,
+              delta: contentDelta,
+              accumulated: content,
+            })
+          }
+        },
+        signal,
       )
+    } finally {
+      signal?.removeEventListener('abort', abortStreamController)
+    }
 
-      if (reasoningDelta) {
-        reasoning += reasoningDelta
-        options.onReasoningDelta?.({
-          step: options.step,
-          delta: reasoningDelta,
-          accumulated: reasoning,
-        })
-      }
+    const toolCalls = [...toolCallMap.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, toolCall]) => toolCall)
+      .filter((toolCall) => toolCall.function.name.trim().length > 0)
 
-      if (contentDelta) {
-        content += contentDelta
-        options.onTextDelta?.({
-          step: options.step,
-          delta: contentDelta,
-          accumulated: content,
-        })
-      }
-    },
-    options.signal,
-  )
-
-  const toolCalls = [...toolCallMap.entries()]
-    .sort(([left], [right]) => left - right)
-    .map(([, toolCall]) => toolCall)
-    .filter((toolCall) => toolCall.function.name.trim().length > 0)
-
-  return { content, reasoning, toolCalls, usage }
+    return { content, reasoning, toolCalls, usage }
+  } catch (error) {
+    const idleError = resolveStreamIdleTimeoutError(error, signal)
+    if (idleError) {
+      throw idleError
+    }
+    throw error
+  } finally {
+    idle.dispose()
+  }
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult> {
@@ -288,53 +462,224 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
   const client = options.client ?? getOpenAiClient(config)
   const model = options.model ?? config.defaultModel
   const maxSteps = options.maxSteps ?? 8
-  const tools = options.tools ?? []
-  const toolByName = new Map(tools.map((tool) => [tool.name, tool]))
+  const compression = resolveCompressionOptions(options.compression)
+  const requireReasoningEcho = providerRequiresReasoningContentEcho(config.providerId, model)
+  const dedup = createToolBudgetDedupState()
+  const compressions: AgentCompressionEvent[] = []
+  let estimatedTokens = 0
 
-  const messages = buildInitialMessages(options)
+  const emitCompression = (event: AgentCompressionEvent) => {
+    compressions.push(event)
+    options.onContextCompression?.(event)
+  }
+
+  const systemPrompt = appendOsDateTimeSystemSection(
+    compression.enabled && compression.selfCompactTool
+      ? appendSelfCompactRubric(options.prompt)
+      : options.prompt,
+  )
+
+  const canonical = buildInitialMessages({ ...options, prompt: systemPrompt })
+  let wire = cloneMessages(canonical)
+
+  type MutableBuffers = {
+    canonical: OpenAI.Chat.ChatCompletionMessageParam[]
+    wire: OpenAI.Chat.ChatCompletionMessageParam[]
+  }
+  const buffers: MutableBuffers = { canonical, wire }
+
+  const pushBoth = (message: OpenAI.Chat.ChatCompletionMessageParam) => {
+    buffers.canonical.push(message)
+    buffers.wire.push(structuredClone(message))
+  }
+
+  const budgetAndPushTool = async (
+    toolCallId: string,
+    rawContent: string,
+    step: number,
+  ): Promise<string> => {
+    if (!compression.enabled) {
+      const message: OpenAI.Chat.ChatCompletionMessageParam = {
+        role: 'tool',
+        tool_call_id: toolCallId,
+        content: rawContent,
+      }
+      pushBoth(message)
+      return rawContent
+    }
+
+    const budgeted = await applyToolObservationBudget(rawContent, {
+      step,
+      dedup,
+      spill: compression.spill,
+    })
+    if (budgeted.changed) {
+      const preview =
+        budgeted.content.length > 2_000
+          ? `${budgeted.content.slice(0, 2_000)}…`
+          : budgeted.content
+      emitCompression({
+        id: nextCompressionId('tool'),
+        kind: 'tool_budget',
+        atStep: step,
+        beforeTokens: estimatedTokens,
+        afterTokens: estimatedTokens,
+        coveredCanonicalFrom: buffers.canonical.length,
+        coveredCanonicalTo: buffers.canonical.length + 1,
+        summaryPreview: budgeted.content.slice(0, 200),
+        spilled: budgeted.spilled,
+        note: budgeted.duplicate ? 'duplicate' : undefined,
+        detail: {
+          kind: 'tool_budget',
+          trigger: 'soft',
+          spilled: budgeted.spilled,
+          preview,
+        },
+      })
+    }
+    const message: OpenAI.Chat.ChatCompletionMessageParam = {
+      role: 'tool',
+      tool_call_id: toolCallId,
+      content: budgeted.content,
+    }
+    pushBoth(message)
+    return budgeted.content
+  }
+
+  const runPipeline = async (
+    step: number,
+    extras?: { forceLlmCompact?: boolean; focus?: string },
+  ) => {
+    if (!compression.enabled) return
+    const result = await runCompressionPipeline({
+      canonical: buffers.canonical,
+      wire: buffers.wire,
+      step,
+      estimatedTokens,
+      options: compression,
+      requireReasoningEcho,
+      model,
+      usageContext: options.usageContext,
+      client,
+      focus: extras?.focus,
+      forceLlmCompact: extras?.forceLlmCompact,
+      signal: options.signal,
+    })
+    buffers.wire = result.wire
+    estimatedTokens = result.estimatedTokens
+    for (const event of result.events) {
+      emitCompression(event)
+    }
+  }
+
+  const baseTools = options.tools ?? []
+  const tools: AgentTool[] = [...baseTools]
+  if (compression.enabled && compression.selfCompactTool) {
+    tools.push(
+      createCompactContextTool(async (args) => {
+        const before = estimatedTokens || estimateMessagesTokensRough(buffers.wire)
+        await runPipeline(Math.max(0, compressions.length), {
+          forceLlmCompact: true,
+          focus: args.focus,
+        })
+        const last = compressions[compressions.length - 1]
+        return {
+          ok: true,
+          focus: args.focus ?? null,
+          reason: args.reason ?? null,
+          beforeTokens: before,
+          afterTokens: estimatedTokens,
+          compressionId: last?.id ?? null,
+          summaryPreview: last?.summaryPreview ?? null,
+        }
+      }),
+    )
+  }
+
+  const toolByName = new Map(tools.map((tool) => [tool.name, tool]))
   const chatTools = tools.length > 0 ? tools.map(toChatCompletionTool) : undefined
   let accumulatedPromptTokens = 0
   let accumulatedCompletionTokens = 0
+  let accumulatedCachedPromptTokens = 0
   let accumulatedTotalTokens = 0
 
   const logSession = options.usageContext
     ? startAiEventLogSession(options.usageContext, {
         model,
         thinkingEnabled: config.thinkingEnabled,
-        messages: toEventLogMessages(messages),
+        messages: toEventLogMessages(buffers.canonical),
       })
     : undefined
+
+  const resultExtras = () => ({
+    wireMessages: cloneMessages(buffers.wire),
+    compressions: compressions.length > 0 ? [...compressions] : undefined,
+  })
 
   try {
     for (let step = 0; step < maxSteps; step += 1) {
       throwIfStreamAborted(options.signal)
+      await runPipeline(step)
       options.onStep?.({ step, kind: 'model' })
 
-      const turn = await streamAssistantTurn({
-        client,
-        model,
-        messages,
-        chatTools,
-        providerId: config.providerId,
-        thinkingEnabled: config.thinkingEnabled,
-        includeUsage: Boolean(options.usageContext),
-        step,
-        signal: options.signal,
-        onTextDelta: options.onTextDelta,
-        onReasoningDelta: options.onReasoningDelta,
-      })
+      const idleTimeoutMs = options.idleTimeoutMs ?? 0
+      const idleRetryCount = Math.max(0, options.idleRetryCount ?? 0)
+      const maxAttempts = 1 + idleRetryCount
+      let turn: Awaited<ReturnType<typeof streamAssistantTurn>> | undefined
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        try {
+          turn = await streamAssistantTurn({
+            client,
+            model,
+            messages: buffers.wire,
+            chatTools,
+            providerId: config.providerId,
+            thinkingEnabled: config.thinkingEnabled,
+            thinkingEffort: config.thinkingEffort,
+            includeUsage: Boolean(options.usageContext || options.onUsage),
+            step,
+            signal: options.signal,
+            idleTimeoutMs,
+            onTextDelta: options.onTextDelta,
+            onReasoningDelta: options.onReasoningDelta,
+            onToolCallDelta: options.onToolCallDelta,
+          })
+          break
+        } catch (error) {
+          if (
+            isStreamIdleTimeoutError(error) &&
+            attempt < maxAttempts - 1 &&
+            !options.signal?.aborted
+          ) {
+            continue
+          }
+          throw error
+        }
+      }
+      if (!turn) {
+        throw createStreamIdleTimeoutError()
+      }
 
       throwIfStreamAborted(options.signal)
 
       if (turn.usage) {
         accumulatedPromptTokens += turn.usage.promptTokens
         accumulatedCompletionTokens += turn.usage.completionTokens
+        accumulatedCachedPromptTokens += turn.usage.cachedPromptTokens ?? 0
         accumulatedTotalTokens += turn.usage.totalTokens
+        estimatedTokens = turn.usage.promptTokens
+        options.onUsage?.({
+          step,
+          promptTokens: turn.usage.promptTokens,
+          completionTokens: turn.usage.completionTokens,
+          cachedPromptTokens: turn.usage.cachedPromptTokens ?? 0,
+          totalTokens: turn.usage.totalTokens,
+        })
       }
 
       const assistantMessage: OpenAI.Chat.ChatCompletionAssistantMessageParam = {
         role: 'assistant',
-        content: turn.content || undefined,
+        content: turn.content || '',
         ...(turn.toolCalls.length > 0
           ? {
               tool_calls: turn.toolCalls.map((toolCall) => ({
@@ -348,7 +693,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
             }
           : {}),
       }
-      messages.push(assistantMessage)
+      if (requireReasoningEcho) {
+        ;(assistantMessage as OpenAI.Chat.ChatCompletionAssistantMessageParam & {
+          reasoning_content?: string
+        }).reasoning_content = turn.reasoning || ''
+      }
+      pushBoth(assistantMessage)
 
       if (logSession) {
         logSession.update({
@@ -358,6 +708,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
               ? {
                   promptTokens: accumulatedPromptTokens,
                   completionTokens: accumulatedCompletionTokens,
+                  cachedPromptTokens: accumulatedCachedPromptTokens,
                   totalTokens: accumulatedTotalTokens,
                 }
               : undefined,
@@ -371,12 +722,15 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           response: formatStreamEventResponse(turn.reasoning, turn.content),
           promptTokens: accumulatedPromptTokens,
           completionTokens: accumulatedCompletionTokens,
+          cachedPromptTokens: accumulatedCachedPromptTokens,
           totalTokens: accumulatedTotalTokens,
+          model,
         })
         return {
           text: turn.content,
-          messages,
+          messages: buffers.canonical,
           steps: step + 1,
+          ...resultExtras(),
         }
       }
 
@@ -387,77 +741,133 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       })
 
       const availableToolNames = [...toolByName.keys()]
+      let stopRunRequested = false
 
-      for (const toolCall of turn.toolCalls) {
+      for (const [toolIndex, toolCall] of turn.toolCalls.entries()) {
         throwIfStreamAborted(options.signal)
 
         let args: Record<string, unknown> = {}
         try {
           args = parseToolArguments(toolCall.function.arguments)
         } catch (error) {
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: serializeToolResult({
+          await budgetAndPushTool(
+            toolCall.id,
+            serializeToolResult({
               error: `工具参数无效: ${error instanceof Error ? error.message : String(error)}`,
             }),
-          })
+            step,
+          )
           continue
         }
 
+        const toolName = toolCall.function.name
         options.onToolCall?.({
           step,
-          toolName: toolCall.function.name,
+          index: toolIndex,
+          toolName,
           arguments: args,
         })
 
-        const tool = toolByName.get(toolCall.function.name)
-        if (!tool) {
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: serializeToolResult({
-              error: `未注册的工具: ${toolCall.function.name}。可用工具: ${availableToolNames.join(', ') || '（无）'}。请改用已注册的工具名重试。`,
-            }),
+        const emitToolResult = (result: string) => {
+          options.onToolResult?.({
+            step,
+            toolName,
+            arguments: args,
+            result,
           })
+        }
+
+        const tool = toolByName.get(toolName)
+        if (!tool) {
+          const content = await budgetAndPushTool(
+            toolCall.id,
+            serializeToolResult({
+              error: `未注册的工具: ${toolName}。可用工具: ${availableToolNames.join(', ') || '（无）'}。请改用已注册的工具名重试。`,
+            }),
+            step,
+          )
+          throwIfStreamAborted(options.signal)
+          emitToolResult(content)
           continue
         }
 
         try {
-          const result = await tool.execute(args)
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: serializeToolResult(result),
-          })
+          const result = await raceWithAbortSignal(
+            Promise.resolve(tool.execute(args)),
+            options.signal,
+          )
+          const rawContent = serializeToolResult(result)
+          // 已由工具侧 spill 的 structured 短柄：跳过二次 L0 大裁剪（budget 内会识别标记）
+          const content = await budgetAndPushTool(toolCall.id, rawContent, step)
+          // appendMessages 仅写入规范+线历史（合成 vision 等）
+          if (isAgentToolStructuredResult(result) && result.appendMessages?.length) {
+            for (const extra of result.appendMessages) {
+              pushBoth(extra)
+            }
+          }
+          throwIfStreamAborted(options.signal)
+          emitToolResult(content)
+          emitSyntheticActivities(step, result, options.onToolCall, options.onToolResult)
+          if (isAgentToolStructuredResult(result) && result.stopRun) {
+            stopRunRequested = true
+          }
         } catch (error) {
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: serializeToolResult({
+          if (isStreamAbortError(error, options.signal)) {
+            throw error
+          }
+          const content = await budgetAndPushTool(
+            toolCall.id,
+            serializeToolResult({
               error:
                 error instanceof Error ? error.message : `工具执行失败: ${String(error)}`,
             }),
-          })
+            step,
+          )
+          throwIfStreamAborted(options.signal)
+          emitToolResult(content)
+        }
+      }
+
+      if (stopRunRequested) {
+        const stoppedText = lastAssistantText(buffers.canonical)
+        finishAgentUsage({
+          usageContext: options.usageContext,
+          logSession,
+          response: formatStreamEventResponse(turn.reasoning, turn.content),
+          promptTokens: accumulatedPromptTokens,
+          completionTokens: accumulatedCompletionTokens,
+          cachedPromptTokens: accumulatedCachedPromptTokens,
+          totalTokens: accumulatedTotalTokens,
+          model,
+        })
+        return {
+          text: stoppedText || turn.content,
+          messages: buffers.canonical,
+          steps: step + 1,
+          stoppedByTool: true,
+          ...resultExtras(),
         }
       }
     }
 
-    const incompleteText = lastAssistantText(messages)
+    const incompleteText = lastAssistantText(buffers.canonical)
     finishAgentUsage({
       usageContext: options.usageContext,
       logSession,
       response: incompleteText || `已达最大步数 ${maxSteps}，可继续`,
       promptTokens: accumulatedPromptTokens,
       completionTokens: accumulatedCompletionTokens,
+      cachedPromptTokens: accumulatedCachedPromptTokens,
       totalTokens: accumulatedTotalTokens,
+      model,
     })
 
     return {
       text: incompleteText,
-      messages,
+      messages: buffers.canonical,
       steps: maxSteps,
       incomplete: true,
+      ...resultExtras(),
     }
   } catch (error) {
     if (logSession && options.usageContext) {

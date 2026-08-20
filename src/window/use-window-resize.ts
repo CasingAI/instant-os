@@ -49,9 +49,17 @@ export function useWindowResize(
       event.stopPropagation()
       onFocus(windowId)
 
-      const frameEl = (event.currentTarget as HTMLElement).closest('.window-frame')
+      const handle = event.currentTarget as HTMLElement
+      const frameEl = handle.closest('.window-frame')
       if (!(frameEl instanceof HTMLElement)) {
         return
+      }
+
+      const pointerId = event.pointerId
+      try {
+        handle.setPointerCapture(pointerId)
+      } catch {
+        // ignore
       }
 
       const startBounds = getBounds()
@@ -70,9 +78,39 @@ export function useWindowResize(
       document.body.style.cursor = cursor
       document.body.style.userSelect = 'none'
 
-      const onPointerMove = (moveEvent: PointerEvent) => {
+      const endResize = (commit: boolean) => {
         const session = resizeStateRef.current
-        if (!session) return
+        if (!session) {
+          return
+        }
+
+        document.removeEventListener('pointermove', onPointerMove)
+        document.removeEventListener('pointerup', onPointerUp)
+        document.removeEventListener('pointercancel', onPointerCancel)
+
+        suppressClickRef.current = session.moved
+        if (commit && session.moved) {
+          onResize(windowId, session.lastBounds)
+        }
+        resizeStateRef.current = undefined
+        setResizing(false)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        try {
+          handle.releasePointerCapture(pointerId)
+        } catch {
+          // ignore
+        }
+      }
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== pointerId) {
+          return
+        }
+        const session = resizeStateRef.current
+        if (!session) {
+          return
+        }
 
         const deltaX = moveEvent.clientX - session.startX
         const deltaY = moveEvent.clientY - session.startY
@@ -98,22 +136,23 @@ export function useWindowResize(
         applyBoundsToFrame(session.frameEl, nextBounds)
       }
 
-      const onPointerUp = () => {
-        const session = resizeStateRef.current
-        suppressClickRef.current = session?.moved ?? false
-        if (session?.moved) {
-          onResize(windowId, session.lastBounds)
+      const onPointerUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) {
+          return
         }
-        resizeStateRef.current = undefined
-        setResizing(false)
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-        document.removeEventListener('pointermove', onPointerMove)
-        document.removeEventListener('pointerup', onPointerUp)
+        endResize(true)
+      }
+
+      const onPointerCancel = (cancelEvent: PointerEvent) => {
+        if (cancelEvent.pointerId !== pointerId) {
+          return
+        }
+        endResize(false)
       }
 
       document.addEventListener('pointermove', onPointerMove)
       document.addEventListener('pointerup', onPointerUp)
+      document.addEventListener('pointercancel', onPointerCancel)
     },
     [windowId, getBounds, onResize, onFocus, enabled, snap],
   )

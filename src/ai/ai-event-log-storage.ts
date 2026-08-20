@@ -1,10 +1,10 @@
 import { osDayKey, osNowMs } from '../os/os-clock.ts'
 import {
   AI_EVENT_LOG_STORE,
-  DATA_CAPACITY_BYTES,
   DATA_META_STORE,
   DATA_STORAGE_CHANGED_EVENT,
   runDataStoreTransaction,
+  wouldExceedDataCapacity,
 } from '../os/device-data-storage.ts'
 import { resolveEventLogPerformance } from './ai-event-log-timing.ts'
 import { resolveActorLabel, type AiUsageContext } from './ai-usage-context.ts'
@@ -75,6 +75,7 @@ function toDbRecord(
     response: input.response,
     promptTokens: input.usage?.promptTokens,
     completionTokens: input.usage?.completionTokens,
+    cachedPromptTokens: input.usage?.cachedPromptTokens,
     totalTokens: input.usage?.totalTokens,
     usageEstimated: input.usageEstimated,
     status: input.status ?? 'success',
@@ -123,7 +124,7 @@ export async function persistAiEventLog(
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - previousByteSize + dbRecord.byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return undefined
   }
 

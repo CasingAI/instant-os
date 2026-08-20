@@ -1,0 +1,20 @@
+name = "instant-app-models"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+account_id = "23ec159df1a5831b2b2d48ec1a7073d4"
+
+# 敏感：npx wrangler secret put POW_SECRET
+[[r2_buckets]]
+binding = "MODELS"
+bucket_name = "instant-app-models"
+
+[vars]
+# 前导零 bit：期望 2^6 = 64 次尝试，故意压得很轻
+DIFFICULTY = "6"
+# PBKDF2 迭代：比免费 AI 网关默认 4096 更低
+POW_ITERS = "1024"
+POW_WINDOW_SECONDS = "120"
+ENVIRONMENT = "production"
+
+[observability]
+enabled = true

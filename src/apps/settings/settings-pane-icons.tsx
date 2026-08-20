@@ -86,6 +86,20 @@ export function DateTimePaneIcon() {
   )
 }
 
+export function BackgroundRefreshPaneIcon() {
+  return (
+    <AppIconTile color="#34a0a4" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
+        aria-hidden="true"
+      >
+        🔄
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function NotificationCenterPaneIcon() {
   const svgSize = paneSvg(22)
   return (
@@ -100,8 +114,74 @@ export function NotificationCenterPaneIcon() {
   )
 }
 
+export function SpeechPaneIcon() {
+  return (
+    <AppIconTile color="#3d9b8f" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
+        aria-hidden="true"
+      >
+        🎙️
+      </span>
+    </AppIconTile>
+  )
+}
+
+export function SoundsPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#e08a2c" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <path
+          d="M4 8.2h2.6L10.2 5v12L6.6 13.8H4V8.2Z"
+          fill="#fff"
+          opacity="0.95"
+        />
+        <path
+          d="M12.4 7.2c1.05.85 1.7 2.1 1.7 3.55s-.65 2.7-1.7 3.55"
+          fill="none"
+          stroke="#fff"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          opacity="0.9"
+        />
+        <path
+          d="M14.8 5.2c1.75 1.35 2.85 3.4 2.85 5.7s-1.1 4.35-2.85 5.7"
+          fill="none"
+          stroke="#fff"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          opacity="0.7"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function SafariUsagePaneIcon() {
   return <BrowserIcon size={PANE_ICON_SIZE} />
+}
+
+export function ModelCachePaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#8a6fd6" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <rect x="3" y="3" width="16" height="16" rx="3" fill="#fff" opacity="0.95" />
+        <circle cx="8.5" cy="8.5" r="2" fill="#8a6fd6" opacity="0.85" />
+        <circle cx="14.5" cy="14.5" r="2" fill="#8a6fd6" opacity="0.7" />
+        <path
+          d="M8.5 10.5 C8.5 13 11 15 14.5 12.5"
+          fill="none"
+          stroke="#8a6fd6"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          opacity="0.6"
+        />
+      </svg>
+    </AppIconTile>
+  )
 }
 
 export function ResourcesPaneIcon() {
@@ -125,6 +205,33 @@ export function ResourcesPaneIcon() {
 
 export function NewsPaneIcon() {
   return <NewsIcon size={PANE_ICON_SIZE} />
+}
+
+export function ResetPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#b0723a" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <path
+          d="M4 11 L10 5 M4 11 L10 17"
+          fill="none"
+          stroke="#fff"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          opacity="0.95"
+        />
+        <path
+          d="M4 11 H18"
+          fill="none"
+          stroke="#fff"
+          stroke-width="2"
+          stroke-linecap="round"
+          opacity="0.95"
+        />
+      </svg>
+    </AppIconTile>
+  )
 }
 
 export function WallpaperPaneIcon() {
@@ -209,6 +316,49 @@ export function DockPaneIcon() {
           opacity="0.75"
         />
       </svg>
+    </AppIconTile>
+  )
+}
+
+export function ProxyServerPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#3d7ea6" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <path
+          d="M7 16.5 C6 16.2 4.8 15 4.6 13.4 C4.4 11.7 5.4 10.2 6.9 9.7 C7.1 7.9 8.7 6.5 10.7 6.5 C12.1 6.5 13.3 7.2 14 8.3 C14.9 7.7 16.1 7.6 17.1 8.1 C18.6 8.8 19.3 10.5 18.8 12 C18.5 13 17.8 13.7 16.9 13.9 L16.9 16.5 Z"
+          fill="#fff"
+          opacity="0.95"
+        />
+        <rect x="9" y="17" width="4" height="1.8" rx="0.9" fill="#fff" opacity="0.8" />
+        <path d="M6.5 19 H15.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function StartupItemsPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#3f8f6b" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <circle cx="11" cy="11" r="7.5" fill="#fff" opacity="0.95" />
+        <path d="M9.2 7.8 L15.2 11 L9.2 14.2 Z" fill="#3f8f6b" opacity="0.9" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function NpmPaneIcon() {
+  return (
+    <AppIconTile color="#cb3837" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (42 / 72)}px`, fontWeight: 700 }}
+        aria-hidden="true"
+      >
+        npm
+      </span>
     </AppIconTile>
   )
 }
