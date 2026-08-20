@@ -1,4 +1,4 @@
-import type { GeneratedAppId } from '../../os/types.ts'
+import { isBridgeAppId, type BridgeAppId } from '../../os/types.ts'
 
 export const GENERATED_APP_HEARTBEAT_MESSAGE_TYPE = 'instant-os-generated-app-heartbeat' as const
 
@@ -18,7 +18,7 @@ export type GeneratedAppHeartbeatMemory = {
 
 export type GeneratedAppHeartbeatMessage = {
   type: typeof GENERATED_APP_HEARTBEAT_MESSAGE_TYPE
-  appId: GeneratedAppId
+  appId: BridgeAppId
   windowId: string
   timestamp: number
   /** 子文档 JS 堆；隔离模式下与宿主不在同一堆。 */
@@ -50,7 +50,7 @@ export function isGeneratedAppHeartbeatMessage(
   if (
     message.type !== GENERATED_APP_HEARTBEAT_MESSAGE_TYPE ||
     typeof message.appId !== 'string' ||
-    !message.appId.startsWith('gen:') ||
+    !isBridgeAppId(message.appId) ||
     typeof message.windowId !== 'string' ||
     typeof message.timestamp !== 'number'
   ) {

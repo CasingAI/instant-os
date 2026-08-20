@@ -21,7 +21,7 @@ import {
   type TaskManagerOpenTarget,
 } from '../../os/task-manager-open.ts'
 import type { AppId, WindowState } from '../../os/types.ts'
-import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
+import { isBridgeAppId, isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import {
   listWorkerHeapReports,
   WORKER_HEAP_REPORTS_CHANGED_EVENT,
@@ -304,7 +304,7 @@ export function TaskManagerApp() {
           status: resolveAppStatus(
             sortedWindows,
             activeWindowId,
-            isGeneratedAppId(appId) && isAppUnresponsive(appId),
+            isBridgeAppId(appId) && isAppUnresponsive(appId),
           ),
           canEnd: appId !== APP_ID,
           liveActivity: liveByActor.get(appId),

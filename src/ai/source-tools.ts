@@ -13,7 +13,7 @@ export const listSourceTreeTool = defineTool<{
 }>({
   name: 'list_source_tree',
   description:
-    '列出 Instant OS 资料快照中的文件路径（含 src 源码、根目录 README 等说明文档、extAppTemplate）。可用 prefix 限定目录（如 src/apps/help、README.md、extAppTemplate），用 max_depth 限制相对深度。',
+    '列出 Instant OS 资料快照中的文件路径（含 src 源码、根目录 README 等说明文档）。可用 prefix 限定目录（如 src/apps/help、README.md、src/bridge），用 max_depth 限制相对深度。',
   parameters: {
     type: 'object',
     additionalProperties: false,

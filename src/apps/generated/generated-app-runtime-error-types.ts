@@ -1,4 +1,4 @@
-import type { GeneratedAppId } from '../../os/types.ts'
+import type { BridgeAppId } from '../../os/types.ts'
 
 export const GENERATED_APP_RUNTIME_ERROR_MESSAGE_TYPE = 'instant-os-generated-app-runtime-error' as const
 
@@ -6,7 +6,7 @@ export type GeneratedAppRuntimeErrorKind = 'error' | 'unhandledrejection'
 
 export type GeneratedAppRuntimeErrorMessage = {
   type: typeof GENERATED_APP_RUNTIME_ERROR_MESSAGE_TYPE
-  appId: GeneratedAppId
+  appId: BridgeAppId
   kind: GeneratedAppRuntimeErrorKind
   text: string
   timestamp: number

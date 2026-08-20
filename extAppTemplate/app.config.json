@@ -1,8 +1,0 @@
-{
-  "id": "ext:example-app",
-  "name": "示例外链应用",
-  "description": "基于 Instant OS 外链应用模板的 Preact 示例。构建后自动生成 manifest、图标与启动图。",
-  "themeColor": "#007aff",
-  "iconSource": "assets/icon-source.svg",
-  "tags": ["ai"]
-}

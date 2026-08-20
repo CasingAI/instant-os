@@ -1,3 +1,4 @@
+import { isBridgeAppId } from '../../os/types.ts'
 import {
   GENERATED_APP_RUNTIME_ERROR_MAX_ENTRIES,
   GENERATED_APP_RUNTIME_ERROR_MESSAGE_TYPE,
@@ -17,7 +18,7 @@ export function isGeneratedAppRuntimeErrorMessage(value: unknown): value is Gene
   return (
     message.type === GENERATED_APP_RUNTIME_ERROR_MESSAGE_TYPE &&
     typeof message.appId === 'string' &&
-    message.appId.startsWith('gen:') &&
+    isBridgeAppId(message.appId) &&
     typeof message.kind === 'string' &&
     RUNTIME_ERROR_KINDS.includes(message.kind as GeneratedAppRuntimeErrorKind) &&
     typeof message.text === 'string' &&

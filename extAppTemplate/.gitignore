@@ -1,7 +1,0 @@
-node_modules
-dist
-public/icon.svg
-public/splash-light.svg
-public/splash-dark.svg
-public/instant-os.manifest.json
-*.tsbuildinfo

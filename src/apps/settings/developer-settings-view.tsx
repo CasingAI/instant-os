@@ -307,7 +307,7 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
             {externalBridge ? (
               <>
                 <p class="settings__section-footnote settings__section-footnote--flush">
-                  输入外链应用模板的本地开发地址（例如 extAppTemplate 的 pnpm
+                  输入外链应用模板的本地开发地址（例如 instant-os-extAppTemplate 的 pnpm
                   dev），系统会读取 instant-os.manifest.json 并临时添加到桌面。在 Instant OS
                   内打开后将走宿主真实 AI，而非模板内的 Mock。
                 </p>

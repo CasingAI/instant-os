@@ -1,8 +1,8 @@
-import type { GeneratedAppId } from './types.ts'
+import type { BridgeAppId } from './types.ts'
 
 export type GeneratedAppHeapReport = {
   windowId: string
-  appId: GeneratedAppId
+  appId: BridgeAppId
   usedBytes: number
   totalBytes: number
   limitBytes: number

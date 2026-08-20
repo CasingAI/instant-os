@@ -14,10 +14,10 @@ import {
   removeGeneratedAppHeapReport,
   upsertGeneratedAppHeapReport,
 } from './generated-app-heap-reports.ts'
-import type { GeneratedAppId } from './types.ts'
+import type { BridgeAppId } from './types.ts'
 
 type HeartbeatSource = {
-  appId: GeneratedAppId
+  appId: BridgeAppId
   contentWindow: Window | undefined
   registeredAt: number
   lastBeatAt: number
@@ -38,13 +38,13 @@ function shouldCountHeartbeatMiss(source: HeartbeatSource, now: number): boolean
 }
 
 type GeneratedAppHeartbeatContextValue = {
-  registerHeartbeat: (windowId: string, appId: GeneratedAppId) => void
+  registerHeartbeat: (windowId: string, appId: BridgeAppId) => void
   unregisterHeartbeat: (windowId: string) => void
   resetHeartbeatMonitoring: (windowId: string) => void
   setHeartbeatContentWindow: (windowId: string, contentWindow: Window | undefined) => void
   markHeartbeatReady: (windowId: string) => void
   getWindowHeartbeatPhase: (windowId: string) => GeneratedAppHeartbeatPhase | undefined
-  isAppUnresponsive: (appId: GeneratedAppId) => boolean
+  isAppUnresponsive: (appId: BridgeAppId) => boolean
   isWindowUnresponsive: (windowId: string) => boolean
   isWindowFrozen: (windowId: string) => boolean
   isAnyWindowDeadlocked: () => boolean
@@ -87,7 +87,7 @@ export function GeneratedAppHeartbeatProvider({ children }: { children: Componen
   }, [])
 
   const registerHeartbeat = useCallback(
-    (windowId: string, appId: GeneratedAppId) => {
+    (windowId: string, appId: BridgeAppId) => {
       const now = Date.now()
       sourcesRef.current.set(windowId, {
         appId,
@@ -262,7 +262,7 @@ export function GeneratedAppHeartbeatProvider({ children }: { children: Componen
     return resolveHeartbeatPhase(sourcesRef.current.get(windowId))
   }, [revision])
 
-  const isAppUnresponsive = useCallback((appId: GeneratedAppId): boolean => {
+  const isAppUnresponsive = useCallback((appId: BridgeAppId): boolean => {
     void revision
     for (const source of sourcesRef.current.values()) {
       if (source.appId !== appId) {

@@ -19,6 +19,7 @@ export type OpenAppOptions = {
 }
 export type GeneratedAppId = `gen:${string}`
 export type ExtAppId = `ext:${string}`
+export type BridgeAppId = GeneratedAppId | ExtAppId
 export type AppId = BuiltinAppId | GeneratedAppId | ExtAppId
 
 export function isGeneratedAppId(appId: AppId): appId is GeneratedAppId {
@@ -27,6 +28,10 @@ export function isGeneratedAppId(appId: AppId): appId is GeneratedAppId {
 
 export function isExtAppId(appId: AppId): appId is ExtAppId {
   return appId.startsWith('ext:')
+}
+
+export function isBridgeAppId(value: string): value is BridgeAppId {
+  return value.startsWith('gen:') || value.startsWith('ext:')
 }
 
 export type AppIconRibbonConfig = {

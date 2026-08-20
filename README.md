@@ -342,7 +342,6 @@ public/
 ├── assets/          # 3D、提示音、分轨 / 对齐模型（部分需脚本拉取）
 └── vendor/          # vendored Three.js、Rapier、QuickJS guest 等
 workers/             # 模型网关等 Worker
-extAppTemplate/      # 外链应用开发模板（实验性 · 未完成）
 ```
 
 ## 开发说明
