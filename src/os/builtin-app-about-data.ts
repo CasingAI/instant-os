@@ -105,13 +105,6 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '此应用独立于应用集市的微应用生成流程，便于验证素材目录与运行时注入是否正常。',
     ],
   },
-  'pose-lab': {
-    version: '四角三维透视',
-    paragraphs: [
-      '视角实验室用一张风景卡片调试透视。每个角都是独立的 XYZ：拖动手把改平面位置，滚轮或按住 Shift 拖改远近（Z 正值靠近镜头）。',
-      '可用系统文件对话框从本机选一张对照图铺在卡片后面（不经过 VFS），并调整位置与大小。调到满意后可复制四个角的三维位移。',
-    ],
-  },
   'model-vision': {
     version: '3D 模型视觉标注',
     paragraphs: [

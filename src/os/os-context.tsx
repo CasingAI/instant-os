@@ -140,7 +140,6 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   produde: { title: 'ProDude', width: 860, height: 640 },
   appstore: { title: '应用集市', width: 820, height: 720 },
   'scene3d-lab': { title: '3D 实验室', width: 1180, height: 760 },
-  'pose-lab': { title: '视角实验室', width: 980, height: 640 },
   'model-vision': { title: '模型识图', width: 1100, height: 740 },
   icode: { title: 'iCode', width: 1280, height: 720 },
   registry: { title: '注册表', width: 720, height: 580 },

@@ -31,7 +31,6 @@ const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = {
   vscode: () => import('../apps/vscode/vscode-app.tsx').then((m) => m.VscodeApp),
   'scene3d-lab': () =>
     import('../apps/scene3d-lab/scene3d-lab-app.tsx').then((m) => m.Scene3dLabApp),
-  'pose-lab': () => import('../apps/pose-lab/pose-lab-app.tsx').then((m) => m.PoseLabApp),
   'model-vision': () =>
     import('../apps/model-vision/model-vision-app.tsx').then((m) => m.ModelVisionApp),
   icode: () => import('../apps/icode/icode-app.tsx').then((m) => m.ICodeApp),
