@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import {
   BACKGROUND_REFRESH_TASKS,
   REFRESH_INTERVAL_OPTIONS,
@@ -13,7 +13,7 @@ import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
-import { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from './settings-layout-breakpoints.ts'
+import { useSettingsWideLayout } from './settings-layout-breakpoints.ts'
 import { SettingsChoicePickerView } from './settings-choice-picker-view.tsx'
 
 type BackgroundRefreshSettingsViewProps = {
@@ -63,7 +63,7 @@ export function BackgroundRefreshSettingsView({
   onBack,
   onOpenTask,
 }: BackgroundRefreshSettingsViewProps) {
-  const hostRef = useRef<HTMLDivElement>(null)
+  const { hostRef, wideLayout } = useSettingsWideLayout()
   const [enabled, setEnabled] = useState(() => loadBackgroundRefreshSettings().enabled)
   const [intervalHours, setIntervalHours] = useState(
     () => loadBackgroundRefreshSettings().intervalHours,
@@ -77,27 +77,16 @@ export function BackgroundRefreshSettingsView({
         ]),
       ),
   )
-  const [wideLayout, setWideLayout] = useState(true)
   const [picker, setPicker] = useState<'interval' | undefined>(undefined)
   const [saveError, setSaveError] = useState<string | undefined>(undefined)
-
-  useLayoutEffect(() => {
-    const host = hostRef.current
-    if (!host) return
-    const sync = () => {
-      setWideLayout(host.clientWidth >= SETTINGS_WIDE_LAYOUT_MIN_WIDTH)
-    }
-    sync()
-    const observer = new ResizeObserver(sync)
-    observer.observe(host)
-    return () => observer.disconnect()
-  }, [])
 
   useEffect(() => {
     const sync = () => {
       const settings = loadBackgroundRefreshSettings()
-      setEnabled(settings.enabled)
-      setIntervalHours(settings.intervalHours)
+      setEnabled((current) => (current === settings.enabled ? current : settings.enabled))
+      setIntervalHours((current) =>
+        current === settings.intervalHours ? current : settings.intervalHours,
+      )
       const next = new Map(
         BACKGROUND_REFRESH_TASKS.map((task) => [task.id, loadTaskState(settings, task.id)]),
       )
@@ -108,18 +97,22 @@ export function BackgroundRefreshSettingsView({
   }, [])
 
   const handleToggle = (next: boolean) => {
+    if (next === enabled) return
     if (!patchBackgroundRefreshSettings({ enabled: next })) {
       setSaveError('无法保存设置（存储空间可能已满）')
       return
     }
+    setEnabled(next)
     setSaveError(undefined)
   }
 
   const handleIntervalChange = (hours: number) => {
+    if (hours === intervalHours) return
     if (!patchBackgroundRefreshSettings({ intervalHours: hours })) {
       setSaveError('无法保存设置（存储空间可能已满）')
       return
     }
+    setIntervalHours(hours)
     setSaveError(undefined)
   }
 

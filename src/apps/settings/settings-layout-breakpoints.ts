@@ -26,7 +26,8 @@ function useMeasuredMinWidth(minWidth: number): {
     }
 
     const sync = () => {
-      setMeetsMinWidth(node.clientWidth >= minWidth)
+      const next = node.clientWidth >= minWidth
+      setMeetsMinWidth((current) => (current === next ? current : next))
     }
 
     sync()

@@ -101,7 +101,7 @@ export function BackgroundRefreshTaskDetailView({
     setStatusKind('refreshing')
     setStatusMessage(`正在刷新${task?.label ?? '数据'}…`)
     try {
-      const outcome = await runBackgroundRefreshTask(taskId)
+      const outcome = await runBackgroundRefreshTask(taskId, { force: true })
       setStatusKind(outcome.ok ? 'success' : 'error')
       setStatusMessage(outcome.message)
       setOpenRouterBindingCount(collectOpenRouterBindings().length)
