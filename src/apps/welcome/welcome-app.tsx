@@ -1,27 +1,10 @@
 import type { ComponentType } from 'preact'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { isActiveProviderInstantFree, subscribeOpenAiConfig } from '../../ai/openai-config.ts'
-import { AppIconTile } from '../../icons/app-icon-tile.tsx'
-import {
-  BooksIcon,
-  BrowserIcon,
-  CalendarIcon,
-  CatGptIcon,
-  FilesIcon,
-  ForwardIcon,
-  HelpIcon,
-  InstantLogoIcon,
-  KeychainIcon,
-  MailIcon,
-  MarketplaceIcon,
-  MusicIcon,
-  NewsIcon,
-  SettingsIcon,
-  TranslateIcon,
-  WeatherIcon,
-} from '../../icons/app-icons.tsx'
-import { BUILTIN_APP_ABOUT } from '../../os/builtin-app-about-data.ts'
-import { BUILTIN_APP_DISPLAY_NAMES } from '../../os/builtin-app-display-names.ts'
+import { isInstantFreeProvider, isOpencodeZenProvider } from '../../ai/ai-providers.ts'
+import { subscribeOpenAiConfig } from '../../ai/openai-config.ts'
+import { BrowserIcon, ForwardIcon, KeychainIcon, MarketplaceIcon } from '../../icons/app-icons.tsx'
+import { loadAccountSettings } from '../../os/account-settings-storage.ts'
+import { openKeychainAiProvidersView } from '../../os/keychain-route-open.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId } from '../../os/types.ts'
@@ -39,13 +22,21 @@ const HERO_ICON_SIZE = 112
 const HERO_ICON_SIZE_NARROW = Math.round(HERO_ICON_SIZE * (4 / 3))
 const HERO_ICON_SIZE_WIDE = Math.round(HERO_ICON_SIZE * 1.5)
 
-type WelcomePage = 'list' | 'detail'
+const SETUP_KEY_STEPS = [
+  '打开钥匙串。',
+  '进「AI 模型供应商」，点右上角「添加」。出厂那条「Instant 共享AI」先别管。',
+  '选一家你已有 Key 的，贴上 Key，勾要用的模型，保存。',
+  '拖到列表最上面——首位才是首选。',
+] as const
 
+type WelcomePage = 'list' | 'detail'
+type WelcomeTaskId = 'setup-key' | 'open-browser' | 'try-appstore'
 type AppIcon = ComponentType<{ size?: number }>
 
 type WelcomeItem = {
-  appId: BuiltinAppId
+  id: WelcomeTaskId
   Icon: AppIcon
+  openAppId?: BuiltinAppId
 }
 
 type WelcomeGroup = {
@@ -54,86 +45,69 @@ type WelcomeGroup = {
   items: readonly WelcomeItem[]
 }
 
-function InstantOsIcon({ size = 64 }: { size?: number }) {
-  const mark = Math.round(size * 0.55)
-  return (
-    <AppIconTile color="#3d5a73" size={size}>
-      <span class="welcome-app__os-mark" style={{ width: `${mark}px`, height: `${mark}px` }}>
-        <InstantLogoIcon size={mark} />
-      </span>
-    </AppIconTile>
-  )
-}
-
 const GROUPS: readonly WelcomeGroup[] = [
   {
-    id: 'apps',
-    title: '可以打开',
-    items: [
-      { appId: 'appstore', Icon: MarketplaceIcon },
-      { appId: 'browser', Icon: BrowserIcon },
-      { appId: 'catgpt', Icon: CatGptIcon },
-      { appId: 'help', Icon: HelpIcon },
-      { appId: 'files', Icon: FilesIcon },
-      { appId: 'mail', Icon: MailIcon },
-      { appId: 'news', Icon: NewsIcon },
-      { appId: 'books', Icon: BooksIcon },
-      { appId: 'music', Icon: MusicIcon },
-      { appId: 'weather', Icon: WeatherIcon },
-      { appId: 'calendar', Icon: CalendarIcon },
-      { appId: 'translate', Icon: TranslateIcon },
-    ],
+    id: 'first',
+    title: '先做这件事',
+    items: [{ id: 'setup-key', Icon: KeychainIcon }],
   },
   {
-    id: 'system',
-    title: '系统',
+    id: 'next',
+    title: '然后可以试试',
     items: [
-      { appId: 'system-info', Icon: InstantOsIcon },
-      { appId: 'keychain', Icon: KeychainIcon },
-      { appId: 'settings', Icon: SettingsIcon },
+      { id: 'open-browser', Icon: BrowserIcon, openAppId: 'browser' },
+      { id: 'try-appstore', Icon: MarketplaceIcon, openAppId: 'appstore' },
     ],
   },
 ]
 
 const ALL_ITEMS: readonly WelcomeItem[] = GROUPS.flatMap((group) => group.items)
 
-function findItem(appId: BuiltinAppId): WelcomeItem | undefined {
-  return ALL_ITEMS.find((item) => item.appId === appId)
+function hasOwnAiProvider(): boolean {
+  const settings = loadAccountSettings()
+  const providers = settings?.providers ?? []
+  return providers.some((entry) => {
+    if (isInstantFreeProvider(entry.providerId)) return false
+    if (isOpencodeZenProvider(entry.providerId)) return true
+    return entry.apiKey.trim().length > 0
+  })
 }
 
-function itemLabel(appId: BuiltinAppId): string {
-  return BUILTIN_APP_DISPLAY_NAMES[appId]
+function findItem(id: WelcomeTaskId): WelcomeItem | undefined {
+  return ALL_ITEMS.find((item) => item.id === id)
 }
 
-function previewHeadline(appId: BuiltinAppId): string {
-  if (appId === 'system-info') return 'Instant OS'
-  return BUILTIN_APP_ABOUT[appId]?.version ?? itemLabel(appId)
+function taskLabel(id: WelcomeTaskId): string {
+  if (id === 'setup-key') return '把 API Key 放进钥匙串'
+  if (id === 'open-browser') return '打开网页浏览器'
+  return '去应用集市装一个 App'
 }
 
-function previewBody(appId: BuiltinAppId, freeTier: boolean): string {
-  if (appId === 'keychain') {
-    return freeTier
-      ? '当前已启用 Instant 共享 AI 通道，不填 Key 也能用。要用自己的模型：打开钥匙串 → AI 模型供应商 → 添加，填写 API Key。全部只保存在本机。'
-      : '当前已在使用你配置的模型。可在钥匙串中添加或切换供应商；API Key 只保存在本机。'
+function taskBody(id: WelcomeTaskId): string {
+  if (id === 'open-browser') {
+    return '随便输个网址。没有网，是模型在演。'
   }
-  if (appId === 'system-info') {
-    return '由 AI 驱动的桌面环境：应用、网页、邮件与创意工具都可以在这里打开。点下面任意一项，这里会说明它是做什么的。'
-  }
-  return BUILTIN_APP_ABOUT[appId]?.paragraphs?.[0] ?? ''
+  return '描述一个 App，它给你装上。没有上架审核。'
+}
+
+function taskCta(id: WelcomeTaskId, keyAdded: boolean): string {
+  if (id === 'setup-key') return keyAdded ? '已添加' : '去钥匙串添加'
+  return taskLabel(id)
 }
 
 function WelcomeHero({
   item,
-  freeTier,
+  keyAdded,
   iconSize,
   onOpen,
 }: {
   item: WelcomeItem
-  freeTier: boolean
+  keyAdded: boolean
   iconSize: number
   onOpen: () => void
 }) {
   const Icon = item.Icon
+  const showSteps = item.id === 'setup-key'
   return (
     <header class="welcome-app__hero">
       <span class="welcome-app__watermark" aria-hidden="true">
@@ -143,10 +117,25 @@ function WelcomeHero({
         <Icon size={iconSize} />
       </div>
       <div class="welcome-app__hero-copy">
-        <h1 class="welcome-app__hero-title">{previewHeadline(item.appId)}</h1>
-        <p class="welcome-app__hero-body">{previewBody(item.appId, freeTier)}</p>
-        <IosButton size="compact" onClick={onOpen}>
-          打开{itemLabel(item.appId)}
+        <h1 class="welcome-app__hero-title">{taskLabel(item.id)}</h1>
+        {showSteps ? (
+          <>
+            <ol class="welcome-app__hero-steps">
+              {SETUP_KEY_STEPS.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+            <p class="welcome-app__hero-hint">Key 只留在这台浏览器里，哪里都不上传。</p>
+          </>
+        ) : (
+          <p class="welcome-app__hero-body welcome-app__hero-body--full">{taskBody(item.id)}</p>
+        )}
+        <IosButton
+          size="compact"
+          tone={item.id === 'setup-key' && !keyAdded ? 'primary' : 'secondary'}
+          onClick={onOpen}
+        >
+          {taskCta(item.id, keyAdded)}
         </IosButton>
       </div>
     </header>
@@ -159,8 +148,8 @@ function WelcomeAppList({
   onSelect,
 }: {
   narrowLayout: boolean
-  selectedId: BuiltinAppId
-  onSelect: (appId: BuiltinAppId) => void
+  selectedId: WelcomeTaskId
+  onSelect: (id: WelcomeTaskId) => void
 }) {
   return (
     <div class="welcome-app__sidebar">
@@ -172,26 +161,24 @@ function WelcomeAppList({
             role={narrowLayout ? 'list' : 'listbox'}
             aria-label={group.title}
           >
-            {group.items.map(({ appId, Icon }) => {
-              const selectedItem = !narrowLayout && appId === selectedId
+            {group.items.map(({ id, Icon }) => {
+              const selectedItem = !narrowLayout && id === selectedId
               return (
                 <button
-                  key={appId}
+                  key={id}
                   type="button"
                   role={narrowLayout ? undefined : 'option'}
                   aria-selected={narrowLayout ? undefined : selectedItem}
                   class={`welcome-app__item${selectedItem ? ' welcome-app__item--selected' : ''}`}
-                  onClick={() => onSelect(appId)}
+                  onClick={() => onSelect(id)}
                 >
                   <span class="welcome-app__item-icon" aria-hidden="true">
                     <Icon size={LIST_ICON_SIZE} />
                   </span>
-                  <span class="welcome-app__item-name">{itemLabel(appId)}</span>
-                  {narrowLayout ? (
-                    <span class="welcome-app__item-chevron" aria-hidden="true">
-                      <ForwardIcon size={13} />
-                    </span>
-                  ) : undefined}
+                  <span class="welcome-app__item-name">{taskLabel(id)}</span>
+                  <span class="welcome-app__item-chevron" aria-hidden="true">
+                    <ForwardIcon size={13} />
+                  </span>
                 </button>
               )
             })}
@@ -205,8 +192,8 @@ function WelcomeAppList({
 export function WelcomeApp() {
   const { openApp } = useOs()
   const { hostRef, narrowLayout } = useAppNarrowLayout()
-  const [freeTier, setFreeTier] = useState(() => isActiveProviderInstantFree())
-  const [selectedId, setSelectedId] = useState<BuiltinAppId>('system-info')
+  const [keyAdded, setKeyAdded] = useState(() => hasOwnAiProvider())
+  const [selectedId, setSelectedId] = useState<WelcomeTaskId>('setup-key')
   const {
     page,
     stack,
@@ -222,7 +209,7 @@ export function WelcomeApp() {
 
   useEffect(() => {
     return subscribeOpenAiConfig(() => {
-      setFreeTier(isActiveProviderInstantFree())
+      setKeyAdded(hasOwnAiProvider())
     })
   }, [])
 
@@ -235,12 +222,18 @@ export function WelcomeApp() {
   const selected = useMemo(() => findItem(selectedId) ?? ALL_ITEMS[0], [selectedId])
 
   const openSelected = useCallback(() => {
-    openApp(selected.appId)
-  }, [openApp, selected.appId])
+    if (selected.id === 'setup-key') {
+      openKeychainAiProvidersView()
+      return
+    }
+    if (selected.openAppId) {
+      openApp(selected.openAppId)
+    }
+  }, [openApp, selected])
 
   const handleSelect = useCallback(
-    (appId: BuiltinAppId) => {
-      setSelectedId(appId)
+    (id: WelcomeTaskId) => {
+      setSelectedId(id)
       if (narrowLayout) {
         navigate('detail', 'push')
       }
@@ -260,14 +253,14 @@ export function WelcomeApp() {
             <div class="settings__nav settings__nav--titled">
               <div class="settings__nav-bar">
                 <IosNavBackButton label="欢迎中心" onClick={handleBack} />
-                <h1 class="settings__nav-heading">{itemLabel(selected.appId)}</h1>
+                <h1 class="settings__nav-heading">{taskLabel(selected.id)}</h1>
                 <span class="settings__nav-trailing" aria-hidden="true" />
               </div>
             </div>
             <div class="settings__content welcome-app__pane welcome-app__pane--hero">
               <WelcomeHero
                 item={selected}
-                freeTier={freeTier}
+                keyAdded={keyAdded}
                 iconSize={HERO_ICON_SIZE_NARROW}
                 onOpen={openSelected}
               />
@@ -288,14 +281,14 @@ export function WelcomeApp() {
           <div class="settings__content welcome-app__pane">
             <WelcomeAppList
               narrowLayout
-              selectedId={selected.appId}
+              selectedId={selected.id}
               onSelect={handleSelect}
             />
           </div>
         </>
       )
     },
-    [freeTier, handleBack, handleSelect, openSelected, selected],
+    [handleBack, handleSelect, keyAdded, openSelected, selected],
   )
 
   return (
@@ -318,12 +311,12 @@ export function WelcomeApp() {
         <>
           <WelcomeAppList
             narrowLayout={false}
-            selectedId={selected.appId}
+            selectedId={selected.id}
             onSelect={handleSelect}
           />
           <WelcomeHero
             item={selected}
-            freeTier={freeTier}
+            keyAdded={keyAdded}
             iconSize={HERO_ICON_SIZE_WIDE}
             onOpen={openSelected}
           />

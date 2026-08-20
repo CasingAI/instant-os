@@ -22,14 +22,6 @@
   color: var(--welcome-ink);
   font-family: var(--app-text-font-family);
   font-size: 13px;
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-.welcome-app__os-mark {
-  display: grid;
-  place-items: center;
-  color: #fff;
 }
 
 .welcome-app--wide {
@@ -121,9 +113,13 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
+  flex: 1;
   min-width: 0;
+  min-height: 0;
   width: 100%;
   max-width: 34em;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .welcome-app__hero-title {
@@ -145,6 +141,35 @@
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 6;
+}
+
+.welcome-app__hero-body--full {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.welcome-app__hero-steps {
+  margin: 0;
+  padding-left: 1.3em;
+  max-width: 34em;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+}
+
+.welcome-app__hero-steps li + li {
+  margin-top: 4px;
+}
+
+.welcome-app__hero-hint {
+  margin: 0;
+  max-width: 34em;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
 }
 
 .welcome-app__sidebar {
@@ -187,6 +212,7 @@
 .welcome-app__items {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--welcome-list-bg);
   border: 1px solid var(--welcome-list-border);
   border-radius: 8px;
@@ -252,7 +278,12 @@
   align-items: center;
   justify-content: center;
   margin-left: auto;
+  flex-shrink: 0;
   color: #c0c0c4;
+}
+
+.welcome-app__item--selected .welcome-app__item-chevron {
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .welcome-app--wide .welcome-app__watermark {
