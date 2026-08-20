@@ -260,11 +260,12 @@ export function installExternalBridgeHandler(
       return
     }
 
+    const appName = session.appName
     void import('../apps/generated/handle-generated-app-ai-request.ts').then((mod) =>
       mod.handleGeneratedAppAiRequest(
         event.data,
         event.source as ReplyTarget,
-        session.appName,
+        appName,
       ),
     )
   }
