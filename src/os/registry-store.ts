@@ -121,13 +121,38 @@ function createFieldRegistryStore<T>(
   const registry = createAppRegistry(appId)
   const listeners = new Set<() => void>()
 
+  let parsedCache: { signature: string; value: T } | undefined
+
   function notify(): void {
+    parsedCache = undefined
     for (const listener of listeners) {
       listener()
     }
     if (changedEventName && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(changedEventName))
     }
+  }
+
+  function fieldEntriesSignature(
+    entries: ReturnType<typeof getRegistryCacheEntries>,
+  ): string {
+    return fields
+      .map((field) => {
+        const entry = entries?.[field.key]
+        return `${field.key}:${entry?.valueType ?? ''}:${entry?.raw ?? ''}`
+      })
+      .join('|')
+  }
+
+  function readMerged(): T {
+    const entries = getRegistryCacheEntries(appId)
+    const signature = fieldEntriesSignature(entries)
+    if (parsedCache?.signature === signature) {
+      return parsedCache.value
+    }
+    const value = mergeFromEntries(entries)
+    parsedCache = { signature, value }
+    return value
   }
 
   function mergeFromEntries(
@@ -249,7 +274,7 @@ function createFieldRegistryStore<T>(
       await registry.hydrate()
       await runLegacyMigration()
       await retagFieldTypes()
-      return mergeFromEntries(getRegistryCacheEntries(appId))
+      return readMerged()
     },
 
     async write(store: T) {
@@ -281,7 +306,7 @@ function createFieldRegistryStore<T>(
       if (!isRegistryHydrated(appId)) {
         return undefined
       }
-      return mergeFromEntries(getRegistryCacheEntries(appId))
+      return readMerged()
     },
 
     async hydrate() {
@@ -312,13 +337,25 @@ function createLegacyRegistryStore<T>(
   const registry = createAppRegistry(appId)
   const listeners = new Set<() => void>()
 
+  let parsedCache: { raw: string | undefined; value: T } | undefined
+
   function notify(): void {
+    parsedCache = undefined
     for (const listener of listeners) {
       listener()
     }
     if (changedEventName && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(changedEventName))
     }
+  }
+
+  function readDeserialized(raw: string | undefined): T {
+    if (parsedCache && parsedCache.raw === raw) {
+      return parsedCache.value
+    }
+    const value = deserialize(raw)
+    parsedCache = { raw, value }
+    return value
   }
 
   async function retagIfNeeded(): Promise<void> {
@@ -343,7 +380,7 @@ function createLegacyRegistryStore<T>(
     async read() {
       await registry.hydrate()
       await retagIfNeeded()
-      return deserialize(await registry.getText(key))
+      return readDeserialized(await registry.getText(key))
     },
 
     async write(store: T) {
@@ -361,7 +398,10 @@ function createLegacyRegistryStore<T>(
         return undefined
       }
       const snapshot = registry.snapshotSync()
-      return snapshot ? deserialize(snapshot[key]) : undefined
+      if (!snapshot) {
+        return undefined
+      }
+      return readDeserialized(snapshot[key])
     },
 
     async hydrate() {

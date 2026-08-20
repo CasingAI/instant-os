@@ -5,7 +5,6 @@ import type { GeneratedAppRecord } from '../appstore/types.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import type { ICodeInternalProject } from './icode-types.ts'
-import { loadInternalProjectsSync } from './icode-storage.ts'
 
 export function listingSlugForInternalProject(project: ICodeInternalProject): string {
   if (project.linkedAppId) {
@@ -93,7 +92,7 @@ export function isIcodeManagedInstalledApp(
 
 export function resolveIcodeProjectId(
   app: GeneratedAppRecord,
-  internalProjects: ICodeInternalProject[] = loadInternalProjectsSync(),
+  internalProjects: readonly ICodeInternalProject[],
 ): string | undefined {
   if (app.icodeProjectId !== undefined) {
     return app.icodeProjectId

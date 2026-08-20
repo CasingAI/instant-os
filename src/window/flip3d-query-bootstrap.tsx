@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'preact/hooks'
 import { useOs } from '../os/os-context.tsx'
+import { useFlip3dScene } from './flip3d-context.tsx'
 import type { BuiltinAppId } from '../os/types.ts'
 import { markWelcomeSeen } from '../os/welcome-first-run.ts'
 import { listFlip3dWindowIds } from './flip3d.ts'
@@ -37,7 +38,8 @@ function previewAppCount(): number {
 
 /** `?flip3d=1` 开 4 窗；`?flip3d=12` 开更多，方便对照后层。 */
 export function Flip3dQueryBootstrap() {
-  const { windows, openApp, enterFlip3d, flip3dActive } = useOs()
+  const { windows, openApp } = useOs()
+  const { enterFlip3d, flip3dActive } = useFlip3dScene()
   const count = previewAppCount()
   const wanted = count > 0
   const openedRef = useRef(false)

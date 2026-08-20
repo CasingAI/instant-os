@@ -21,6 +21,7 @@ import { useNotificationCenter } from './notification-center-context.tsx'
 import { useOsNotifications } from './use-os-notifications.ts'
 import { reloadInstantOs } from './reload-instant-os.ts'
 import { useOs } from './os-context.tsx'
+import { useFlip3dScene } from '../window/flip3d-context.tsx'
 import {
   getSystemVolumeState,
   setSystemVolume,
@@ -501,8 +502,8 @@ export function MenuBar() {
     openApp,
     closeWindowsForApp,
     minimizeWindow,
-    flip3dActive,
   } = useOs()
+  const { flip3dActive } = useFlip3dScene()
   const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
   const { showInstantAbout, showAbout, showBuiltinAbout } = useAboutApp()

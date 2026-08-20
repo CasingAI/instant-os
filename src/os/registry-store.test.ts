@@ -139,11 +139,13 @@ async function testReadSyncBeforeHydrateIsUndefined(): Promise<void> {
   assert.deepEqual(store.readSync(), emptyStore(), 'hydrate 后同步读返回默认值')
 
   await store.write({ items: ['z'] })
+  const afterWrite = store.readSync()
   assert.deepEqual(
-    store.readSync(),
+    afterWrite,
     { items: ['z'], name: undefined },
     '写入后同步读命中内存缓存',
   )
+  assert.equal(store.readSync(), afterWrite, '连续 readSync 返回同一引用')
 }
 
 // ── 字段模式（多 key）──
@@ -238,11 +240,18 @@ async function testFieldReadSyncMerges(): Promise<void> {
   assert.equal(store.readSync(), undefined, '未 hydrate 时同步读返回 undefined')
 
   await store.write({ items: ['a'], name: 'n' })
+  const first = store.readSync()
   assert.deepEqual(
-    store.readSync(),
+    first,
     { items: ['a'], name: 'n' },
     '写入后同步读合并字段命中内存缓存',
   )
+  assert.equal(store.readSync(), first, '连续 readSync 返回同一引用')
+
+  await store.write({ items: ['a', 'b'], name: 'n' })
+  const next = store.readSync()
+  assert.notEqual(next, first, '写入后解析缓存失效')
+  assert.deepEqual(next, { items: ['a', 'b'], name: 'n' })
 }
 
 async function testFieldCleansLegacyKeyFromMemory(): Promise<void> {

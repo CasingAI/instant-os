@@ -12,6 +12,7 @@ import {
 import { useDevExtApps } from '../../os/dev-ext-apps-context.tsx'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
+import { useFlip3dScene } from '../../window/flip3d-context.tsx'
 import {
   terminalColorsToStyle,
   type TerminalColors,
@@ -169,8 +170,8 @@ export function TerminalReplPanel({
     restoreWindow,
     toggleFullscreen,
     toggleMaximize,
-    enterFlip3d,
   } = useOs()
+  const { enterFlip3d } = useFlip3dScene()
   const { installedApps } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
   const modal = useWindowModal()

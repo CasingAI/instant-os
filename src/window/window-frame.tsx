@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { ComponentChildren, JSX } from 'preact'
 import { useOs } from '../os/os-context.tsx'
 import { useFullscreenChromeReveal } from '../os/fullscreen-chrome-reveal-context.tsx'
 import type { WindowState } from '../os/types.ts'
@@ -15,6 +16,7 @@ import {
 } from './build-flip3d-transform.ts'
 import { resolveFlip3dVisual } from './flip3d.ts'
 import { Flip3dGhostFrame } from './flip3d-ghost-frame.tsx'
+import { useFlip3dLayers, useFlip3dScene, useFlip3dShadowReveal } from './flip3d-context.tsx'
 import { DesktopRevealPeekLayer } from './desktop-reveal-peek-layer.tsx'
 import { buildMinimizeTransform } from './build-minimize-transform.ts'
 import type { WindowBounds } from './window-metrics.ts'
@@ -30,7 +32,7 @@ const CORNER_DIRECTIONS: ResizeDirection[] = ['nw', 'ne', 'sw', 'se']
 import './window-frame.css'
 
 function Flip3dCastShadow({ hidden }: { hidden?: boolean }) {
-  const { flip3dShadowReveal } = useOs()
+  const flip3dShadowReveal = useFlip3dShadowReveal()
   if (hidden || (flip3dShadowReveal !== 'hold' && flip3dShadowReveal !== 'fade')) {
     return undefined
   }
@@ -47,8 +49,8 @@ type WindowFrameProps = {
 }
 
 function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
-  const { flip3dActive, flip3dRestoring, flip3dEntering, flip3dOrder, flip3dSnapIds, exitFlip3d } =
-    useOs()
+  const { flip3dActive, flip3dRestoring, exitFlip3d } = useFlip3dScene()
+  const { flip3dEntering, flip3dOrder, flip3dSnapIds } = useFlip3dLayers()
   const visual = resolveFlip3dVisual(flip3dOrder, windowId, flip3dSnapIds)
   const inFlip3d = (flip3dActive || flip3dRestoring) && visual !== undefined
   const viewport = { width: window.innerWidth, height: window.innerHeight }
@@ -550,19 +552,9 @@ export function WindowFrame({ window }: WindowFrameProps) {
 }
 
 export function WindowManager() {
-  const {
-    windows,
-    desktopRevealRestoring,
-    flip3dActive,
-    flip3dRestoring,
-    flip3dEntering,
-    flip3dOrder,
-    flip3dGhosts,
-    flip3dShadowReveal,
-    cycleFlip3d,
-    dismissFlip3dGhostFrame,
-    exitFlip3d,
-  } = useOs()
+  const { windows, desktopRevealRestoring } = useOs()
+  const { flip3dActive, cycleFlip3d, exitFlip3d } = useFlip3dScene()
+  const { flip3dOrder, flip3dGhosts, dismissFlip3dGhostFrame } = useFlip3dLayers()
 
   useEffect(() => {
     if (!flip3dActive) {
@@ -591,6 +583,67 @@ export function WindowManager() {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [cycleFlip3d, exitFlip3d, flip3dActive])
 
+  const onScenePointerDown = flip3dActive
+    ? (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0) {
+          return
+        }
+        const scene = event.currentTarget
+        const rect = scene.getBoundingClientRect()
+        const boundsById = new Map(
+          windows.map((frame) => [
+            frame.id,
+            { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
+          ]),
+        )
+        const hitId = hitTestFlip3dWindowId(
+          event.clientX - rect.left,
+          event.clientY - rect.top,
+          flip3dOrder,
+          boundsById,
+          { width: rect.width, height: rect.height },
+        )
+        event.preventDefault()
+        event.stopPropagation()
+        exitFlip3d(hitId)
+      }
+    : undefined
+
+  return (
+    <Flip3dSceneChrome
+      desktopRevealRestoring={desktopRevealRestoring}
+      onScenePointerDown={onScenePointerDown}
+      extra={<DesktopRevealPeekLayer />}
+    >
+      {windows.map((frame) => (
+        <WindowFrame key={frame.id} window={frame} />
+      ))}
+      {flip3dGhosts.map((ghost) => (
+        <Flip3dGhostFrame
+          key={ghost.id}
+          ghost={ghost}
+          count={Math.max(flip3dOrder.length, 1)}
+          onDone={dismissFlip3dGhostFrame}
+        />
+      ))}
+    </Flip3dSceneChrome>
+  )
+}
+
+function Flip3dSceneChrome({
+  children,
+  extra,
+  desktopRevealRestoring,
+  onScenePointerDown,
+}: {
+  children: ComponentChildren
+  extra?: ComponentChildren
+  desktopRevealRestoring: boolean
+  onScenePointerDown?: (event: JSX.TargetedPointerEvent<HTMLDivElement>) => void
+}) {
+  const { flip3dActive, flip3dRestoring } = useFlip3dScene()
+  const { flip3dEntering } = useFlip3dLayers()
+  const flip3dShadowReveal = useFlip3dShadowReveal()
   const inFlip3dScene = flip3dActive || flip3dRestoring
 
   return (
@@ -606,49 +659,10 @@ export function WindowManager() {
           : undefined
       }
     >
-      <div
-        class="window-manager__flip3d-scene"
-        onPointerDown={
-          flip3dActive
-            ? (event) => {
-                if (event.button !== 0) {
-                  return
-                }
-                const scene = event.currentTarget
-                const rect = scene.getBoundingClientRect()
-                const boundsById = new Map(
-                  windows.map((frame) => [
-                    frame.id,
-                    { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
-                  ]),
-                )
-                const hitId = hitTestFlip3dWindowId(
-                  event.clientX - rect.left,
-                  event.clientY - rect.top,
-                  flip3dOrder,
-                  boundsById,
-                  { width: rect.width, height: rect.height },
-                )
-                event.preventDefault()
-                event.stopPropagation()
-                exitFlip3d(hitId)
-              }
-            : undefined
-        }
-      >
-        {windows.map((window) => (
-          <WindowFrame key={window.id} window={window} />
-        ))}
-        {flip3dGhosts.map((ghost) => (
-          <Flip3dGhostFrame
-            key={ghost.id}
-            ghost={ghost}
-            count={Math.max(flip3dOrder.length, 1)}
-            onDone={dismissFlip3dGhostFrame}
-          />
-        ))}
+      <div class="window-manager__flip3d-scene" onPointerDown={onScenePointerDown}>
+        {children}
       </div>
-      <DesktopRevealPeekLayer />
+      {extra}
     </div>
   )
 }

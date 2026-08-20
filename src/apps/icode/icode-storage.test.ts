@@ -44,7 +44,9 @@ async function testCreateAddsProject(): Promise<void> {
   const projects = await loadInternalProjects()
   assert.equal(projects.length, 1)
   assert.equal(projects[0]!.id, project.id)
-  assert.deepEqual(loadInternalProjectsSync(), projects, '同步读命中内存缓存')
+  const sync = loadInternalProjectsSync()
+  assert.deepEqual(sync, projects, '同步读命中内存缓存')
+  assert.equal(loadInternalProjectsSync(), sync, '连续同步读返回同一引用')
 }
 
 async function testUpdatePatchesProject(): Promise<void> {

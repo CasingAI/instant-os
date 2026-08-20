@@ -30,6 +30,10 @@ import {
   type Flip3dEnterResult,
   type Flip3dGhost,
 } from '../window/flip3d.ts'
+import {
+  Flip3dProvider,
+  type Flip3dShadowReveal,
+} from '../window/flip3d-context.tsx'
 import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { startBackgroundRefreshService } from './background-refresh-service.ts'
 import { startSystemServices } from './system-services.ts'
@@ -57,17 +61,6 @@ type OsContextValue = {
   desktopRevealRestoring: boolean
   toggleDesktopReveal: () => void
   hideDesktopReveal: () => void
-  flip3dActive: boolean
-  flip3dRestoring: boolean
-  flip3dEntering: boolean
-  flip3dOrder: string[]
-  flip3dSnapIds: string[]
-  flip3dGhosts: Flip3dGhost[]
-  flip3dShadowReveal: 'off' | 'hold' | 'fade' | 'settle'
-  enterFlip3d: () => Flip3dEnterResult
-  cycleFlip3d: (delta: 1 | -1) => void
-  dismissFlip3dGhostFrame: (ghostId: string) => void
-  exitFlip3d: (windowId?: string) => void
   openApp: (appId: AppId, options?: OpenAppOptions) => string | undefined
   openGeneratedApp: (appId: GeneratedAppId, title: string) => void
   openExtApp: (appId: ExtAppId, title: string) => void
@@ -322,7 +315,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const [flip3dOrder, setFlip3dOrder] = useState<string[]>([])
   const [flip3dSnapIds, setFlip3dSnapIds] = useState<string[]>([])
   const [flip3dGhosts, setFlip3dGhosts] = useState<Flip3dGhost[]>([])
-  const [flip3dShadowReveal, setFlip3dShadowReveal] = useState<'off' | 'hold' | 'fade' | 'settle'>(
+  const [flip3dShadowReveal, setFlip3dShadowReveal] = useState<Flip3dShadowReveal>(
     'off',
   )
   const flip3dActiveRef = useRef(false)
@@ -1392,17 +1385,6 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       desktopRevealRestoring,
       toggleDesktopReveal,
       hideDesktopReveal,
-      flip3dActive,
-      flip3dRestoring,
-      flip3dEntering,
-      flip3dOrder,
-      flip3dSnapIds,
-      flip3dGhosts,
-      flip3dShadowReveal,
-      enterFlip3d,
-      cycleFlip3d,
-      dismissFlip3dGhostFrame,
-      exitFlip3d,
       openApp,
       openGeneratedApp,
       openExtApp,
@@ -1434,12 +1416,40 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       revealWindowlessPanel,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, flip3dActive, flip3dRestoring, flip3dEntering, flip3dOrder, flip3dSnapIds, flip3dGhosts, flip3dShadowReveal, enterFlip3d, cycleFlip3d, dismissFlip3dGhostFrame, exitFlip3d, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])
 
-  return <OsContext.Provider value={value}>{children}</OsContext.Provider>
+  const flip3dScene = useMemo(
+    () => ({
+      flip3dActive,
+      flip3dRestoring,
+      enterFlip3d,
+      cycleFlip3d,
+      exitFlip3d,
+    }),
+    [cycleFlip3d, enterFlip3d, exitFlip3d, flip3dActive, flip3dRestoring],
+  )
+
+  const flip3dLayers = useMemo(
+    () => ({
+      flip3dEntering,
+      flip3dOrder,
+      flip3dSnapIds,
+      flip3dGhosts,
+      dismissFlip3dGhostFrame,
+    }),
+    [dismissFlip3dGhostFrame, flip3dEntering, flip3dGhosts, flip3dOrder, flip3dSnapIds],
+  )
+
+  return (
+    <OsContext.Provider value={value}>
+      <Flip3dProvider scene={flip3dScene} layers={flip3dLayers} shadow={flip3dShadowReveal}>
+        {children}
+      </Flip3dProvider>
+    </OsContext.Provider>
+  )
 }
 
 export function useAppCloseGuard(appId: AppId, guard: AppCloseGuard) {

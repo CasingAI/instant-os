@@ -1,5 +1,6 @@
 import { createRegistryStore } from '../../os/registry-store.ts'
 import { osNowMs } from '../../os/os-clock.ts'
+import { useEffect, useState } from 'preact/hooks'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { ICodeChatEditBlock, ICodeChatMessage, ICodeInternalProject } from './icode-types.ts'
 
@@ -95,6 +96,17 @@ export function subscribeInternalProjects(listener: () => void): () => void {
 
 export function loadInternalProjectsSync(): ICodeInternalProject[] {
   return registryStore.readSync() ?? []
+}
+
+/** 订阅 iCode 内部项目列表；readSync 命中解析缓存时引用稳定。 */
+export function useInternalProjects(): ICodeInternalProject[] {
+  const [projects, setProjects] = useState(loadInternalProjectsSync)
+  useEffect(() => {
+    const sync = () => setProjects(loadInternalProjectsSync())
+    sync()
+    return subscribeInternalProjects(sync)
+  }, [])
+  return projects
 }
 
 export async function loadInternalProjects(): Promise<ICodeInternalProject[]> {

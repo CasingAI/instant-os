@@ -5,6 +5,7 @@ import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { ExtAppIcon } from '../apps/ext/ext-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
 import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
+import { useInternalProjects } from '../apps/icode/icode-storage.ts'
 import { DesktopFolderIcon, type FolderPreviewApp } from '../desktop/desktop-folder-icon.tsx'
 import { openDesktopFolder, toggleDesktopFolder, closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
@@ -24,6 +25,7 @@ import { useDevExtApps } from '../os/dev-ext-apps-context.tsx'
 import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
+import { useFlip3dScene } from '../window/flip3d-context.tsx'
 import { useOs } from '../os/os-context.tsx'
 import { runDesktopClickAction, runDesktopHoldAction } from '../desktop/run-desktop-click-action.ts'
 import { useDesktopEmptyPressHandlers } from '../desktop/use-desktop-empty-press.ts'
@@ -188,9 +190,9 @@ export function Dock() {
     desktopRevealed,
     toggleDesktopReveal,
     hideDesktopReveal,
-    enterFlip3d,
-    flip3dActive,
   } = useOs()
+  const { enterFlip3d, flip3dActive } = useFlip3dScene()
+  const internalProjects = useInternalProjects()
   const { installedApps, openInstalledApp, openMarketplaceDetail, openIcodeProject, pendingUpdateCount } =
     useGeneratedApps()
   const { openSessionExtApp, removeSessionExtApp, getSessionExtApp } = useDevExtApps()
@@ -539,7 +541,7 @@ export function Dock() {
 
     const isRunning = isAppRunning(app.id)
     const slug = generatedAppIdToSlug(app.id)
-    const icodeProjectId = resolveIcodeProjectId(app)
+    const icodeProjectId = resolveIcodeProjectId(app, internalProjects)
     const pinned = isPinnedToDock(app.id)
     const appWindows = listAppWindows(app.id)
 
@@ -820,7 +822,7 @@ export function Dock() {
     }
 
     const slug = generatedAppIdToSlug(app.id)
-    const icodeProjectId = resolveIcodeProjectId(app)
+    const icodeProjectId = resolveIcodeProjectId(app, internalProjects)
 
     return appWindows.map((appWindow) => {
       const label = dockLabelForWindow(app.name, appWindow)
