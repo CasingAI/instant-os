@@ -1199,6 +1199,21 @@ export function VirtualJsIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function VirtualMachineIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#3d5a80" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="10" y="12" width="44" height="32" rx="4" fill="#1a1e26" />
+        <rect x="13" y="15" width="38" height="24" rx="2" fill="#0b0d12" />
+        <rect x="18" y="19" width="22" height="16" rx="1.5" fill="#2a3344" />
+        <rect x="20" y="21" width="18" height="12" rx="1" fill="#7eb4ef" />
+        <rect x="28" y="44" width="8" height="4" rx="1" fill="#1a1e26" />
+        <rect x="22" y="48" width="20" height="3" rx="1.5" fill="#1a1e26" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function UiKitIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#5856d6" size={size}>

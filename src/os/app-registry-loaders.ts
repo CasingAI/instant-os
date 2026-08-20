@@ -57,6 +57,8 @@ const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = {
       (m) => m.SimulatedTerminalApp,
     ),
   'virtual-js': () => import('../apps/virtual-js/virtual-js-app.tsx').then((m) => m.VirtualJsApp),
+  'virtual-machine': () =>
+    import('../apps/virtual-machine/virtual-machine-app.tsx').then((m) => m.VirtualMachineApp),
   'ui-kit': () => import('../apps/ui-kit/ui-kit-app.tsx').then((m) => m.UiKitApp),
   'srml-demo': () => import('../apps/srml-demo/srml-app.tsx').then((m) => m.SrmlDemoApp),
   'midi-demo': () => import('../apps/midi-demo/midi-demo-app.tsx').then((m) => m.MidiDemoApp),

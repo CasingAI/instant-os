@@ -8,7 +8,7 @@ export const DEVELOPER_TOOLS_FOLDER_ID: DesktopFolderId = 'folder:developer-tool
 export const DEVELOPER_TOOLS_FOLDER_NAME = '开发工具'
 
 /** 出厂桌面只把开发工具收进独立文件夹；系统工具仍摊在桌面上。 */
-export const LAUNCHER_LAYOUT_VERSION = 4
+export const LAUNCHER_LAYOUT_VERSION = 5
 
 export const DEVELOPER_TOOL_APP_IDS: readonly BuiltinAppId[] = [
   'icode',
@@ -19,6 +19,7 @@ export const DEVELOPER_TOOL_APP_IDS: readonly BuiltinAppId[] = [
   'terminal',
   'simulated-terminal',
   'virtual-js',
+  'virtual-machine',
   'page-devtools',
   'webview',
   'ui-kit',

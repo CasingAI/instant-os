@@ -169,6 +169,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   'space-sniffer': { title: '空间嗅探', width: 1020, height: 720 },
   packages: { title: '包管理', width: 720, height: 520 },
   'virtual-js': { title: 'Virtual JS', width: 860, height: 640 },
+  'virtual-machine': { title: 'Virtual Machine', width: 980, height: 680 },
   'ui-kit': { title: 'UI 组件库', width: 980, height: 700 },
   'srml-demo': { title: 'SRML 演示', width: 1040, height: 700 },
   'midi-demo': { title: 'MIDI 演示', width: 960, height: 680 },

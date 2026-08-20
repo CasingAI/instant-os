@@ -39,6 +39,7 @@ function testLooseDevAppsMoveIntoFolderAndSystemAppsStayOnDesktop(): void {
   assert.equal(developer?.name, DEVELOPER_TOOLS_FOLDER_NAME)
   assert.ok(developer?.appIds.includes('vscode'))
   assert.ok(developer?.appIds.includes('terminal'))
+  assert.ok(developer?.appIds.includes('virtual-machine'))
 }
 
 function testDissolvesLegacySystemToolsFolderOntoDesktop(): void {

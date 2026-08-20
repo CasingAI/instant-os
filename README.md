@@ -136,6 +136,7 @@ AI Native 系统需要可操作的环境，而不是只能生成文本的对话�
 - **终端**是系统原生 JS 运行环境：QuickJS + 薄 Node 兼容层（`fs`、`require`、部分 `stream` / `crypto` / `zlib` 等）。工作区默认 `/user`。可用 `globalThis.instant` 开应用、管窗口，用 `globalThis.webview` 驱动网页单元。
 - **包管理** 与终端 `npm` / `npx` 共用 Instant PackageService：内容寻址 store（`/dev/npm`）+ 符号链接 `node_modules`，锁优先安装。不是官方 npm，不支持原生 addon。Registry 在 **系统设置 → NPM**。
 - **Virtual JS** 是按窗口隔离的纯引擎演示，不接 VFS / npm。
+- **Virtual Machine** 是虚拟机管理器：新建会打开设置，保存后才加入列表。开机把镜像交给独立源上的 V86 运行时（默认 `http://localhost:6175`），画面在跨域 iframe 里。存储可选本地文件、网络地址，或 copy.sh 预制（Android-x86 / ReactOS）。联网尚未接入。
 - 旧的类 Unix **模拟终端**仍在，已弃用。
 
 ### Virtual Studio Code Desktop
@@ -280,6 +281,8 @@ pnpm dev
 ```
 
 开发服务器：**http://localhost:6173**
+
+Virtual Machine 开机需要另开 **Instant-virtual-machine** 运行时：在那个仓库执行 `pnpm dev`（端口 **6175**）。存储里可选本地镜像、网络地址，或 copy.sh 预制客户机（Android-x86 / ReactOS）。
 
 ```bash
 pnpm build

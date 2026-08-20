@@ -62,6 +62,7 @@ const MODULE_LABELS: Record<string, string> = {
   terminal: '终端',
   /** @deprecated 模拟终端已弃用，此标签保留仅为过渡，后续移除 */
   'simulated-terminal': '模拟终端',
+  'virtual-machine': 'Virtual Machine',
   files: '文件',
   'system-info': '系统信息',
   'task-manager': '性能监视器',

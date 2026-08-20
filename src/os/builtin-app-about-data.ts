@@ -305,6 +305,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '当前为纯引擎演示，无 Node / VFS / npm。与「终端」职责不同——终端面向文件与特权操作，Virtual JS 面向可复用的 JS 执行环境。',
     ],
   },
+  'virtual-machine': {
+    version: '虚拟机管理器',
+    paragraphs: [
+      'Virtual Machine 用来新建、列出和开关虚拟机。新建时打开虚拟机设置，保存后才写入列表；已有机器也可再改内存、启动盘和外设。',
+      '开机时把镜像交给独立源上的 V86 运行时（开发默认 localhost:6175），画面在跨域 iframe 里。存储可选本地文件、网络地址，或 copy.sh 预制（Android-x86 / ReactOS）。联网尚未接入。',
+    ],
+  },
   'ui-kit': {
     version: 'UI 组件库',
     paragraphs: [

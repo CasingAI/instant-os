@@ -1,0 +1,291 @@
+/**
+ * Instant OS ↔ Instant-virtual-machine postMessage protocol.
+ * Keep this file in sync with Instant-virtual-machine `src/protocol.ts`.
+ */
+
+export const INSTANT_VM_MESSAGE_TYPE = {
+  ready: 'instant-vm:ready',
+  start: 'instant-vm:start',
+  stop: 'instant-vm:stop',
+  reset: 'instant-vm:reset',
+  started: 'instant-vm:started',
+  stopped: 'instant-vm:stopped',
+  error: 'instant-vm:error',
+} as const
+
+export type InstantVmMessageType =
+  (typeof INSTANT_VM_MESSAGE_TYPE)[keyof typeof INSTANT_VM_MESSAGE_TYPE]
+
+export const INSTANT_VM_BOOT_ORDER_IDS = [
+  'auto',
+  'cd-floppy-hdd',
+  'cd-hdd-floppy',
+  'floppy-cd-hdd',
+  'floppy-hdd-cd',
+  'hdd-cd-floppy',
+] as const
+
+export type InstantVmBootOrderId = (typeof INSTANT_VM_BOOT_ORDER_IDS)[number]
+
+/** v86 `BootOrder` numeric values. */
+export const INSTANT_VM_BOOT_ORDER_TO_V86: Record<InstantVmBootOrderId, number> = {
+  auto: 0,
+  'cd-floppy-hdd': 0x213,
+  'cd-hdd-floppy': 0x123,
+  'floppy-cd-hdd': 0x231,
+  'floppy-hdd-cd': 0x321,
+  'hdd-cd-floppy': 0x132,
+}
+
+export type InstantVmStartConfig = {
+  memoryMb: number
+  vgaMemoryMb: number
+  bootOrder: InstantVmBootOrderId
+  acpi: boolean
+  fastboot: boolean
+  speaker: boolean
+  keyboard: boolean
+  mouse: boolean
+  /** copy.sh Android profile sends Enter after 3s to skip isolinux. */
+  sendEnterAfterMs?: number
+}
+
+export type InstantVmReadyMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.ready
+}
+
+export type InstantVmStartMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.start
+  requestId: string
+  config: InstantVmStartConfig
+  hda?: ArrayBuffer
+  cdrom?: ArrayBuffer
+  fda?: ArrayBuffer
+  state?: ArrayBuffer
+  hdaUrl?: string
+  cdromUrl?: string
+  fdaUrl?: string
+  stateUrl?: string
+}
+
+export type InstantVmStopMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.stop
+  requestId: string
+}
+
+export type InstantVmResetMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.reset
+  requestId: string
+}
+
+export type InstantVmStartedMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.started
+  requestId: string
+}
+
+export type InstantVmStoppedMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.stopped
+  requestId: string
+}
+
+export type InstantVmErrorMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.error
+  requestId?: string
+  message: string
+}
+
+export type InstantVmHostToRuntimeMessage =
+  | InstantVmStartMessage
+  | InstantVmStopMessage
+  | InstantVmResetMessage
+
+export type InstantVmRuntimeToHostMessage =
+  | InstantVmReadyMessage
+  | InstantVmStartedMessage
+  | InstantVmStoppedMessage
+  | InstantVmErrorMessage
+
+const MEMORY_MB_OPTIONS = [16, 32, 64, 128, 256, 512] as const
+const VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16] as const
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isBootOrderId(value: unknown): value is InstantVmBootOrderId {
+  return (
+    typeof value === 'string' &&
+    (INSTANT_VM_BOOT_ORDER_IDS as readonly string[]).includes(value)
+  )
+}
+
+function isPositiveIntIn<T extends number>(
+  value: unknown,
+  allowed: readonly T[],
+): value is T {
+  return typeof value === 'number' && Number.isInteger(value) && allowed.includes(value as T)
+}
+
+export function isInstantVmStartConfig(value: unknown): value is InstantVmStartConfig {
+  if (!isRecord(value)) {
+    return false
+  }
+  if (!isPositiveIntIn(value.memoryMb, MEMORY_MB_OPTIONS)) {
+    return false
+  }
+  if (!isPositiveIntIn(value.vgaMemoryMb, VGA_MEMORY_MB_OPTIONS)) {
+    return false
+  }
+  if (!isBootOrderId(value.bootOrder)) {
+    return false
+  }
+  if (typeof value.acpi !== 'boolean' || typeof value.fastboot !== 'boolean') {
+    return false
+  }
+  if (
+    typeof value.speaker !== 'boolean' ||
+    typeof value.keyboard !== 'boolean' ||
+    typeof value.mouse !== 'boolean'
+  ) {
+    return false
+  }
+  if (value.sendEnterAfterMs !== undefined) {
+    if (
+      typeof value.sendEnterAfterMs !== 'number' ||
+      !Number.isFinite(value.sendEnterAfterMs) ||
+      value.sendEnterAfterMs < 0
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function isRequestId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length < 80
+}
+
+function isOptionalBuffer(value: unknown): value is ArrayBuffer | undefined {
+  return value === undefined || value instanceof ArrayBuffer
+}
+
+export function isHttpDiskUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim())
+}
+
+function isOptionalHttpUrl(value: unknown): value is string | undefined {
+  return (
+    value === undefined ||
+    (typeof value === 'string' && isHttpDiskUrl(value) && value.trim().length < 500)
+  )
+}
+
+export function isInstantVmStartMessage(value: unknown): value is InstantVmStartMessage {
+  if (!isRecord(value) || value.type !== INSTANT_VM_MESSAGE_TYPE.start) {
+    return false
+  }
+  if (!isRequestId(value.requestId) || !isInstantVmStartConfig(value.config)) {
+    return false
+  }
+  return (
+    isOptionalBuffer(value.hda) &&
+    isOptionalBuffer(value.cdrom) &&
+    isOptionalBuffer(value.fda) &&
+    isOptionalBuffer(value.state) &&
+    isOptionalHttpUrl(value.hdaUrl) &&
+    isOptionalHttpUrl(value.cdromUrl) &&
+    isOptionalHttpUrl(value.fdaUrl) &&
+    isOptionalHttpUrl(value.stateUrl)
+  )
+}
+
+export function isInstantVmStopMessage(value: unknown): value is InstantVmStopMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.stop &&
+    isRequestId(value.requestId)
+  )
+}
+
+export function isInstantVmResetMessage(value: unknown): value is InstantVmResetMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.reset &&
+    isRequestId(value.requestId)
+  )
+}
+
+export function isInstantVmHostToRuntimeMessage(
+  value: unknown,
+): value is InstantVmHostToRuntimeMessage {
+  return (
+    isInstantVmStartMessage(value) ||
+    isInstantVmStopMessage(value) ||
+    isInstantVmResetMessage(value)
+  )
+}
+
+export function isInstantVmRuntimeToHostMessage(
+  value: unknown,
+): value is InstantVmRuntimeToHostMessage {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return false
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.ready) {
+    return true
+  }
+  if (
+    value.type === INSTANT_VM_MESSAGE_TYPE.started ||
+    value.type === INSTANT_VM_MESSAGE_TYPE.stopped
+  ) {
+    return isRequestId(value.requestId)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.error) {
+    if (typeof value.message !== 'string' || !value.message.trim()) {
+      return false
+    }
+    return value.requestId === undefined || isRequestId(value.requestId)
+  }
+  return false
+}
+
+export function parseAllowedOrigins(raw: string | undefined, fallback: readonly string[]): string[] {
+  const fromEnv = (raw ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const list = fromEnv.length > 0 ? fromEnv : [...fallback]
+  return [...new Set(list)]
+}
+
+export function isAllowedOrigin(origin: string, allowed: readonly string[]): boolean {
+  return allowed.includes(origin)
+}
+
+export function collectStartTransfers(message: InstantVmStartMessage): Transferable[] {
+  const transfers: Transferable[] = []
+  if (message.hda) {
+    transfers.push(message.hda)
+  }
+  if (message.cdrom) {
+    transfers.push(message.cdrom)
+  }
+  if (message.fda) {
+    transfers.push(message.fda)
+  }
+  if (message.state) {
+    transfers.push(message.state)
+  }
+  return transfers
+}
+
+export function startMessageHasDisk(message: InstantVmStartMessage): boolean {
+  return Boolean(
+    (message.hda && message.hda.byteLength > 0) ||
+      (message.cdrom && message.cdrom.byteLength > 0) ||
+      (message.fda && message.fda.byteLength > 0) ||
+      message.hdaUrl ||
+      message.cdromUrl ||
+      message.fdaUrl,
+  )
+}
