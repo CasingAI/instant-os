@@ -43,8 +43,8 @@ export function withAppIconDecoration(
     return (
       <span class="app-icon-decoration" style={style}>
         <Icon size={size} />
-        <span class="app-icon-decoration__overlay">
-          {decoration.ribbon && (
+        {decoration.ribbon && (
+          <span class="app-icon-decoration__overlay">
             <svg class="app-icon-ribbon" viewBox="0 0 100 100" aria-hidden="true">
               <g transform={`translate(${RIBBON_CX} ${RIBBON_CY}) rotate(45)`}>
                 <rect
@@ -65,13 +65,13 @@ export function withAppIconDecoration(
                 </text>
               </g>
             </svg>
-          )}
-          {decoration.sleeve && (
-            <span class="app-icon-sleeve" aria-hidden="true">
-              {decoration.sleeve.label}
-            </span>
-          )}
-        </span>
+          </span>
+        )}
+        {decoration.sleeve && (
+          <span class="app-icon-sleeve" aria-hidden="true">
+            {decoration.sleeve.label}
+          </span>
+        )}
       </span>
     )
   }

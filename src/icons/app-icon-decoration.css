@@ -41,7 +41,9 @@
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: 4;
   height: calc(var(--d) * 0.3);
+  border-radius: 0 0 var(--r) var(--r);
   display: flex;
   align-items: center;
   justify-content: center;

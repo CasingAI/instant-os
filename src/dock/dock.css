@@ -226,7 +226,8 @@
   box-shadow: 0 0 2px rgba(255, 255, 255, 0.6);
 }
 
-.dock__item--running .dock__icon .app-icon-tile__tile {
+.dock__item--running .dock__icon .app-icon-tile__tile,
+.dock__item--running .dock__icon .app-icon-decoration__overlay {
   animation: dock-bounce 0.45s ease;
 }
 
