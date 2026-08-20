@@ -13,10 +13,16 @@ import {
   virtualMachineHasBootMedia,
 } from './virtual-machine-disks.ts'
 import {
+  formatVmMips,
+  formatVmRunningDuration,
+  formatVmVgaResolution,
+} from './virtual-machine-stats-format.ts'
+import {
   INSTANT_VM_BOOT_ORDER_TO_V86,
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
   isAllowedOrigin,
+  isInstantVmRuntimeToHostMessage,
   isInstantVmStartMessage,
   parseAllowedOrigins,
   startMessageHasDisk,
@@ -112,10 +118,90 @@ function testPathSummaryForRemoteUrl(): void {
   )
 }
 
+function testStatsFormatting(): void {
+  assert.equal(formatVmRunningDuration(19_000), '19s')
+  assert.equal(formatVmRunningDuration(65_000), '1m 5s')
+  assert.equal(formatVmMips(0.5), '0.50 mIPS')
+  assert.equal(formatVmMips(97.5), '97.5 mIPS')
+  assert.equal(
+    formatVmVgaResolution({
+      runningMs: 0,
+      speedMips: 0,
+      avgSpeedMips: 0,
+      ideLabel: 'none',
+      hda: {
+        present: false,
+        busy: 'idle',
+        sectorsRead: 0,
+        bytesRead: 0,
+        sectorsWritten: 0,
+        bytesWritten: 0,
+      },
+      cdrom: {
+        present: false,
+        busy: 'idle',
+        sectorsRead: 0,
+        bytesRead: 0,
+        sectorsWritten: 0,
+        bytesWritten: 0,
+      },
+      fda: {
+        present: false,
+        busy: 'idle',
+        sectorsRead: 0,
+        bytesRead: 0,
+        sectorsWritten: 0,
+        bytesWritten: 0,
+      },
+      vga: { mode: 'graphical', width: 800, height: 600, bpp: 16 },
+      mouse: false,
+    }),
+    '800×600×16',
+  )
+}
+
 function testOriginAllowList(): void {
   assert.deepEqual(parseAllowedOrigins('', ['http://localhost:6173']), ['http://localhost:6173'])
   assert.equal(isAllowedOrigin('http://localhost:6175', ['http://localhost:6175']), true)
   assert.equal(isAllowedOrigin('https://evil.example', ['http://localhost:6175']), false)
+}
+
+function testStatsMessage(): void {
+  const stats = {
+    type: INSTANT_VM_MESSAGE_TYPE.stats,
+    runningMs: 19000,
+    speedMips: 0.5,
+    avgSpeedMips: 97.5,
+    ideLabel: 'cdrom' as const,
+    hda: {
+      present: false,
+      busy: 'idle' as const,
+      sectorsRead: 0,
+      bytesRead: 0,
+      sectorsWritten: 0,
+      bytesWritten: 0,
+    },
+    cdrom: {
+      present: true,
+      busy: 'read' as const,
+      sectorsRead: 3779,
+      bytesRead: 7_739_392,
+      sectorsWritten: 0,
+      bytesWritten: 0,
+    },
+    fda: {
+      present: false,
+      busy: 'idle' as const,
+      sectorsRead: 0,
+      bytesRead: 0,
+      sectorsWritten: 0,
+      bytesWritten: 0,
+    },
+    vga: { mode: 'graphical' as const, width: 800, height: 600, bpp: 16 },
+    mouse: false,
+  }
+  assert.equal(isInstantVmRuntimeToHostMessage(stats), true)
+  assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, mouse: 'no' }), false)
 }
 
 testBootOrderMatchesV86()
@@ -124,5 +210,7 @@ testCdromSendsEnterAndHddDoesNot()
 testStartMessageTransfers()
 testReactOsRemoteStartMessage()
 testPathSummaryForRemoteUrl()
+testStatsFormatting()
 testOriginAllowList()
+testStatsMessage()
 console.log('virtual-machine-protocol.test.ts ok')

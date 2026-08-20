@@ -4,6 +4,7 @@ import {
   collectStartTransfers,
   isInstantVmRuntimeToHostMessage,
   type InstantVmStartMessage,
+  type InstantVmStatsSnapshot,
 } from './virtual-machine-protocol.ts'
 
 const REQUEST_TIMEOUT_MS = 60_000
@@ -22,6 +23,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
   const [ready, setReady] = useState(false)
+  const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
 
   const failAll = useCallback((error: Error) => {
     for (const pending of pendingRef.current.values()) {
@@ -32,6 +34,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
 
   useEffect(() => {
     setReady(false)
+    setStats(undefined)
     failAll(new Error('运行时已重新加载'))
   }, [failAll, origin])
 
@@ -57,7 +60,13 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
         return
       }
 
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.stats) {
+        setStats(message)
+        return
+      }
+
       if (message.type === INSTANT_VM_MESSAGE_TYPE.error) {
+        setStats(undefined)
         const error = new Error(message.message)
         if (message.requestId) {
           const pending = pendingRef.current.get(message.requestId)
@@ -90,7 +99,13 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
       if (!origin || !contentWindow) {
         throw new Error('虚拟机运行时未就绪')
       }
-      contentWindow.postMessage(message, origin, transfer)
+      try {
+        contentWindow.postMessage(message, origin, transfer)
+      } catch {
+        throw new Error(
+          `无法联系模拟器：当前页面是 ${window.location.origin}，运行时是 ${origin}（localhost 与 127.0.0.1 不是同一个源）`,
+        )
+      }
     },
     [origin],
   )
@@ -126,6 +141,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
 
   const start = useCallback(
     async (message: InstantVmStartMessage) => {
+      setStats(undefined)
       const timeoutMs =
         message.hdaUrl || message.cdromUrl || message.fdaUrl || message.stateUrl
           ? REMOTE_DISK_REQUEST_TIMEOUT_MS
@@ -136,7 +152,11 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   )
 
   const stop = useCallback(async () => {
-    await request({ type: INSTANT_VM_MESSAGE_TYPE.stop, requestId: newRequestId() })
+    try {
+      await request({ type: INSTANT_VM_MESSAGE_TYPE.stop, requestId: newRequestId() })
+    } finally {
+      setStats(undefined)
+    }
   }, [request])
 
   const reset = useCallback(async () => {
@@ -146,6 +166,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   return {
     iframeRef,
     ready,
+    stats,
     start,
     stop,
     reset,

@@ -187,6 +187,123 @@
   pointer-events: none;
 }
 
+.virtual-machine__activity {
+  flex: 0 0 auto;
+  margin: 8px 12px 0;
+}
+
+.virtual-machine__bezel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 5px 8px 5px 10px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #2a2d33 0%, #1a1c20 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.45),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.virtual-machine__leds {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.virtual-machine__led {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #9aa0a8;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.virtual-machine__led-lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1c1e22;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.virtual-machine__led--idle .virtual-machine__led-lamp {
+  background: #2f7a3a;
+  box-shadow:
+    0 0 5px rgba(70, 190, 90, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.virtual-machine__led--busy .virtual-machine__led-lamp {
+  background: #e0b000;
+  box-shadow:
+    0 0 7px rgba(255, 196, 40, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.virtual-machine__led--busy .virtual-machine__led-label {
+  color: #f3e2a0;
+}
+
+.virtual-machine__stats-toggle {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #111;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #4a4e56 0%, #32363c 100%);
+  color: #ddd;
+  font: inherit;
+  font-size: 11px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  cursor: default;
+}
+
+.virtual-machine__stats-toggle:disabled {
+  opacity: 0.45;
+}
+
+.virtual-machine__stats-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 4px 16px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #f7f7f7 0%, #ececec 100%);
+  border: 1px solid var(--vm-border);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.virtual-machine__stats-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+}
+
+.virtual-machine__stats-row dt {
+  color: #666;
+}
+
+.virtual-machine__stats-row dd {
+  margin: 0;
+  font-weight: 600;
+  color: #222;
+}
+
+.virtual-machine__stats-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--vm-muted);
+}
+
 .virtual-machine__inspector {
   display: flex;
   flex-wrap: wrap;

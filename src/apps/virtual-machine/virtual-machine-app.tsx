@@ -22,6 +22,7 @@ import {
   loadVirtualMachineDisks,
   virtualMachineHasBootMedia,
 } from './virtual-machine-disks.ts'
+import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
 import { useVirtualMachineRuntime } from './virtual-machine-runtime.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
@@ -66,6 +67,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const {
     iframeRef,
     ready: runtimeReady,
+    stats: runtimeStats,
     start: startRuntime,
     stop: stopEmulator,
     reset: resetRuntime,
@@ -257,14 +259,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             setPowerHint(undefined)
             return
           }
-          setPowerHint(
-            [machine.hdaPath, machine.cdromPath, machine.fdaPath, machine.statePath].some(
-              isHttpDiskUrl,
-            )
-              ? '正在启动模拟器…'
-              : '正在读取镜像…',
-          )
+          const hasRemoteDisk = [
+            machine.hdaPath,
+            machine.cdromPath,
+            machine.fdaPath,
+            machine.statePath,
+          ].some(isHttpDiskUrl)
+          setPowerHint(hasRemoteDisk ? '正在启动模拟器…' : '正在读取镜像…')
           const disks = await loadVirtualMachineDisks(machine)
+          setPowerHint('正在启动模拟器…')
           const message = buildStartMessage(newRequestId(), machine, disks)
           await startRuntime(message)
           setRunningId(machine.id)
@@ -466,6 +469,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                 }
                 title="虚拟机显示器"
                 src={runtimeOrigin}
+                referrerPolicy="origin"
                 sandbox="allow-scripts allow-same-origin allow-modals"
                 allow="autoplay"
               />
@@ -474,6 +478,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               <div class="virtual-machine__screen-message">{screenMessage}</div>
             ) : null}
           </div>
+          <VirtualMachineActivity stats={runtimeStats} running={Boolean(selectedRunning)} />
           {selected ? (
             <dl class="virtual-machine__inspector">
               <div class="virtual-machine__inspector-item">

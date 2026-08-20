@@ -11,6 +11,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   started: 'instant-vm:started',
   stopped: 'instant-vm:stopped',
   error: 'instant-vm:error',
+  stats: 'instant-vm:stats',
 } as const
 
 export type InstantVmMessageType =
@@ -94,6 +95,50 @@ export type InstantVmErrorMessage = {
   message: string
 }
 
+export const INSTANT_VM_IDE_LABELS = ['none', 'hdd', 'cdrom'] as const
+
+export type InstantVmIdeLabel = (typeof INSTANT_VM_IDE_LABELS)[number]
+
+export const INSTANT_VM_DISK_BUSY_IDS = ['idle', 'read', 'write'] as const
+
+export type InstantVmDiskBusy = (typeof INSTANT_VM_DISK_BUSY_IDS)[number]
+
+export const INSTANT_VM_VGA_MODES = ['text', 'graphical'] as const
+
+export type InstantVmVgaMode = (typeof INSTANT_VM_VGA_MODES)[number]
+
+export type InstantVmDiskStats = {
+  present: boolean
+  busy: InstantVmDiskBusy
+  sectorsRead: number
+  bytesRead: number
+  sectorsWritten: number
+  bytesWritten: number
+}
+
+export type InstantVmVgaStats = {
+  mode: InstantVmVgaMode
+  width: number
+  height: number
+  bpp: number
+}
+
+export type InstantVmStatsSnapshot = {
+  runningMs: number
+  speedMips: number
+  avgSpeedMips: number
+  ideLabel: InstantVmIdeLabel
+  hda: InstantVmDiskStats
+  cdrom: InstantVmDiskStats
+  fda: InstantVmDiskStats
+  vga: InstantVmVgaStats
+  mouse: boolean
+}
+
+export type InstantVmStatsMessage = InstantVmStatsSnapshot & {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.stats
+}
+
 export type InstantVmHostToRuntimeMessage =
   | InstantVmStartMessage
   | InstantVmStopMessage
@@ -104,6 +149,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmStartedMessage
   | InstantVmStoppedMessage
   | InstantVmErrorMessage
+  | InstantVmStatsMessage
 
 const MEMORY_MB_OPTIONS = [16, 32, 64, 128, 256, 512] as const
 const VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16] as const
@@ -215,6 +261,87 @@ export function isInstantVmResetMessage(value: unknown): value is InstantVmReset
   )
 }
 
+export function emptyVmDiskStats(present = false): InstantVmDiskStats {
+  return {
+    present,
+    busy: 'idle',
+    sectorsRead: 0,
+    bytesRead: 0,
+    sectorsWritten: 0,
+    bytesWritten: 0,
+  }
+}
+
+export function emptyVmStatsSnapshot(): InstantVmStatsSnapshot {
+  return {
+    runningMs: 0,
+    speedMips: 0,
+    avgSpeedMips: 0,
+    ideLabel: 'none',
+    hda: emptyVmDiskStats(),
+    cdrom: emptyVmDiskStats(),
+    fda: emptyVmDiskStats(),
+    vga: { mode: 'text', width: 0, height: 0, bpp: 0 },
+    mouse: false,
+  }
+}
+
+function isNonNegFinite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function isVmDiskBusy(value: unknown): value is InstantVmDiskBusy {
+  return (
+    typeof value === 'string' &&
+    (INSTANT_VM_DISK_BUSY_IDS as readonly string[]).includes(value)
+  )
+}
+
+function isVmIdeLabel(value: unknown): value is InstantVmIdeLabel {
+  return typeof value === 'string' && (INSTANT_VM_IDE_LABELS as readonly string[]).includes(value)
+}
+
+function isVmVgaMode(value: unknown): value is InstantVmVgaMode {
+  return typeof value === 'string' && (INSTANT_VM_VGA_MODES as readonly string[]).includes(value)
+}
+
+function isVmDiskStats(value: unknown): value is InstantVmDiskStats {
+  if (!isRecord(value) || typeof value.present !== 'boolean' || !isVmDiskBusy(value.busy)) {
+    return false
+  }
+  return (
+    isNonNegFinite(value.sectorsRead) &&
+    isNonNegFinite(value.bytesRead) &&
+    isNonNegFinite(value.sectorsWritten) &&
+    isNonNegFinite(value.bytesWritten)
+  )
+}
+
+function isVmVgaStats(value: unknown): value is InstantVmVgaStats {
+  if (!isRecord(value) || !isVmVgaMode(value.mode)) {
+    return false
+  }
+  return isNonNegFinite(value.width) && isNonNegFinite(value.height) && isNonNegFinite(value.bpp)
+}
+
+export function isInstantVmStatsMessage(value: unknown): value is InstantVmStatsMessage {
+  if (!isRecord(value) || value.type !== INSTANT_VM_MESSAGE_TYPE.stats) {
+    return false
+  }
+  if (!isNonNegFinite(value.runningMs) || !isNonNegFinite(value.speedMips) || !isNonNegFinite(value.avgSpeedMips)) {
+    return false
+  }
+  if (!isVmIdeLabel(value.ideLabel) || typeof value.mouse !== 'boolean') {
+    return false
+  }
+  return (
+    isVmDiskStats(value.hda) &&
+    isVmDiskStats(value.cdrom) &&
+    isVmDiskStats(value.fda) &&
+    isVmVgaStats(value.vga)
+  )
+}
+
 export function isInstantVmHostToRuntimeMessage(
   value: unknown,
 ): value is InstantVmHostToRuntimeMessage {
@@ -245,6 +372,9 @@ export function isInstantVmRuntimeToHostMessage(
       return false
     }
     return value.requestId === undefined || isRequestId(value.requestId)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.stats) {
+    return isInstantVmStatsMessage(value)
   }
   return false
 }
