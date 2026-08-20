@@ -1,0 +1,9 @@
+/** 开机注册内置应用的打开方式 / 右键贡献。勿从这些模块再 import 应用 UI。 */
+import '../apps/archive-utility/archive-utility-open.ts'
+import '../apps/browser/browser-open-handlers.ts'
+import '../apps/chromo/chromo-url-open.ts'
+import '../apps/music/music-file-open.ts'
+import '../apps/pages/pages-file-open.ts'
+import '../apps/preview/preview-file-open.ts'
+import '../apps/textedit/textedit-file-open.ts'
+import '../apps/vscode/vscode-file-open.ts'

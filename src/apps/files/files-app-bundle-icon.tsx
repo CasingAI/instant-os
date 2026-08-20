@@ -8,7 +8,7 @@ import {
   resolveAppCatalogEntryByBundlePath,
   type AppCatalogEntry,
 } from '../../os/app-catalog.ts'
-import { loadAppRegistryModule } from '../../os/app-registry-loader.ts'
+import { getAppDefinition } from '../../os/app-registry.tsx'
 import type { BuiltinAppId } from '../../os/types.ts'
 import { parseApplicationsDirPath } from './files-location-applications.ts'
 import type { FilesNode } from './files-types.ts'
@@ -36,7 +36,6 @@ function cacheBuiltinIcon(appId: BuiltinAppId, icon: ComponentType<{ size?: numb
 export function preloadAppBundleIcons(): Promise<void> {
   preloadPromise ??= (async () => {
     const entries = await listAppCatalogEntries()
-    const { getAppDefinition } = await loadAppRegistryModule()
     for (const entry of entries) {
       if (entry.kind !== 'builtin') continue
       const appId = entry.id as BuiltinAppId
@@ -91,7 +90,7 @@ export function FilesAppBundleIcon({ node, size }: FilesAppBundleIconProps) {
     }
 
     let cancelled = false
-    void resolveAppCatalogEntryByBundlePath(bundlePath).then(async (resolved) => {
+    void resolveAppCatalogEntryByBundlePath(bundlePath).then((resolved) => {
       if (cancelled || !resolved) return
       setEntry(resolved)
       if (resolved.kind !== 'builtin') return
@@ -103,8 +102,6 @@ export function FilesAppBundleIcon({ node, size }: FilesAppBundleIconProps) {
         return
       }
 
-      const { getAppDefinition } = await loadAppRegistryModule()
-      if (cancelled) return
       const icon = getAppDefinition(appId)?.icon
       cacheBuiltinIcon(appId, icon)
       setBuiltinIcon(() => icon)

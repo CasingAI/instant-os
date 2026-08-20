@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs, useWindowCloseGuard } from '../../os/os-context.tsx'
@@ -20,12 +19,6 @@ const APP_ID = 'textedit' as const
 const THEME = '#3d7a4a'
 const DEFAULT_TITLE = '文本编辑'
 const OPEN_TITLE = '打开文件'
-
-registerFileOpenHandler({
-  appId: APP_ID,
-  extensions: ['txt'],
-  rank: 10,
-})
 
 type DirtyChoice = 'save' | 'discard' | 'cancel'
 

@@ -32,7 +32,7 @@ import { listMigratedLegacyStorageKeys } from '../../os/app-registry-migration.t
 import { getFilesTotalBytes } from '../files/files-storage.ts'
 import { getAiTokenUsageBytes } from '../../ai/ai-token-usage-storage.ts'
 import { getAiEventLogBytes } from '../../ai/ai-event-log-storage.ts'
-import { getVscodeAiChatBytes } from '../vscode/vscode-ai-chat-storage.ts'
+import { getVscodeAiChatBytes } from '../vscode/vscode-ai-chat-bytes.ts'
 import { getBrowserSystemStorageBytes } from '../browser/browser-system-storage.ts'
 import { buildSystemSpaceBreakdown } from './app-storage-system.ts'
 

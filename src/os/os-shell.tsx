@@ -25,6 +25,7 @@ import { WindowManager } from '../window/window-frame.tsx'
 import { MonacoDialogHost } from '../monaco/monaco-dialog-host.tsx'
 import { SystemDeadlockDialog } from './system-deadlock-dialog.tsx'
 import { TerminalPrivilegeDialog } from '../terminal/terminal-privilege-dialog.tsx'
+import './register-builtin-open-handlers.ts'
 import './host-export-menu.ts'
 import './os-shell.css'
 

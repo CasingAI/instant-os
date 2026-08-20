@@ -58,6 +58,10 @@ export const BUILTIN_APP_DISPLAY_NAMES: Record<BuiltinAppId, string> = {
   'welcome-hello': '你好',
 }
 
+export function isBuiltinAppId(appId: string): appId is BuiltinAppId {
+  return Object.prototype.hasOwnProperty.call(BUILTIN_APP_DISPLAY_NAMES, appId)
+}
+
 /** 目录枚举顺序（与历史 APP_REGISTRY 顺序一致，便于对照；catalog 最终仍会按 bundleName 排序）。 */
 export const BUILTIN_APP_CATALOG_ORDER: readonly BuiltinAppId[] = [
   'appstore',

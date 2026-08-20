@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { osNowMs } from '../../os/os-clock.ts'
-import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -45,7 +44,6 @@ import {
   formatTrackDuration,
   isAudioExtension,
   isLyricsExtension,
-  MUSIC_AUDIO_EXTENSIONS,
   MUSIC_LYRICS_EXTENSIONS,
   parseMusicFileName,
 } from './music-storage.ts'
@@ -56,12 +54,6 @@ const APP_ID = 'music' as const
 const DEFAULT_TITLE = '音乐'
 /** 曲库 = 用户目录下的「音乐」特殊文件夹，放进的文件自动识别 */
 const MUSIC_FOLDER = userSpecialFolderPath('Musics')
-
-registerFileOpenHandler({
-  appId: APP_ID,
-  extensions: [...MUSIC_AUDIO_EXTENSIONS, ...MUSIC_LYRICS_EXTENSIONS],
-  rank: 10,
-})
 
 function fileExtension(fileName: string): string {
   const dot = fileName.lastIndexOf('.')

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs, useWindowCloseGuard } from '../../os/os-context.tsx'
@@ -48,12 +47,6 @@ const THEME = '#2f6fed'
 const DEFAULT_TITLE = '文稿'
 const OPEN_TITLE = '打开文稿'
 const AUTOSAVE_DELAY_MS = 1500
-
-registerFileOpenHandler({
-  appId: APP_ID,
-  extensions: [...PAGES_OPEN_EXTENSIONS],
-  rank: 4,
-})
 
 type DirtyChoice = 'save' | 'discard' | 'cancel'
 

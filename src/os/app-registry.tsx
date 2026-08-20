@@ -1,57 +1,5 @@
-import type { ComponentType } from 'preact'
-import { Scene3dLabApp } from '../apps/scene3d-lab/scene3d-lab-app.tsx'
-import { PoseLabApp } from '../apps/pose-lab/pose-lab-app.tsx'
-import { ModelVisionApp } from '../apps/model-vision/model-vision-app.tsx'
-import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
-import { BrowserApp } from '../apps/browser/browser-app.tsx'
-import { ChromoApp } from '../apps/chromo/chromo-app.tsx'
-import { PageDevToolsApp } from '../apps/page-devtools/page-devtools-app.tsx'
-import { WebViewApp } from '../apps/webview/webview-app.tsx'
-import { MailApp } from '../apps/mail/mail-app.tsx'
-import { SettingsApp } from '../apps/settings/settings-app.tsx'
-import { NewsApp } from '../apps/news/news-app.tsx'
-import { BooksApp } from '../apps/books/books-app.tsx'
-import { WeatherApp } from '../apps/weather/weather-app.tsx'
-import { CalendarApp } from '../apps/calendar/calendar-app.tsx'
-import { StocksApp } from '../apps/stocks/stocks-app.tsx'
-import { TranslateApp } from '../apps/translate/translate-app.tsx'
-import { CatGptApp } from '../apps/catgpt/catgpt-app.tsx'
-import { ProdudeApp } from '../apps/produde/produde-app.tsx'
-import { GomokuApp } from '../apps/gomoku/gomoku-app.tsx'
-import { HelpApp } from '../apps/help/help-app.tsx'
-import { TerminalApp } from '../apps/terminal/terminal-app.tsx'
-import { SimulatedTerminalApp } from '../apps/simulated-terminal/simulated-terminal-app.tsx'
-import { VirtualJsApp } from '../apps/virtual-js/virtual-js-app.tsx'
-import { SpeechApp } from '../apps/speech/speech-app.tsx'
-import { ICodeApp } from '../apps/icode/icode-app.tsx'
-import { RegistryApp } from '../apps/registry/registry-app.tsx'
-import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
-import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
-import { ServicesApp } from '../apps/services/services-app.tsx'
-import { EventLogApp } from '../apps/event-log/event-log-app.tsx'
-import { PackagesApp } from '../apps/packages/packages-app.tsx'
-import { ArchiveUtilityApp } from '../apps/archive-utility/archive-utility-app.tsx'
-import { SpaceSnifferApp } from '../apps/space-sniffer/space-sniffer-app.tsx'
-import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
-import { GithubDesktopApp } from '../apps/github-desktop/github-desktop-app.tsx'
-import { FilesApp } from '../apps/files/files-app.tsx'
-import { FileInfoApp } from '../apps/file-info/file-info-app.tsx'
 import { FileInfoIcon } from '../apps/file-info/file-info-icon.tsx'
-import { TextEditApp } from '../apps/textedit/textedit-app.tsx'
-import { PagesApp } from '../apps/pages/pages-app.tsx'
-import { PreviewApp } from '../apps/preview/preview-app.tsx'
-import { VscodeApp } from '../apps/vscode/vscode-app.tsx'
-import { UiKitApp } from '../apps/ui-kit/ui-kit-app.tsx'
-import { MusicApp } from '../apps/music/music-app.tsx'
-import { StemsApp } from '../apps/stems/stems-app.tsx'
-import { SrmlDemoApp } from '../apps/srml-demo/srml-app.tsx'
-import { MidiDemoApp } from '../apps/midi-demo/midi-demo-app.tsx'
-import { LlmPlaygroundApp } from '../apps/llm-playground/llm-playground-app.tsx'
-import { AttuneBenchApp } from '../apps/attunebench/attunebench-app.tsx'
-import { WelcomeApp } from '../apps/welcome/welcome-app.tsx'
-import { WelcomeNextApp } from '../apps/welcome-next/welcome-next-app.tsx'
 import { WelcomeNextIcon } from '../apps/welcome-next/welcome-next-icon.tsx'
-import { WelcomeHelloApp } from '../apps/welcome-hello/welcome-hello-app.tsx'
 import { WelcomeHelloIcon } from '../apps/welcome-hello/welcome-hello-icon.tsx'
 import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
 import { PoseLabIcon } from '../apps/pose-lab/pose-lab-icon.tsx'
@@ -482,61 +430,6 @@ export const APP_REGISTRY: AppDefinition[] = [
     iconDecoration: { sleeve: { label: '新' } },
   }),
 ]
-
-export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: string }>> = {
-  appstore: MarketplaceApp,
-  browser: BrowserApp,
-  chromo: ChromoApp,
-  'page-devtools': PageDevToolsApp,
-  webview: WebViewApp,
-  mail: MailApp,
-  news: NewsApp,
-  books: BooksApp,
-  music: MusicApp,
-  stems: StemsApp,
-  weather: WeatherApp,
-  calendar: CalendarApp,
-  stocks: StocksApp,
-  translate: TranslateApp,
-  catgpt: CatGptApp,
-  produde: ProdudeApp,
-  gomoku: GomokuApp,
-  speech: SpeechApp,
-  files: FilesApp,
-  'file-info': FileInfoApp,
-  textedit: TextEditApp,
-  pages: PagesApp,
-  preview: PreviewApp,
-  vscode: VscodeApp,
-  'scene3d-lab': Scene3dLabApp,
-  'pose-lab': PoseLabApp,
-  'model-vision': ModelVisionApp,
-  icode: ICodeApp,
-  registry: RegistryApp,
-  settings: SettingsApp,
-  'system-info': SystemInfoApp,
-  'task-manager': TaskManagerApp,
-  services: ServicesApp,
-  'event-log': EventLogApp,
-  packages: PackagesApp,
-  'archive-utility': ArchiveUtilityApp,
-  'space-sniffer': SpaceSnifferApp,
-  keychain: KeychainApp,
-  'github-desktop': GithubDesktopApp,
-  help: HelpApp,
-  terminal: TerminalApp,
-  /** @deprecated 模拟终端已弃用，组件映射保留仅为过渡，后续移除 */
-  'simulated-terminal': SimulatedTerminalApp,
-  'virtual-js': VirtualJsApp,
-  'ui-kit': UiKitApp,
-  'srml-demo': SrmlDemoApp,
-  'midi-demo': MidiDemoApp,
-  'llm-playground': LlmPlaygroundApp,
-  attunebench: AttuneBenchApp,
-  welcome: WelcomeApp,
-  'welcome-next': WelcomeNextApp,
-  'welcome-hello': WelcomeHelloApp,
-}
 
 export function getAppDefinition(appId: BuiltinAppId) {
   return APP_REGISTRY.find((app) => app.id === appId)

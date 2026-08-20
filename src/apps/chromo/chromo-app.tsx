@@ -11,7 +11,6 @@ import {
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { registerUrlOpenHandler } from '../../os/url-open-registry.ts'
 import { useFullscreenChromeReveal } from '../../os/fullscreen-chrome-reveal-context.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import {
@@ -58,8 +57,6 @@ import { ChromoTabBar, type ChromoTabSummary } from './chromo-tab-bar.tsx'
 import { ChromoViewerFrame, type ChromoViewerHandle } from './chromo-viewer-frame.tsx'
 import type { ChromoApplicationApi } from './chromo-application-panel.tsx'
 import './chromo.css'
-
-registerUrlOpenHandler({ appId: 'chromo', rank: 10 })
 
 function makeChromoApplicationApi(
   getViewer: () => ChromoViewerHandle | null | undefined,

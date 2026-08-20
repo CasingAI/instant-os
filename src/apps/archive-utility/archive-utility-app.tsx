@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { materializeArchiveEntries } from '../../archive/archive-materialize.ts'
 import { listArchiveInWorker } from '../../archive/archive-worker-client.ts'
-import { getDefaultFileOpenApp, registerFileOpenHandler } from '../../os/file-open-registry.ts'
-import {
-  registerFilesContextMenuContribution,
-  type FilesContextMenuOpItem,
-} from '../../os/file-context-menu-registry.ts'
+import { getDefaultFileOpenApp } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -53,39 +49,6 @@ const THEME = '#6b7280'
 const EMPTY_TITLE = '压缩包实用工具'
 /** 预览提取的临时目录（每次预览前清空） */
 const PREVIEW_ROOT = '/tmp/ArchivePreview'
-
-registerFileOpenHandler({
-  appId: APP_ID,
-  extensions: [...ARCHIVE_UTILITY_OPEN_EXTENSIONS],
-  rank: 8,
-})
-
-registerFilesContextMenuContribution({
-  id: 'archive-utility.archive-ops',
-  label: '归档',
-  matches: ({ canCreateHere }) => canCreateHere,
-  buildItems: ({ node, targetNodes, ops }) => {
-    const multi = targetNodes.length > 1
-    const countLabel = (action: string) => (multi ? `${action} ${targetNodes.length} 项` : action)
-    const items: FilesContextMenuOpItem[] = [
-      {
-        label: countLabel('压缩为 ZIP'),
-        onClick: () => ops.compressAsZip(targetNodes),
-      },
-      {
-        label: countLabel('压缩为 tar.gz'),
-        onClick: () => ops.compressAsTarGz(targetNodes),
-      },
-    ]
-    if (!multi && node.kind === 'file' && ops.isArchiveFileName(node.name)) {
-      items.push({
-        label: '解压到当前文件夹',
-        onClick: () => ops.extractHere(node),
-      })
-    }
-    return items
-  },
-})
 
 type ArchiveUtilityAppProps = {
   windowId?: string

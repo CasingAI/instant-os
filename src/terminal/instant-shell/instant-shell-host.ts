@@ -248,9 +248,9 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
       throw new Error('appId 不能为空')
     }
     const opts = assertOpenAppOptions(options)
+    const apps = host.listApps()
 
     if (isGeneratedAppId(id as AppId)) {
-      const apps = host.listApps()
       const found = apps.find((app) => app.id === id)
       if (!found) {
         throw new Error(`未安装的生成应用: ${id}`)
@@ -260,13 +260,16 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
     }
 
     if (isExtAppId(id as AppId)) {
-      const apps = host.listApps()
       const found = apps.find((app) => app.id === id)
       if (!found) {
         throw new Error(`未添加的外链应用: ${id}`)
       }
       host.openExtApp(id, found.name)
       return
+    }
+
+    if (!apps.some((app) => app.id === id)) {
+      throw new Error(`未找到应用: ${id}`)
     }
 
     host.openApp(id, opts)

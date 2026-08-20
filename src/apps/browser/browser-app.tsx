@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
-import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
-import { registerUrlOpenHandler } from '../../os/url-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -103,14 +101,6 @@ import {
 } from './safari-context-menu.tsx'
 import { readTextFile, resolveFilesAbsolutePath } from '../files/files-vfs.ts'
 import './browser.css'
-
-registerFileOpenHandler({
-  appId: 'browser',
-  extensions: ['html', 'htm', 'xhtml', 'svg'],
-  rank: 10,
-})
-
-registerUrlOpenHandler({ appId: 'browser', rank: 20 })
 
 type HistoryEntry = {
   url: string

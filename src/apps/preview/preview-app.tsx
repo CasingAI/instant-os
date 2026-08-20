@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -24,12 +23,6 @@ const APP_ID = 'preview' as const
 const THEME = '#8b5a2b'
 const DEFAULT_TITLE = '预览'
 const OPEN_TITLE = '打开文件'
-
-registerFileOpenHandler({
-  appId: APP_ID,
-  extensions: [...PREVIEW_OPEN_EXTENSIONS],
-  rank: 5,
-})
 
 type PreviewTab = {
   id: string

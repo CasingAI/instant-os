@@ -587,6 +587,41 @@
   cursor: se-resize;
 }
 
+.window-app-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 24px;
+  box-sizing: border-box;
+  color: #555;
+  font-size: 13px;
+}
+
+.window-app-body p {
+  margin: 0;
+  text-align: center;
+}
+
+.window-app-body__retry {
+  appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 6px;
+  background: #f7f7f7;
+  padding: 6px 14px;
+  font: inherit;
+  color: #222;
+  cursor: pointer;
+}
+
+.window-app-body__retry:hover {
+  background: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .window-frame {
     transition-duration: 0.01ms !important;

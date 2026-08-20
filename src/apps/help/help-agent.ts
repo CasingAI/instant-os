@@ -1,7 +1,7 @@
 import type OpenAI from 'openai'
 import { createAgent } from '../../ai/create-agent.ts'
 import { SOURCE_INSPECTION_TOOLS } from '../../ai/source-tools.ts'
-import { getLocalStorageKeyLabel } from '../../ai/storage-inspection.ts'
+import { getLocalStorageKeyLabel } from '../../ai/storage-key-labels.ts'
 import { STORAGE_INSPECTION_TOOLS } from '../../ai/storage-tools.ts'
 import { HELP_TERMINAL_REQUEST_TOOLS } from './help-terminal-tools.ts'
 import type {

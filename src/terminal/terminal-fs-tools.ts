@@ -6,7 +6,7 @@
  * 保留仅为过渡，新功能不要加在这里。
  */
 import { defineTool } from '../ai/agent-tool.ts'
-import { getLocalStorageKeyLabel } from '../ai/storage-inspection.ts'
+import { getLocalStorageKeyLabel } from '../ai/storage-key-labels.ts'
 import {
   filesCopy,
   filesCreateText,

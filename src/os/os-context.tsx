@@ -38,6 +38,7 @@ import { resolveSingleWindowForApp } from './single-window.ts'
 import { registerOsOpenApp } from './os-open-app-bridge.ts'
 import { enqueueTerminalPendingAction } from '../terminal/terminal-pending-actions.ts'
 import { WEBVIEW_OFFSCREEN_VIEWPORT } from '../apps/webview/webview-constants.ts'
+import { isBuiltinAppId } from './builtin-app-display-names.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, OpenAppOptions, WindowState, WindowRestoredBounds } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
 
@@ -548,6 +549,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     }
     if (isExtAppId(appId)) {
       throw new Error('请使用 openExtApp 打开外链应用')
+    }
+    if (!isBuiltinAppId(appId)) {
+      throw new Error(`未找到应用: ${appId}`)
     }
 
     /** @deprecated 模拟终端已弃用，此 terminalAction 注入逻辑保留仅为过渡，后续移除 */

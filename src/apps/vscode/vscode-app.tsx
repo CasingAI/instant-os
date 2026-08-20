@@ -15,7 +15,6 @@ import {
   type MonacoProblem,
 } from '../../monaco/monaco-markers.ts'
 import { DeviceDataStorageFullError } from '../../os/device-data-storage.ts'
-import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs, useWindowCloseGuard } from '../../os/os-context.tsx'
@@ -241,15 +240,6 @@ function restoreOpenAiChatTabsInLayout(
 const APP_ID = 'vscode' as const
 const THEME = '#2f87e2'
 const DEFAULT_TITLE = 'Virtual Studio Code Desktop'
-
-registerFileOpenHandler({
-  appId: APP_ID,
-  extensions: [...VSCODE_OPEN_EXTENSIONS, ...VSCODE_OPTIONAL_OPEN_EXTENSIONS],
-  rank: 10,
-  // JSONL 的结构化预览只在 Code 里，覆盖预览 app（rank 5）让其默认用 Code 打开；
-  // 打开方式里「预览」仍可选。
-  extensionRanks: { jsonl: 4, ndjson: 4 },
-})
 
 type DirtyChoice = 'save' | 'discard' | 'cancel'
 

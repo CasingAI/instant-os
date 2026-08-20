@@ -5,7 +5,7 @@
  * 特权操作走向不同路径。
  * 保留仅为过渡，新功能不要加在这里。
  */
-import { getLocalStorageKeyLabel } from '../ai/storage-inspection.ts'
+import { getLocalStorageKeyLabel } from '../ai/storage-key-labels.ts'
 import { getLocalStorageKeyBytes } from '../os/device-storage.ts'
 import { formatStorageSize } from '../os/format-storage-size.ts'
 import {

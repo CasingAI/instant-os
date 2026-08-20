@@ -1,12 +1,7 @@
-import type { ComponentType } from 'preact'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { GeneratedApp } from '../apps/generated/generated-app.tsx'
-import { ExtApp } from '../apps/ext/ext-app.tsx'
-import { APP_COMPONENTS } from '../os/app-registry.tsx'
 import { useOs } from '../os/os-context.tsx'
 import { useFullscreenChromeReveal } from '../os/fullscreen-chrome-reveal-context.tsx'
-import { isExtAppId, isGeneratedAppId } from '../os/types.ts'
-import type { BuiltinAppId, WindowState } from '../os/types.ts'
+import type { WindowState } from '../os/types.ts'
 import { buildDesktopRevealTransform } from './build-desktop-reveal-transform.ts'
 import {
   buildFlip3dBackEnterTransform,
@@ -28,6 +23,7 @@ import { useWindowDrag } from './use-window-drag.ts'
 import { useWindowResize } from './use-window-resize.ts'
 import { type ResizeDirection } from './window-resize.ts'
 import { WindowModalProvider } from './window-modal-context.tsx'
+import { WindowAppBody } from './window-app-body.tsx'
 
 const EDGE_DIRECTIONS: ResizeDirection[] = ['n', 's', 'e', 'w']
 const CORNER_DIRECTIONS: ResizeDirection[] = ['nw', 'ne', 'sw', 'se']
@@ -71,19 +67,6 @@ function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
   }
 }
 
-function renderAppBody(
-  window: WindowState,
-  AppComponent: ComponentType<{ windowId?: string }> | undefined,
-) {
-  if (isExtAppId(window.appId)) {
-    return <ExtApp appId={window.appId} windowId={window.id} />
-  }
-  if (isGeneratedAppId(window.appId)) {
-    return <GeneratedApp appId={window.appId} windowId={window.id} />
-  }
-  return AppComponent ? <AppComponent windowId={window.id} /> : undefined
-}
-
 /**
  * 无窗口应用宿主：默认不可见；展开为 panel 时使用与普通窗口相同的系统标题栏，
  * 且保持 App 挂载路径稳定，避免解压过程中组件卸载。
@@ -100,9 +83,6 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
     minimizeWindow,
     toggleFullscreen,
   } = useOs()
-  const AppComponent = isGeneratedAppId(window.appId)
-    ? undefined
-    : APP_COMPONENTS[window.appId as BuiltinAppId]
   const revealed = !!window.windowlessPanel && !window.minimized
   const isActive = activeWindowId === window.id
   const isClosing = window.closing
@@ -295,7 +275,9 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
             </header>
           ) : undefined}
           <div class={showAsWindowFrame ? 'window-frame__content' : 'windowless-app-host__content'}>
-            <WindowModalProvider>{renderAppBody(window, AppComponent)}</WindowModalProvider>
+            <WindowModalProvider>
+              <WindowAppBody window={window} />
+            </WindowModalProvider>
           </div>
         </div>
       </section>
@@ -319,9 +301,6 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     minimizeWindow,
   } = useOs()
   const { hasImmersiveFullscreen, chromeRevealed } = useFullscreenChromeReveal()
-  const AppComponent = isGeneratedAppId(window.appId)
-    ? undefined
-    : APP_COMPONENTS[window.appId as BuiltinAppId]
   const isActive = activeWindowId === window.id
   const isAnchored = !window.fullscreen && (window.maximized || !!window.snap)
   const isDesktopRevealed = desktopRevealed && !window.minimized
@@ -518,7 +497,9 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
             {!isActive && !isDesktopRevealed && !inFlip3d && (
               <div class="window-frame__focus-catcher" aria-hidden="true" />
             )}
-            <WindowModalProvider>{renderAppBody(window, AppComponent)}</WindowModalProvider>
+            <WindowModalProvider>
+              <WindowAppBody window={window} />
+            </WindowModalProvider>
           </div>
         </div>
         {canResize && (

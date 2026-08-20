@@ -11,7 +11,7 @@ export const INSTANT_SHELL_RUNTIME_SECTION = `【Instant 壳层 API · globalThi
 Guest 联网：终端会话默认注入全局 \`fetch\`（经 Instant 代理服务器 relay，与 WebView 同源；未配置/未连接代理时报错）；\`await fetch(url)\` 后 \`arrayBuffer\`/\`text\` + \`fs.writeFile\` 可下载到 VFS。响应体不超过实例 maxFileBytes。npm run / 无 terminalSessionId 的实例默认无 fetch。
 
 打开：
-- instant.openApp(appId, opts?) — 打开内置 / 已安装生成应用（gen:…）/ 外链应用（ext:…）
+- instant.openApp(appId, opts?) — 打开内置 / 已安装生成应用（gen:…）/ 外链应用（ext:…）；未知 id 抛错
   - opts.documentId?：VFS 绝对路径，交给文档类应用
   - opts.url?：仅浏览器；与 documentId 互斥
 - instant.openPath(path) — 按文件关联打开；目录打开「文件」应用；无默认程序则抛错

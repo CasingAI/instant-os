@@ -839,18 +839,7 @@ export async function saveVscodeAiChatStore(store: VscodeAiChatStore): Promise<v
   emitDataStorageChanged()
 }
 
-export async function getVscodeAiChatBytes(): Promise<number> {
-  try {
-    const records = await runDataStoreTransaction<Array<{ byteSize?: number }>>(
-      VSCODE_AI_CHAT_STORE,
-      'readonly',
-      (store) => store.getAll(),
-    )
-    return records.reduce((total, record) => total + (record.byteSize ?? 0), 0)
-  } catch {
-    return 0
-  }
-}
+export { getVscodeAiChatBytes } from './vscode-ai-chat-bytes.ts'
 
 /** @deprecated 兼容旧单线程 API；新代码请用 loadVscodeAiChatStore */
 export type VscodeAiChatThread = {

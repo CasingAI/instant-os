@@ -101,6 +101,8 @@ async function testApiOpenAppAndUrl(): Promise<void> {
   const api = createInstantShellApi(host)
   await api.openApp('settings')
   await api.openUrl('example.com/path')
+  await assert.rejects(() => api.openApp('123'), /未找到应用: 123/)
+  assert.equal(host.calls.length, 2)
   assert.equal(host.calls[0], 'openApp:settings:{}')
   assert.equal(
     host.calls[1],

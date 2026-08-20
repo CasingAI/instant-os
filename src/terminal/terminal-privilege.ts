@@ -1,4 +1,4 @@
-import { getLocalStorageKeyLabel, isLocalStorageValueBlocked } from '../ai/storage-inspection.ts'
+import { getLocalStorageKeyLabel, isLocalStorageValueBlocked } from '../ai/storage-key-labels.ts'
 import { filesRemove } from '../apps/files/files-api.ts'
 import {
   addMount,
