@@ -409,7 +409,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: InstantLogoIcon,
     dock: false,
     dockWhenRunning: true,
-    desktop: true,
+    desktop: false,
   }),
   withAbout({
     id: 'welcome-next',
@@ -417,7 +417,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: WelcomeNextIcon,
     dock: false,
     dockWhenRunning: true,
-    desktop: true,
+    desktop: false,
     iconDecoration: { sleeve: { label: '新' } },
   }),
   withAbout({
@@ -426,7 +426,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: WelcomeHelloIcon,
     dock: false,
     dockWhenRunning: true,
-    desktop: true,
+    desktop: false,
     iconDecoration: { sleeve: { label: '新' } },
   }),
 ]
