@@ -1,4 +1,4 @@
-import { resolveEffectiveDockReservePx } from '../dock/dock-layout-metrics.ts'
+import { resolveDockReservePx } from '../dock/dock-settings-storage.ts'
 
 export const STATUS_BAR_HEIGHT = 22
 export const TITLEBAR_HEIGHT = 34
@@ -15,7 +15,7 @@ export type WindowBounds = {
 }
 
 export function getMaximizedBounds(): WindowBounds {
-  const dockReserve = resolveEffectiveDockReservePx()
+  const dockReserve = resolveDockReservePx()
   return {
     x: 0,
     y: STATUS_BAR_HEIGHT,

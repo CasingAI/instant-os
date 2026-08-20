@@ -4,7 +4,6 @@ import { isGeneratedAppId, type AppId } from '../os/types.ts'
 import {
   buildDockLayoutSnapshot,
   resolveEffectiveDockIconSizePx,
-  resolveEffectiveDockReservePx,
   resolveEffectiveDockScale,
   setDockLayoutSnapshot,
 } from './dock-layout-metrics.ts'
@@ -12,6 +11,8 @@ import {
   createInitialDockSettings,
   hasStoredDockSettings,
   loadDockSettings,
+  resolveDockReservePx,
+  resolveDockSizeScale,
   saveDockSettings,
   type DockSettings,
 } from './dock-settings-storage.ts'
@@ -26,7 +27,10 @@ export function applyDockSettingsVariables(settings?: DockSettings): void {
   const root = document.documentElement
 
   root.style.setProperty(DOCK_SCALE_CSS_VAR, String(scale))
-  root.style.setProperty(DOCK_RESERVE_CSS_VAR, `${resolveEffectiveDockReservePx(resolvedSettings)}px`)
+  root.style.setProperty(
+    DOCK_RESERVE_CSS_VAR,
+    `${resolveDockReservePx(resolveDockSizeScale(resolvedSettings))}px`,
+  )
   root.style.setProperty(DOCK_ICON_SIZE_CSS_VAR, `${resolveEffectiveDockIconSizePx(resolvedSettings)}px`)
 }
 
