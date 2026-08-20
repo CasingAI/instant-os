@@ -7,8 +7,6 @@ import { buildDesktopRevealTransform } from './build-desktop-reveal-transform.ts
 import {
   buildFlip3dBackEnterTransform,
   buildFlip3dTransform,
-  computeFlip3dBackEnterLayout,
-  computeFlip3dLayout,
   flip3dPerspectiveOrigin,
   hitTestFlip3dWindowId,
   FLIP3D_PERSPECTIVE_PX,
@@ -55,12 +53,6 @@ function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
   const inFlip3d = (flip3dActive || flip3dRestoring) && visual !== undefined
   const viewport = { width: window.innerWidth, height: window.innerHeight }
   const count = Math.max(flip3dOrder.length, 1)
-  const layout =
-    flip3dActive && visual
-      ? visual.fromBack
-        ? computeFlip3dBackEnterLayout(bounds, viewport, count)
-        : computeFlip3dLayout(bounds, visual.rank, viewport, count)
-      : undefined
   const transform =
     flip3dActive && visual
       ? visual.fromBack
@@ -71,8 +63,6 @@ function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
   return {
     inFlip3d,
     transform,
-    left: layout?.left,
-    top: layout?.top,
     zIndex,
     opacity: visual?.opacity,
     skipTransition: Boolean(
@@ -115,8 +105,6 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
   const {
     inFlip3d,
     transform: flip3dTransform,
-    left: flip3dLeft,
-    top: flip3dTop,
     zIndex: flip3dZIndex,
     opacity: flip3dOpacity,
     skipTransition: flip3dInstant,
@@ -210,8 +198,8 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
         aria-hidden={showMinimizeVisual ? true : undefined}
         style={{
           zIndex: flip3dZIndex ?? window.zIndex,
-          left: `${flip3dLeft ?? window.x}px`,
-          top: `${flip3dTop ?? window.y}px`,
+          left: `${window.x}px`,
+          top: `${window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
           transform: isEntering
@@ -332,8 +320,6 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
   const {
     inFlip3d,
     transform: flip3dTransform,
-    left: flip3dLeft,
-    top: flip3dTop,
     zIndex: flip3dZIndex,
     opacity: flip3dOpacity,
     skipTransition: flip3dInstant,
@@ -428,8 +414,8 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
         aria-hidden={showMinimizeVisual || isClosing ? true : undefined}
         style={{
           zIndex: flip3dZIndex ?? window.zIndex,
-          left: `${flip3dLeft ?? window.x}px`,
-          top: `${flip3dTop ?? window.y}px`,
+          left: `${window.x}px`,
+          top: `${window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
           transform: isEntering ? undefined : frameTransform,

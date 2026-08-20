@@ -2,8 +2,6 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks'
 import {
   buildFlip3dFlyOutTransform,
   buildFlip3dTransform,
-  computeFlip3dFlyOutLayout,
-  computeFlip3dLayout,
   FLIP3D_Z_BASE,
 } from './build-flip3d-transform.ts'
 import { FLIP3D_FLIGHT_OUT_MS, type Flip3dGhost } from './flip3d.ts'
@@ -16,12 +14,8 @@ type Flip3dGhostFrameProps = {
 
 export function Flip3dGhostFrame({ ghost, count, onDone }: Flip3dGhostFrameProps) {
   const viewport = { width: window.innerWidth, height: window.innerHeight }
-  const restLayout = computeFlip3dLayout(ghost.bounds, 0, viewport, count)
-  const flyLayout = computeFlip3dFlyOutLayout(ghost.bounds, viewport, count)
   const restTransform = buildFlip3dTransform(ghost.bounds, 0, viewport, count)
   const flyTransform = buildFlip3dFlyOutTransform(ghost.bounds, viewport, count)
-  const startLayout = ghost.direction === 1 ? restLayout : flyLayout
-  const endLayout = ghost.direction === 1 ? flyLayout : restLayout
   const startTransform = ghost.direction === 1 ? restTransform : flyTransform
   const endTransform = ghost.direction === 1 ? flyTransform : restTransform
   const [departing, setDeparting] = useState(false)
@@ -45,7 +39,6 @@ export function Flip3dGhostFrame({ ghost, count, onDone }: Flip3dGhostFrameProps
     }
   }, [ghost.id, onDone])
 
-  const layout = departing ? endLayout : startLayout
   const transform = departing ? endTransform : startTransform
   const opacity = departing ? 0 : 1
 
@@ -55,8 +48,8 @@ export function Flip3dGhostFrame({ ghost, count, onDone }: Flip3dGhostFrameProps
       aria-hidden="true"
       style={{
         zIndex: FLIP3D_Z_BASE + 80,
-        left: `${layout.left}px`,
-        top: `${layout.top}px`,
+        left: `${ghost.bounds.x}px`,
+        top: `${ghost.bounds.y}px`,
         width: `${ghost.bounds.width}px`,
         height: `${ghost.bounds.height}px`,
         transform,

@@ -100,6 +100,22 @@ function testLayoutIgnoresDesktopPosition(): void {
   console.log('ok: flip3d layout ignores desktop position')
 }
 
+function testCssTransformEncodesDesktopOffset(): void {
+  const home = { ...BOUNDS, x: 100, y: 80 }
+  const elsewhere = { ...BOUNDS, x: 400, y: 200 }
+  const layout = computeFlip3dLayout(home, 1, VIEWPORT, 3)
+  const cssHome = buildFlip3dTransform(home, 1, VIEWPORT, 3)
+  const cssElse = buildFlip3dTransform(elsewhere, 1, VIEWPORT, 3)
+  const txHome = layout.slotX + layout.left - home.x
+  const tyHome = layout.slotY + layout.top - home.y
+  const txElse = layout.slotX + layout.left - elsewhere.x
+  const tyElse = layout.slotY + layout.top - elsewhere.y
+  assert.ok(cssHome.startsWith(`translate3d(${txHome}px, ${tyHome}px, ${layout.slotZ}px)`))
+  assert.ok(cssElse.startsWith(`translate3d(${txElse}px, ${tyElse}px, ${layout.slotZ}px)`))
+  assert.notEqual(cssHome, cssElse)
+  console.log('ok: flip3d css transform encodes desktop offset')
+}
+
 function testScaleFitsCardWithoutUpscaling(): void {
   const card = flip3dCardSize(VIEWPORT)
   const tall = { ...BOUNDS, width: 400, height: 700 }
@@ -256,6 +272,7 @@ function testEligibleWindows(): void {
 function main(): void {
   testRankRecedesUpAndLeft()
   testLayoutIgnoresDesktopPosition()
+  testCssTransformEncodesDesktopOffset()
   testManyWindowsStayInFrontOfCamera()
   testScaleFitsCardWithoutUpscaling()
   testCycleOrder()

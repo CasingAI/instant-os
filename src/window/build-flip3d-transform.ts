@@ -20,7 +20,7 @@ export type Flip3dLayout = {
 /**
  * 对照 public/vista-flip3d.svg 量得的投影：
  * 各窗平行（同一姿态）、左缘近、后窗往左上退。
- * 窗口先放到锚点槽位（不用桌面 left/top），再平移；旋转每层相同。
+ * CSS left/top 保持桌面坐标；锚点槽位写进 transform，进出叠层只过渡 transform。
  * 灭点在标题栏高度偏右：近缘多出来的高度主要落在底边，标题栏接近水平。
  */
 export const FLIP3D_PERSPECTIVE_PX = 1100
@@ -115,9 +115,15 @@ export function computeFlip3dLayout(
   }
 }
 
-function formatFlip3dTransform(layout: Flip3dLayout): string {
+function formatFlip3dTransform(
+  layout: Flip3dLayout,
+  cssLeft: number,
+  cssTop: number,
+): string {
+  const translateX = layout.slotX + layout.left - cssLeft
+  const translateY = layout.slotY + layout.top - cssTop
   return [
-    `translate3d(${layout.slotX}px, ${layout.slotY}px, ${layout.slotZ}px)`,
+    `translate3d(${translateX}px, ${translateY}px, ${layout.slotZ}px)`,
     `rotateZ(${layout.rotateZ}deg)`,
     `rotateX(${layout.rotateX}deg)`,
     `rotateY(${layout.rotateY}deg)`,
@@ -131,7 +137,7 @@ export function buildFlip3dTransform(
   viewport: Flip3dViewport,
   count = Math.max(rank + 1, 1),
 ): string {
-  return formatFlip3dTransform(computeFlip3dLayout(bounds, rank, viewport, count))
+  return formatFlip3dTransform(computeFlip3dLayout(bounds, rank, viewport, count), bounds.x, bounds.y)
 }
 
 export function computeFlip3dFlyOutLayout(
@@ -154,7 +160,7 @@ export function buildFlip3dFlyOutTransform(
   viewport: Flip3dViewport,
   count = 1,
 ): string {
-  return formatFlip3dTransform(computeFlip3dFlyOutLayout(bounds, viewport, count))
+  return formatFlip3dTransform(computeFlip3dFlyOutLayout(bounds, viewport, count), bounds.x, bounds.y)
 }
 
 /** 比当前最后一层再退后一步，给绕到队尾的窗做入场起点。 */
@@ -180,7 +186,7 @@ export function buildFlip3dBackEnterTransform(
   viewport: Flip3dViewport,
   count: number,
 ): string {
-  return formatFlip3dTransform(computeFlip3dBackEnterLayout(bounds, viewport, count))
+  return formatFlip3dTransform(computeFlip3dBackEnterLayout(bounds, viewport, count), bounds.x, bounds.y)
 }
 
 export type Flip3dPoint = { x: number; y: number }

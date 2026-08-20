@@ -323,6 +323,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const flip3dAnimGenRef = useRef(0)
   const flip3dCycleTimerRef = useRef<number | undefined>(undefined)
   const flip3dGhostSeqRef = useRef(0)
+  const pendingFlip3dShadowRef = useRef(false)
 
   useEffect(() => {
     desktopRevealedRef.current = desktopRevealed
@@ -410,13 +411,26 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     if (!flip3dRestoring) {
       return
     }
-    // CSS 过渡比 timeout 晚一帧才起；多留一截再拆 3D 场景，避免落地瞬间改 class 顿一下。
     const timer = window.setTimeout(() => {
+      pendingFlip3dShadowRef.current = true
       setFlip3dRestoring(false)
       setFlip3dOrder([])
-      setFlip3dShadowReveal('hold')
-    }, FLIP3D_RESTORE_MS + 80)
+    }, FLIP3D_RESTORE_MS)
     return () => window.clearTimeout(timer)
+  }, [flip3dRestoring])
+
+  useLayoutEffect(() => {
+    if (flip3dRestoring || !pendingFlip3dShadowRef.current) {
+      return
+    }
+    const frame = window.requestAnimationFrame(() => {
+      if (!pendingFlip3dShadowRef.current) {
+        return
+      }
+      pendingFlip3dShadowRef.current = false
+      setFlip3dShadowReveal('hold')
+    })
+    return () => window.cancelAnimationFrame(frame)
   }, [flip3dRestoring])
 
   useLayoutEffect(() => {
@@ -468,6 +482,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     bumpFlip3dAnim()
     clearFlip3dGhosts()
     setFlip3dSnapIds([])
+    pendingFlip3dShadowRef.current = false
     setFlip3dRestoring(false)
     setFlip3dShadowReveal('off')
     applyFlip3dOrder(ids)
