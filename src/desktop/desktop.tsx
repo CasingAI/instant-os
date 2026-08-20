@@ -61,6 +61,12 @@ import { useDesktopIconReorder } from './use-desktop-icon-reorder.ts'
 import { clearDockDropSession, setDockDropSession } from '../dock/dock-drop-session.ts'
 import { resolveDockDropTarget } from '../dock/dock-drop-target.ts'
 import { useDesktopPagePager } from './use-desktop-page-pager.ts'
+import {
+  desktopAppSearchSeedFromKey,
+  isDesktopAppSearchBlockedTarget,
+  isDesktopAppSearchTriggerKey,
+} from './desktop-app-search.ts'
+import { DesktopAppSearchOverlay } from './desktop-app-search-overlay.tsx'
 import '../icons/app-icon-tile.css'
 import './desktop.css'
 
@@ -579,6 +585,13 @@ export function Desktop() {
   const gridRef = useRef<HTMLDivElement>(null)
   const [pagerSize, setPagerSize] = useState({ width: 0, height: 0 })
   const [openFolderId, setOpenFolderId] = useState<DesktopFolderId | undefined>(undefined)
+  const [appSearchOpen, setAppSearchOpen] = useState(false)
+  const [appSearchQuery, setAppSearchQuery] = useState('')
+
+  const closeAppSearch = useCallback(() => {
+    setAppSearchOpen(false)
+    setAppSearchQuery('')
+  }, [])
 
   useEffect(() => {
     registerCloseOpenDesktopFolder(() => setOpenFolderId(undefined))
@@ -876,7 +889,52 @@ export function Desktop() {
   )
   const keyboardPageNavEnabled =
     openFolderId === undefined && (desktopRevealed || !hasFrontmostWindow)
+  const desktopSearchArmed =
+    keyboardPageNavEnabled && !flip3dActive && !flip3dRestoring && reorderSession === undefined
   const wheelPageNavEnabled = openFolderId === undefined && !flip3dActive && !flip3dRestoring
+
+  useEffect(() => {
+    if (desktopSearchArmed) {
+      return
+    }
+    setAppSearchOpen(false)
+    setAppSearchQuery('')
+  }, [desktopSearchArmed])
+
+  useEffect(() => {
+    if (!desktopSearchArmed || appSearchOpen) {
+      return
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isDesktopAppSearchBlockedTarget(event.target)) {
+        return
+      }
+      if (!isDesktopAppSearchTriggerKey(event)) {
+        return
+      }
+      const seed = desktopAppSearchSeedFromKey(event)
+      if (seed) {
+        event.preventDefault()
+      }
+      setAppSearchQuery(seed)
+      setAppSearchOpen(true)
+    }
+
+    const onCompositionStart = (event: CompositionEvent) => {
+      if (isDesktopAppSearchBlockedTarget(event.target)) {
+        return
+      }
+      setAppSearchOpen(true)
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('compositionstart', onCompositionStart)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('compositionstart', onCompositionStart)
+    }
+  }, [appSearchOpen, desktopSearchArmed])
 
   const {
     currentPage,
@@ -891,7 +949,7 @@ export function Desktop() {
     pagerSize.width,
     reorderSession === undefined,
     onDesktopEmptyTap,
-    keyboardPageNavEnabled,
+    keyboardPageNavEnabled && !appSearchOpen,
     wheelPageNavEnabled,
     onDesktopEmptyHold,
   )
@@ -1272,6 +1330,13 @@ export function Desktop() {
         onDragOutToDesktop={onDragOutToDesktop}
         onContinueDragOnDesktop={onReorderMove}
         onFinishDragOnDesktop={onReorderEnd}
+      />
+
+      <DesktopAppSearchOverlay
+        open={appSearchOpen}
+        query={appSearchQuery}
+        onQueryChange={setAppSearchQuery}
+        onClose={closeAppSearch}
       />
 
       {pageCount > 1 && (
