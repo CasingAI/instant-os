@@ -462,7 +462,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
               requestCount={selectedModelEntry.requestCount}
               cacheHitRate={formatCacheHitRate(
                 selectedModelEntry.cachedPromptTokens,
-                selectedModelEntry.promptTokens,
+                selectedModelEntry.cacheReadPromptTokens ?? 0,
               )}
             />
           </section>
@@ -591,7 +591,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
                   <UsageNavRow
                     key={entry.model}
                     label={formatUsageModelLabel(entry.model)}
-                    hint={`缓存命中率 ${formatCacheHitRate(entry.cachedPromptTokens, entry.promptTokens)}`}
+                    hint={`缓存命中率 ${formatCacheHitRate(entry.cachedPromptTokens, entry.cacheReadPromptTokens ?? 0)}`}
                     countLabel={entry.requestCount.toLocaleString('zh-CN')}
                     tokenLabel={formatTokenCount(entry.totalTokens)}
                     onClick={() => openModel(entry.model)}

@@ -89,12 +89,7 @@ export function formatUsageModelLabel(model: string): string {
   return model === UNKNOWN_AI_USAGE_MODEL || !model.trim() ? UNKNOWN_AI_USAGE_MODEL_LABEL : model
 }
 
-export function formatCacheHitRate(cachedPromptTokens: number, promptTokens: number): string {
-  if (promptTokens <= 0) {
-    return '—'
-  }
-  return `${Math.round((Math.max(0, cachedPromptTokens) / promptTokens) * 100)}%`
-}
+export { formatCacheHitRate } from './ai-token-usage-cache-hit.ts'
 
 export function formatUsageDayLabel(day: string): string {
   const [year, month, date] = day.split('-')

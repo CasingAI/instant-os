@@ -9,6 +9,11 @@ import {
   wouldExceedDataCapacity,
 } from '../os/device-data-storage.ts'
 import { resolveActorLabel, type AiUsageContext } from './ai-usage-context.ts'
+import {
+  cacheReadPromptTokensFromUsage,
+  rebuildModelCacheReadPromptTokens,
+  summaryNeedsCacheReadPromptRebuild,
+} from './ai-token-usage-cache-hit.ts'
 import type {
   ActorTokenUsage,
   AiTokenUsageRecord,
@@ -111,6 +116,7 @@ function normalizeModel(model: string, existing?: ModelTokenUsage): ModelTokenUs
     promptTokens: existing?.promptTokens ?? 0,
     completionTokens: existing?.completionTokens ?? 0,
     cachedPromptTokens: existing?.cachedPromptTokens ?? 0,
+    cacheReadPromptTokens: existing?.cacheReadPromptTokens ?? 0,
     totalTokens: existing?.totalTokens ?? 0,
     requestCount: existing?.requestCount ?? 0,
   }
@@ -173,6 +179,7 @@ function hydrateModel(entry: ModelTokenUsage, key: string): ModelTokenUsage {
     promptTokens: entry.promptTokens ?? 0,
     completionTokens: entry.completionTokens ?? 0,
     cachedPromptTokens: entry.cachedPromptTokens ?? 0,
+    cacheReadPromptTokens: entry.cacheReadPromptTokens ?? 0,
     totalTokens: entry.totalTokens ?? 0,
     requestCount: entry.requestCount ?? 0,
   }
@@ -306,10 +313,41 @@ export async function initAiTokenUsageStorage(): Promise<void> {
   await initPromise
 }
 
+async function loadAllRequestRecords(): Promise<AiUsageRequestRecord[]> {
+  try {
+    const records = await runDataStoreTransaction<AiUsageDbRecord[]>(
+      AI_TOKEN_USAGE_STORE,
+      'readonly',
+      (store) => store.getAll(),
+    )
+    return records
+      .filter((record): record is RequestDbRecord => record.kind === 'request')
+      .map(({ key: _key, kind: _kind, byteSize: _byteSize, ...request }) => hydrateRequest(request))
+  } catch {
+    return []
+  }
+}
+
+async function hydrateSummaryResolvingCacheRead(
+  raw: AiTokenUsageRecord,
+): Promise<{ summary: AiTokenUsageRecord; rebuilt: boolean }> {
+  const summary = hydrateSummary(raw)
+  if (!summaryNeedsCacheReadPromptRebuild(raw)) {
+    return { summary, rebuilt: false }
+  }
+  const rebuilt = rebuildModelCacheReadPromptTokens(summary, await loadAllRequestRecords())
+  return { summary: rebuilt, rebuilt: true }
+}
+
 export async function loadAiTokenUsageFromStore(): Promise<AiTokenUsageRecord> {
   await initAiTokenUsageStorage()
-  const summary = await readSummaryRecord()
-  return hydrateSummary(summary?.data ?? { ...EMPTY_RECORD, byActor: {}, byDay: {}, byModel: {} })
+  const stored = await readSummaryRecord()
+  const raw = stored?.data ?? { ...EMPTY_RECORD, byActor: {}, byDay: {}, byModel: {} }
+  const { summary, rebuilt } = await hydrateSummaryResolvingCacheRead(raw)
+  if (rebuilt) {
+    await writeSummaryRecord(summary)
+  }
+  return summary
 }
 
 export async function loadAiUsageRequestsForDay(day: string): Promise<AiUsageRequestRecord[]> {
@@ -388,6 +426,10 @@ function applyUsageToSummary(
   modelUsage.promptTokens += usage.promptTokens
   modelUsage.completionTokens += usage.completionTokens
   modelUsage.cachedPromptTokens += cachedPromptTokens
+  modelUsage.cacheReadPromptTokens += cacheReadPromptTokensFromUsage(
+    cachedPromptTokens,
+    usage.promptTokens,
+  )
   modelUsage.totalTokens += usage.totalTokens
   modelUsage.requestCount += 1
   record.byModel[model] = modelUsage
@@ -429,9 +471,11 @@ export async function persistAiTokenUsage(
   }
   requestDb.byteSize = estimateRecordBytes(requestDb)
 
-  const summary = hydrateSummary(
-    (await readSummaryRecord())?.data ?? { ...EMPTY_RECORD, byActor: {}, byDay: {}, byModel: {} },
-  )
+  const summary = (
+    await hydrateSummaryResolvingCacheRead(
+      (await readSummaryRecord())?.data ?? { ...EMPTY_RECORD, byActor: {}, byDay: {}, byModel: {} },
+    )
+  ).summary
   applyUsageToSummary(summary, context, usage, day, modelKey)
   const nextSummary = toSummaryDbRecord(summary)
 

@@ -36,6 +36,8 @@ export type ModelTokenUsage = {
   promptTokens: number
   completionTokens: number
   cachedPromptTokens: number
+  /** 读到过缓存的请求的输入 tokens；命中率分母。无缓存请求不计入。 */
+  cacheReadPromptTokens: number
   totalTokens: number
   requestCount: number
 }
