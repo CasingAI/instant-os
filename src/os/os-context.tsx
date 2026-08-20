@@ -20,13 +20,10 @@ import {
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
 import {
   appendFlip3dGhost,
-  bringFlip3dWindowToFront,
   createFlip3dGhost,
   cycleFlip3dOrder,
   dismissFlip3dGhost,
-  FLIP3D_ENTER_MS,
   FLIP3D_RESTORE_MS,
-  FLIP3D_SELECT_MS,
   listFlip3dWindowIds,
   peeledFlip3dWindowId,
   type Flip3dEnterResult,
@@ -414,10 +411,11 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     if (!flip3dRestoring) {
       return
     }
+    // CSS 过渡比 timeout 晚一帧才起；多留一截再拆 3D 场景，避免落地瞬间改 class 顿一下。
     const timer = window.setTimeout(() => {
       setFlip3dRestoring(false)
       setFlip3dOrder([])
-    }, FLIP3D_RESTORE_MS)
+    }, FLIP3D_RESTORE_MS + 80)
     return () => window.clearTimeout(timer)
   }, [flip3dRestoring])
 
@@ -433,19 +431,14 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       startDesktopRestore()
     }
     closeOpenDesktopFolder()
-    const gen = bumpFlip3dAnim()
+    bumpFlip3dAnim()
     clearFlip3dGhosts()
     setFlip3dSnapIds([])
     setFlip3dRestoring(false)
     applyFlip3dOrder(ids)
+    // 保持 enter 过渡直到第一次切换/退出。到点改时长会把快结束的动画重开一截，末尾就会顿一下。
     setFlip3dEntering(true)
     setFlip3dActive(true)
-    flip3dCycleTimerRef.current = window.setTimeout(() => {
-      if (gen !== flip3dAnimGenRef.current) {
-        return
-      }
-      setFlip3dEntering(false)
-    }, FLIP3D_ENTER_MS)
     return 'entered'
   }, [applyFlip3dOrder, bumpFlip3dAnim, clearFlip3dGhosts, startDesktopRestore])
 
@@ -498,25 +491,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       return
     }
     const targetId = windowId ?? flip3dOrderRef.current[0]
-    if (!targetId) {
-      startFlip3dRestore()
-      return
-    }
-    const nextOrder = bringFlip3dWindowToFront(flip3dOrderRef.current, targetId)
-    const alreadyFront = nextOrder[0] === flip3dOrderRef.current[0]
-    applyFlip3dOrder(nextOrder)
-    if (alreadyFront) {
-      startFlip3dRestore(targetId)
-      return
-    }
-    const gen = bumpFlip3dAnim()
-    flip3dCycleTimerRef.current = window.setTimeout(() => {
-      if (gen !== flip3dAnimGenRef.current || !flip3dActiveRef.current) {
-        return
-      }
-      startFlip3dRestore(targetId)
-    }, FLIP3D_SELECT_MS)
-  }, [applyFlip3dOrder, bumpFlip3dAnim, startFlip3dRestore])
+    startFlip3dRestore(targetId)
+  }, [startFlip3dRestore])
 
   useEffect(() => {
     setWindows((current) =>

@@ -502,7 +502,6 @@ export function MenuBar() {
     closeWindowsForApp,
     minimizeWindow,
     flip3dActive,
-    flip3dRestoring,
   } = useOs()
   const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
@@ -521,7 +520,7 @@ export function MenuBar() {
 
   const hasFullscreenWindow = windows.some((window) => window.fullscreen && !window.minimized)
   const hidden =
-    flip3dActive || flip3dRestoring
+    flip3dActive
       ? true
       : hasImmersiveFullscreen
         ? !chromeRevealed

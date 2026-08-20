@@ -190,7 +190,6 @@ export function Dock() {
     hideDesktopReveal,
     enterFlip3d,
     flip3dActive,
-    flip3dRestoring,
   } = useOs()
   const { installedApps, openInstalledApp, openMarketplaceDetail, openIcodeProject, pendingUpdateCount } =
     useGeneratedApps()
@@ -209,7 +208,6 @@ export function Dock() {
   const dropSession = useDockDropSession()
   const dockHidden =
     flip3dActive ||
-    flip3dRestoring ||
     windows.some((window) => window.fullscreen && !window.minimized)
   const iconSize = useDockIconSize()
   const desktopClickAction = useDesktopClickAction()

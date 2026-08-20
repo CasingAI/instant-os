@@ -15,6 +15,8 @@ import {
   computeFlip3dBackEnterLayout,
   flip3dCardSize,
   flip3dWindowScale,
+  hitTestFlip3dWindowId,
+  projectFlip3dQuad,
 } from './build-flip3d-transform.ts'
 import {
   bringFlip3dWindowToFront,
@@ -201,6 +203,42 @@ function testBackEnterStartsBehindLast(): void {
   console.log('ok: flip3d back enter starts behind last')
 }
 
+function quadCentroid(quad: { x: number; y: number }[]): { x: number; y: number } {
+  return {
+    x: quad.reduce((sum, point) => sum + point.x, 0) / quad.length,
+    y: quad.reduce((sum, point) => sum + point.y, 0) / quad.length,
+  }
+}
+
+function testHitTestSelectsExposedBackWindow(): void {
+  const front = BOUNDS
+  const mid = { ...BOUNDS, width: 520, height: 400 }
+  const back = { ...BOUNDS, width: 420, height: 320 }
+  const order = ['front', 'mid', 'back']
+  const boundsById = new Map([
+    ['front', front],
+    ['mid', mid],
+    ['back', back],
+  ])
+  const frontQuad = projectFlip3dQuad(front, 0, VIEWPORT, 3)
+  const backQuad = projectFlip3dQuad(back, 2, VIEWPORT, 3)
+  assert.ok(frontQuad && backQuad)
+  const frontCenter = quadCentroid(frontQuad)
+  assert.equal(
+    hitTestFlip3dWindowId(frontCenter.x, frontCenter.y, order, boundsById, VIEWPORT),
+    'front',
+  )
+  const backLeft = backQuad[0]!
+  const backCenter = quadCentroid(backQuad)
+  const exposed = {
+    x: backLeft.x * 0.82 + backCenter.x * 0.18,
+    y: backLeft.y * 0.82 + backCenter.y * 0.18,
+  }
+  assert.equal(hitTestFlip3dWindowId(exposed.x, exposed.y, order, boundsById, VIEWPORT), 'back')
+  assert.equal(hitTestFlip3dWindowId(12, 12, order, boundsById, VIEWPORT), undefined)
+  console.log('ok: flip3d hit test selects exposed back window')
+}
+
 function testEligibleWindows(): void {
   const windows = [
     makeWindow('front', { zIndex: 5 }),
@@ -226,6 +264,7 @@ function main(): void {
   testCycleVisual()
   testFlyOutGoesRight()
   testBackEnterStartsBehindLast()
+  testHitTestSelectsExposedBackWindow()
   testEligibleWindows()
   console.log('all flip3d tests passed')
 }

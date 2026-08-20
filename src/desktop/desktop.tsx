@@ -1160,7 +1160,7 @@ export function Desktop() {
 
   return (
     <section
-      class={`desktop${reorderSession ? ' desktop--reordering' : ''}${layoutReady ? '' : ' desktop--measuring'}${flip3dActive || flip3dRestoring ? ' desktop--hidden' : ''}`}
+      class={`desktop${reorderSession ? ' desktop--reordering' : ''}${layoutReady ? '' : ' desktop--measuring'}${flip3dActive ? ' desktop--hidden' : ''}`}
       aria-label="桌面"
     >
       <div

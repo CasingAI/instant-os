@@ -182,3 +182,143 @@ export function buildFlip3dBackEnterTransform(
 ): string {
   return formatFlip3dTransform(computeFlip3dBackEnterLayout(bounds, viewport, count))
 }
+
+export type Flip3dPoint = { x: number; y: number }
+
+type Flip3dVec3 = { x: number; y: number; z: number }
+
+function degToRad(degrees: number): number {
+  return (degrees * Math.PI) / 180
+}
+
+/** 与 CSS `transform` 右到左一致：scale → Y → X → Z → translate3d，原点在窗中心。 */
+function transformFlip3dLocalPoint(
+  localX: number,
+  localY: number,
+  bounds: WindowBounds,
+  layout: Flip3dLayout,
+): Flip3dVec3 {
+  let x = (localX - bounds.width / 2) * layout.scale
+  let y = (localY - bounds.height / 2) * layout.scale
+  let z = 0
+
+  const yaw = degToRad(layout.rotateY)
+  const cosY = Math.cos(yaw)
+  const sinY = Math.sin(yaw)
+  const yawX = x * cosY + z * sinY
+  const yawZ = -x * sinY + z * cosY
+  x = yawX
+  z = yawZ
+
+  const pitch = degToRad(layout.rotateX)
+  const cosX = Math.cos(pitch)
+  const sinX = Math.sin(pitch)
+  const pitchY = y * cosX + z * sinX
+  const pitchZ = -y * sinX + z * cosX
+  y = pitchY
+  z = pitchZ
+
+  const roll = degToRad(layout.rotateZ)
+  const cosZ = Math.cos(roll)
+  const sinZ = Math.sin(roll)
+  const rollX = x * cosZ - y * sinZ
+  const rollY = x * sinZ + y * cosZ
+  x = rollX
+  y = rollY
+
+  return {
+    x: x + layout.slotX + layout.left + bounds.width / 2,
+    y: y + layout.slotY + layout.top + bounds.height / 2,
+    z: z + layout.slotZ,
+  }
+}
+
+function projectFlip3dPoint(point: Flip3dVec3, viewport: Flip3dViewport): Flip3dPoint | undefined {
+  const depth = FLIP3D_PERSPECTIVE_PX - point.z
+  if (depth <= 1) {
+    return undefined
+  }
+  const originX = viewport.width * FLIP3D_PERSPECTIVE_ORIGIN_X_RATIO
+  const originY = viewport.height * FLIP3D_PERSPECTIVE_ORIGIN_Y_RATIO
+  const scale = FLIP3D_PERSPECTIVE_PX / depth
+  return {
+    x: originX + (point.x - originX) * scale,
+    y: originY + (point.y - originY) * scale,
+  }
+}
+
+/** 投影后的窗四角，顺时针：左上、右上、右下、左下。 */
+export function projectFlip3dQuad(
+  bounds: WindowBounds,
+  rank: number,
+  viewport: Flip3dViewport,
+  count = Math.max(rank + 1, 1),
+): Flip3dPoint[] | undefined {
+  const layout = computeFlip3dLayout(bounds, rank, viewport, count)
+  const corners = [
+    [0, 0],
+    [bounds.width, 0],
+    [bounds.width, bounds.height],
+    [0, bounds.height],
+  ] as const
+  const projected: Flip3dPoint[] = []
+  for (const [localX, localY] of corners) {
+    const screen = projectFlip3dPoint(
+      transformFlip3dLocalPoint(localX, localY, bounds, layout),
+      viewport,
+    )
+    if (!screen) {
+      return undefined
+    }
+    projected.push(screen)
+  }
+  return projected
+}
+
+function pointInConvexQuad(x: number, y: number, quad: readonly Flip3dPoint[]): boolean {
+  let sign = 0
+  for (let index = 0; index < 4; index++) {
+    const start = quad[index]
+    const end = quad[(index + 1) % 4]
+    if (!start || !end) {
+      return false
+    }
+    const cross = (end.x - start.x) * (y - start.y) - (end.y - start.y) * (x - start.x)
+    if (Math.abs(cross) < 1e-6) {
+      continue
+    }
+    const next = cross > 0 ? 1 : -1
+    if (sign === 0) {
+      sign = next
+    } else if (next !== sign) {
+      return false
+    }
+  }
+  return true
+}
+
+/** 从最前窗往后测，点到哪一扇露出来的投影面就选哪一扇。 */
+export function hitTestFlip3dWindowId(
+  x: number,
+  y: number,
+  order: readonly string[],
+  boundsById: ReadonlyMap<string, WindowBounds>,
+  viewport: Flip3dViewport,
+): string | undefined {
+  const count = order.length
+  for (let rank = 0; rank < count; rank++) {
+    const windowId = order[rank]
+    if (!windowId) {
+      continue
+    }
+    const bounds = boundsById.get(windowId)
+    if (!bounds) {
+      continue
+    }
+    const quad = projectFlip3dQuad(bounds, rank, viewport, count)
+    if (quad && pointInConvexQuad(x, y, quad)) {
+      return windowId
+    }
+  }
+  return undefined
+}

@@ -2,7 +2,7 @@ import type { WindowState } from '../os/types.ts'
 import type { WindowBounds } from './window-metrics.ts'
 
 /** 从 3D 叠层收回普通布局的动画时长（毫秒） */
-export const FLIP3D_RESTORE_MS = 360
+export const FLIP3D_RESTORE_MS = 520
 
 /** 进入叠层：从桌面位收到扇面 */
 export const FLIP3D_ENTER_MS = 520
@@ -12,9 +12,6 @@ export const FLIP3D_FLIGHT_OUT_MS = 160
 
 /** 连按时最多保留几个假窗，避免 DOM 堆起来拖死主线程 */
 export const FLIP3D_MAX_GHOSTS = 4
-
-/** 点选非最前窗：先滑到队头再退出 */
-export const FLIP3D_SELECT_MS = 160
 
 export type Flip3dEnterResult = 'entered' | 'already-active' | 'empty'
 

@@ -14,6 +14,7 @@ import {
   computeFlip3dBackEnterLayout,
   computeFlip3dLayout,
   flip3dPerspectiveOrigin,
+  hitTestFlip3dWindowId,
   FLIP3D_PERSPECTIVE_PX,
   FLIP3D_Z_BASE,
 } from './build-flip3d-transform.ts'
@@ -55,7 +56,7 @@ function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
         ? buildFlip3dBackEnterTransform(bounds, viewport, count)
         : buildFlip3dTransform(bounds, visual.rank, viewport, count)
       : undefined
-  const zIndex = inFlip3d && visual ? FLIP3D_Z_BASE - visual.rank : undefined
+  const zIndex = flip3dActive && visual ? FLIP3D_Z_BASE - visual.rank : undefined
   return {
     inFlip3d,
     transform,
@@ -607,20 +608,37 @@ export function WindowManager() {
             }
           : undefined
       }
-      onPointerDown={
-        flip3dActive
-          ? (event) => {
-              if (event.button !== 0 || event.target !== event.currentTarget) {
-                return
-              }
-              event.preventDefault()
-              event.stopPropagation()
-              exitFlip3d()
-            }
-          : undefined
-      }
     >
-      <div class="window-manager__flip3d-scene">
+      <div
+        class="window-manager__flip3d-scene"
+        onPointerDown={
+          flip3dActive
+            ? (event) => {
+                if (event.button !== 0) {
+                  return
+                }
+                const scene = event.currentTarget
+                const rect = scene.getBoundingClientRect()
+                const boundsById = new Map(
+                  windows.map((frame) => [
+                    frame.id,
+                    { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
+                  ]),
+                )
+                const hitId = hitTestFlip3dWindowId(
+                  event.clientX - rect.left,
+                  event.clientY - rect.top,
+                  flip3dOrder,
+                  boundsById,
+                  { width: rect.width, height: rect.height },
+                )
+                event.preventDefault()
+                event.stopPropagation()
+                exitFlip3d(hitId)
+              }
+            : undefined
+        }
+      >
         {windows.map((window) => (
           <WindowFrame key={window.id} window={window} />
         ))}
