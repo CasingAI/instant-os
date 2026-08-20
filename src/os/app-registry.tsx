@@ -1,4 +1,5 @@
 import { FileInfoIcon } from '../apps/file-info/file-info-icon.tsx'
+import { WelcomeIcon } from '../apps/welcome/welcome-icon.tsx'
 import { WelcomeNextIcon } from '../apps/welcome-next/welcome-next-icon.tsx'
 import { WelcomeHelloIcon } from '../apps/welcome-hello/welcome-hello-icon.tsx'
 import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
@@ -396,7 +397,7 @@ export const APP_REGISTRY: AppDefinition[] = [
   withAbout({
     id: 'welcome',
     name: BUILTIN_APP_DISPLAY_NAMES['welcome'],
-    icon: InstantLogoIcon,
+    icon: WelcomeIcon,
     dock: false,
     dockWhenRunning: true,
     desktop: false,

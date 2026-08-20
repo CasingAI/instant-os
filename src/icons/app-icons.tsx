@@ -31,35 +31,6 @@ export function BrowserIcon({ size = 64 }: IconProps) {
   )
 }
 
-export function ChromoIcon({ size = 64 }: IconProps) {
-  const ring = Math.round(size * 0.56)
-  return (
-    <AppIconTile color="#ffffff" size={size}>
-      <svg width={ring} height={ring} viewBox="0 0 48 48" aria-hidden="true">
-        <circle cx="24" cy="24" r="22" fill="#ffffff" stroke="#dadce0" strokeWidth="1" />
-        <path
-          d="M24 8 A16 16 0 0 1 38.6 20 L24 24 Z"
-          fill="#EA4335"
-        />
-        <path
-          d="M38.6 20 A16 16 0 0 1 32.5 38.6 L24 24 Z"
-          fill="#FBBC04"
-        />
-        <path
-          d="M32.5 38.6 A16 16 0 0 1 9.4 28 L24 24 Z"
-          fill="#34A853"
-        />
-        <path
-          d="M9.4 28 A16 16 0 0 1 24 8 L24 24 Z"
-          fill="#4285F4"
-        />
-        <circle cx="24" cy="24" r="9" fill="#ffffff" />
-        <circle cx="24" cy="24" r="7" fill="#4285F4" />
-      </svg>
-    </AppIconTile>
-  )
-}
-
 export function MailIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#2b8fd9" size={size}>
@@ -70,78 +41,11 @@ export function MailIcon({ size = 64 }: IconProps) {
   )
 }
 
-export function FilesIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#a67c42" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        📑
-      </span>
-    </AppIconTile>
-  )
-}
+export { TextEditIcon } from './textedit-icon.tsx'
 
-export function TextEditIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#f0eee9" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        📝
-      </span>
-    </AppIconTile>
-  )
-}
+export { PagesIcon } from './pages-icon.tsx'
 
-export function PagesIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#e8f0ff" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        📄
-      </span>
-    </AppIconTile>
-  )
-}
-
-/** 通用文档预览：画框 + 放大镜 */
-export function PreviewIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#f0eee9" size={size}>
-      <span
-        style={{
-          position: 'relative',
-          display: 'block',
-          width: `${size}px`,
-          height: `${size}px`,
-        }}
-      >
-        <span
-          class="app-icon-tile__emoji"
-          style={{
-            position: 'absolute',
-            left: '50%',
-            top: '51%',
-            transform: 'translate(-50%, -50%)',
-            fontSize: `${size * (54 / 72)}px`,
-            lineHeight: 1,
-          }}
-        >
-          🖼️
-        </span>
-        <span
-          class="app-icon-tile__emoji"
-          style={{
-            position: 'absolute',
-            right: `${size * (4.32 / 72)}px`,
-            bottom: `${size * (2.88 / 72)}px`,
-            fontSize: `${size * (42 / 72)}px`,
-            lineHeight: 1,
-            filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25))',
-          }}
-        >
-          🔍
-        </span>
-      </span>
-    </AppIconTile>
-  )
-}
+export { PreviewIcon } from './preview-icon.tsx'
 
 export function Scene3dLabIcon({ size = 64 }: IconProps) {
   return (
@@ -296,7 +200,15 @@ export function SubagentIcon({ size = 64 }: IconProps) {
 }
 
 export { SettingsIcon } from './settings-icon.tsx'
+export { ChromoIcon } from './chromo-icon.tsx'
 export { MarketplaceIcon } from './marketplace-icon.tsx'
+export { FilesIcon } from './files-icon.tsx'
+export { KeychainIcon } from './keychain-icon.tsx'
+export { NewsIcon } from './news-icon.tsx'
+export { TaskManagerIcon } from './task-manager-icon.tsx'
+export { ServicesIcon } from './services-icon.tsx'
+export { SpaceSnifferIcon } from './space-sniffer-icon.tsx'
+export { EventLogIcon } from './event-log-icon.tsx'
 
 const CHEVRON_VIEW_SIZE = 12
 
@@ -649,16 +561,6 @@ export function BatteryIcon({ levelPercent, charging }: BatteryIconProps) {
         </>
       )}
     </svg>
-  )
-}
-
-export function NewsIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#c43c2e" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        📰
-      </span>
-    </AppIconTile>
   )
 }
 
@@ -1095,54 +997,6 @@ export function SpeechIcon({ size = 64 }: IconProps) {
   )
 }
 
-export function KeychainIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#f5a623" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        {/* 钥匙环 */}
-        <circle
-          cx={Math.round(64 * 0.5)}
-          cy={Math.round(64 * 0.28)}
-          r={Math.round(64 * 0.38) / 2}
-          fill="none"
-          stroke="#fff"
-          stroke-width="5"
-          opacity="0.92"
-        />
-        {/* 钥匙杆 */}
-        <rect
-          x={Math.round(64 * 0.5 - 64 * 0.12 / 2)}
-          y={Math.round(64 * 0.42)}
-          width={Math.round(64 * 0.12)}
-          height={Math.round(64 * 0.4)}
-          rx={Math.round(64 * 0.06)}
-          fill="#fff"
-          opacity="0.92"
-        />
-        {/* 钥匙齿 */}
-        <rect
-          x={Math.round(64 * 0.5 + 64 * 0.12 / 2 - 2)}
-          y={Math.round(64 * 0.6)}
-          width={Math.round(64 * 0.1)}
-          height="4"
-          rx="1.5"
-          fill="#f5a623"
-          opacity="0.85"
-        />
-        <rect
-          x={Math.round(64 * 0.5 + 64 * 0.12 / 2 - 2)}
-          y={Math.round(64 * 0.7)}
-          width={Math.round(64 * 0.06)}
-          height="4"
-          rx="1.5"
-          fill="#f5a623"
-          opacity="0.85"
-        />
-      </svg>
-    </AppIconTile>
-  )
-}
-
 export function GithubDesktopIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#7b26a8" size={size}>
@@ -1159,75 +1013,6 @@ export function GithubDesktopIcon({ size = 64 }: IconProps) {
           objectFit: 'cover',
         }}
       />
-    </AppIconTile>
-  )
-}
-
-export function TaskManagerIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#1f1f22" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <rect x="10" y="12" width="44" height="40" rx="6" fill="#2a2a2e" />
-        <polyline
-          points="16,40 24,30 32,34 40,22 48,28"
-          fill="none"
-          stroke="#34c759"
-          stroke-width="3"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-        <circle cx="16" cy="40" r="2.5" fill="#34c759" />
-        <circle cx="24" cy="30" r="2.5" fill="#34c759" />
-        <circle cx="32" cy="34" r="2.5" fill="#34c759" />
-        <circle cx="40" cy="22" r="2.5" fill="#34c759" />
-        <circle cx="48" cy="28" r="2.5" fill="#34c759" />
-        <rect x="16" y="46" width="32" height="2" rx="1" fill="#5ac8fa" opacity="0.9" />
-      </svg>
-    </AppIconTile>
-  )
-}
-
-export function ServicesIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#5a6a7a" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <rect x="12" y="14" width="40" height="36" rx="5" fill="#2f3a45" />
-        <rect x="18" y="22" width="20" height="3" rx="1.5" fill="#c5d0da" />
-        <rect x="18" y="30" width="16" height="3" rx="1.5" fill="#9aabba" />
-        <rect x="18" y="38" width="18" height="3" rx="1.5" fill="#9aabba" />
-        <circle cx="44" cy="40" r="9" fill="#34c759" />
-        <path
-          d="M40.5 40 L43 42.5 L47.5 37"
-          fill="none"
-          stroke="#fff"
-          stroke-width="2.4"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-    </AppIconTile>
-  )
-}
-
-export function EventLogIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#4a5568" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <rect x="14" y="10" width="36" height="44" rx="4" fill="#fff" opacity="0.95" />
-        <rect x="20" y="18" width="24" height="3" rx="1.5" fill="#4a5568" opacity="0.85" />
-        <rect x="20" y="26" width="20" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
-        <rect x="20" y="33" width="22" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
-        <rect x="20" y="40" width="16" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
-        <circle cx="44" cy="46" r="8" fill="#34c759" />
-        <path
-          d="M41 46 L43.5 48.5 L47.5 43.5"
-          fill="none"
-          stroke="#fff"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
     </AppIconTile>
   )
 }
@@ -1269,29 +1054,6 @@ export function ArchiveUtilityIcon({ size = 64 }: IconProps) {
           stroke="#57534e"
           stroke-width="1.5"
           stroke-linejoin="round"
-        />
-      </svg>
-    </AppIconTile>
-  )
-}
-
-export function SpaceSnifferIcon({ size = 64 }: IconProps) {
-  return (
-    <AppIconTile color="#0e7490" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <rect x="10" y="12" width="28" height="24" rx="3" fill="#67e8f9" opacity="0.95" />
-        <rect x="40" y="12" width="14" height="14" rx="2" fill="#22d3ee" opacity="0.9" />
-        <rect x="40" y="28" width="14" height="8" rx="2" fill="#a5f3fc" opacity="0.85" />
-        <rect x="10" y="38" width="18" height="14" rx="2" fill="#06b6d4" opacity="0.95" />
-        <rect x="30" y="38" width="24" height="14" rx="2" fill="#0891b2" opacity="0.9" />
-        <rect
-          x="12"
-          y="14"
-          width="10"
-          height="8"
-          rx="1.5"
-          fill="#fff"
-          opacity="0.35"
         />
       </svg>
     </AppIconTile>
