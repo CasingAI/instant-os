@@ -1,3 +1,6 @@
+import { IosButton } from '../../ui/ios-button.tsx'
+import { IosSwitch } from '../../ui/ios-switch.tsx'
+
 type ChromoSettingsPageProps = {
   bookmarksBarVisible: boolean
   onToggleBookmarksBar: () => void
@@ -21,26 +24,30 @@ export function ChromoSettingsPage({
       <div class="chromo-settings__body">
         <section class="chromo-settings__section">
           <h2 class="chromo-settings__heading">外观</h2>
-          <label class="chromo-settings__row">
-            <input
-              type="checkbox"
-              checked={bookmarksBarVisible}
-              onChange={onToggleBookmarksBar}
-            />
-            <span>显示书签栏</span>
-          </label>
+          <div class="chromo-settings__group">
+            <div class="chromo-settings__row chromo-settings__row--switch">
+              <span class="chromo-settings__label">显示书签栏</span>
+              <IosSwitch
+                checked={bookmarksBarVisible}
+                onChange={() => onToggleBookmarksBar()}
+                label="显示书签栏"
+              />
+            </div>
+          </div>
         </section>
 
         <section class="chromo-settings__section">
           <h2 class="chromo-settings__heading">隐私</h2>
-          <div class="chromo-settings__row chromo-settings__row--action">
-            <div>
-              <div class="chromo-settings__label">浏览数据</div>
-              <div class="chromo-settings__hint">清除访问过的网页记录</div>
+          <div class="chromo-settings__group">
+            <div class="chromo-settings__row chromo-settings__row--action">
+              <div>
+                <div class="chromo-settings__label">浏览数据</div>
+                <div class="chromo-settings__hint">清除访问过的网页记录</div>
+              </div>
+              <IosButton size="compact" onClick={onClearHistory}>
+                清空历史记录
+              </IosButton>
             </div>
-            <button type="button" class="chromo-settings__button" onClick={onClearHistory}>
-              清空历史记录
-            </button>
           </div>
         </section>
       </div>

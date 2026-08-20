@@ -1,5 +1,6 @@
 import { useMemo } from 'preact/hooks'
 import { osNowMs } from '../../os/os-clock.ts'
+import { IosButton } from '../../ui/ios-button.tsx'
 import { displayUrl, hostnameFromUrl } from '../browser/normalize-browser-url.ts'
 import {
   clearChromoHistory,
@@ -134,9 +135,9 @@ export function ChromoHistoryPage({
 
       {visits.length > 0 ? (
         <footer class="chromo-internal__footer">
-          <button type="button" class="chromo-internal__clear" onClick={handleClearAll}>
+          <IosButton size="compact" onClick={handleClearAll}>
             清空历史记录
-          </button>
+          </IosButton>
         </footer>
       ) : null}
     </div>

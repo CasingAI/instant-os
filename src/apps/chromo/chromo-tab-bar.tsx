@@ -23,6 +23,8 @@ type ChromoTabBarProps = {
 const TAB_ANIMATION_MS = 180
 const TAB_OVERLAP_PX = 16
 
+let tabGradientSeq = 0
+
 function setsEqual(left: Set<string>, right: Set<string>): boolean {
   if (left.size !== right.size) {
     return false
@@ -84,6 +86,9 @@ export function ChromoTabBar({
   onToggleOverflow,
   onHiddenTabsChange,
 }: ChromoTabBarProps) {
+  const gradientNsRef = useRef(`chromo-tab-${++tabGradientSeq}`)
+  const idleFillId = `${gradientNsRef.current}-idle`
+  const activeFillId = `${gradientNsRef.current}-active`
   const tabsScrollRef = useRef<HTMLDivElement>(null)
   const prevTabIdsRef = useRef<Set<string>>(new Set(tabs.map((tab) => tab.id)))
   const prevHiddenTabIdsRef = useRef<string[]>([])
@@ -216,6 +221,19 @@ export function ChromoTabBar({
 
   return (
     <div class="chromo__tabs-row">
+      <svg class="chromo__tab-defs" width="0" height="0" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id={idleFillId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#9bc4e8" />
+            <stop offset="48%" stop-color="#6d9ac4" />
+            <stop offset="100%" stop-color="#547eaa" />
+          </linearGradient>
+          <linearGradient id={activeFillId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fafafa" />
+            <stop offset="100%" stop-color="#f0f0f0" />
+          </linearGradient>
+        </defs>
+      </svg>
       <div class="chromo__tabs" ref={tabsScrollRef} role="tablist" aria-label="标签页">
         {tabs.map((tab, index) => {
           const active = tab.id === activeTabId
@@ -242,11 +260,17 @@ export function ChromoTabBar({
             >
               <span class="chromo__tab-shape" aria-hidden="true">
                 <svg class="chromo__tab-shape-left" viewBox="0 0 18 28" preserveAspectRatio="none">
-                  <path d="M18 0 C14 0 12 1 10 5 L4 24 C2 27 1 28 0 28 H18 Z" />
+                  <path
+                    d="M18 0 C14 0 12 1 10 5 L4 24 C2 27 1 28 0 28 H18 Z"
+                    fill={`url(#${active ? activeFillId : idleFillId})`}
+                  />
                 </svg>
                 <span class="chromo__tab-shape-mid" />
                 <svg class="chromo__tab-shape-right" viewBox="0 0 18 28" preserveAspectRatio="none">
-                  <path d="M0 0 C4 0 6 1 8 5 L14 24 C16 27 17 28 18 28 H0 Z" />
+                  <path
+                    d="M0 0 C4 0 6 1 8 5 L14 24 C16 27 17 28 18 28 H0 Z"
+                    fill={`url(#${active ? activeFillId : idleFillId})`}
+                  />
                 </svg>
               </span>
               <button
