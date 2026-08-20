@@ -21,6 +21,7 @@ type ChromoTabBarProps = {
 }
 
 const TAB_ANIMATION_MS = 180
+const TAB_OVERLAP_PX = 16
 
 function setsEqual(left: Set<string>, right: Set<string>): boolean {
   if (left.size !== right.size) {
@@ -120,14 +121,14 @@ export function ChromoTabBar({
     }
 
     const available = scroll.clientWidth
-    const gap = 4
+    const overlap = TAB_OVERLAP_PX
     let totalWidth = 0
     const widths: number[] = []
 
     for (let index = 0; index < tabElements.length; index += 1) {
       const width = tabElements[index].offsetWidth
       widths.push(width)
-      totalWidth += width + (index > 0 ? gap : 0)
+      totalWidth += width - (index > 0 ? overlap : 0)
     }
 
     if (totalWidth <= available) {
@@ -140,7 +141,7 @@ export function ChromoTabBar({
 
     while (fit > 0 && visibleWidth > available) {
       fit -= 1
-      visibleWidth -= widths[fit] + (fit > 0 ? gap : 0)
+      visibleWidth -= widths[fit] - (fit > 0 ? overlap : 0)
     }
 
     commitVisibleTabIds(computeVisibleTabIds(tabs, activeTabId, Math.max(1, fit)))
@@ -237,7 +238,17 @@ export function ChromoTabBar({
               data-tab-index={index}
               aria-hidden={overflowing}
               role="presentation"
+              style={{ zIndex: overflowing ? 0 : active ? 20 : index + 1 }}
             >
+              <span class="chromo__tab-shape" aria-hidden="true">
+                <svg class="chromo__tab-shape-left" viewBox="0 0 18 28" preserveAspectRatio="none">
+                  <path d="M18 0 C14 0 12 1 10 5 L4 24 C2 27 1 28 0 28 H18 Z" />
+                </svg>
+                <span class="chromo__tab-shape-mid" />
+                <svg class="chromo__tab-shape-right" viewBox="0 0 18 28" preserveAspectRatio="none">
+                  <path d="M0 0 C4 0 6 1 8 5 L14 24 C16 27 17 28 18 28 H0 Z" />
+                </svg>
+              </span>
               <button
                 type="button"
                 class="chromo__tab-main"
@@ -248,11 +259,11 @@ export function ChromoTabBar({
               >
                 {tab.loading ? (
                   <span class="chromo__tab-spinner" aria-hidden="true" />
-                ) : (
+                ) : tab.siteInitial ? (
                   <span class="chromo__tab-favicon" aria-hidden="true">
                     {tab.siteInitial}
                   </span>
-                )}
+                ) : null}
                 <span class="chromo__tab-title">{tab.title}</span>
               </button>
               <button

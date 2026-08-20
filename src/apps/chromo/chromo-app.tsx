@@ -12,6 +12,7 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { useFullscreenChromeReveal } from '../../os/fullscreen-chrome-reveal-context.tsx'
+import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import {
   displayUrl,
@@ -53,7 +54,44 @@ import {
   type ChromoPageFault,
 } from './chromo-page-fault.ts'
 import { ChromoPageFaultView } from './chromo-page-fault-view.tsx'
+import {
+  isChromoBookmarked,
+  loadChromoBookmarksBarVisible,
+  removeChromoBookmark,
+  setChromoBookmarksBarVisible,
+  toggleChromoBookmark,
+} from './chromo-bookmarks.ts'
+import {
+  ChromoBookmarksBar,
+  type ChromoBookmarkContextRequest,
+} from './chromo-bookmarks-bar.tsx'
+import { ChromoBookmarksPage } from './chromo-bookmarks-panel.tsx'
+import {
+  clearChromoHistory,
+  recordChromoHistoryVisit,
+} from './chromo-history.ts'
+import { ChromoHistoryPage } from './chromo-history-panel.tsx'
+import {
+  chromoInternalPageTitle,
+  chromoInternalUrl,
+  isChromoInternalUrl,
+  normalizeChromoInternalUrl,
+  parseChromoInternalPage,
+  shouldIgnoreChromoViewerNavigation,
+  type ChromoInternalPage,
+} from './chromo-internal.ts'
+import { ChromoNewTabPage } from './chromo-new-tab-page.tsx'
+import { searchChromoOmniboxSuggestions } from './chromo-omnibox-suggestions.ts'
+import { ChromoOmniboxSuggestionsList } from './chromo-omnibox-suggestions-list.tsx'
+import { ChromoSettingsPage } from './chromo-settings-page.tsx'
+import {
+  chromoSessionHasPages,
+  loadChromoSession,
+  saveChromoBlankSession,
+  saveChromoSession,
+} from './chromo-session.ts'
 import { ChromoTabBar, type ChromoTabSummary } from './chromo-tab-bar.tsx'
+import { ChromoMoreIcon, ChromoSparkleIcon, ChromoStarIcon } from './chromo-toolbar-icons.tsx'
 import { ChromoViewerFrame, type ChromoViewerHandle } from './chromo-viewer-frame.tsx'
 import type { ChromoApplicationApi } from './chromo-application-panel.tsx'
 import './chromo.css'
@@ -137,22 +175,64 @@ function computeChromoPageReady(tab: Pick<ChromoTab, 'ready' | 'url'> | null | u
 
 let nextTabId = 1
 
+function restoreChromoWindowTabs(pendingUrl?: string): { tabs: ChromoTab[]; activeTabId: string } {
+  const session = loadChromoSession()
+  if (!chromoSessionHasPages(session)) {
+    const tab = createChromoTab(pendingUrl ?? '')
+    return { tabs: [tab], activeTabId: tab.id }
+  }
+
+  const tabs = session.tabs.map((item) => {
+    const tab = createChromoTab(item.url)
+    if (item.url && item.title.trim()) {
+      tab.title = item.title.trim()
+    }
+    return tab
+  })
+  const activeIndex = Math.min(Math.max(0, session.activeIndex), tabs.length - 1)
+  return { tabs, activeTabId: tabs[activeIndex]?.id ?? tabs[0]!.id }
+}
+
+function persistChromoWindowSession(tabs: ChromoTab[], activeTabId: string): void {
+  const activeIndex = tabs.findIndex((tab) => tab.id === activeTabId)
+  saveChromoSession({
+    tabs: tabs.map((tab) => ({ url: tab.url, title: tab.title })),
+    activeIndex: Math.max(0, activeIndex),
+  })
+}
+
+function chromoTabTitle(url: string): string {
+  const page = parseChromoInternalPage(url)
+  if (page) {
+    return chromoInternalPageTitle(page)
+  }
+  return url ? pageTitleFromUrl(url) : '新标签页'
+}
+
+function chromoTabInputUrl(url: string): string {
+  if (!url || isChromoInternalUrl(url)) {
+    return url
+  }
+  return displayUrl(url)
+}
+
 function createChromoTab(initialUrl = ''): ChromoTab {
   const id = `chromo-tab-${nextTabId++}`
   const devtoolsId = crypto.randomUUID()
   const url = initialUrl ? normalizeChromoUrl(initialUrl) : ''
-  const title = url ? pageTitleFromUrl(url) : '新标签页'
+  const internal = isChromoInternalUrl(url)
+  const title = chromoTabTitle(url)
   return {
     id,
     devtoolsId,
     url,
     title,
-    inputUrl: url ? displayUrl(url) : '',
-    loading: Boolean(url),
+    inputUrl: chromoTabInputUrl(url),
+    loading: Boolean(url) && !internal,
     canGoBack: false,
     canGoForward: false,
     ready: false,
-    bootstrapped: false,
+    bootstrapped: internal || !url,
     consoleEntries: [],
     replEntries: [],
     replHistory: [],
@@ -176,6 +256,11 @@ function normalizeChromoUrl(input: string): string {
   const trimmed = input.trim()
   if (!trimmed) {
     return CHROMO_DEFAULT_NEW_TAB_URL
+  }
+
+  const internal = normalizeChromoInternalUrl(trimmed)
+  if (internal) {
+    return internal
   }
 
   // Chromo 导航保留 www（normalizeBrowserUrl 会剥掉，导致 ithome 等站失败/误报）
@@ -248,7 +333,7 @@ function siteInitialFromUrl(url: string): string | undefined {
 }
 
 export function ChromoApp({ windowId }: { windowId?: string }) {
-  const { closeWindowsForApp, closeWindow, windows, setAppWindowUrl, openApp } = useOs()
+  const { closeWindowsForApp, closeWindow, windows, setAppWindowUrl, openApp, activeWindowId } = useOs()
   const { setChromePinSource } = useFullscreenChromeReveal()
   const appWindow = windowId
     ? windows.find((window) => window.id === windowId && !window.closing)
@@ -260,13 +345,27 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const pendingUrl = appWindow?.url
   const parentWindowId = appWindow?.id ?? windowId ?? ''
 
-  const [tabs, setTabs] = useState<ChromoTab[]>(() => [createChromoTab(pendingUrl ?? '')])
-  const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? '')
+  const restoredWindowRef = useRef<ReturnType<typeof restoreChromoWindowTabs>>()
+  if (!restoredWindowRef.current) {
+    restoredWindowRef.current = restoreChromoWindowTabs(pendingUrl)
+  }
+  const [tabs, setTabs] = useState<ChromoTab[]>(() => restoredWindowRef.current!.tabs)
+  const [activeTabId, setActiveTabId] = useState(() => restoredWindowRef.current!.activeTabId)
   const [addressFocused, setAddressFocused] = useState(false)
+  const [addressSuggestionIndex, setAddressSuggestionIndex] = useState(-1)
   const [tabsOverflowOpen, setTabsOverflowOpen] = useState(false)
   const [hiddenTabIds, setHiddenTabIds] = useState<string[]>([])
   const [fullscreenToolbarRevealed, setFullscreenToolbarRevealed] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [bookmarksRevision, setBookmarksRevision] = useState(0)
+  const [historyRevision, setHistoryRevision] = useState(0)
+  const [bookmarksBarVisible, setBookmarksBarVisibleState] = useState(() =>
+    loadChromoBookmarksBarVisible(),
+  )
+  const [bookmarksOverflowOpen, setBookmarksOverflowOpen] = useState(false)
+  const [bookmarkContextMenu, setBookmarkContextMenu] = useState<ChromoBookmarkContextRequest>()
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState<{ x: number; y: number }>()
 
   const viewerRefs = useRef<Record<string, RefObject<ChromoViewerHandle>>>({})
   const tabsRef = useRef(tabs)
@@ -275,6 +374,9 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   activeTabIdRef.current = activeTabId
   const lastOpenedUrlRef = useRef<string | undefined>(undefined)
   const prevPendingUrlRef = useRef<string | undefined>(undefined)
+  const sessionBlankedRef = useRef(false)
+  const sessionSnapshotRef = useRef({ tabs, activeTabId })
+  sessionSnapshotRef.current = { tabs, activeTabId }
   /** 每个标签页最近一次主动请求的 URL，用于忽略过期的 VC_NAVIGATED */
   const requestedUrlByTabRef = useRef<Record<string, string>>({})
   /** After fatal viewer remount/reload, re-navigate to this URL on next VC_READY. */
@@ -283,6 +385,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const clickNavigateTimersRef = useRef<Record<string, number>>({})
   const networkPullTimersRef = useRef<Record<string, number>>({})
   const chromoRootRef = useRef<HTMLDivElement>(null)
+  const omniboxInputRef = useRef<HTMLInputElement>(null)
+  const moreButtonRef = useRef<HTMLButtonElement>(null)
   const { hostRef: narrowLayoutHostRef, narrowLayout } = useAppNarrowLayout()
 
   const attachChromoRoot = useCallback(
@@ -302,6 +406,14 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     return viewerRefs.current[tabId]
   }, [])
 
+  const shouldIgnoreViewerEvent = (tabId: string) => {
+    const current = tabsRef.current.find((entry) => entry.id === tabId)
+    return shouldIgnoreChromoViewerNavigation(
+      current?.url ?? '',
+      requestedUrlByTabRef.current[tabId],
+    )
+  }
+
   const updateTab = useCallback((tabId: string, updater: (tab: ChromoTab) => ChromoTab) => {
     setTabs((current) => current.map((tab) => (tab.id === tabId ? updater(tab) : tab)))
   }, [])
@@ -317,18 +429,22 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const navigateTab = useCallback(
     (tabId: string, url: string, options?: { method?: 'POST'; body?: string }) => {
       const normalized = normalizeChromoUrl(url)
+      const internal = isChromoInternalUrl(normalized)
       requestedUrlByTabRef.current[tabId] = normalized
       lastOpenedUrlRef.current = normalized
       updateTab(tabId, (tab) => ({
         ...tab,
         url: normalized,
-        title: pageTitleFromUrl(normalized),
-        inputUrl: displayUrl(normalized),
-        loading: true,
+        title: chromoTabTitle(normalized),
+        inputUrl: chromoTabInputUrl(normalized),
+        loading: !internal,
         pageFault: undefined,
         bootstrapped: true,
+        ...(internal ? { canGoBack: false, canGoForward: false } : {}),
       }))
-      getViewerRef(tabId).current?.navigate(normalized, options)
+      if (!internal) {
+        getViewerRef(tabId).current?.navigate(normalized, options)
+      }
     },
     [getViewerRef, updateTab],
   )
@@ -340,6 +456,16 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         return
       }
       if (tab.url) {
+        if (isChromoInternalUrl(tab.url)) {
+          updateTab(tabId, (entry) => ({
+            ...entry,
+            bootstrapped: true,
+            loading: false,
+            title: chromoTabTitle(tab.url),
+            inputUrl: chromoTabInputUrl(tab.url),
+          }))
+          return
+        }
         navigateTab(tabId, tab.url)
         return
       }
@@ -392,15 +518,22 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         }
       }
 
-      setTabs((current) => {
-        if (current.length <= 1) {
-          const replacement = createChromoTab()
-          setActiveTabId(replacement.id)
-          delete viewerRefs.current[tabId]
-          delete pendingRecoverNavigateRef.current[tabId]
-          return [replacement]
+      if (tabsRef.current.length <= 1) {
+        saveChromoBlankSession()
+        if (parentWindowId) {
+          sessionBlankedRef.current = true
+          closeWindow(parentWindowId)
+          return
         }
+        const replacement = createChromoTab()
+        setActiveTabId(replacement.id)
+        delete viewerRefs.current[tabId]
+        delete pendingRecoverNavigateRef.current[tabId]
+        setTabs([replacement])
+        return
+      }
 
+      setTabs((current) => {
         const index = current.findIndex((tab) => tab.id === tabId)
         if (index === -1) {
           return current
@@ -420,7 +553,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         return next
       })
     },
-    [activeTabId, cancelClickNavigate, closeWindow, getViewerRef, parentWindowId, windows],
+    [activeTabId, cancelClickNavigate, closeWindow, parentWindowId, windows],
   )
 
   const selectTab = useCallback((tabId: string) => {
@@ -429,14 +562,14 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   }, [])
 
   const goBack = useCallback(() => {
-    if (!activeTab) {
+    if (!activeTab || isChromoInternalUrl(activeTab.url)) {
       return
     }
     getViewerRef(activeTab.id).current?.back()
   }, [activeTab, getViewerRef])
 
   const goForward = useCallback(() => {
-    if (!activeTab) {
+    if (!activeTab || isChromoInternalUrl(activeTab.url)) {
       return
     }
     getViewerRef(activeTab.id).current?.forward()
@@ -444,6 +577,11 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
 
   const reload = useCallback(() => {
     if (!activeTab) {
+      return
+    }
+    if (isChromoInternalUrl(activeTab.url) || !activeTab.url) {
+      setHistoryRevision((value) => value + 1)
+      setBookmarksRevision((value) => value + 1)
       return
     }
     const wasFatal = activeTab.pageFault?.severity === 'fatal'
@@ -481,6 +619,96 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     getViewerRef(activeTab.id).current?.stop()
     updateTab(activeTab.id, (tab) => ({ ...tab, loading: false }))
   }, [activeTab, getViewerRef, updateTab])
+
+  const bumpBookmarksRevision = useCallback(() => {
+    setBookmarksRevision((value) => value + 1)
+  }, [])
+
+  const bumpHistoryRevision = useCallback(() => {
+    setHistoryRevision((value) => value + 1)
+  }, [])
+
+  const recordVisit = useCallback(
+    (url: string, title: string) => {
+      if (!url || isChromoInternalUrl(url)) {
+        return
+      }
+      recordChromoHistoryVisit({ url, title })
+      bumpHistoryRevision()
+    },
+    [bumpHistoryRevision],
+  )
+
+  const openInternalPage = useCallback(
+    (page: ChromoInternalPage) => {
+      const url = chromoInternalUrl(page)
+      const existing = tabsRef.current.find((tab) => parseChromoInternalPage(tab.url) === page)
+      if (existing) {
+        setActiveTabId(existing.id)
+      } else {
+        addTab(url)
+      }
+      setMoreMenuOpen(false)
+      setBookmarksOverflowOpen(false)
+    },
+    [addTab],
+  )
+
+  const clearBrowsingHistory = useCallback(() => {
+    clearChromoHistory()
+    bumpHistoryRevision()
+  }, [bumpHistoryRevision])
+
+  const currentBookmarked = useMemo(
+    () => Boolean(activeTab?.url && isChromoBookmarked(activeTab.url)),
+    [activeTab?.url, bookmarksRevision],
+  )
+  const canBookmarkPage = Boolean(activeTab?.url && !isChromoInternalUrl(activeTab.url))
+
+  const toggleBookmarkForCurrentPage = useCallback(() => {
+    if (!activeTab?.url || isChromoInternalUrl(activeTab.url)) {
+      return
+    }
+    toggleChromoBookmark({ url: activeTab.url, title: activeTab.title })
+    bumpBookmarksRevision()
+  }, [activeTab, bumpBookmarksRevision])
+
+  const toggleBookmarksBar = useCallback(() => {
+    setBookmarksOverflowOpen(false)
+    setBookmarksBarVisibleState((visible) => {
+      const next = !visible
+      setChromoBookmarksBarVisible(next)
+      return next
+    })
+  }, [])
+
+  const copyCurrentPageUrl = useCallback(() => {
+    if (!activeTab?.url) {
+      return
+    }
+    void navigator.clipboard?.writeText(activeTab.url)
+  }, [activeTab?.url])
+
+  const focusOmnibox = useCallback(() => {
+    const input = omniboxInputRef.current
+    if (!input) {
+      return
+    }
+    input.focus()
+    input.select()
+  }, [])
+
+  const closeMoreMenu = useCallback(() => setMoreMenuOpen(false), [])
+
+  const openMoreMenu = useCallback(() => {
+    const button = moreButtonRef.current
+    if (button) {
+      const rect = button.getBoundingClientRect()
+      setMoreMenuAnchor({ x: Math.max(4, rect.right - 240), y: rect.bottom + 4 })
+    }
+    setMoreMenuOpen((open) => !open)
+    setBookmarksOverflowOpen(false)
+  }, [])
 
   const evalInActivePage = useCallback(
     (code: string) => {
@@ -1246,6 +1474,56 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     updateTab(activeTab.id, (entry) => ({ ...entry, devtoolsOpen: true }))
   }, [activeTab, closeWindow, findDevToolsWindow, parentWindowId, updateTab])
 
+  const addressSuggestions = useMemo(() => {
+    if (!addressFocused || !activeTab?.inputUrl.trim()) {
+      return []
+    }
+    return searchChromoOmniboxSuggestions(activeTab.inputUrl)
+  }, [activeTab?.inputUrl, addressFocused, bookmarksRevision, historyRevision])
+
+  const showAddressSuggestions =
+    addressFocused && Boolean(activeTab?.inputUrl.trim()) && addressSuggestions.length > 0
+
+  const selectAddressSuggestion = useCallback(
+    (url: string) => {
+      navigateActive(url)
+      setAddressFocused(false)
+      setAddressSuggestionIndex(-1)
+      omniboxInputRef.current?.blur()
+    },
+    [navigateActive],
+  )
+
+  useEffect(() => {
+    setAddressSuggestionIndex(-1)
+  }, [activeTab?.inputUrl])
+
+  const handleAddressKeyDown = (event: KeyboardEvent) => {
+    if (addressSuggestions.length === 0) {
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setAddressSuggestionIndex((index) => {
+        const next = index + 1
+        return next >= addressSuggestions.length ? addressSuggestions.length - 1 : next
+      })
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setAddressSuggestionIndex((index) => (index <= 0 ? -1 : index - 1))
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setAddressSuggestionIndex(-1)
+    }
+  }
+
   const submitUrl = useCallback(
     (event: Event) => {
       event.preventDefault()
@@ -1254,6 +1532,11 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       }
       const form = event.currentTarget as HTMLFormElement
       const input = form.querySelector('input') as HTMLInputElement | null
+      const selected = addressSuggestions[addressSuggestionIndex]
+      if (selected) {
+        selectAddressSuggestion(selected.url)
+        return
+      }
       const value = input?.value.trim() ?? activeTab.inputUrl.trim()
       if (!value) {
         return
@@ -1261,7 +1544,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       navigateActive(value)
       input?.blur()
     },
-    [activeTab, navigateActive],
+    [activeTab, addressSuggestionIndex, addressSuggestions, navigateActive, selectAddressSuggestion],
   )
 
   // 仅响应 OS openApp({ url }) 变更；勿依赖 navigateActive（否则用户导航后会误触发）
@@ -1276,7 +1559,11 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
 
     const activeId = activeTabIdRef.current
     const requested = activeId ? requestedUrlByTabRef.current[activeId] : undefined
-    if (requested && chromoUrlsMatch(requested, pendingUrl)) {
+    const active = tabsRef.current.find((tab) => tab.id === activeId)
+    if (
+      (requested && chromoUrlsMatch(requested, pendingUrl)) ||
+      (active?.url && chromoUrlsMatch(active.url, pendingUrl))
+    ) {
       lastOpenedUrlRef.current = pendingUrl
       return
     }
@@ -1288,6 +1575,28 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   }, [pendingUrl, navigateTab])
 
   useEffect(() => {
+    if (sessionBlankedRef.current) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      persistChromoWindowSession(tabs, activeTabId)
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [activeTabId, tabs])
+
+  useEffect(() => {
+    return () => {
+      if (sessionBlankedRef.current) {
+        return
+      }
+      persistChromoWindowSession(
+        sessionSnapshotRef.current.tabs,
+        sessionSnapshotRef.current.activeTabId,
+      )
+    }
+  }, [])
+
+  useEffect(() => {
     setChromePinSource('chromo', chromoFullscreen)
     return () => setChromePinSource('chromo', false)
   }, [chromoFullscreen, setChromePinSource])
@@ -1296,8 +1605,12 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const toolbarVisible = !toolbarAutoHide || fullscreenToolbarRevealed
   const toolbarInteractionPinned =
     addressFocused ||
+    showAddressSuggestions ||
     tabsOverflowOpen ||
     sidebarOpen ||
+    bookmarksOverflowOpen ||
+    moreMenuOpen ||
+    bookmarkContextMenu !== undefined ||
     Boolean(activeTab?.devtoolsOpen || activeTab?.devtoolsUndocked)
 
   const activeDevtoolsOpen = Boolean(activeTab?.devtoolsOpen && !activeTab?.devtoolsUndocked)
@@ -1314,8 +1627,108 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     }))
   }, [tabs])
 
-  const addressValue = addressFocused ? activeTab?.inputUrl ?? '' : displayUrl(activeTab?.url ?? '')
-  const showProgress = Boolean(activeTab?.loading)
+  const addressValue = addressFocused
+    ? activeTab?.inputUrl ?? ''
+    : chromoTabInputUrl(activeTab?.url ?? '')
+  const showProgress = Boolean(activeTab?.loading && !isChromoInternalUrl(activeTab.url))
+  const activeInternalPage = activeTab ? parseChromoInternalPage(activeTab.url) : undefined
+  const chromoFocused = Boolean(parentWindowId && activeWindowId === parentWindowId)
+
+  const moreMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
+    return [
+      { type: 'action', label: '新建标签页', shortcut: '⌘T', onClick: () => addTab() },
+      { type: 'separator' },
+      {
+        type: 'action',
+        label: currentBookmarked ? '取消书签' : '为此页添加书签',
+        shortcut: '⌘D',
+        disabled: !canBookmarkPage,
+        onClick: toggleBookmarkForCurrentPage,
+      },
+      {
+        type: 'action',
+        label: bookmarksBarVisible ? '隐藏书签栏' : '显示书签栏',
+        shortcut: '⌘⇧B',
+        onClick: toggleBookmarksBar,
+      },
+      { type: 'action', label: '书签管理器', onClick: () => openInternalPage('bookmarks') },
+      {
+        type: 'action',
+        label: '历史记录',
+        shortcut: '⌘Y',
+        onClick: () => openInternalPage('history'),
+      },
+      { type: 'action', label: '设置', onClick: () => openInternalPage('settings') },
+      { type: 'separator' },
+      {
+        type: 'action',
+        label: '复制页面地址',
+        disabled: !activeTab?.url,
+        onClick: copyCurrentPageUrl,
+      },
+      {
+        type: 'action',
+        label: '重新加载',
+        shortcut: '⌘R',
+        disabled: !activeTab,
+        onClick: reload,
+      },
+      { type: 'separator' },
+      {
+        type: 'action',
+        label: activeDevtoolsActive ? '关闭开发者工具' : '开发者工具',
+        shortcut: '⌥⌘I',
+        onClick: toggleDevTools,
+      },
+      {
+        type: 'action',
+        label: sidebarOpen ? '隐藏 AI 助手' : 'AI 助手',
+        onClick: () => setSidebarOpen((open) => !open),
+      },
+    ]
+  }, [
+    activeDevtoolsActive,
+    activeTab,
+    addTab,
+    bookmarksBarVisible,
+    canBookmarkPage,
+    copyCurrentPageUrl,
+    currentBookmarked,
+    openInternalPage,
+    reload,
+    sidebarOpen,
+    toggleBookmarkForCurrentPage,
+    toggleBookmarksBar,
+    toggleDevTools,
+  ])
+
+  const bookmarkContextMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
+    if (!bookmarkContextMenu) {
+      return []
+    }
+    const { bookmark } = bookmarkContextMenu
+    return [
+      {
+        type: 'action',
+        label: '打开',
+        onClick: () => navigateActive(bookmark.url),
+      },
+      {
+        type: 'action',
+        label: '在新标签页中打开',
+        onClick: () => addTab(bookmark.url),
+      },
+      { type: 'separator' },
+      {
+        type: 'action',
+        label: '删除',
+        onClick: () => {
+          removeChromoBookmark(bookmark.url)
+          bumpBookmarksRevision()
+        },
+      },
+    ]
+  }, [addTab, bookmarkContextMenu, bumpBookmarksRevision, navigateActive])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindowEntry = windows.find((window) => window.appId === 'chromo' && !window.minimized)
@@ -1326,17 +1739,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         items: [
           {
             type: 'action',
-            label: '关闭窗口',
-            shortcut: '⌘W',
-            onClick: () => appWindowEntry && closeWindowsForApp('chromo'),
-          },
-        ],
-      },
-      {
-        label: '标签页',
-        items: [
-          {
-            type: 'action',
             label: '新建标签页',
             shortcut: '⌘T',
             onClick: () => addTab(),
@@ -1344,21 +1746,218 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
           {
             type: 'action',
             label: '关闭标签页',
-            shortcut: '⌘⇧W',
+            shortcut: '⌘W',
+            disabled: !activeTab,
             onClick: () => activeTab && closeTab(activeTab.id),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '关闭窗口',
+            onClick: () => appWindowEntry && closeWindowsForApp('chromo'),
+          },
+        ],
+      },
+      {
+        label: '书签',
+        items: [
+          {
+            type: 'action',
+            label: currentBookmarked ? '取消书签' : '添加书签',
+            shortcut: '⌘D',
+            disabled: !canBookmarkPage,
+            onClick: toggleBookmarkForCurrentPage,
+          },
+          {
+            type: 'action',
+            label: bookmarksBarVisible ? '隐藏书签栏' : '显示书签栏',
+            shortcut: '⌘⇧B',
+            onClick: toggleBookmarksBar,
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '书签管理器',
+            onClick: () => openInternalPage('bookmarks'),
+          },
+        ],
+      },
+      {
+        label: '历史记录',
+        items: [
+          {
+            type: 'action',
+            label: '显示历史记录',
+            shortcut: '⌘Y',
+            onClick: () => openInternalPage('history'),
+          },
+          {
+            type: 'action',
+            label: '后退',
+            shortcut: '⌘[',
+            disabled: !activeTab?.canGoBack,
+            onClick: goBack,
+          },
+          {
+            type: 'action',
+            label: '前进',
+            shortcut: '⌘]',
+            disabled: !activeTab?.canGoForward,
+            onClick: goForward,
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '清空历史记录…',
+            onClick: clearBrowsingHistory,
+          },
+        ],
+      },
+      {
+        label: '查看',
+        items: [
+          {
+            type: 'action',
+            label: '重新加载',
+            shortcut: '⌘R',
+            disabled: !activeTab || showProgress,
+            onClick: reload,
+          },
+          {
+            type: 'action',
+            label: '停止',
+            disabled: !showProgress,
+            onClick: stopLoading,
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: activeDevtoolsActive ? '关闭开发者工具' : '开发者工具',
+            shortcut: '⌥⌘I',
+            onClick: toggleDevTools,
+          },
+          {
+            type: 'action',
+            label: sidebarOpen ? '隐藏 AI 助手' : 'AI 助手',
+            onClick: () => setSidebarOpen((open) => !open),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '设置',
+            onClick: () => openInternalPage('settings'),
           },
         ],
       },
     ]
   }, [
+    activeDevtoolsActive,
     activeTab,
     addTab,
+    bookmarksBarVisible,
+    canBookmarkPage,
     closeTab,
     closeWindowsForApp,
+    clearBrowsingHistory,
+    currentBookmarked,
+    goBack,
+    goForward,
+    openInternalPage,
+    reload,
+    showProgress,
+    sidebarOpen,
+    stopLoading,
+    toggleBookmarkForCurrentPage,
+    toggleBookmarksBar,
+    toggleDevTools,
     windows,
   ])
 
   useAppMenuBar('chromo', menuBar)
+
+  useEffect(() => {
+    if (!chromoFocused) {
+      return
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) {
+        return
+      }
+      const meta = event.metaKey || event.ctrlKey
+      if (!meta) {
+        return
+      }
+      const key = event.key.toLowerCase()
+      if (key === 't' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        addTab()
+        return
+      }
+      if (key === 'w' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        if (activeTab) {
+          closeTab(activeTab.id)
+        }
+        return
+      }
+      if (key === 'r' && !event.altKey) {
+        event.preventDefault()
+        reload()
+        return
+      }
+      if (key === 'l' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        focusOmnibox()
+        return
+      }
+      if (key === 'd' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        toggleBookmarkForCurrentPage()
+        return
+      }
+      if (key === 'y' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        openInternalPage('history')
+        return
+      }
+      if (key === '[' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        goBack()
+        return
+      }
+      if (key === ']' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        goForward()
+        return
+      }
+      if (key === 'b' && event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        toggleBookmarksBar()
+        return
+      }
+      if (key === 'i' && event.altKey && !event.shiftKey) {
+        event.preventDefault()
+        toggleDevTools()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [
+    activeTab,
+    addTab,
+    chromoFocused,
+    closeTab,
+    focusOmnibox,
+    goBack,
+    goForward,
+    openInternalPage,
+    reload,
+    toggleBookmarkForCurrentPage,
+    toggleBookmarksBar,
+    toggleDevTools,
+  ])
 
   return (
     <div
@@ -1425,6 +2024,15 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             >
               <ForwardIcon />
             </button>
+            {showProgress ? (
+              <button type="button" class="chromo__btn" onClick={stopLoading} aria-label="停止">
+                <StopIcon />
+              </button>
+            ) : (
+              <button type="button" class="chromo__btn" onClick={reload} aria-label="刷新">
+                <ReloadIcon />
+              </button>
+            )}
           </div>
 
           <form class="chromo__omnibox-wrap" onSubmit={submitUrl}>
@@ -1438,19 +2046,30 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 .join(' ')}
             >
               <span class="chromo__omnibox-leading" aria-hidden="true">
-                {showProgress ? undefined : <LockIcon />}
+                {showProgress || !activeTab?.url || isChromoInternalUrl(activeTab.url) ? undefined : <LockIcon />}
               </span>
               <input
+                ref={omniboxInputRef}
                 type="text"
                 class="chromo__omnibox-input"
                 value={addressValue}
                 placeholder="搜索或输入网址"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={showAddressSuggestions}
+                aria-controls={showAddressSuggestions ? 'chromo-omnibox-suggestions' : undefined}
+                aria-activedescendant={
+                  addressSuggestionIndex >= 0
+                    ? `chromo-omnibox-suggestion-${addressSuggestionIndex}`
+                    : undefined
+                }
+                onKeyDown={handleAddressKeyDown}
                 onFocus={() => {
                   setAddressFocused(true)
                   if (activeTab) {
                     updateTab(activeTab.id, (tab) => ({
                       ...tab,
-                      inputUrl: displayUrl(tab.url),
+                      inputUrl: chromoTabInputUrl(tab.url),
                     }))
                   }
                 }}
@@ -1459,7 +2078,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   if (activeTab) {
                     updateTab(activeTab.id, (tab) => ({
                       ...tab,
-                      inputUrl: displayUrl(tab.url),
+                      inputUrl: chromoTabInputUrl(tab.url),
                     }))
                   }
                 }}
@@ -1472,17 +2091,37 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 spellcheck={false}
                 aria-label="地址栏"
               />
+              <button
+                type="button"
+                class={[
+                  'chromo__omnibox-star',
+                  currentBookmarked ? 'chromo__omnibox-star--active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                disabled={!canBookmarkPage}
+                onClick={toggleBookmarkForCurrentPage}
+                aria-label={currentBookmarked ? '取消书签' : '添加书签'}
+                aria-pressed={currentBookmarked}
+                title={currentBookmarked ? '取消书签' : '添加书签'}
+              >
+                <ChromoStarIcon filled={currentBookmarked} />
+              </button>
             </div>
+            {showAddressSuggestions ? (
+              <ChromoOmniboxSuggestionsList
+                suggestions={addressSuggestions}
+                activeIndex={addressSuggestionIndex}
+                onSelect={selectAddressSuggestion}
+                onHover={setAddressSuggestionIndex}
+              />
+            ) : null}
           </form>
 
           <div class="chromo__actions">
             <button
               type="button"
-              class={[
-                'chromo__btn',
-                'chromo__btn--sidebar',
-                sidebarOpen ? 'chromo__btn--active' : '',
-              ]
+              class={['chromo__btn', sidebarOpen ? 'chromo__btn--active' : '']
                 .filter(Boolean)
                 .join(' ')}
               onClick={() => setSidebarOpen((open) => !open)}
@@ -1490,35 +2129,41 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
               aria-pressed={sidebarOpen}
               title="AI 助手"
             >
-              AI
+              <ChromoSparkleIcon />
             </button>
             <button
+              ref={moreButtonRef}
               type="button"
-              class={[
-                'chromo__btn',
-                'chromo__btn--sidebar',
-                activeDevtoolsActive ? 'chromo__btn--active' : '',
-              ]
+              class={['chromo__btn', moreMenuOpen ? 'chromo__btn--active' : '']
                 .filter(Boolean)
                 .join(' ')}
-              onClick={toggleDevTools}
-              aria-label="开发者工具"
-              aria-pressed={activeDevtoolsActive}
-              title="开发者工具"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={openMoreMenu}
+              aria-label="自定义及控制 Chromo"
+              aria-haspopup="menu"
+              aria-expanded={moreMenuOpen}
+              title="自定义及控制 Chromo"
             >
-              开发者工具
+              <ChromoMoreIcon />
             </button>
-            {showProgress ? (
-              <button type="button" class="chromo__btn" onClick={stopLoading} aria-label="停止">
-                <StopIcon />
-              </button>
-            ) : (
-              <button type="button" class="chromo__btn" onClick={reload} aria-label="刷新">
-                <ReloadIcon />
-              </button>
-            )}
           </div>
         </div>
+
+        {bookmarksBarVisible ? (
+          <ChromoBookmarksBar
+            revision={bookmarksRevision}
+            overflowOpen={bookmarksOverflowOpen}
+            onToggleOverflow={() => {
+              setBookmarksOverflowOpen((open) => !open)
+              setMoreMenuOpen(false)
+            }}
+            onNavigate={(url) => {
+              setBookmarksOverflowOpen(false)
+              navigateActive(url)
+            }}
+            onContextMenu={setBookmarkContextMenu}
+          />
+        ) : null}
       </header>
 
       <div class="chromo__body">
@@ -1546,14 +2191,50 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   onRetry={reload}
                 />
               )}
-              {tabs.map((tab) => (
+              {activeTab && !activeTab.url && !activeTab.pageFault ? (
+                <ChromoNewTabPage
+                  bookmarksRevision={bookmarksRevision}
+                  historyRevision={historyRevision}
+                  onNavigate={navigateActive}
+                />
+              ) : null}
+              {activeInternalPage === 'history' ? (
+                <ChromoHistoryPage
+                  revision={historyRevision}
+                  onNavigate={navigateActive}
+                  onHistoryChange={bumpHistoryRevision}
+                />
+              ) : null}
+              {activeInternalPage === 'bookmarks' ? (
+                <ChromoBookmarksPage
+                  revision={bookmarksRevision}
+                  onNavigate={navigateActive}
+                  onDelete={(url) => {
+                    removeChromoBookmark(url)
+                    bumpBookmarksRevision()
+                  }}
+                  onContextMenu={setBookmarkContextMenu}
+                />
+              ) : null}
+              {activeInternalPage === 'settings' ? (
+                <ChromoSettingsPage
+                  bookmarksBarVisible={bookmarksBarVisible}
+                  onToggleBookmarksBar={toggleBookmarksBar}
+                  onClearHistory={clearBrowsingHistory}
+                />
+              ) : null}
+              {tabs
+                .filter((tab) => !isChromoInternalUrl(tab.url))
+                .map((tab) => (
                 <ChromoViewerFrame
               key={tab.id}
               devtoolsId={tab.devtoolsId}
               initialUrl={tab.url || undefined}
               disableNetworkCache={tab.disableNetworkCache}
               ref={getViewerRef(tab.id)}
-              active={tab.id === activeTabId}
+              active={
+                tab.id === activeTabId && Boolean(tab.url) && !isChromoInternalUrl(tab.url)
+              }
               onReady={() => {
                 updateTab(tab.id, (entry) => ({
                   ...entry,
@@ -1568,16 +2249,23 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 const recoverUrl = pendingRecoverNavigateRef.current[tab.id]
                 if (recoverUrl) {
                   delete pendingRecoverNavigateRef.current[tab.id]
-                  getViewerRef(tab.id).current?.navigate(recoverUrl)
+                  if (!isChromoInternalUrl(recoverUrl)) {
+                    getViewerRef(tab.id).current?.navigate(recoverUrl)
+                  }
                   return
                 }
                 if (current?.url) {
-                  getViewerRef(tab.id).current?.navigate(current.url)
+                  if (!isChromoInternalUrl(current.url)) {
+                    getViewerRef(tab.id).current?.navigate(current.url)
+                  }
                   return
                 }
                 ensureInitialTabLoad(tab.id)
               }}
               onNavigating={() => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
                 updateTab(tab.id, (entry) => ({
                   ...entry,
                   loading: true,
@@ -1595,9 +2283,15 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 }))
               }}
               onLoading={({ loading }) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
                 updateTab(tab.id, (entry) => ({ ...entry, loading }))
               }}
               onNavigated={({ url, title, canGoBack, canGoForward }) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
                 // Worker /blank.html start page: keep new-tab chrome (empty omnibox).
                 if (!url) {
                   updateTab(tab.id, (entry) => ({
@@ -1622,16 +2316,18 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   return
                 }
                 requestedUrlByTabRef.current[tab.id] = url
+                const nextTitle = title || pageTitleFromUrl(url)
                 updateTab(tab.id, (entry) => ({
                   ...entry,
                   url,
-                  title: title || pageTitleFromUrl(url),
+                  title: nextTitle,
                   inputUrl: displayUrl(url),
                   loading: false,
                   canGoBack,
                   canGoForward,
                   pageFault: undefined,
                 }))
+                recordVisit(url, nextTitle)
                 if (tab.id === activeTabId) {
                   // 同步 OS 窗口 URL，同时标记已处理，避免 pendingUrl effect 二次导航
                   lastOpenedUrlRef.current = url
@@ -1645,6 +2341,9 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 }, 300)
               }}
               onLoadFailed={(payload) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
                 const { url, message, code, networkCount, latestNetworkId } = payload
                 updateTab(tab.id, (entry) => {
                   if (
@@ -1678,6 +2377,9 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 scheduleNetworkPull(tab.id)
               }}
               onError={(payload) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
                 const fault = pageFaultFromError(payload)
                 if (!fault) {
                   return
@@ -1697,6 +2399,9 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 }))
               }}
               onLocation={({ url, method, httpMethod, formBody, formFiles, formEnctype, target }) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
                 const intent = resolveNavIntent(
                   { kind: 'LOCATION', method, url, target, httpMethod },
                   { currentUrl: tab.url },
@@ -1748,23 +2453,33 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 }
                 navigateTab(tab.id, url)
               }}
-              onHistory={({ url, title }) => {
+                onHistory={({ url, title }) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
                 cancelClickNavigate(tab.id)
                 requestedUrlByTabRef.current[tab.id] = url
+                const nextTitle = title || pageTitleFromUrl(url)
                 updateTab(tab.id, (entry) => ({
                   ...entry,
                   url,
-                  title: title || pageTitleFromUrl(url),
+                  title: nextTitle,
                   inputUrl: displayUrl(url),
                   loading: false,
                   pageFault: undefined,
                 }))
+                if (url) {
+                  recordVisit(url, nextTitle)
+                }
                 if (tab.id === activeTabIdRef.current) {
                   lastOpenedUrlRef.current = url
                   setAppWindowUrl('chromo', url)
                 }
               }}
               onClick={({ href, target }) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
                 const intent = resolveNavIntent(
                   { kind: 'CLICK', href, target, url: href },
                   { currentUrl: tab.url },
@@ -1885,6 +2600,30 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             ))}
         </div>
       )}
+
+      <AdaptiveActionMenu
+        open={moreMenuOpen}
+        title="Chromo"
+        items={moreMenuItems}
+        narrowLayout={narrowLayout}
+        anchor={moreMenuAnchor}
+        mount="portal"
+        onClose={closeMoreMenu}
+      />
+
+      <AdaptiveActionMenu
+        open={bookmarkContextMenu !== undefined}
+        title={bookmarkContextMenu?.bookmark.title || '书签'}
+        items={bookmarkContextMenuItems}
+        narrowLayout={narrowLayout}
+        anchor={
+          bookmarkContextMenu
+            ? { x: bookmarkContextMenu.x, y: bookmarkContextMenu.y }
+            : undefined
+        }
+        mount="portal"
+        onClose={() => setBookmarkContextMenu(undefined)}
+      />
     </div>
   )
 }

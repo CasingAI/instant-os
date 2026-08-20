@@ -125,6 +125,14 @@ function getBuiltinDocumentsBytes(
   if (appId === 'browser') {
     return getBrowserSystemStorageBytes()
   }
+  if (appId === 'chromo') {
+    return sumLocalStorageKeys([
+      DEVICE_STORAGE_KEYS.chromoBookmarks,
+      DEVICE_STORAGE_KEYS.chromoSettings,
+      DEVICE_STORAGE_KEYS.chromoHistory,
+      DEVICE_STORAGE_KEYS.chromoSession,
+    ])
+  }
   if (appId === 'vscode') {
     return sumLocalStorageKeys([
       DEVICE_STORAGE_KEYS.vscodePrefs,
