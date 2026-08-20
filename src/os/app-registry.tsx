@@ -1,5 +1,6 @@
 import type { ComponentType } from 'preact'
 import { Scene3dLabApp } from '../apps/scene3d-lab/scene3d-lab-app.tsx'
+import { PoseLabApp } from '../apps/pose-lab/pose-lab-app.tsx'
 import { ModelVisionApp } from '../apps/model-vision/model-vision-app.tsx'
 import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
 import { BrowserApp } from '../apps/browser/browser-app.tsx'
@@ -52,8 +53,8 @@ import { WelcomeNextApp } from '../apps/welcome-next/welcome-next-app.tsx'
 import { WelcomeNextIcon } from '../apps/welcome-next/welcome-next-icon.tsx'
 import { WelcomeHelloApp } from '../apps/welcome-hello/welcome-hello-app.tsx'
 import { WelcomeHelloIcon } from '../apps/welcome-hello/welcome-hello-icon.tsx'
-import { useAppMenuBar } from './menu-bar-context.tsx'
-import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon, SrmlDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
+import { PoseLabIcon } from '../apps/pose-lab/pose-lab-icon.tsx'
 import { RegistryIcon } from '../apps/registry/registry-icon.tsx'
 import { AttuneBenchIcon } from '../apps/attunebench/attunebench-icon.tsx'
 import { withAppIconDecoration } from '../icons/app-icon-decoration.tsx'
@@ -220,14 +221,6 @@ export const APP_REGISTRY: AppDefinition[] = [
     iconDecoration: DEV_SLEEVE,
   }),
   withAbout({
-    id: 'photos',
-    name: BUILTIN_APP_DISPLAY_NAMES['photos'],
-    icon: PhotosIcon,
-    dock: false,
-    desktop: false,
-    iconDecoration: DEV_SLEEVE,
-  }),
-  withAbout({
     id: 'files',
     name: BUILTIN_APP_DISPLAY_NAMES['files'],
     icon: FilesIcon,
@@ -277,6 +270,15 @@ export const APP_REGISTRY: AppDefinition[] = [
     name: BUILTIN_APP_DISPLAY_NAMES['scene3d-lab'],
     icon: Scene3dLabIcon,
     dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'pose-lab',
+    name: BUILTIN_APP_DISPLAY_NAMES['pose-lab'],
+    icon: PoseLabIcon,
+    dock: false,
+    dockWhenRunning: true,
     desktop: true,
     iconDecoration: DEV_SLEEVE,
   }),
@@ -500,7 +502,6 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   produde: ProdudeApp,
   gomoku: GomokuApp,
   speech: SpeechApp,
-  photos: PlaceholderApp('photos', '照片'),
   files: FilesApp,
   'file-info': FileInfoApp,
   textedit: TextEditApp,
@@ -508,6 +509,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   preview: PreviewApp,
   vscode: VscodeApp,
   'scene3d-lab': Scene3dLabApp,
+  'pose-lab': PoseLabApp,
   'model-vision': ModelVisionApp,
   icode: ICodeApp,
   registry: RegistryApp,
@@ -534,19 +536,6 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   welcome: WelcomeApp,
   'welcome-next': WelcomeNextApp,
   'welcome-hello': WelcomeHelloApp,
-}
-
-function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {
-  return function AppPlaceholder() {
-    useAppMenuBar(appId, [])
-
-    return (
-      <div class="placeholder-app">
-        <p>{title}</p>
-        <span>即将推出</span>
-      </div>
-    )
-  }
 }
 
 export function getAppDefinition(appId: BuiltinAppId) {

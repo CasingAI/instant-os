@@ -1,4 +1,5 @@
 import type { WindowState } from '../os/types.ts'
+import type { WindowBounds } from './window-metrics.ts'
 
 /** 从 3D 叠层收回普通布局的动画时长（毫秒） */
 export const FLIP3D_RESTORE_MS = 360
@@ -6,28 +7,32 @@ export const FLIP3D_RESTORE_MS = 360
 /** 进入叠层：从桌面位收到扇面 */
 export const FLIP3D_ENTER_MS = 520
 
-/** 前窗飞出到右侧并淡出 */
+/** 假窗窗框飞出/飞入 */
 export const FLIP3D_FLIGHT_OUT_MS = 160
 
-/** 接到队尾后淡入 */
-export const FLIP3D_FLIGHT_IN_MS = 110
+/** 连按时最多保留几个假窗，避免 DOM 堆起来拖死主线程 */
+export const FLIP3D_MAX_GHOSTS = 4
 
 /** 点选非最前窗：先滑到队头再退出 */
 export const FLIP3D_SELECT_MS = 160
 
 export type Flip3dEnterResult = 'entered' | 'already-active' | 'empty'
 
-export type Flip3dCycle = {
-  flyingId: string
+export type Flip3dGhost = {
+  id: string
+  windowId: string
   direction: 1 | -1
-  phase: 'out' | 'teleport' | 'in' | 'snap'
+  title: string
+  bounds: WindowBounds
+  chromeKind?: WindowState['chromeKind']
 }
 
 export type Flip3dVisual = {
   rank: number
-  flyOut: boolean
-  opacity: number
   skipTransition: boolean
+  /** 绕到队尾的那一帧：先停在更后一层再淡入，避免硬切出现 */
+  fromBack: boolean
+  opacity: number
 }
 
 /** 与显示桌面 peek 相同的可见窗：未关闭、未最小化；无窗口会话仅展开面板时计入。 */
@@ -61,21 +66,48 @@ export function cycleFlip3dOrder(order: readonly string[], delta: 1 | -1): strin
   return [order[order.length - 1]!, ...order.slice(0, -1)]
 }
 
-/** 打断进行中的飞出时，把尚未写入队列的那一步立刻落地。 */
-export function commitFlip3dCycle(
+/** 正向掀走队头，反向掀走队尾。 */
+export function peeledFlip3dWindowId(
   order: readonly string[],
-  cycle: Flip3dCycle | undefined,
-): string[] {
-  if (!cycle) {
-    return [...order]
+  delta: 1 | -1,
+): string | undefined {
+  if (order.length <= 1) {
+    return undefined
   }
-  if (cycle.direction === 1 && cycle.phase === 'out') {
-    return cycleFlip3dOrder(order, 1)
+  return delta === 1 ? order[0] : order[order.length - 1]
+}
+
+export function createFlip3dGhost(
+  window: WindowState,
+  direction: 1 | -1,
+  id: string,
+): Flip3dGhost {
+  return {
+    id,
+    windowId: window.id,
+    direction,
+    title: window.title,
+    bounds: { x: window.x, y: window.y, width: window.width, height: window.height },
+    chromeKind: window.chromeKind,
   }
-  if (cycle.direction === -1 && cycle.phase === 'teleport') {
-    return cycleFlip3dOrder(order, -1)
+}
+
+export function dismissFlip3dGhost(
+  ghosts: readonly Flip3dGhost[],
+  id: string,
+): Flip3dGhost[] {
+  return ghosts.filter((ghost) => ghost.id !== id)
+}
+
+export function appendFlip3dGhost(
+  ghosts: readonly Flip3dGhost[],
+  next: Flip3dGhost,
+): Flip3dGhost[] {
+  const stacked = [...ghosts, next]
+  if (stacked.length <= FLIP3D_MAX_GHOSTS) {
+    return stacked
   }
-  return [...order]
+  return stacked.slice(stacked.length - FLIP3D_MAX_GHOSTS)
 }
 
 /** 点选时把目标窗抽到队头，其余相对顺序不变。 */
@@ -87,57 +119,22 @@ export function bringFlip3dWindowToFront(order: readonly string[], windowId: str
   return [windowId, ...order.slice(0, index), ...order.slice(index + 1)]
 }
 
-/** 把逻辑队列与飞出动画合成每扇窗的视觉位。 */
+/** 活窗视觉位只看队列。绕到队尾的那扇先停在后一层再入场，其余滑过去。 */
 export function resolveFlip3dVisual(
   order: readonly string[],
   windowId: string,
-  cycle: Flip3dCycle | undefined,
+  snapIds: readonly string[] = [],
 ): Flip3dVisual | undefined {
   const index = order.indexOf(windowId)
   if (index < 0) {
     return undefined
   }
-
-  if (!cycle) {
-    return { rank: index, flyOut: false, opacity: 1, skipTransition: false }
+  const wrapping = snapIds.includes(windowId)
+  const fromBack = wrapping && order.length > 1 && index === order.length - 1
+  return {
+    rank: index,
+    skipTransition: wrapping,
+    fromBack,
+    opacity: fromBack ? 0 : 1,
   }
-
-  if (cycle.phase === 'snap') {
-    return { rank: index, flyOut: false, opacity: 1, skipTransition: true }
-  }
-
-  const isFlying = windowId === cycle.flyingId
-
-  if (cycle.direction === 1) {
-    if (cycle.phase === 'out') {
-      if (isFlying) {
-        return { rank: 0, flyOut: true, opacity: 0, skipTransition: false }
-      }
-      return { rank: index - 1, flyOut: false, opacity: 1, skipTransition: false }
-    }
-    if (cycle.phase === 'teleport') {
-      if (isFlying) {
-        return { rank: index, flyOut: false, opacity: 0, skipTransition: true }
-      }
-      return { rank: index, flyOut: false, opacity: 1, skipTransition: true }
-    }
-    return { rank: index, flyOut: false, opacity: 1, skipTransition: false }
-  }
-
-  if (cycle.phase === 'teleport') {
-    if (isFlying) {
-      return { rank: index, flyOut: true, opacity: 0, skipTransition: true }
-    }
-    return { rank: index, flyOut: false, opacity: 1, skipTransition: false }
-  }
-  if (cycle.phase === 'out') {
-    if (isFlying) {
-      return { rank: 0, flyOut: true, opacity: 0, skipTransition: true }
-    }
-    return { rank: index, flyOut: false, opacity: 1, skipTransition: false }
-  }
-  if (isFlying) {
-    return { rank: 0, flyOut: false, opacity: 1, skipTransition: false }
-  }
-  return { rank: index, flyOut: false, opacity: 1, skipTransition: false }
 }

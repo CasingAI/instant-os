@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'preact/hooks'
+import { useCallback, useRef } from 'preact/hooks'
 
 export const DESKTOP_EMPTY_HOLD_MS = 500
 export const DESKTOP_EMPTY_TAP_THRESHOLD = 8

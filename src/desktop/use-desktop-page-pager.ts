@@ -391,7 +391,9 @@ export function useDesktopPagePager(
       }
       sessionRef.current = session
       setAnimating(false)
-      captureTarget?.setPointerCapture(event.pointerId)
+      if (emptyTarget) {
+        captureTarget?.setPointerCapture(event.pointerId)
+      }
 
       const onDocumentMove = (moveEvent: PointerEvent) => onPointerMove(moveEvent)
       const onDocumentUp = (upEvent: PointerEvent) => onPointerUp(upEvent)

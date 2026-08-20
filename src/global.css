@@ -66,36 +66,3 @@ code {
   border-radius: 4px;
 }
 
-.placeholder-app {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 8px;
-  color: #6d6d72;
-  background: linear-gradient(180deg, #f7f7f7 0%, #ececec 100%);
-}
-
-.placeholder-app p {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 500;
-  color: #333;
-}
-
-.placeholder-app span {
-  font-size: 14px;
-}
-
-@container app-window (max-width: 380px) {
-  .placeholder-app p {
-    font-size: 18px;
-  }
-
-  .placeholder-app span {
-    font-size: 13px;
-    padding: 0 16px;
-    text-align: center;
-  }
-}

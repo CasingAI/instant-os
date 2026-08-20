@@ -8,8 +8,17 @@ import { useFullscreenChromeReveal } from '../os/fullscreen-chrome-reveal-contex
 import { isExtAppId, isGeneratedAppId } from '../os/types.ts'
 import type { BuiltinAppId, WindowState } from '../os/types.ts'
 import { buildDesktopRevealTransform } from './build-desktop-reveal-transform.ts'
-import { buildFlip3dFlyOutTransform, buildFlip3dTransform, FLIP3D_Z_BASE } from './build-flip3d-transform.ts'
+import {
+  buildFlip3dBackEnterTransform,
+  buildFlip3dTransform,
+  computeFlip3dBackEnterLayout,
+  computeFlip3dLayout,
+  flip3dPerspectiveOrigin,
+  FLIP3D_PERSPECTIVE_PX,
+  FLIP3D_Z_BASE,
+} from './build-flip3d-transform.ts'
 import { resolveFlip3dVisual } from './flip3d.ts'
+import { Flip3dGhostFrame } from './flip3d-ghost-frame.tsx'
 import { DesktopRevealPeekLayer } from './desktop-reveal-peek-layer.tsx'
 import { buildMinimizeTransform } from './build-minimize-transform.ts'
 import type { WindowBounds } from './window-metrics.ts'
@@ -28,28 +37,35 @@ type WindowFrameProps = {
 }
 
 function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
-  const { flip3dActive, flip3dRestoring, flip3dOrder, flip3dCycle, exitFlip3d } = useOs()
-  const visual = resolveFlip3dVisual(flip3dOrder, windowId, flip3dCycle)
+  const { flip3dActive, flip3dRestoring, flip3dEntering, flip3dOrder, flip3dSnapIds, exitFlip3d } =
+    useOs()
+  const visual = resolveFlip3dVisual(flip3dOrder, windowId, flip3dSnapIds)
   const inFlip3d = (flip3dActive || flip3dRestoring) && visual !== undefined
   const viewport = { width: window.innerWidth, height: window.innerHeight }
+  const count = Math.max(flip3dOrder.length, 1)
+  const layout =
+    flip3dActive && visual
+      ? visual.fromBack
+        ? computeFlip3dBackEnterLayout(bounds, viewport, count)
+        : computeFlip3dLayout(bounds, visual.rank, viewport, count)
+      : undefined
   const transform =
     flip3dActive && visual
-      ? visual.flyOut
-        ? buildFlip3dFlyOutTransform(bounds, viewport)
-        : buildFlip3dTransform(bounds, visual.rank, viewport)
+      ? visual.fromBack
+        ? buildFlip3dBackEnterTransform(bounds, viewport, count)
+        : buildFlip3dTransform(bounds, visual.rank, viewport, count)
       : undefined
-  const zIndex =
-    inFlip3d && visual
-      ? visual.flyOut
-        ? FLIP3D_Z_BASE + 40
-        : FLIP3D_Z_BASE - visual.rank
-      : undefined
+  const zIndex = inFlip3d && visual ? FLIP3D_Z_BASE - visual.rank : undefined
   return {
     inFlip3d,
     transform,
+    left: layout?.left,
+    top: layout?.top,
     zIndex,
     opacity: visual?.opacity,
-    skipTransition: visual?.skipTransition ?? false,
+    skipTransition: Boolean(
+      visual?.skipTransition && flip3dActive && !flip3dEntering && !flip3dRestoring,
+    ),
     selectWindow: () => exitFlip3d(windowId),
   }
 }
@@ -103,6 +119,8 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
   const {
     inFlip3d,
     transform: flip3dTransform,
+    left: flip3dLeft,
+    top: flip3dTop,
     zIndex: flip3dZIndex,
     opacity: flip3dOpacity,
     skipTransition: flip3dInstant,
@@ -196,8 +214,8 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
         aria-hidden={showMinimizeVisual ? true : undefined}
         style={{
           zIndex: flip3dZIndex ?? window.zIndex,
-          left: `${window.x}px`,
-          top: `${window.y}px`,
+          left: `${flip3dLeft ?? window.x}px`,
+          top: `${flip3dTop ?? window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
           transform: isEntering
@@ -318,6 +336,8 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
   const {
     inFlip3d,
     transform: flip3dTransform,
+    left: flip3dLeft,
+    top: flip3dTop,
     zIndex: flip3dZIndex,
     opacity: flip3dOpacity,
     skipTransition: flip3dInstant,
@@ -412,8 +432,8 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
         aria-hidden={showMinimizeVisual || isClosing ? true : undefined}
         style={{
           zIndex: flip3dZIndex ?? window.zIndex,
-          left: `${window.x}px`,
-          top: `${window.y}px`,
+          left: `${flip3dLeft ?? window.x}px`,
+          top: `${flip3dTop ?? window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
           transform: isEntering ? undefined : frameTransform,
@@ -533,8 +553,18 @@ export function WindowFrame({ window }: WindowFrameProps) {
 }
 
 export function WindowManager() {
-  const { windows, desktopRevealRestoring, flip3dActive, flip3dRestoring, flip3dEntering, cycleFlip3d, exitFlip3d } =
-    useOs()
+  const {
+    windows,
+    desktopRevealRestoring,
+    flip3dActive,
+    flip3dRestoring,
+    flip3dEntering,
+    flip3dOrder,
+    flip3dGhosts,
+    cycleFlip3d,
+    dismissFlip3dGhostFrame,
+    exitFlip3d,
+  } = useOs()
 
   useEffect(() => {
     if (!flip3dActive) {
@@ -563,10 +593,20 @@ export function WindowManager() {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [cycleFlip3d, exitFlip3d, flip3dActive])
 
+  const inFlip3dScene = flip3dActive || flip3dRestoring
+
   return (
     <div
-      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}${flip3dActive || flip3dRestoring ? ' window-manager--flip3d' : ''}${flip3dEntering ? ' window-manager--flip3d-enter' : ''}${flip3dRestoring ? ' window-manager--flip3d-restore' : ''}`}
+      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}${inFlip3dScene ? ' window-manager--flip3d' : ''}${flip3dEntering ? ' window-manager--flip3d-enter' : ''}${flip3dRestoring ? ' window-manager--flip3d-restore' : ''}`}
       aria-live="polite"
+      style={
+        inFlip3dScene
+          ? {
+              perspective: `${FLIP3D_PERSPECTIVE_PX}px`,
+              perspectiveOrigin: flip3dPerspectiveOrigin(),
+            }
+          : undefined
+      }
       onPointerDown={
         flip3dActive
           ? (event) => {
@@ -580,9 +620,19 @@ export function WindowManager() {
           : undefined
       }
     >
-      {windows.map((window) => (
-        <WindowFrame key={window.id} window={window} />
-      ))}
+      <div class="window-manager__flip3d-scene">
+        {windows.map((window) => (
+          <WindowFrame key={window.id} window={window} />
+        ))}
+        {flip3dGhosts.map((ghost) => (
+          <Flip3dGhostFrame
+            key={ghost.id}
+            ghost={ghost}
+            count={Math.max(flip3dOrder.length, 1)}
+            onDone={dismissFlip3dGhostFrame}
+          />
+        ))}
+      </div>
       <DesktopRevealPeekLayer />
     </div>
   )

@@ -48,10 +48,6 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '内置 AI 助手可帮你生成回复内容，所有邮件数据保存在本地。',
     ],
   },
-  photos: {
-    version: '即将推出',
-    paragraphs: ['照片应用正在开发中，未来将用于浏览与管理 Instant OS 中的图片与媒体文件。'],
-  },
   files: {
     version: '拟物文件柜',
     paragraphs: [
@@ -107,6 +103,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '3D 实验室用于测试内置 CC0 模型与 AI 场景生成。输入场景描述后，AI 会生成使用 Three.js 与内置模型 url 的 3D 页面。',
       '已集成 Rapier 物理引擎：可开启「物理 · Rapier」并在 Demo 按钮加载物理示例。',
       '此应用独立于应用集市的微应用生成流程，便于验证素材目录与运行时注入是否正常。',
+    ],
+  },
+  'pose-lab': {
+    version: '四角三维透视',
+    paragraphs: [
+      '视角实验室用一张风景卡片调试透视。每个角都是独立的 XYZ：拖动手把改平面位置，滚轮或按住 Shift 拖改远近（Z 正值靠近镜头）。',
+      '可用系统文件对话框从本机选一张对照图铺在卡片后面（不经过 VFS），并调整位置与大小。调到满意后可复制四个角的三维位移。',
     ],
   },
   'model-vision': {

@@ -1,0 +1,356 @@
+.pose-lab {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: #1b1c20;
+  color: #e8e8ea;
+  font-size: 12px;
+  user-select: none;
+}
+
+.pose-lab__stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 62%, rgba(90, 120, 180, 0.18), transparent 70%),
+    linear-gradient(180deg, #2a2d36 0%, #14151a 100%);
+}
+
+.pose-lab__stage--has-ref {
+  cursor: grab;
+}
+
+.pose-lab__stage--dragging-ref {
+  cursor: grabbing;
+}
+
+.pose-lab__ref {
+  grid-area: 1 / 1;
+  place-self: center;
+  z-index: 0;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+.pose-lab__board {
+  grid-area: 1 / 1;
+  place-self: center;
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.pose-lab__card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #f4f4f6;
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.12);
+  transform-origin: 0 0;
+  color: #1d1d1f;
+  pointer-events: none;
+}
+
+.pose-lab__titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  background: linear-gradient(180deg, #ececef 0%, #d8d8de 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.pose-lab__dots {
+  display: flex;
+  gap: 6px;
+}
+
+.pose-lab__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+}
+
+.pose-lab__dot--close {
+  background: #ff5f57;
+}
+
+.pose-lab__dot--min {
+  background: #febc2e;
+}
+
+.pose-lab__dot--zoom {
+  background: #28c840;
+}
+
+.pose-lab__title {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #3a3a3c;
+  padding-right: 42px;
+}
+
+.pose-lab__photo {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  background:
+    linear-gradient(180deg, #7eb6e8 0%, #c9e4f8 38%, #8fbc6b 39%, #5a8f3e 72%, #3d6a2a 100%);
+}
+
+.pose-lab__sun {
+  position: absolute;
+  top: 18%;
+  right: 18%;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #ffe08a;
+  box-shadow: 0 0 24px 8px rgba(255, 224, 138, 0.55);
+}
+
+.pose-lab__hill {
+  position: absolute;
+  bottom: 18%;
+  width: 70%;
+  height: 42%;
+  border-radius: 50% 50% 0 0;
+  background: #4a7a32;
+}
+
+.pose-lab__hill--left {
+  left: -18%;
+}
+
+.pose-lab__hill--right {
+  right: -12%;
+  height: 36%;
+  background: #3e6b2a;
+}
+
+.pose-lab__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+.pose-lab__handle {
+  position: absolute;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+  touch-action: none;
+  pointer-events: auto;
+}
+
+.pose-lab__handle:active,
+.pose-lab__handle--active {
+  cursor: grabbing;
+}
+
+.pose-lab__handle--tl {
+  background: #ff375f;
+}
+
+.pose-lab__handle--tr {
+  background: #ff9f0a;
+}
+
+.pose-lab__handle--br {
+  background: #30d158;
+}
+
+.pose-lab__handle--bl {
+  background: #0a84ff;
+}
+
+.pose-lab__handle-label {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.pose-lab__handle--tl .pose-lab__handle-label,
+.pose-lab__handle--tr .pose-lab__handle-label {
+  top: auto;
+  bottom: 22px;
+}
+
+.pose-lab__panel {
+  flex: 0 0 268px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 16px 18px;
+  overflow: auto;
+  background: #23242a;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pose-lab__panel-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.pose-lab__hint {
+  margin: -6px 0 0;
+  color: rgba(232, 232, 234, 0.62);
+  line-height: 1.45;
+}
+
+.pose-lab__section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pose-lab__file-input {
+  display: none;
+}
+
+.pose-lab__ref-name {
+  margin: -6px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(232, 232, 234, 0.78);
+}
+
+.pose-lab__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pose-lab__corner-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pose-lab__corner-name {
+  font-weight: 650;
+}
+
+.pose-lab__corner-block--tl .pose-lab__corner-name {
+  color: #ff375f;
+}
+
+.pose-lab__corner-block--tr .pose-lab__corner-name {
+  color: #ff9f0a;
+}
+
+.pose-lab__corner-block--br .pose-lab__corner-name {
+  color: #30d158;
+}
+
+.pose-lab__corner-block--bl .pose-lab__corner-name {
+  color: #64d2ff;
+}
+
+.pose-lab__corner-xy {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.pose-lab__coord {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(232, 232, 234, 0.62);
+}
+
+.pose-lab__coord--z {
+  display: grid;
+  grid-template-columns: auto 1fr 56px;
+  align-items: center;
+}
+
+.pose-lab__coord input {
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: #1b1c20;
+  color: #e8e8ea;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.pose-lab__coord input[type='range'] {
+  padding: 0;
+  accent-color: #0a84ff;
+}
+
+.pose-lab__dump {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #1b1c20;
+  color: #d4d4d8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.pose-lab__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pose-lab__btn {
+  flex: 1;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  background: #2c2d34;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pose-lab__btn:hover {
+  background: #35363e;
+}
+
+.pose-lab__btn:active {
+  background: #1f2026;
+}

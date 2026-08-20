@@ -32,6 +32,7 @@ import {
   saveModelSourceSettings,
   type ModelSource,
 } from '../../os/model-source-settings-storage.ts'
+import { formatStorageSize } from './format-storage-size.ts'
 
 type DeveloperSettingsViewProps = {
   onBack: () => void

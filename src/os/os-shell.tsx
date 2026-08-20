@@ -20,6 +20,7 @@ import { FullscreenChromeRevealProvider } from './fullscreen-chrome-reveal-conte
 import { ImmersiveDesktopBackdrop } from './immersive-desktop-backdrop.tsx'
 import { StartupItemsBootstrap } from './startup-items-bootstrap.tsx'
 import { useWallpaper } from './use-wallpaper.ts'
+import { Flip3dQueryBootstrap } from '../window/flip3d-query-bootstrap.tsx'
 import { WindowManager } from '../window/window-frame.tsx'
 import { MonacoDialogHost } from '../monaco/monaco-dialog-host.tsx'
 import { SystemDeadlockDialog } from './system-deadlock-dialog.tsx'
@@ -39,6 +40,7 @@ function OsShellContent() {
   return (
     <div class="os-shell" ref={shellRef}>
       <StartupItemsBootstrap />
+      <Flip3dQueryBootstrap />
       <OsNotificationSources />
       <ImmersiveDesktopBackdrop />
       <MenuBar />

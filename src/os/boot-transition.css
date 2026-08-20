@@ -15,7 +15,6 @@ html.instant-boot-hide-cursor * {
   position: absolute;
   inset: 0;
   z-index: 1;
-  will-change: opacity, transform, filter;
 }
 
 .boot-root__desktop--cold-entering {
@@ -25,8 +24,6 @@ html.instant-boot-hide-cursor * {
 
 .boot-root__desktop--entered {
   opacity: 1;
-  transform: scale(1);
-  filter: blur(0);
 }
 
 @keyframes boot-desktop-cold-enter {
