@@ -3,6 +3,11 @@
   display: inline-flex;
 }
 
+.app-icon-decoration__body {
+  position: relative;
+  display: inline-flex;
+}
+
 /* 与图标同圆角裁切；clip-path 才能裁住旋转后的丝带 */
 .app-icon-decoration__overlay {
   position: absolute;

@@ -42,31 +42,33 @@ export function withAppIconDecoration(
 
     return (
       <span class="app-icon-decoration" style={style}>
-        <Icon size={size} />
-        {decoration.ribbon && (
-          <span class="app-icon-decoration__overlay">
-            <svg class="app-icon-ribbon" viewBox="0 0 100 100" aria-hidden="true">
-              <g transform={`translate(${RIBBON_CX} ${RIBBON_CY}) rotate(45)`}>
-                <rect
-                  class="app-icon-ribbon__band"
-                  x={-RIBBON_LENGTH / 2}
-                  y={-RIBBON_THICKNESS / 2}
-                  width={RIBBON_LENGTH}
-                  height={RIBBON_THICKNESS}
-                />
-                <text
-                  class="app-icon-ribbon__label"
-                  text-anchor="middle"
-                  dominant-baseline="middle"
-                  dy="0.08em"
-                  font-size={RIBBON_FONT}
-                >
-                  {decoration.ribbon.label}
-                </text>
-              </g>
-            </svg>
-          </span>
-        )}
+        <span class="app-icon-decoration__body">
+          <Icon size={size} />
+          {decoration.ribbon && (
+            <span class="app-icon-decoration__overlay">
+              <svg class="app-icon-ribbon" viewBox="0 0 100 100" aria-hidden="true">
+                <g transform={`translate(${RIBBON_CX} ${RIBBON_CY}) rotate(45)`}>
+                  <rect
+                    class="app-icon-ribbon__band"
+                    x={-RIBBON_LENGTH / 2}
+                    y={-RIBBON_THICKNESS / 2}
+                    width={RIBBON_LENGTH}
+                    height={RIBBON_THICKNESS}
+                  />
+                  <text
+                    class="app-icon-ribbon__label"
+                    text-anchor="middle"
+                    dominant-baseline="middle"
+                    dy="0.08em"
+                    font-size={RIBBON_FONT}
+                  >
+                    {decoration.ribbon.label}
+                  </text>
+                </g>
+              </svg>
+            </span>
+          )}
+        </span>
         {decoration.sleeve && (
           <span class="app-icon-sleeve" aria-hidden="true">
             {decoration.sleeve.label}
