@@ -2,6 +2,13 @@ export const VM_BACKEND_IDS = ['v86'] as const
 
 export type VmBackendId = (typeof VM_BACKEND_IDS)[number]
 
+/** 画面呈现比例，不影响 Guest 内部分辨率。 */
+export const VM_DISPLAY_MODE_IDS = ['stretch', 'contain', 'native'] as const
+
+export type VmDisplayModeId = (typeof VM_DISPLAY_MODE_IDS)[number]
+
+export const DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE: VmDisplayModeId = 'contain'
+
 /** v86 `memory_size` 要求 2 的幂；浏览器里再往上容易把标签页撑爆。 */
 export const VM_MEMORY_MB_OPTIONS = [16, 32, 64, 128, 256, 512] as const
 
@@ -59,6 +66,7 @@ export type VirtualMachineSettings = {
   keyboard: boolean
   mouse: boolean
   network: VmNetworkId
+  displayMode: VmDisplayModeId
   hdaPath: string
   cdromPath: string
   fdaPath: string

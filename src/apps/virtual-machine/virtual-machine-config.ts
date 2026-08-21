@@ -1,17 +1,20 @@
 import type { SettingsChoiceOption } from '../../ui/settings-choice-option-list.tsx'
 import {
   DEFAULT_VIRTUAL_MACHINE_BOOT_ORDER,
+  DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
   DEFAULT_VIRTUAL_MACHINE_NETWORK,
   DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB,
   VM_BACKEND_IDS,
   VM_BOOT_ORDER_IDS,
+  VM_DISPLAY_MODE_IDS,
   VM_MEMORY_MB_OPTIONS,
   VM_NETWORK_IDS,
   VM_VGA_MEMORY_MB_OPTIONS,
   type VmBackendId,
   type VmBootOrderId,
+  type VmDisplayModeId,
   type VmMemoryMb,
   type VmNetworkId,
   type VmVgaMemoryMb,
@@ -34,6 +37,7 @@ export function defaultVirtualMachineSettings(
     keyboard: true,
     mouse: true,
     network: DEFAULT_VIRTUAL_MACHINE_NETWORK,
+    displayMode: DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
     hdaPath: '',
     cdromPath: '',
     fdaPath: '',
@@ -54,6 +58,7 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     keyboard: record.keyboard,
     mouse: record.mouse,
     network: record.network,
+    displayMode: record.displayMode,
     hdaPath: record.hdaPath,
     cdromPath: record.cdromPath,
     fdaPath: record.fdaPath,
@@ -74,6 +79,16 @@ const NETWORK_LABELS: Record<VmNetworkId, string> = {
   none: '关闭',
   ne2k: 'NE2000（旧系统）',
   virtio: 'VirtIO（现代 Linux）',
+}
+
+const DISPLAY_MODE_LABELS: Record<VmDisplayModeId, string> = {
+  stretch: '拉伸',
+  contain: '等比',
+  native: '原始',
+}
+
+export function formatVmDisplayModeLabel(id: VmDisplayModeId): string {
+  return DISPLAY_MODE_LABELS[id]
 }
 
 export function formatVmBootOrderLabel(id: VmBootOrderId): string {
@@ -132,6 +147,16 @@ export const VM_NETWORK_CHOICES: readonly SettingsChoiceOption[] = VM_NETWORK_ID
   label: formatVmNetworkLabel(id),
 }))
 
+export const VM_DISPLAY_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_DISPLAY_MODE_IDS.map(
+  (id) => ({
+    id,
+    label:
+      id === DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE
+        ? `${formatVmDisplayModeLabel(id)}（默认）`
+        : formatVmDisplayModeLabel(id),
+  }),
+)
+
 export const VM_HARD_DISK_ACCEPT_EXTENSIONS = ['img', 'raw', 'bin', 'dsk'] as const
 export const VM_CDROM_ACCEPT_EXTENSIONS = ['iso'] as const
 export const VM_FLOPPY_ACCEPT_EXTENSIONS = ['img', 'ima', 'bin'] as const
@@ -155,4 +180,8 @@ export function isVmBootOrderId(value: string): value is VmBootOrderId {
 
 export function isVmNetworkId(value: string): value is VmNetworkId {
   return (VM_NETWORK_IDS as readonly string[]).includes(value)
+}
+
+export function isVmDisplayModeId(value: string): value is VmDisplayModeId {
+  return (VM_DISPLAY_MODE_IDS as readonly string[]).includes(value)
 }

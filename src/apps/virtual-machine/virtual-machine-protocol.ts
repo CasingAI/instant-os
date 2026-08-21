@@ -8,6 +8,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   start: 'instant-vm:start',
   stop: 'instant-vm:stop',
   reset: 'instant-vm:reset',
+  setDisplayMode: 'instant-vm:set-display-mode',
   started: 'instant-vm:started',
   stopped: 'instant-vm:stopped',
   error: 'instant-vm:error',
@@ -17,6 +18,11 @@ export const INSTANT_VM_MESSAGE_TYPE = {
 
 export type InstantVmMessageType =
   (typeof INSTANT_VM_MESSAGE_TYPE)[keyof typeof INSTANT_VM_MESSAGE_TYPE]
+
+/** 画面呈现比例，不影响 Guest 内部分辨率。 */
+export const INSTANT_VM_DISPLAY_MODES = ['stretch', 'contain', 'native'] as const
+
+export type InstantVmDisplayMode = (typeof INSTANT_VM_DISPLAY_MODES)[number]
 
 export const INSTANT_VM_BOOT_ORDER_IDS = [
   'auto',
@@ -48,6 +54,8 @@ export type InstantVmStartConfig = {
   speaker: boolean
   keyboard: boolean
   mouse: boolean
+  /** 启动时应用的显示比例；缺省按 contain。 */
+  displayMode?: InstantVmDisplayMode
   /** copy.sh Android profile sends Enter after 3s to skip isolinux. */
   sendEnterAfterMs?: number
 }
@@ -78,6 +86,12 @@ export type InstantVmStopMessage = {
 export type InstantVmResetMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.reset
   requestId: string
+}
+
+export type InstantVmSetDisplayModeMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.setDisplayMode
+  requestId: string
+  mode: InstantVmDisplayMode
 }
 
 export type InstantVmStartedMessage = {
@@ -149,6 +163,7 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmStartMessage
   | InstantVmStopMessage
   | InstantVmResetMessage
+  | InstantVmSetDisplayModeMessage
 
 export type InstantVmRuntimeToHostMessage =
   | InstantVmReadyMessage
@@ -211,7 +226,17 @@ export function isInstantVmStartConfig(value: unknown): value is InstantVmStartC
       return false
     }
   }
+  if (value.displayMode !== undefined && !isDisplayMode(value.displayMode)) {
+    return false
+  }
   return true
+}
+
+export function isDisplayMode(value: unknown): value is InstantVmDisplayMode {
+  return (
+    typeof value === 'string' &&
+    (INSTANT_VM_DISPLAY_MODES as readonly string[]).includes(value)
+  )
 }
 
 function isRequestId(value: unknown): value is string {
@@ -265,6 +290,17 @@ export function isInstantVmResetMessage(value: unknown): value is InstantVmReset
     isRecord(value) &&
     value.type === INSTANT_VM_MESSAGE_TYPE.reset &&
     isRequestId(value.requestId)
+  )
+}
+
+export function isInstantVmSetDisplayModeMessage(
+  value: unknown,
+): value is InstantVmSetDisplayModeMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.setDisplayMode &&
+    isRequestId(value.requestId) &&
+    isDisplayMode(value.mode)
   )
 }
 
@@ -355,7 +391,8 @@ export function isInstantVmHostToRuntimeMessage(
   return (
     isInstantVmStartMessage(value) ||
     isInstantVmStopMessage(value) ||
-    isInstantVmResetMessage(value)
+    isInstantVmResetMessage(value) ||
+    isInstantVmSetDisplayModeMessage(value)
   )
 }
 

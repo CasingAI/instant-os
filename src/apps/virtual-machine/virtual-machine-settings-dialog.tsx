@@ -8,11 +8,13 @@ import { WindowModal } from '../../window/window-modal.tsx'
 import {
   formatVmPathSummary,
   isVmBootOrderId,
+  isVmDisplayModeId,
   isVmMemoryMb,
   isVmNetworkId,
   isVmVgaMemoryMb,
   VM_BOOT_ORDER_CHOICES,
   VM_CDROM_ACCEPT_EXTENSIONS,
+  VM_DISPLAY_MODE_CHOICES,
   VM_FLOPPY_ACCEPT_EXTENSIONS,
   VM_HARD_DISK_ACCEPT_EXTENSIONS,
   VM_MEMORY_CHOICES,
@@ -344,6 +346,24 @@ export function VirtualMachineSettingsDialog({
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
             />
+            <SettingsChoiceField
+              label="显示比例"
+              value={draft.displayMode}
+              options={VM_DISPLAY_MODE_CHOICES}
+              onChange={(value) => {
+                if (isVmDisplayModeId(value)) {
+                  patch({ displayMode: value })
+                }
+              }}
+              wideLayout
+              presentation="form"
+              disabled={busy}
+              fieldClass="virtual-machine-settings__field"
+              labelClass="virtual-machine-settings__label"
+            />
+            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+              只影响画面呈现，不改客户机内部分辨率；运行中也能在工具栏切换。
+            </p>
             <SwitchRow
               label="ACPI"
               checked={draft.acpi}

@@ -26,6 +26,7 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     speaker: settings.speaker,
     keyboard: settings.keyboard,
     mouse: settings.mouse,
+    displayMode: settings.displayMode,
     sendEnterAfterMs: settings.cdromPath.trim() ? 3000 : undefined,
   }
 }

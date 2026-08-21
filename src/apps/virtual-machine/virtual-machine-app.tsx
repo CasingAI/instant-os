@@ -3,6 +3,7 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
   formatVmBackendLabel,
@@ -12,6 +13,7 @@ import {
 import {
   defaultVirtualMachineSettings,
   formatVmBootOrderLabel,
+  formatVmDisplayModeLabel,
   formatVmMemoryLabel,
   formatVmNetworkLabel,
   formatVmPathSummary,
@@ -27,6 +29,7 @@ import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
 import { useVirtualMachineRuntime } from './virtual-machine-runtime.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 import { VirtualMachineSettingsDialog } from './virtual-machine-settings-dialog.tsx'
+import { formatVmVgaResolution } from './virtual-machine-stats-format.ts'
 import {
   addVirtualMachine,
   nextVirtualMachineName,
@@ -36,11 +39,18 @@ import {
   updateVirtualMachine,
 } from './virtual-machine-store.ts'
 import type { VirtualMachineRecord, VirtualMachineSettings } from './virtual-machine-types.ts'
+import { VM_DISPLAY_MODE_IDS, type VmDisplayModeId } from './virtual-machine-types.ts'
 import './virtual-machine.css'
 
 const APP_ID = 'virtual-machine' as const
 const THEME = '#3d5a80'
 const POWER_HINT_MS = 4000
+
+const DISPLAY_MODE_SEGMENTS: readonly { id: VmDisplayModeId; label: string }[] =
+  VM_DISPLAY_MODE_IDS.map((id) => ({
+    id,
+    label: formatVmDisplayModeLabel(id),
+  }))
 
 type SettingsSession =
   | { mode: 'create'; initial: VirtualMachineSettings }
@@ -72,6 +82,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     start: startRuntime,
     stop: stopEmulator,
     reset: resetRuntime,
+    setDisplayMode,
     newRequestId,
   } = useVirtualMachineRuntime(runtimeOrigin)
   const [machines, setMachines] = useState<VirtualMachineRecord[]>([])
@@ -182,6 +193,28 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     await stopEmulator()
     setRunningId(undefined)
   }, [stopEmulator])
+
+  const handleDisplayMode = useCallback(
+    async (mode: VmDisplayModeId) => {
+      if (!selected) {
+        return
+      }
+      if (selectedRunning && runtimeReady) {
+        try {
+          await setDisplayMode(mode)
+        } catch (error) {
+          setPowerHint(error instanceof Error ? error.message : '切换显示比例失败')
+          return
+        }
+      }
+      await updateVirtualMachine(selected.id, {
+        ...settingsFromRecord(selected),
+        displayMode: mode,
+      })
+      setPowerHint(undefined)
+    },
+    [runtimeReady, selected, selectedRunning, setDisplayMode],
+  )
 
   const handleDelete = useCallback(() => {
     if (!selected) {
@@ -408,6 +441,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             重置
           </IosButton>
         </div>
+        {selected ? (
+          <SegmentedControl
+            value={selected.displayMode}
+            items={DISPLAY_MODE_SEGMENTS}
+            onChange={(mode) => void handleDisplayMode(mode)}
+            ariaLabel="显示比例"
+            className="virtual-machine__display-mode"
+          />
+        ) : null}
         <span class="virtual-machine__status">{formatStatus(selected, selectedRunning)}</span>
       </div>
       {bannerText ? (
@@ -499,6 +541,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               <div class="virtual-machine__inspector-item">
                 <dt>显存</dt>
                 <dd>{formatVmMemoryLabel(selected.vgaMemoryMb)}</dd>
+              </div>
+              <div class="virtual-machine__inspector-item">
+                <dt>分辨率</dt>
+                <dd>
+                  {selectedRunning && runtimeStats
+                    ? formatVmVgaResolution(runtimeStats)
+                    : '—'}
+                </dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>启动</dt>

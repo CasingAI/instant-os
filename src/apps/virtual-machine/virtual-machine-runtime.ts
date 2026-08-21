@@ -3,6 +3,7 @@ import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
   isInstantVmRuntimeToHostMessage,
+  type InstantVmDisplayMode,
   type InstantVmStartMessage,
   type InstantVmStatsSnapshot,
 } from './virtual-machine-protocol.ts'
@@ -118,7 +119,11 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   )
 
   const request = useCallback(
-    (message: { requestId: string; type?: string }, transfer: Transferable[] = [], timeoutMs = REQUEST_TIMEOUT_MS) => {
+    (
+      message: { requestId: string; type?: string; mode?: InstantVmDisplayMode },
+      transfer: Transferable[] = [],
+      timeoutMs = REQUEST_TIMEOUT_MS,
+    ) => {
       return new Promise<void>((resolve, reject) => {
         const timer = window.setTimeout(() => {
           pendingRef.current.delete(message.requestId)
@@ -172,6 +177,17 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     await request({ type: INSTANT_VM_MESSAGE_TYPE.reset, requestId: newRequestId() })
   }, [request])
 
+  const setDisplayMode = useCallback(
+    async (mode: InstantVmDisplayMode) => {
+      await request({
+        type: INSTANT_VM_MESSAGE_TYPE.setDisplayMode,
+        requestId: newRequestId(),
+        mode,
+      })
+    },
+    [request],
+  )
+
   return {
     iframeRef,
     ready,
@@ -180,6 +196,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     start,
     stop,
     reset,
+    setDisplayMode,
     newRequestId,
   }
 }
