@@ -3439,6 +3439,7 @@ export function GithubDesktopApp() {
         title="克隆仓库"
         wide
         scrollBody
+        align="top"
         panelClass="github-desktop__clone-modal"
         onClose={closeCloneDialog}
         actions={[
@@ -3609,6 +3610,7 @@ export function GithubDesktopApp() {
         title="设置"
         wide
         scrollBody
+        align="top"
         panelClass="github-desktop__prefs-modal"
         onClose={closePreferences}
         actions={[
