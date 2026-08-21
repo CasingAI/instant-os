@@ -520,7 +520,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                 title="虚拟机显示器"
                 src={runtimeOrigin}
                 referrerPolicy="origin"
-                sandbox="allow-scripts allow-same-origin allow-modals"
+                sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
                 allow="autoplay; fullscreen; pointer-lock"
               />
             ) : null}
