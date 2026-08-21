@@ -24,6 +24,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   const pendingRef = useRef(new Map<string, Pending>())
   const [ready, setReady] = useState(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
+  const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
 
   const failAll = useCallback((error: Error) => {
     for (const pending of pendingRef.current.values()) {
@@ -35,6 +36,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   useEffect(() => {
     setReady(false)
     setStats(undefined)
+    setBootProgress(undefined)
     failAll(new Error('运行时已重新加载'))
   }, [failAll, origin])
 
@@ -57,6 +59,11 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
       const message = event.data
       if (message.type === INSTANT_VM_MESSAGE_TYPE.ready) {
         setReady(true)
+        return
+      }
+
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.progress) {
+        setBootProgress(message.message)
         return
       }
 
@@ -111,7 +118,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   )
 
   const request = useCallback(
-    (message: { requestId: string }, transfer: Transferable[] = [], timeoutMs = REQUEST_TIMEOUT_MS) => {
+    (message: { requestId: string; type?: string }, transfer: Transferable[] = [], timeoutMs = REQUEST_TIMEOUT_MS) => {
       return new Promise<void>((resolve, reject) => {
         const timer = window.setTimeout(() => {
           pendingRef.current.delete(message.requestId)
@@ -142,6 +149,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   const start = useCallback(
     async (message: InstantVmStartMessage) => {
       setStats(undefined)
+      setBootProgress(undefined)
       const timeoutMs =
         message.hdaUrl || message.cdromUrl || message.fdaUrl || message.stateUrl
           ? REMOTE_DISK_REQUEST_TIMEOUT_MS
@@ -156,6 +164,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
       await request({ type: INSTANT_VM_MESSAGE_TYPE.stop, requestId: newRequestId() })
     } finally {
       setStats(undefined)
+      setBootProgress(undefined)
     }
   }, [request])
 
@@ -167,6 +176,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     iframeRef,
     ready,
     stats,
+    bootProgress,
     start,
     stop,
     reset,

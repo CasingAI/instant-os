@@ -68,6 +68,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     iframeRef,
     ready: runtimeReady,
     stats: runtimeStats,
+    bootProgress,
     start: startRuntime,
     stop: stopEmulator,
     reset: resetRuntime,
@@ -381,6 +382,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             : '已关机。点开机启动。'
           : '选择左侧的虚拟机，或新建一台。'
 
+  const bannerText = powerBusy && bootProgress ? bootProgress : powerHint
+
   return (
     <div class="virtual-machine">
       <div class="virtual-machine__toolbar">
@@ -407,9 +410,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         </div>
         <span class="virtual-machine__status">{formatStatus(selected, selectedRunning)}</span>
       </div>
-      {powerHint ? (
+      {bannerText ? (
         <div class="virtual-machine__banner" role="status">
-          {powerHint}
+          {bannerText}
         </div>
       ) : null}
       <div class="virtual-machine__body">
@@ -471,7 +474,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                 src={runtimeOrigin}
                 referrerPolicy="origin"
                 sandbox="allow-scripts allow-same-origin allow-modals"
-                allow="autoplay"
+                allow="autoplay; fullscreen; pointer-lock"
               />
             ) : null}
             {screenMessage ? (

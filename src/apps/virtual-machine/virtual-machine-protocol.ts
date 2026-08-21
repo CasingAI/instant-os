@@ -11,6 +11,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   started: 'instant-vm:started',
   stopped: 'instant-vm:stopped',
   error: 'instant-vm:error',
+  progress: 'instant-vm:progress',
   stats: 'instant-vm:stats',
 } as const
 
@@ -95,6 +96,11 @@ export type InstantVmErrorMessage = {
   message: string
 }
 
+export type InstantVmProgressMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.progress
+  message: string
+}
+
 export const INSTANT_VM_IDE_LABELS = ['none', 'hdd', 'cdrom'] as const
 
 export type InstantVmIdeLabel = (typeof INSTANT_VM_IDE_LABELS)[number]
@@ -149,6 +155,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmStartedMessage
   | InstantVmStoppedMessage
   | InstantVmErrorMessage
+  | InstantVmProgressMessage
   | InstantVmStatsMessage
 
 const MEMORY_MB_OPTIONS = [16, 32, 64, 128, 256, 512] as const
@@ -372,6 +379,9 @@ export function isInstantVmRuntimeToHostMessage(
       return false
     }
     return value.requestId === undefined || isRequestId(value.requestId)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.progress) {
+    return typeof value.message === 'string' && value.message.trim().length > 0
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.stats) {
     return isInstantVmStatsMessage(value)
