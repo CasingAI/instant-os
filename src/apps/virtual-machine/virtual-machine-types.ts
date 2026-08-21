@@ -48,6 +48,13 @@ export type VmNetworkId = (typeof VM_NETWORK_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_NETWORK: VmNetworkId = 'none'
 
+/** `off` 网卡不接线（保持离线）；`fetch` 使用 V86 内置 fetch 后端（仅 HTTP，需目标站放行 CORS）。 */
+export const VM_NETWORK_BACKEND_IDS = ['off', 'fetch'] as const
+
+export type VmNetworkBackendId = (typeof VM_NETWORK_BACKEND_IDS)[number]
+
+export const DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND: VmNetworkBackendId = 'off'
+
 export const DEFAULT_VIRTUAL_MACHINE_ID = 'vm-default'
 export const DEFAULT_VIRTUAL_MACHINE_NAME = '未命名虚拟机'
 
@@ -66,6 +73,7 @@ export type VirtualMachineSettings = {
   keyboard: boolean
   mouse: boolean
   network: VmNetworkId
+  networkBackend: VmNetworkBackendId
   displayMode: VmDisplayModeId
   hdaPath: string
   cdromPath: string

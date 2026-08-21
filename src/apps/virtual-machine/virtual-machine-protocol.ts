@@ -45,6 +45,22 @@ export const INSTANT_VM_BOOT_ORDER_TO_V86: Record<InstantVmBootOrderId, number> 
   'hdd-cd-floppy': 0x132,
 }
 
+/**
+ * 网卡形态；缺省按 none（不挂网卡）。
+ * Keep in sync with instant-app `VmNetworkId`。
+ */
+export const INSTANT_VM_NETWORK_IDS = ['none', 'ne2k', 'virtio'] as const
+
+export type InstantVmNetworkId = (typeof INSTANT_VM_NETWORK_IDS)[number]
+
+/**
+ * 网络后端；缺省按 off（不接线）。
+ * Keep in sync with instant-app `VmNetworkBackendId`。
+ */
+export const INSTANT_VM_NETWORK_BACKEND_IDS = ['off', 'fetch'] as const
+
+export type InstantVmNetworkBackendId = (typeof INSTANT_VM_NETWORK_BACKEND_IDS)[number]
+
 export type InstantVmStartConfig = {
   memoryMb: number
   vgaMemoryMb: number
@@ -54,6 +70,10 @@ export type InstantVmStartConfig = {
   speaker: boolean
   keyboard: boolean
   mouse: boolean
+  /** 网卡形态；缺省按 none。 */
+  network?: InstantVmNetworkId
+  /** 网络后端；缺省按 off。 */
+  networkBackend?: InstantVmNetworkBackendId
   /** 启动时应用的显示比例；缺省按 contain。 */
   displayMode?: InstantVmDisplayMode
   /** copy.sh Android profile sends Enter after 3s to skip isolinux. */
@@ -187,6 +207,20 @@ function isBootOrderId(value: unknown): value is InstantVmBootOrderId {
   )
 }
 
+function isNetworkId(value: unknown): value is InstantVmNetworkId {
+  return (
+    typeof value === 'string' &&
+    (INSTANT_VM_NETWORK_IDS as readonly string[]).includes(value)
+  )
+}
+
+function isNetworkBackendId(value: unknown): value is InstantVmNetworkBackendId {
+  return (
+    typeof value === 'string' &&
+    (INSTANT_VM_NETWORK_BACKEND_IDS as readonly string[]).includes(value)
+  )
+}
+
 function isPositiveIntIn<T extends number>(
   value: unknown,
   allowed: readonly T[],
@@ -227,6 +261,12 @@ export function isInstantVmStartConfig(value: unknown): value is InstantVmStartC
     }
   }
   if (value.displayMode !== undefined && !isDisplayMode(value.displayMode)) {
+    return false
+  }
+  if (value.network !== undefined && !isNetworkId(value.network)) {
+    return false
+  }
+  if (value.networkBackend !== undefined && !isNetworkBackendId(value.networkBackend)) {
     return false
   }
   return true

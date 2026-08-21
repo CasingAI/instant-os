@@ -43,6 +43,7 @@ function testNormalizeMissingSeedsDefault(): void {
   assert.equal(machines[0]?.vgaMemoryMb, DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB)
   assert.equal(machines[0]?.bootOrder, 'auto')
   assert.equal(machines[0]?.network, 'none')
+  assert.equal(machines[0]?.networkBackend, 'off')
   assert.equal(machines[0]?.hdaPath, '')
   assert.equal(machines[0]?.statePath, '')
   assert.equal(machines[0]?.speaker, true)
@@ -69,6 +70,7 @@ function testNormalizeDropsGarbageAndDuplicates(): void {
       keyboard: false,
       mouse: false,
       network: 'virtio',
+      networkBackend: 'fetch',
       hdaPath: 'user/disks/a.img',
       cdromPath: '/user/iso/linux.iso',
       fdaPath: '   ',
@@ -77,7 +79,7 @@ function testNormalizeDropsGarbageAndDuplicates(): void {
     { id: 'a', name: 'Dup' },
     { name: 'no-id' },
     { id: 'b', name: '   ' },
-    { id: 'c', name: 'Charlie', backend: 'v86' },
+    { id: 'c', name: 'Charlie', backend: 'v86', networkBackend: 'nope' },
   ])
   assert.equal(machines.length, 2)
   assert.equal(machines[0]?.id, 'a')
@@ -92,6 +94,7 @@ function testNormalizeDropsGarbageAndDuplicates(): void {
   assert.equal(machines[0]?.keyboard, false)
   assert.equal(machines[0]?.mouse, false)
   assert.equal(machines[0]?.network, 'virtio')
+  assert.equal(machines[0]?.networkBackend, 'fetch')
   assert.equal(machines[0]?.hdaPath, '/user/disks/a.img')
   assert.equal(machines[0]?.cdromPath, '/user/iso/linux.iso')
   assert.equal(machines[0]?.fdaPath, '')
@@ -100,6 +103,7 @@ function testNormalizeDropsGarbageAndDuplicates(): void {
   assert.equal(machines[1]?.id, 'c')
   assert.equal(machines[1]?.memoryMb, DEFAULT_VIRTUAL_MACHINE_MEMORY_MB)
   assert.equal(machines[1]?.network, 'none')
+  assert.equal(machines[1]?.networkBackend, 'off')
 }
 
 function testNormalizeKeepsHttpUrls(): void {
@@ -171,6 +175,7 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
     ...defaultVirtualMachineSettings('改名'),
     memoryMb: 256,
     network: 'ne2k',
+    networkBackend: 'fetch',
     hdaPath: '/user/vm/disk.img',
     acpi: true,
   })
@@ -178,6 +183,7 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
   assert.equal(updated?.name, '改名')
   assert.equal(updated?.memoryMb, 256)
   assert.equal(updated?.network, 'ne2k')
+  assert.equal(updated?.networkBackend, 'fetch')
   assert.equal(updated?.hdaPath, '/user/vm/disk.img')
   assert.equal(updated?.acpi, true)
   assert.equal(updated?.createdAt, created.createdAt)

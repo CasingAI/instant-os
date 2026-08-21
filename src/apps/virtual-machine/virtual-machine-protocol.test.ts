@@ -160,6 +160,36 @@ function testStatsFormatting(): void {
   )
 }
 
+function testNetworkFields(): void {
+  const withFetch = {
+    ...defaultVirtualMachineSettings(),
+    network: 'virtio' as const,
+    networkBackend: 'fetch' as const,
+  }
+  const config = settingsToStartConfig(withFetch)
+  assert.equal(config.network, 'virtio')
+  assert.equal(config.networkBackend, 'fetch')
+
+  const message = buildStartMessage('req-net', withFetch, {
+    hdaUrl: 'https://i.copy.sh/reactos-v3/.img',
+  })
+  assert.equal(isInstantVmStartMessage(message), true)
+  assert.equal(
+    isInstantVmStartMessage({
+      ...message,
+      config: { ...config, network: 'e1000' },
+    }),
+    false,
+  )
+  assert.equal(
+    isInstantVmStartMessage({
+      ...message,
+      config: { ...config, networkBackend: 'wsproxy' },
+    }),
+    false,
+  )
+}
+
 function testOriginAllowList(): void {
   assert.deepEqual(parseAllowedOrigins('', ['http://localhost:6173']), ['http://localhost:6173'])
   assert.equal(isAllowedOrigin('http://localhost:6175', ['http://localhost:6175']), true)
@@ -211,6 +241,7 @@ testStartMessageTransfers()
 testReactOsRemoteStartMessage()
 testPathSummaryForRemoteUrl()
 testStatsFormatting()
+testNetworkFields()
 testOriginAllowList()
 testStatsMessage()
 console.log('virtual-machine-protocol.test.ts ok')

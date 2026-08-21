@@ -5,17 +5,20 @@ import {
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
   DEFAULT_VIRTUAL_MACHINE_NETWORK,
+  DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
   DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB,
   VM_BACKEND_IDS,
   VM_BOOT_ORDER_IDS,
   VM_DISPLAY_MODE_IDS,
   VM_MEMORY_MB_OPTIONS,
+  VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
   VM_VGA_MEMORY_MB_OPTIONS,
   type VmBackendId,
   type VmBootOrderId,
   type VmDisplayModeId,
   type VmMemoryMb,
+  type VmNetworkBackendId,
   type VmNetworkId,
   type VmVgaMemoryMb,
   type VirtualMachineRecord,
@@ -37,6 +40,7 @@ export function defaultVirtualMachineSettings(
     keyboard: true,
     mouse: true,
     network: DEFAULT_VIRTUAL_MACHINE_NETWORK,
+    networkBackend: DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
     displayMode: DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
     hdaPath: '',
     cdromPath: '',
@@ -58,6 +62,7 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     keyboard: record.keyboard,
     mouse: record.mouse,
     network: record.network,
+    networkBackend: record.networkBackend,
     displayMode: record.displayMode,
     hdaPath: record.hdaPath,
     cdromPath: record.cdromPath,
@@ -81,6 +86,11 @@ const NETWORK_LABELS: Record<VmNetworkId, string> = {
   virtio: 'VirtIO（现代 Linux）',
 }
 
+const NETWORK_BACKEND_LABELS: Record<VmNetworkBackendId, string> = {
+  off: '关闭',
+  fetch: 'Fetch（直接连通，仅 HTTP）',
+}
+
 const DISPLAY_MODE_LABELS: Record<VmDisplayModeId, string> = {
   stretch: '拉伸',
   contain: '等比',
@@ -97,6 +107,10 @@ export function formatVmBootOrderLabel(id: VmBootOrderId): string {
 
 export function formatVmNetworkLabel(id: VmNetworkId): string {
   return NETWORK_LABELS[id]
+}
+
+export function formatVmNetworkBackendLabel(id: VmNetworkBackendId): string {
+  return NETWORK_BACKEND_LABELS[id]
 }
 
 export function formatVmMemoryLabel(mb: number): string {
@@ -147,6 +161,12 @@ export const VM_NETWORK_CHOICES: readonly SettingsChoiceOption[] = VM_NETWORK_ID
   label: formatVmNetworkLabel(id),
 }))
 
+export const VM_NETWORK_BACKEND_CHOICES: readonly SettingsChoiceOption[] =
+  VM_NETWORK_BACKEND_IDS.map((id) => ({
+    id,
+    label: formatVmNetworkBackendLabel(id),
+  }))
+
 export const VM_DISPLAY_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_DISPLAY_MODE_IDS.map(
   (id) => ({
     id,
@@ -180,6 +200,10 @@ export function isVmBootOrderId(value: string): value is VmBootOrderId {
 
 export function isVmNetworkId(value: string): value is VmNetworkId {
   return (VM_NETWORK_IDS as readonly string[]).includes(value)
+}
+
+export function isVmNetworkBackendId(value: string): value is VmNetworkBackendId {
+  return (VM_NETWORK_BACKEND_IDS as readonly string[]).includes(value)
 }
 
 export function isVmDisplayModeId(value: string): value is VmDisplayModeId {

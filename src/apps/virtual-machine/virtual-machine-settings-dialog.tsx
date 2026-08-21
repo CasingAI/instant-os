@@ -6,10 +6,13 @@ import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import {
+  formatVmNetworkBackendLabel,
+  formatVmNetworkLabel,
   formatVmPathSummary,
   isVmBootOrderId,
   isVmDisplayModeId,
   isVmMemoryMb,
+  isVmNetworkBackendId,
   isVmNetworkId,
   isVmVgaMemoryMb,
   VM_BOOT_ORDER_CHOICES,
@@ -18,6 +21,7 @@ import {
   VM_FLOPPY_ACCEPT_EXTENSIONS,
   VM_HARD_DISK_ACCEPT_EXTENSIONS,
   VM_MEMORY_CHOICES,
+  VM_NETWORK_BACKEND_CHOICES,
   VM_NETWORK_CHOICES,
   VM_STATE_ACCEPT_EXTENSIONS,
   VM_VGA_MEMORY_CHOICES,
@@ -79,6 +83,15 @@ const DRIVE_SOURCE_ITEMS = VM_DRIVE_SOURCE_IDS.map((id) => ({
   label: VM_DRIVE_SOURCE_LABELS[id],
 }))
 
+type VmDeviceId = 'network' | 'speaker' | 'keyboard' | 'mouse'
+
+const DEVICE_ITEMS: readonly { id: VmDeviceId; label: string }[] = [
+  { id: 'network', label: '网络' },
+  { id: 'speaker', label: '扬声器' },
+  { id: 'keyboard', label: '键盘' },
+  { id: 'mouse', label: '鼠标' },
+]
+
 function cloneSettings(settings: VirtualMachineSettings): VirtualMachineSettings {
   return { ...settings }
 }
@@ -118,6 +131,7 @@ export function VirtualMachineSettingsDialog({
   const [draft, setDraft] = useState<VirtualMachineSettings>(() => cloneSettings(initial))
   const [tab, setTab] = useState<SettingsTab>('general')
   const [selectedDrive, setSelectedDrive] = useState<VmDriveId>('hdaPath')
+  const [selectedDevice, setSelectedDevice] = useState<VmDeviceId>('network')
   const [sourceByDrive, setSourceByDrive] = useState<Record<VmDriveId, VmDriveSourceId>>(() =>
     inferDriveSources(initial),
   )
@@ -131,6 +145,7 @@ export function VirtualMachineSettingsDialog({
     setDraft(cloneSettings(initial))
     setTab('general')
     setSelectedDrive('hdaPath')
+    setSelectedDevice('network')
     setSourceByDrive(inferDriveSources(initial))
     setError(undefined)
     setBusy(false)
@@ -529,42 +544,127 @@ export function VirtualMachineSettingsDialog({
         ) : null}
         {tab === 'devices' ? (
           <div class="virtual-machine-settings__pane">
-            <SettingsChoiceField
-              label="网卡"
-              value={draft.network}
-              options={VM_NETWORK_CHOICES}
-              onChange={(value) => {
-                if (isVmNetworkId(value)) {
-                  patch({ network: value })
-                }
-              }}
-              wideLayout
-              presentation="form"
-              disabled={busy}
-              fieldClass="virtual-machine-settings__field"
-              labelClass="virtual-machine-settings__label"
-            />
             <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              联网尚未接入。即使选择网卡，开机也会按离线运行。
+              左边选设备，右边改配置。网络后端选 Fetch 后，客户机里配 HTTP 代理
+              <code> 10.0.2.2:8000 </code>才能出网。
             </p>
-            <SwitchRow
-              label="扬声器"
-              checked={draft.speaker}
-              disabled={busy}
-              onChange={(speaker) => patch({ speaker })}
-            />
-            <SwitchRow
-              label="键盘"
-              checked={draft.keyboard}
-              disabled={busy}
-              onChange={(keyboard) => patch({ keyboard })}
-            />
-            <SwitchRow
-              label="鼠标"
-              checked={draft.mouse}
-              disabled={busy}
-              onChange={(mouse) => patch({ mouse })}
-            />
+            <div class="virtual-machine-settings__storage virtual-machine-settings__storage--devices">
+              <div class="virtual-machine-settings__drives" role="listbox" aria-label="设备">
+                {DEVICE_ITEMS.map((item) => {
+                  const active = item.id === selectedDevice
+                  const meta =
+                    item.id === 'network'
+                      ? draft.network === 'none'
+                        ? formatVmNetworkLabel(draft.network)
+                        : `${formatVmNetworkLabel(draft.network)} · ${formatVmNetworkBackendLabel(
+                            draft.networkBackend,
+                          )}`
+                      : item.id === 'speaker'
+                        ? draft.speaker
+                          ? '开启'
+                          : '关闭'
+                        : item.id === 'keyboard'
+                          ? draft.keyboard
+                            ? '开启'
+                            : '关闭'
+                          : draft.mouse
+                            ? '开启'
+                            : '关闭'
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      class={`virtual-machine-settings__drive${
+                        active ? ' virtual-machine-settings__drive--active' : ''
+                      }`}
+                      disabled={busy}
+                      onClick={() => setSelectedDevice(item.id)}
+                    >
+                      <span class="virtual-machine-settings__drive-name">{item.label}</span>
+                      <span class="virtual-machine-settings__drive-meta">{meta}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div class="virtual-machine-settings__source">
+                <span class="virtual-machine-settings__source-title">
+                  {DEVICE_ITEMS.find((item) => item.id === selectedDevice)?.label}
+                </span>
+                {selectedDevice === 'network' ? (
+                  <>
+                    <SettingsChoiceField
+                      label="网卡形态"
+                      value={draft.network}
+                      options={VM_NETWORK_CHOICES}
+                      onChange={(value) => {
+                        if (isVmNetworkId(value)) {
+                          patch(
+                            value === 'none'
+                              ? { network: value, networkBackend: 'off' }
+                              : { network: value },
+                          )
+                        }
+                      }}
+                      wideLayout
+                      presentation="form"
+                      disabled={busy}
+                      fieldClass="virtual-machine-settings__field"
+                      labelClass="virtual-machine-settings__label"
+                    />
+                    <SettingsChoiceField
+                      label="网络后端"
+                      value={draft.networkBackend}
+                      options={VM_NETWORK_BACKEND_CHOICES}
+                      onChange={(value) => {
+                        if (isVmNetworkBackendId(value)) {
+                          patch({ networkBackend: value })
+                        }
+                      }}
+                      wideLayout
+                      presentation="form"
+                      disabled={busy || draft.network === 'none'}
+                      fieldClass="virtual-machine-settings__field"
+                      labelClass="virtual-machine-settings__label"
+                    />
+                    <p class="virtual-machine-settings__hint">
+                      Fetch 后端（仅 HTTP）由浏览器直接发起请求，目标站点需放行 CORS；第一版不支持系统代理。
+                      {draft.network !== 'none'
+                        ? ' 客户机内把 HTTP 代理指向 10.0.2.2:8000 即可出网。'
+                        : ''}
+                    </p>
+                  </>
+                ) : null}
+                {selectedDevice === 'speaker' ? (
+                  <SwitchRow
+                    label="扬声器"
+                    checked={draft.speaker}
+                    disabled={busy}
+                    detail="PC 喇叭与声音输出，经 iframe 播放。"
+                    onChange={(speaker) => patch({ speaker })}
+                  />
+                ) : null}
+                {selectedDevice === 'keyboard' ? (
+                  <SwitchRow
+                    label="键盘"
+                    checked={draft.keyboard}
+                    disabled={busy}
+                    detail="关闭后客户机收不到按键。"
+                    onChange={(keyboard) => patch({ keyboard })}
+                  />
+                ) : null}
+                {selectedDevice === 'mouse' ? (
+                  <SwitchRow
+                    label="鼠标"
+                    checked={draft.mouse}
+                    disabled={busy}
+                    detail="关闭后客户机收不到指针。"
+                    onChange={(mouse) => patch({ mouse })}
+                  />
+                ) : null}
+              </div>
+            </div>
           </div>
         ) : null}
       </WindowModal>

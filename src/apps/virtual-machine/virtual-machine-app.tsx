@@ -15,6 +15,7 @@ import {
   formatVmBootOrderLabel,
   formatVmDisplayModeLabel,
   formatVmMemoryLabel,
+  formatVmNetworkBackendLabel,
   formatVmNetworkLabel,
   formatVmPathSummary,
   settingsFromRecord,
@@ -306,7 +307,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           await startRuntime(message)
           setRunningId(machine.id)
           setPowerHint(
-            machine.network === 'none' ? undefined : '联网尚未接入，已按离线启动',
+            machine.network === 'none'
+              ? undefined
+              : machine.networkBackend === 'off'
+                ? '已挂网卡但未选网络后端，按离线启动'
+                : undefined,
           )
         } catch (error) {
           setPowerHint(error instanceof Error ? error.message : '操作失败')
@@ -556,7 +561,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>网卡</dt>
-                <dd>{formatVmNetworkLabel(selected.network)}</dd>
+                <dd>
+                  {selected.network === 'none'
+                    ? formatVmNetworkLabel(selected.network)
+                    : `${formatVmNetworkLabel(selected.network)} · ${formatVmNetworkBackendLabel(
+                        selected.networkBackend,
+                      )}`}
+                </dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>硬盘</dt>

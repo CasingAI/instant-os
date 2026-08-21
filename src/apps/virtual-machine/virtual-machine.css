@@ -479,6 +479,10 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
+.virtual-machine-settings__storage--devices {
+  min-height: 220px;
+}
+
 .virtual-machine-settings__drives {
   display: flex;
   flex-direction: column;
