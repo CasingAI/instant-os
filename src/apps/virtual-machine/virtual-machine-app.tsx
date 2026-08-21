@@ -20,14 +20,10 @@ import {
   formatVmPathSummary,
   settingsFromRecord,
 } from './virtual-machine-config.ts'
-import {
-  buildStartMessage,
-  loadVirtualMachineDisks,
-  virtualMachineHasBootMedia,
-} from './virtual-machine-disks.ts'
+import { virtualMachineHasBootMedia } from './virtual-machine-disks.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
-import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
-import { useVirtualMachineRuntime } from './virtual-machine-runtime.ts'
+import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
+import { pickDisplayedMachineId, useVirtualMachineRuntimePool } from './virtual-machine-runtime.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 import { VirtualMachineSettingsDialog } from './virtual-machine-settings-dialog.tsx'
 import { formatVmVgaResolution } from './virtual-machine-stats-format.ts'
@@ -75,20 +71,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const isActiveWindow = windowId === undefined || windowId === activeWindowId
   const modal = useWindowModal()
   const runtimeOrigin = getVmRuntimeOrigin()
-  const {
-    iframeRef,
-    ready: runtimeReady,
-    stats: runtimeStats,
-    bootProgress,
-    start: startRuntime,
-    stop: stopEmulator,
-    reset: resetRuntime,
-    setDisplayMode,
-    newRequestId,
-  } = useVirtualMachineRuntime(runtimeOrigin)
+  const pool = useVirtualMachineRuntimePool(runtimeOrigin)
   const [machines, setMachines] = useState<VirtualMachineRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
-  const [runningId, setRunningId] = useState<string | undefined>(undefined)
   const [powerBusy, setPowerBusy] = useState(false)
   const [powerHint, setPowerHint] = useState<string | undefined>(undefined)
   const [ready, setReady] = useState(false)
@@ -135,13 +120,28 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [machines, selectedId],
   )
   const selectedBackend = selected ? getVmBackend(selected.backend) : undefined
-  const selectedRunning = Boolean(selected && runningId === selected.id)
+  const runningMachines = useMemo(
+    () => machines.filter((machine) => pool.runningIds.includes(machine.id)),
+    [machines, pool.runningIds],
+  )
+  const selectedRunning = Boolean(selected && pool.runningIds.includes(selected.id))
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
   const canStart = Boolean(
-    hasSelection && !powerBusy && !selectedRunning && (runtimeOrigin ? runtimeReady : true),
+    hasSelection &&
+      !powerBusy &&
+      !selectedRunning &&
+      selectedBackend?.available &&
+      Boolean(runtimeOrigin),
   )
   const canStop = Boolean(hasSelection && selectedRunning && !powerBusy)
+  const canReset = canStop
+
+  const displayedId = pickDisplayedMachineId(selected?.id, pool.runningIds)
+  const displayedMachine = runningMachines.find((machine) => machine.id === displayedId)
+  const displayedSnapshot = pool.snapshots.get(displayedId ?? '')
+  const displayedRunning = Boolean(displayedId !== undefined)
+  const displayedBusy = Boolean(displayedSnapshot && displayedRunning && !displayedSnapshot.ready)
 
   const handleNew = useCallback(() => {
     setSettingsSession((current) => {
@@ -190,19 +190,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [settingsSession],
   )
 
-  const stopRuntime = useCallback(async () => {
-    await stopEmulator()
-    setRunningId(undefined)
-  }, [stopEmulator])
-
   const handleDisplayMode = useCallback(
     async (mode: VmDisplayModeId) => {
       if (!selected) {
         return
       }
-      if (selectedRunning && runtimeReady) {
+      if (selectedRunning) {
         try {
-          await setDisplayMode(mode)
+          await pool.setActiveDisplayMode(selected.id, mode)
         } catch (error) {
           setPowerHint(error instanceof Error ? error.message : '切换显示比例失败')
           return
@@ -214,7 +209,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       })
       setPowerHint(undefined)
     },
-    [runtimeReady, selected, selectedRunning, setDisplayMode],
+    [pool, selected, selectedRunning],
   )
 
   const handleDelete = useCallback(() => {
@@ -234,9 +229,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       if (!confirmed) {
         return
       }
-      if (runningId === target.id) {
+      if (pool.runningIds.includes(target.id)) {
         try {
-          await stopRuntime()
+          await pool.shutdown(target.id)
         } catch (error) {
           setPowerHint(error instanceof Error ? error.message : '关机失败')
           return
@@ -248,7 +243,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       setSelectedId(next?.id)
       setPowerHint(undefined)
     })()
-  }, [machines, modal, runningId, selected, stopRuntime])
+  }, [machines, modal, pool, selected])
 
   const handlePower = useCallback(
     (action: 'start' | 'stop' | 'reset') => {
@@ -259,23 +254,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         setPowerHint(vmPowerUnavailableMessage(action))
         return
       }
-      if (!runtimeReady) {
-        setPowerHint('模拟器尚未就绪')
-        return
-      }
       if (action === 'start') {
-        if (runningId && runningId !== selected.id) {
-          setPowerHint('请先关闭当前虚拟机')
-          return
-        }
-        if (runningId === selected.id) {
+        if (pool.runningIds.includes(selected.id)) {
           return
         }
         if (!virtualMachineHasBootMedia(selected)) {
           setPowerHint('请先在设置里挂载硬盘、光盘或软盘')
           return
         }
-      } else if (runningId !== selected.id) {
+      } else if (!pool.runningIds.includes(selected.id)) {
         setPowerHint(action === 'stop' ? '这台虚拟机未在运行' : '请先开机')
         return
       }
@@ -285,34 +272,17 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         setPowerBusy(true)
         try {
           if (action === 'stop') {
-            await stopRuntime()
+            await pool.shutdown(machine.id)
             setPowerHint(undefined)
             return
           }
           if (action === 'reset') {
-            await resetRuntime()
+            await pool.resetInstance(machine.id)
             setPowerHint(undefined)
             return
           }
-          const hasRemoteDisk = [
-            machine.hdaPath,
-            machine.cdromPath,
-            machine.fdaPath,
-            machine.statePath,
-          ].some(isHttpDiskUrl)
-          setPowerHint(hasRemoteDisk ? '正在启动模拟器…' : '正在读取镜像…')
-          const disks = await loadVirtualMachineDisks(machine)
-          setPowerHint('正在启动模拟器…')
-          const message = buildStartMessage(newRequestId(), machine, disks)
-          await startRuntime(message)
-          setRunningId(machine.id)
-          setPowerHint(
-            machine.network === 'none'
-              ? undefined
-              : machine.networkBackend === 'off'
-                ? '已挂网卡但未选网络后端，按离线启动'
-                : undefined,
-          )
+          await pool.boot(machine)
+          setPowerHint(undefined)
         } catch (error) {
           setPowerHint(error instanceof Error ? error.message : '操作失败')
         } finally {
@@ -320,17 +290,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         }
       })()
     },
-    [
-      newRequestId,
-      resetRuntime,
-      runningId,
-      runtimeOrigin,
-      runtimeReady,
-      selected,
-      selectedBackend,
-      startRuntime,
-      stopRuntime,
-    ],
+    [pool, runtimeOrigin, selected, selectedBackend],
   )
 
   const menuBar = useMemo((): MenuDefinition[] => {
@@ -384,13 +344,23 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           {
             type: 'action',
             label: '重置',
-            disabled: !canStop,
+            disabled: !canReset,
             onClick: () => handlePower('reset'),
           },
         ],
       },
     ]
-  }, [canStart, canStop, handleDelete, handleNew, handlePower, handleSettings, hasSelection, powerBusy])
+  }, [
+    canReset,
+    canStart,
+    canStop,
+    handleDelete,
+    handleNew,
+    handlePower,
+    handleSettings,
+    hasSelection,
+    powerBusy,
+  ])
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)
 
@@ -412,15 +382,30 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     ? '正在加载…'
     : !runtimeOrigin
       ? '未配置虚拟机运行时'
-      : !runtimeReady
-        ? '正在连接模拟器…'
-        : selected
-          ? selectedRunning
-            ? undefined
-            : '已关机。点开机启动。'
+      : runningMachines.length === 0
+        ? selected
+          ? '已关机。点开机启动。'
           : '选择左侧的虚拟机，或新建一台。'
+        : undefined
 
-  const bannerText = powerBusy && bootProgress ? bootProgress : powerHint
+  const bannerText = (() => {
+    if (selected && pool.runningIds.includes(selected.id)) {
+      const snapshot = pool.snapshots.get(selected.id)
+      if (!snapshot?.ready) {
+        return '正在连接模拟器…'
+      }
+      return snapshot.bootProgress ?? pool.hints.get(selected.id) ?? undefined
+    }
+    return powerHint
+  })()
+
+  const focusMachine = useCallback(
+    (machineId: string) => {
+      setSelectedId(machineId)
+      setPowerHint(undefined)
+    },
+    [],
+  )
 
   return (
     <div class="virtual-machine">
@@ -442,7 +427,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('stop')}>
             关机
           </IosButton>
-          <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('reset')}>
+          <IosButton size="compact" disabled={!canReset} onClick={() => handlePower('reset')}>
             重置
           </IosButton>
         </div>
@@ -471,7 +456,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             <ul class="virtual-machine__list">
               {machines.map((machine) => {
                 const active = machine.id === selectedId
-                const running = machine.id === runningId
+                const running = pool.runningIds.includes(machine.id)
                 return (
                   <li key={machine.id}>
                     <button
@@ -482,18 +467,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                           : 'virtual-machine__row'
                       }
                       aria-current={active ? 'true' : undefined}
-                      onClick={() => {
-                        setSelectedId(machine.id)
-                        setPowerHint(undefined)
-                      }}
+                      onClick={() => focusMachine(machine.id)}
                       onDblClick={() => {
-                        setSelectedId(machine.id)
+                        focusMachine(machine.id)
                         setSettingsSession({
                           mode: 'edit',
                           id: machine.id,
                           initial: settingsFromRecord(machine),
                         })
-                        setPowerHint(undefined)
                       }}
                     >
                       <span class="virtual-machine__row-name">{machine.name}</span>
@@ -508,78 +489,116 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           )}
         </aside>
         <section class="virtual-machine__display-pane" aria-label="显示器">
-          <div class="virtual-machine__screen">
-            {runtimeOrigin ? (
-              <iframe
-                ref={iframeRef}
-                class={
-                  selectedRunning
-                    ? 'virtual-machine__frame'
-                    : 'virtual-machine__frame virtual-machine__frame--idle'
-                }
-                title="虚拟机显示器"
-                src={runtimeOrigin}
-                referrerPolicy="origin"
-                sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
-                allow="autoplay; fullscreen; pointer-lock"
-              />
-            ) : null}
-            {screenMessage ? (
-              <div class="virtual-machine__screen-message">{screenMessage}</div>
+          <div class="virtual-machine__monitors">
+            {runningMachines.length === 1 ? (
+              <div class="virtual-machine__screen virtual-machine__screen--single">
+                <VmRuntimeSurface
+                  machineId={runningMachines[0].id}
+                  origin={runtimeOrigin}
+                  startMessage={pool.startMessages.get(runningMachines[0].id)}
+                  onRegister={pool.onRegister}
+                  onUnregister={pool.onUnregister}
+                  onStateChange={pool.onStateChange}
+                  onStarted={pool.onStarted}
+                  onBootError={pool.onBootError}
+                />
+              </div>
+            ) : runningMachines.length > 1 ? (
+              <div class="virtual-machine__screen-grid">
+                {runningMachines.map((machine) => (
+                  <div
+                    key={machine.id}
+                    class="virtual-machine__screen virtual-machine__screen--cell"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => focusMachine(machine.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        focusMachine(machine.id)
+                      }
+                    }}
+                  >
+                    <span class="virtual-machine__cell-label">{machine.name}</span>
+                    <VmRuntimeSurface
+                      machineId={machine.id}
+                      origin={runtimeOrigin}
+                      startMessage={pool.startMessages.get(machine.id)}
+                      onRegister={pool.onRegister}
+                      onUnregister={pool.onUnregister}
+                      onStateChange={pool.onStateChange}
+                      onStarted={pool.onStarted}
+                      onBootError={pool.onBootError}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div class="virtual-machine__screen virtual-machine__screen--single">
+                {screenMessage ? (
+                  <div class="virtual-machine__screen-message">{screenMessage}</div>
+                ) : null}
+              </div>
+            )}
+            {displayedBusy && runningMachines.length === 1 ? (
+              <div class="virtual-machine__screen-message">正在连接模拟器…</div>
             ) : null}
           </div>
-          <VirtualMachineActivity stats={runtimeStats} running={Boolean(selectedRunning)} />
-          {selected ? (
+          <VirtualMachineActivity
+            stats={displayedSnapshot?.stats}
+            running={displayedRunning && !displayedBusy}
+          />
+          {displayedMachine ? (
             <dl class="virtual-machine__inspector">
               <div class="virtual-machine__inspector-item">
                 <dt>名称</dt>
-                <dd>{selected.name}</dd>
+                <dd>{displayedMachine.name}</dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>后端</dt>
-                <dd>{formatVmBackendLabel(selected.backend)}</dd>
+                <dd>{formatVmBackendLabel(displayedMachine.backend)}</dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>内存</dt>
-                <dd>{formatVmMemoryLabel(selected.memoryMb)}</dd>
+                <dd>{formatVmMemoryLabel(displayedMachine.memoryMb)}</dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>显存</dt>
-                <dd>{formatVmMemoryLabel(selected.vgaMemoryMb)}</dd>
+                <dd>{formatVmMemoryLabel(displayedMachine.vgaMemoryMb)}</dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>分辨率</dt>
                 <dd>
-                  {selectedRunning && runtimeStats
-                    ? formatVmVgaResolution(runtimeStats)
+                  {displayedRunning && displayedSnapshot?.stats
+                    ? formatVmVgaResolution(displayedSnapshot.stats)
                     : '—'}
                 </dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>启动</dt>
-                <dd>{formatVmBootOrderLabel(selected.bootOrder)}</dd>
+                <dd>{formatVmBootOrderLabel(displayedMachine.bootOrder)}</dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>网卡</dt>
                 <dd>
-                  {selected.network === 'none'
-                    ? formatVmNetworkLabel(selected.network)
-                    : `${formatVmNetworkLabel(selected.network)} · ${formatVmNetworkBackendLabel(
-                        selected.networkBackend,
+                  {displayedMachine.network === 'none'
+                    ? formatVmNetworkLabel(displayedMachine.network)
+                    : `${formatVmNetworkLabel(displayedMachine.network)} · ${formatVmNetworkBackendLabel(
+                        displayedMachine.networkBackend,
                       )}`}
                 </dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>硬盘</dt>
-                <dd>{formatVmPathSummary(selected.hdaPath)}</dd>
+                <dd>{formatVmPathSummary(displayedMachine.hdaPath)}</dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>光盘</dt>
-                <dd>{formatVmPathSummary(selected.cdromPath)}</dd>
+                <dd>{formatVmPathSummary(displayedMachine.cdromPath)}</dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>快照</dt>
-                <dd>{formatVmPathSummary(selected.statePath)}</dd>
+                <dd>{formatVmPathSummary(displayedMachine.statePath)}</dd>
               </div>
             </dl>
           ) : null}
