@@ -59,6 +59,22 @@ export function isFirstPartyCookieForUrl(cookie: ChromoCookie, pageUrl: string):
   return isSubPath(cookie.path || '/', path)
 }
 
+/**
+ * CookieJar `expires`：秒级 Unix 时间（约 1e9）或毫秒（约 1e12）。
+ * `null` / `<= 0` 视为会话 cookie，未过期。
+ */
+export function cookieExpiresAtMs(expires: number | null | undefined): number | undefined {
+  if (expires == null || !Number.isFinite(expires) || expires <= 0) {
+    return undefined
+  }
+  return expires < 1e12 ? expires * 1000 : expires
+}
+
+export function isCookieExpired(cookie: ChromoCookie, nowMs = Date.now()): boolean {
+  const expiresAt = cookieExpiresAtMs(cookie.expires)
+  return expiresAt !== undefined && expiresAt <= nowMs
+}
+
 export function filterFirstPartyCookies(
   cookies: ChromoCookie[],
   pageUrl: string | undefined,
@@ -67,6 +83,15 @@ export function filterFirstPartyCookies(
     return []
   }
   return cookies.filter((cookie) => isFirstPartyCookieForUrl(cookie, pageUrl))
+}
+
+/** 发给目标 URL 的罐：first-party 匹配且未过期。本期不过滤 SameSite。 */
+export function filterCookiesForRequest(
+  cookies: ChromoCookie[],
+  requestUrl: string | undefined,
+  nowMs = Date.now(),
+): ChromoCookie[] {
+  return filterFirstPartyCookies(cookies, requestUrl).filter((cookie) => !isCookieExpired(cookie, nowMs))
 }
 
 export function hostnameFromPageUrl(pageUrl: string | undefined): string {

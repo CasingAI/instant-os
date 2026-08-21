@@ -1007,6 +1007,7 @@ export function NetworkDetailDrawer({
   entries,
   probeNetworkHot,
   onClose,
+  onSaveToDownloads,
 }: {
   entry: ChromoNetworkEntry
   bodyResult: ChromoNetworkBodyReadResult | null
@@ -1027,6 +1028,7 @@ export function NetworkDetailDrawer({
     url: string,
   ) => Promise<ChromoNetworkHotProbeResult>
   onClose: () => void
+  onSaveToDownloads?: () => void
 }) {
   const [tab, setTab] = useState<NetworkDetailTab>('headers')
   const drawerRef = useRef<HTMLElement>(null)
@@ -1245,6 +1247,15 @@ export function NetworkDetailDrawer({
       <div class="chromo-network__drawer-subtitle" title={entry.url}>
         <span class="chromo-network__drawer-method">{entry.method || 'GET'}</span>
         <span class="chromo-network__drawer-url">{entry.url}</span>
+        {onSaveToDownloads ? (
+          <button
+            type="button"
+            class="chromo-network__drawer-save"
+            onClick={onSaveToDownloads}
+          >
+            保存到下载
+          </button>
+        ) : null}
       </div>
 
       <div class="chromo-network__drawer-body" role="tabpanel">

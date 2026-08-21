@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type {
+  ChromoCookie,
   ChromoNetworkEntry,
   ChromoNetworkBodyReadResult,
   ChromoNetworkBodyReadLinesOptions,
@@ -12,6 +13,8 @@ import {
   isPreviewableImageBody,
   networkEntryName,
 } from './chromo-network-preview.ts'
+import { startChromoDownload } from './chromo-download-service.ts'
+import { suggestedSaveNameFromUrl } from './chromo-save-page.ts'
 
 export { networkEntryName }
 
@@ -38,6 +41,8 @@ type ChromoNetworkPanelProps = {
     method: string,
     url: string,
   ) => Promise<ChromoNetworkHotProbeResult>
+  evalInPage?: (code: string) => Promise<unknown>
+  listCookies?: () => Promise<{ cookies: ChromoCookie[] }>
   onSelect: (entry: ChromoNetworkEntry) => void
   onCloseDetail?: () => void
 }
@@ -424,6 +429,8 @@ export function ChromoNetworkPanel({
   readNetworkBody,
   readNetworkBodyLines,
   probeNetworkHot,
+  evalInPage,
+  listCookies,
   onSelect,
   onCloseDetail,
 }: ChromoNetworkPanelProps) {
@@ -924,6 +931,20 @@ export function ChromoNetworkPanel({
             entries={entries}
             probeNetworkHot={probeNetworkHot}
             onClose={() => onCloseDetail?.()}
+            onSaveToDownloads={() => {
+              startChromoDownload({
+                url: selectedEntry.url,
+                filename: suggestedSaveNameFromUrl(
+                  selectedEntry.url,
+                  networkEntryName(selectedEntry.url),
+                ),
+                referrer: selectedEntry.referrer || pageUrl,
+                reason: 'save-network',
+                force: true,
+                listCookies,
+                evalInPage,
+              })
+            }}
           />
         ) : null}
       </div>

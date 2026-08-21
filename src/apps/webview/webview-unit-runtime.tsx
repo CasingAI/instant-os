@@ -20,6 +20,10 @@ import {
 import { PageViewerFrame, type PageViewerHandle } from '../../page-host/page-viewer-frame.tsx'
 import type { ChromoNetworkEntry } from '../../page-host/page-bridge.ts'
 import {
+  isRecentChromoDownloadUrl,
+  startChromoDownloadFromViewer,
+} from '../chromo/chromo-download-service.ts'
+import {
   addWebViewTab,
   emitWebViewNavigated,
   emitWebViewTabFault,
@@ -395,6 +399,9 @@ export function WebViewUnitRuntime({ unitId }: WebViewUnitRuntimeProps) {
             injectWebViewFaultDocument(getViewerRef(tab.id).current, fault)
           }}
           onLocation={(payload) => {
+            if (isRecentChromoDownloadUrl(payload.url)) {
+              return
+            }
             const intent = resolveNavIntent(
               {
                 kind: 'LOCATION',
@@ -493,9 +500,21 @@ export function WebViewUnitRuntime({ unitId }: WebViewUnitRuntimeProps) {
                 href: payload.href,
                 target: payload.target,
                 url: payload.href,
+                download: payload.download,
               },
               { currentUrl: tab.url },
             )
+            if (intent.action === 'download') {
+              cancelClickNavigate(tab.id)
+              startChromoDownloadFromViewer({
+                url: intent.url,
+                filename: intent.filename,
+                referrer: tab.url,
+                reason: 'download-attr',
+                viewer: getViewerRef(tab.id).current,
+              })
+              return
+            }
             if (shouldCreateTab(intent) && intent.action === 'newTab') {
               addWebViewTab(unit.unitId, intent.url)
               return
@@ -516,6 +535,17 @@ export function WebViewUnitRuntime({ unitId }: WebViewUnitRuntimeProps) {
               delete clickNavigateTimersRef.current[tab.id]
               navigateTab(tab.id, href)
             }, 150)
+          }}
+          onDownload={(payload) => {
+            cancelClickNavigate(tab.id)
+            startChromoDownloadFromViewer({
+              url: payload.url,
+              filename: payload.filename,
+              mime: payload.mime,
+              referrer: payload.referrer || tab.url,
+              reason: payload.reason,
+              viewer: getViewerRef(tab.id).current,
+            })
           }}
         />
       ))}

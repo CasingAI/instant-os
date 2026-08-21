@@ -18,6 +18,9 @@ function testNormalizeKeepsAllowedPages(): void {
   assert.equal(normalizeChromoInternalUrl('BROWSER://BOOKMARKS'), 'browser://bookmarks')
   assert.equal(normalizeChromoInternalUrl('chromo://settings'), 'browser://settings')
   assert.equal(normalizeChromoInternalUrl('chrome://history'), 'browser://history')
+  assert.equal(normalizeChromoInternalUrl('browser://downloads'), 'browser://downloads')
+  assert.equal(parseChromoInternalPage('browser://downloads'), 'downloads')
+  assert.equal(chromoInternalPageTitle('downloads'), '下载内容')
   assert.equal(parseChromoInternalPage('browser://settings'), 'settings')
   assert.equal(chromoInternalUrl('history'), 'browser://history')
   assert.equal(chromoInternalPageTitle('bookmarks'), '书签')
@@ -26,7 +29,6 @@ function testNormalizeKeepsAllowedPages(): void {
 
 function testRejectUnknownInternalUrls(): void {
   assert.equal(normalizeChromoInternalUrl('browser://flags'), undefined)
-  assert.equal(normalizeChromoInternalUrl('browser://downloads'), undefined)
   assert.equal(normalizeChromoInternalUrl('browser://'), undefined)
   assert.equal(normalizeChromoInternalUrl('chrome://flags'), undefined)
   assert.equal(normalizeChromoInternalUrl(''), undefined)
@@ -36,6 +38,7 @@ function testRejectUnknownInternalUrls(): void {
 }
 
 function testIgnoreViewerNavForInternalPages(): void {
+  assert.equal(shouldIgnoreChromoViewerNavigation('browser://downloads'), true)
   assert.equal(shouldIgnoreChromoViewerNavigation('browser://settings'), true)
   assert.equal(shouldIgnoreChromoViewerNavigation('', 'browser://history'), true)
   assert.equal(shouldIgnoreChromoViewerNavigation('https://example.com/', 'browser://settings'), true)
@@ -47,6 +50,7 @@ function testIgnoreViewerNavForInternalPages(): void {
 function testPageChromeUnavailableOnInternalAndNewTab(): void {
   assert.equal(canUseChromoPageChrome('browser://settings', true), false)
   assert.equal(canUseChromoPageChrome('browser://history'), false)
+  assert.equal(canUseChromoPageChrome('browser://downloads'), false)
   assert.equal(canUseChromoPageChrome('', true), false)
   assert.equal(canUseChromoPageChrome('https://example.com/', false), false)
   assert.equal(canUseChromoPageChrome('https://example.com/', true), true)

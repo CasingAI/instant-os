@@ -13,12 +13,14 @@ export type NavEvent = {
   href?: string
   target?: string
   httpMethod?: string
+  download?: boolean | string
 }
 
 export type NavIntent =
   | { action: 'ignore'; reason: string }
   | { action: 'sameTab'; url: string; reason: string }
   | { action: 'newTab'; url: string; reason: string }
+  | { action: 'download'; url: string; filename?: string; reason: string }
 
 export type NavPolicyOptions = {
   /** Milliseconds to suppress duplicate same-tab navigations. */
@@ -60,6 +62,17 @@ function isSameTabOpenTarget(target: string | undefined): boolean {
 function isNewTabOpenTarget(target: string | undefined): boolean {
   const t = String(target || '').toLowerCase()
   return t === '_blank' || t === ''
+}
+
+function isDownloadClick(download: boolean | string | undefined): boolean {
+  return download === true || typeof download === 'string'
+}
+
+function downloadFileName(download: boolean | string | undefined): string | undefined {
+  if (typeof download === 'string' && download.trim()) {
+    return download.trim()
+  }
+  return undefined
 }
 
 function eventUrl(event: NavEvent): string {
@@ -121,6 +134,14 @@ export function resolveNavIntent(
   if (event.kind === 'CLICK') {
     if (!url) {
       return { action: 'ignore', reason: 'click without href' }
+    }
+    if (isDownloadClick(event.download)) {
+      return {
+        action: 'download',
+        url,
+        filename: downloadFileName(event.download),
+        reason: 'click download attribute',
+      }
     }
     if (isNewTabOpenTarget(target)) {
       return { action: 'newTab', url, reason: 'click target blank' }

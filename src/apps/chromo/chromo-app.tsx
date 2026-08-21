@@ -74,6 +74,12 @@ import {
 } from './chromo-history.ts'
 import { ChromoHistoryPage } from './chromo-history-panel.tsx'
 import {
+  ensureChromoDownloadRecovery,
+  isRecentChromoDownloadUrl,
+  startChromoDownloadFromViewer,
+} from './chromo-download-service.ts'
+import { ChromoDownloadsPage } from './chromo-downloads-page.tsx'
+import {
   chromoInternalPageTitle,
   chromoInternalUrl,
   isChromoInternalUrl,
@@ -407,6 +413,10 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   >()
   const modal = useWindowModal()
   const { showSystemOpenDialog, dialog: saveDialog } = useSystemOpenDialog()
+
+  useEffect(() => {
+    ensureChromoDownloadRecovery()
+  }, [])
   const findTimerRef = useRef<number | undefined>(undefined)
   const savingRef = useRef(false)
   const ignoreViewerClickUntilRef = useRef(0)
@@ -1009,6 +1019,33 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       savingRef.current = false
     }
   }, [getViewerRef, isViewerPage, modal, pickSavePath])
+
+  const beginTabDownload = useCallback(
+    (
+      tabId: string,
+      params: {
+        url: string
+        filename?: string
+        mime?: string
+        referrer?: string
+        reason?: 'content-disposition' | 'download-attr' | 'opaque-navigation' | 'blob' | 'data' | 'save-link'
+        force?: boolean
+      },
+    ) => {
+      const tab = tabsRef.current.find((entry) => entry.id === tabId)
+      const viewer = getViewerRef(tabId).current
+      startChromoDownloadFromViewer({
+        url: params.url,
+        filename: params.filename,
+        mime: params.mime,
+        referrer: params.referrer ?? tab?.url,
+        reason: params.reason,
+        force: params.force,
+        viewer: viewer?.isReady() ? viewer : null,
+      })
+    },
+    [getViewerRef],
+  )
 
   const saveImageFromUrl = useCallback(
     async (imageUrl: string) => {
@@ -1980,6 +2017,12 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         shortcut: '⌘Y',
         onClick: () => openInternalPage('history'),
       },
+      {
+        type: 'action',
+        label: '下载内容',
+        shortcut: '⌘⇧J',
+        onClick: () => openInternalPage('downloads'),
+      },
       { type: 'action', label: '设置', onClick: () => openInternalPage('settings') },
       { type: 'separator' },
       {
@@ -2108,6 +2151,16 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
           label: '复制链接',
           onClick: () => void navigator.clipboard?.writeText(payload.linkUrl!),
         },
+        {
+          type: 'action',
+          label: '链接另存为…',
+          onClick: () =>
+            beginTabDownload(pageContextMenu.tabId, {
+              url: payload.linkUrl!,
+              reason: 'save-link',
+              force: true,
+            }),
+        },
       )
     }
     if (payload.imageUrl) {
@@ -2203,6 +2256,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     reload,
     saveCurrentPage,
     saveImageFromUrl,
+    beginTabDownload,
     toggleBookmarkForCurrentPage,
   ])
 
@@ -2281,6 +2335,12 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             label: '显示历史记录',
             shortcut: '⌘Y',
             onClick: () => openInternalPage('history'),
+          },
+          {
+            type: 'action',
+            label: '下载内容',
+            shortcut: '⌘⇧J',
+            onClick: () => openInternalPage('downloads'),
           },
           {
             type: 'action',
@@ -2501,6 +2561,11 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       if (key === 'y' && !event.shiftKey && !event.altKey) {
         event.preventDefault()
         openInternalPage('history')
+        return
+      }
+      if (key === 'j' && event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        openInternalPage('downloads')
         return
       }
       if (key === '[' && !event.shiftKey && !event.altKey) {
@@ -2820,6 +2885,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   onHistoryChange={bumpHistoryRevision}
                 />
               ) : null}
+              {activeInternalPage === 'downloads' ? <ChromoDownloadsPage /> : null}
               {activeInternalPage === 'bookmarks' ? (
                 <ChromoBookmarksPage
                   revision={bookmarksRevision}
@@ -3027,6 +3093,9 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 if (performance.now() < ignoreViewerClickUntilRef.current) {
                   return
                 }
+                if (isRecentChromoDownloadUrl(url)) {
+                  return
+                }
                 const intent = resolveNavIntent(
                   { kind: 'LOCATION', method, url, target, httpMethod },
                   { currentUrl: tab.url },
@@ -3101,7 +3170,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   setAppWindowUrl('chromo', url)
                 }
               }}
-              onClick={({ href, target }) => {
+              onClick={({ href, target, download }) => {
                 if (shouldIgnoreViewerEvent(tab.id)) {
                   return
                 }
@@ -3110,9 +3179,18 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 }
                 setPageContextMenu(undefined)
                 const intent = resolveNavIntent(
-                  { kind: 'CLICK', href, target, url: href },
+                  { kind: 'CLICK', href, target, url: href, download },
                   { currentUrl: tab.url },
                 )
+                if (intent.action === 'download') {
+                  cancelClickNavigate(tab.id)
+                  beginTabDownload(tab.id, {
+                    url: intent.url,
+                    filename: intent.filename,
+                    reason: 'download-attr',
+                  })
+                  return
+                }
                 if (shouldCreateTab(intent) && intent.action === 'newTab') {
                   addTab(intent.url)
                   return
@@ -3128,6 +3206,19 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   delete clickNavigateTimersRef.current[tab.id]
                   navigateTab(tab.id, href)
                 }, 150)
+              }}
+              onDownload={(payload) => {
+                if (shouldIgnoreViewerEvent(tab.id)) {
+                  return
+                }
+                cancelClickNavigate(tab.id)
+                beginTabDownload(tab.id, {
+                  url: payload.url,
+                  filename: payload.filename,
+                  mime: payload.mime,
+                  referrer: payload.referrer || tab.url,
+                  reason: payload.reason,
+                })
               }}
               onContextMenu={(payload) => {
                 if (shouldIgnoreViewerEvent(tab.id)) {

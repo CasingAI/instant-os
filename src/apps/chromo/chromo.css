@@ -1254,6 +1254,117 @@
   font-size: 11px;
 }
 
+.chromo-downloads-page__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chromo-downloads-page__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: var(--chromo-radius);
+}
+
+.chromo-downloads-page__item:hover {
+  background: var(--chromo-menu-hover);
+  color: #fff;
+}
+
+.chromo-downloads-page__item:hover .chromo-downloads-page__url,
+.chromo-downloads-page__item:hover .chromo-downloads-page__meta,
+.chromo-downloads-page__item:hover .chromo-downloads-page__error {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.chromo-downloads-page__main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chromo-downloads-page__name {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chromo-downloads-page__name:disabled {
+  cursor: default;
+}
+
+.chromo-downloads-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--chromo-muted);
+}
+
+.chromo-downloads-page__url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.chromo-downloads-page__error {
+  font-size: 11px;
+  color: #a3221c;
+}
+
+.chromo-downloads-page__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.chromo-downloads-page__bar span {
+  display: block;
+  height: 100%;
+  background: #1a73e8;
+}
+
+.chromo-downloads-page__actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.chromo-downloads-page__actions button {
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chromo-downloads-page__item:hover .chromo-downloads-page__actions button {
+  color: #fff;
+}
+
+.chromo-downloads-page__forget:hover {
+  border-color: #a3221c;
+  background: linear-gradient(180deg, #ff8a84 0%, #e34b3f 55%, #c9302a 100%);
+  color: #fff;
+}
+
 .chromo-settings__body {
   display: flex;
   flex-direction: column;
@@ -2735,6 +2846,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.chromo-network__drawer-save {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  background: #fff;
+  color: #1a73e8;
+  font: 12px/1.2 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.chromo-network__drawer-save:hover {
+  background: #e8f0fe;
 }
 
 .chromo-network__drawer-close {

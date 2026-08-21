@@ -19,6 +19,7 @@ const KEY_LABELS: Record<string, string> = {
   [DEVICE_STORAGE_KEYS.chromoSettings]: 'Chromo 设置',
   [DEVICE_STORAGE_KEYS.chromoHistory]: 'Chromo 历史',
   [DEVICE_STORAGE_KEYS.chromoSession]: 'Chromo 会话',
+  [DEVICE_STORAGE_KEYS.chromoDownloads]: 'Chromo 下载记录',
   [DEVICE_STORAGE_KEYS.mail]: '邮件数据',
   [DEVICE_STORAGE_KEYS.news]: '新闻数据',
   [DEVICE_STORAGE_KEYS.newsTokenUsage]: '新闻 AI 用量',

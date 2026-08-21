@@ -78,4 +78,36 @@ resetNavDedupState()
   assert.equal(second.action, 'ignore')
 }
 
+resetNavDedupState()
+
+{
+  const intent = resolveNavIntent({
+    kind: 'CLICK',
+    href: 'https://example.com/file.pdf',
+    download: true,
+  })
+  assert.equal(intent.action, 'download')
+  if (intent.action === 'download') {
+    assert.equal(intent.url, 'https://example.com/file.pdf')
+    assert.equal(intent.filename, undefined)
+  }
+  assert.equal(shouldCreateTab(intent), false)
+  assert.equal(shouldNavigateSameTab(intent), false)
+}
+
+resetNavDedupState()
+
+{
+  const intent = resolveNavIntent({
+    kind: 'CLICK',
+    href: 'https://example.com/file.pdf',
+    target: '_blank',
+    download: 'report.pdf',
+  })
+  assert.equal(intent.action, 'download')
+  if (intent.action === 'download') {
+    assert.equal(intent.filename, 'report.pdf')
+  }
+}
+
 console.log('ok: page-nav resolveNavIntent')

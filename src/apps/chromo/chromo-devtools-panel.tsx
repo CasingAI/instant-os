@@ -397,6 +397,8 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
         readNetworkBody={readNetworkBody}
         readNetworkBodyLines={readNetworkBodyLines}
         probeNetworkHot={probeNetworkHot}
+        evalInPage={evalInPage}
+        listCookies={applicationApi?.listCookies}
         onSelect={onSelectNetwork}
         onCloseDetail={onCloseNetworkDetail}
       />

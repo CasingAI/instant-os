@@ -16,6 +16,7 @@ import {
   type ChromoClickPayload,
   type ChromoContextMenuPayload,
   type ChromoConsoleReadResult,
+  type ChromoDownloadPayload,
   type ChromoErrorPayload,
   type ChromoHistoryPayload,
   type ChromoLoadFailedPayload,
@@ -108,6 +109,7 @@ type ChromoViewerFrameProps = {
   onError?: (payload: ChromoErrorPayload) => void
   onClick?: (payload: ChromoClickPayload) => void
   onContextMenu?: (payload: ChromoContextMenuPayload) => void
+  onDownload?: (payload: ChromoDownloadPayload) => void
   onLocation?: (payload: ChromoLocationPayload) => void
   onHistory?: (payload: ChromoHistoryPayload) => void
   zoom?: number
@@ -130,6 +132,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       onError,
       onClick,
       onContextMenu,
+      onDownload,
       onLocation,
       onHistory,
       zoom = 1,
@@ -169,6 +172,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     const onErrorRef = useRef(onError)
     const onClickRef = useRef(onClick)
     const onContextMenuRef = useRef(onContextMenu)
+    const onDownloadRef = useRef(onDownload)
     const onLocationRef = useRef(onLocation)
     const onHistoryRef = useRef(onHistory)
 
@@ -182,6 +186,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     onErrorRef.current = onError
     onClickRef.current = onClick
     onContextMenuRef.current = onContextMenu
+    onDownloadRef.current = onDownload
     onLocationRef.current = onLocation
     onHistoryRef.current = onHistory
 
@@ -210,6 +215,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
           onError: (payload) => onErrorRef.current?.(payload),
           onClick: (payload) => onClickRef.current?.(payload),
           onContextMenu: (payload) => onContextMenuRef.current?.(payload),
+          onDownload: (payload) => onDownloadRef.current?.(payload),
           onLocation: (payload) => onLocationRef.current?.(payload),
           onHistory: (payload) => onHistoryRef.current?.(payload),
         },

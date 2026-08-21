@@ -14,6 +14,74 @@ export type ChromoClickPayload = {
   href?: string
   target?: string
   text?: string
+  /** `<a download>`：true / 空串表示下载；非空串为建议文件名 */
+  download?: boolean | string
+}
+
+export function parseChromoClickPayload(value: unknown): ChromoClickPayload | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+  const record = value as Record<string, unknown>
+  const ts = typeof record.ts === 'number' && Number.isFinite(record.ts) ? record.ts : Date.now()
+  const tagName = typeof record.tagName === 'string' ? record.tagName : undefined
+  const href = typeof record.href === 'string' ? record.href : undefined
+  const target = typeof record.target === 'string' ? record.target : undefined
+  const text = typeof record.text === 'string' ? record.text : undefined
+  let download: boolean | string | undefined
+  if (record.download === true) {
+    download = true
+  } else if (typeof record.download === 'string') {
+    download = record.download
+  }
+  return { ts, tagName, href, target, text, download }
+}
+
+export type ChromoDownloadReason =
+  | 'content-disposition'
+  | 'download-attr'
+  | 'opaque-navigation'
+  | 'blob'
+  | 'data'
+
+export type ChromoDownloadPayload = {
+  id: string
+  url: string
+  filename?: string
+  mime?: string
+  referrer?: string
+  reason?: ChromoDownloadReason
+}
+
+const DOWNLOAD_REASONS = new Set<ChromoDownloadReason>([
+  'content-disposition',
+  'download-attr',
+  'opaque-navigation',
+  'blob',
+  'data',
+])
+
+export function parseChromoDownloadPayload(value: unknown): ChromoDownloadPayload | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+  const record = value as Record<string, unknown>
+  const url = typeof record.url === 'string' && record.url.trim() ? record.url.trim() : ''
+  if (!url) {
+    return undefined
+  }
+  const id =
+    typeof record.id === 'string' && record.id.trim() ? record.id.trim() : crypto.randomUUID()
+  const filename =
+    typeof record.filename === 'string' && record.filename.trim() ? record.filename.trim() : undefined
+  const mime = typeof record.mime === 'string' && record.mime.trim() ? record.mime.trim() : undefined
+  const referrer =
+    typeof record.referrer === 'string' && record.referrer.trim() ? record.referrer.trim() : undefined
+  const reason =
+    typeof record.reason === 'string' && DOWNLOAD_REASONS.has(record.reason as ChromoDownloadReason)
+      ? (record.reason as ChromoDownloadReason)
+      : undefined
+  return { id, url, filename, mime, referrer, reason }
 }
 
 export type ChromoContextMenuPayload = {
@@ -290,6 +358,7 @@ export type ChromoBridgeHandlers = {
   onError?: (payload: ChromoErrorPayload) => void
   onClick?: (payload: ChromoClickPayload) => void
   onContextMenu?: (payload: ChromoContextMenuPayload) => void
+  onDownload?: (payload: ChromoDownloadPayload) => void
   onLocation?: (payload: ChromoLocationPayload) => void
   onHistory?: (payload: ChromoHistoryPayload) => void
 }
@@ -704,9 +773,20 @@ export function createChromoBridge(
       case 'VC_SITE_CACHE_DELETE_RESULT':
         settleRpc('VC_SITE_CACHE_DELETE_RESULT', payload as RpcResultPayload)
         break
-      case 'VC_CLICK':
-        handlers.onClick?.(payload as ChromoClickPayload)
+      case 'VC_CLICK': {
+        const parsed = parseChromoClickPayload(payload)
+        if (parsed) {
+          handlers.onClick?.(parsed)
+        }
         break
+      }
+      case 'VC_DOWNLOAD': {
+        const parsed = parseChromoDownloadPayload(payload)
+        if (parsed) {
+          handlers.onDownload?.(parsed)
+        }
+        break
+      }
       case 'VC_CONTEXTMENU': {
         const parsed = parseChromoContextMenuPayload(payload)
         if (parsed) {

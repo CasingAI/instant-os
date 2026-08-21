@@ -131,6 +131,7 @@ function getBuiltinDocumentsBytes(
       DEVICE_STORAGE_KEYS.chromoSettings,
       DEVICE_STORAGE_KEYS.chromoHistory,
       DEVICE_STORAGE_KEYS.chromoSession,
+      DEVICE_STORAGE_KEYS.chromoDownloads,
     ])
   }
   if (appId === 'vscode') {

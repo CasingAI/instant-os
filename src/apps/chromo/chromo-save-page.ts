@@ -402,7 +402,7 @@ async function fetchResourceBytes(url: string): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
-function dataUrlToBytes(url: string): Uint8Array {
+export function dataUrlToBytes(url: string): Uint8Array {
   const match = /^data:([^;,]+)?(;base64)?,(.*)$/i.exec(url)
   if (!match) {
     throw new Error('无效的 data URL')

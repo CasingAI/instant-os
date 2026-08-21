@@ -1,5 +1,5 @@
 export const CHROMO_INTERNAL_SCHEME = 'browser'
-export const CHROMO_INTERNAL_PAGES = ['history', 'bookmarks', 'settings'] as const
+export const CHROMO_INTERNAL_PAGES = ['history', 'bookmarks', 'settings', 'downloads'] as const
 
 export type ChromoInternalPage = (typeof CHROMO_INTERNAL_PAGES)[number]
 
@@ -7,9 +7,11 @@ const INTERNAL_TITLES: Record<ChromoInternalPage, string> = {
   history: '历史记录',
   bookmarks: '书签',
   settings: '设置',
+  downloads: '下载内容',
 }
 
 const INTERNAL_PROTOCOLS = new Set(['browser:', 'chromo:', 'chrome:'])
+const INTERNAL_HOSTS = new Set<string>(CHROMO_INTERNAL_PAGES)
 
 export function chromoInternalUrl(page: ChromoInternalPage): string {
   return `${CHROMO_INTERNAL_SCHEME}://${page}`
@@ -32,8 +34,8 @@ export function parseChromoInternalPage(input: string): ChromoInternalPage | und
       return undefined
     }
     const host = parsed.hostname.toLowerCase()
-    if (host === 'history' || host === 'bookmarks' || host === 'settings') {
-      return host
+    if (INTERNAL_HOSTS.has(host)) {
+      return host as ChromoInternalPage
     }
     return undefined
   } catch {

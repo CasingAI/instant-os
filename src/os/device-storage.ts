@@ -20,6 +20,7 @@ export const DEVICE_STORAGE_KEYS = {
   chromoSettings: 'instant-os-chromo-settings',
   chromoHistory: 'instant-os-chromo-history',
   chromoSession: 'instant-os-chromo-session',
+  chromoDownloads: 'instant-os-chromo-downloads',
   mail: 'instant-os-mail',
   news: 'instant-os-news',
   newsTokenUsage: 'instant-os-news-token-usage',
