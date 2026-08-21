@@ -3620,6 +3620,27 @@ export function GithubDesktopApp() {
             onClick: closePreferences,
           },
         ]}
+        footer={
+          prefsTab === 'accounts' ? (
+            <p class="window-modal__footer-note">
+              Token 由系统钥匙串保管；本应用只读取是否已配置。要更改或移除凭证，请在钥匙串中操作。账户资料仅在本机缓存，打开应用时不会请求 GitHub。
+            </p>
+          ) : prefsTab === 'integrations' ? (
+            <p class="window-modal__footer-note">
+              「仓库 → 在编辑器中打开」会使用此处选择的应用打开当前仓库。默认是{' '}
+              {getBuiltinAppName('vscode')}。
+            </p>
+          ) : (
+            <>
+              <p class="window-modal__footer-note">
+                默认取自账户显示名与主邮箱；拉不到邮箱时用 noreply。Token 需有邮箱读权限。留空则 commit 时同样回退。
+              </p>
+              <p class="window-modal__footer-note">
+                开启后 commit 说明会附带 Instant Agent 的 Co-authored-by。
+              </p>
+            </>
+          )
+        }
       >
         <div class="github-desktop__prefs">
           <SegmentedControl
@@ -3709,9 +3730,6 @@ export function GithubDesktopApp() {
                     </button>
                   </div>
                 )}
-                <p class="settings__section-footnote">
-                  Token 由系统钥匙串保管；本应用只读取是否已配置。要更改或移除凭证，请在钥匙串中操作。账户资料仅在本机缓存，打开应用时不会请求 GitHub。
-                </p>
               </section>
             ) : undefined}
 
@@ -3737,10 +3755,6 @@ export function GithubDesktopApp() {
                     />
                   </div>
                 </div>
-                <p class="settings__section-footnote">
-                  「仓库 → 在编辑器中打开」会使用此处选择的应用打开当前仓库。默认是{' '}
-                  {getBuiltinAppName('vscode')}。
-                </p>
               </section>
             ) : undefined}
 
@@ -3799,9 +3813,6 @@ export function GithubDesktopApp() {
                       </div>
                     </div>
                   </div>
-                  <p class="settings__section-footnote">
-                    默认取自账户显示名与主邮箱；拉不到邮箱时用 noreply。Token 需有邮箱读权限。留空则 commit 时同样回退。
-                  </p>
                 </section>
                 <section class="settings__section">
                   <h2 class="settings__section-title">协作者</h2>
@@ -3814,9 +3825,6 @@ export function GithubDesktopApp() {
                       }}
                     />
                   </div>
-                  <p class="settings__section-footnote">
-                    开启后 commit 说明会附带 Instant Agent 的 Co-authored-by。
-                  </p>
                 </section>
               </>
             ) : undefined}
