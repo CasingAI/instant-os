@@ -6,6 +6,7 @@ import {
   DEFAULT_VIRTUAL_MACHINE_NAME,
   DEFAULT_VIRTUAL_MACHINE_NETWORK,
   DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
+  DEFAULT_VIRTUAL_MACHINE_POINTER_MODE,
   DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB,
   VM_BACKEND_IDS,
   VM_BOOT_ORDER_IDS,
@@ -13,6 +14,7 @@ import {
   VM_MEMORY_MB_OPTIONS,
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
+  VM_POINTER_MODE_IDS,
   VM_VGA_MEMORY_MB_OPTIONS,
   type VmBackendId,
   type VmBootOrderId,
@@ -20,6 +22,7 @@ import {
   type VmMemoryMb,
   type VmNetworkBackendId,
   type VmNetworkId,
+  type VmPointerModeId,
   type VmVgaMemoryMb,
   type VirtualMachineRecord,
   type VirtualMachineSettings,
@@ -39,6 +42,7 @@ export function defaultVirtualMachineSettings(
     speaker: true,
     keyboard: true,
     mouse: true,
+    pointerMode: DEFAULT_VIRTUAL_MACHINE_POINTER_MODE,
     network: DEFAULT_VIRTUAL_MACHINE_NETWORK,
     networkBackend: DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
     displayMode: DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
@@ -61,6 +65,7 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     speaker: record.speaker,
     keyboard: record.keyboard,
     mouse: record.mouse,
+    pointerMode: record.pointerMode,
     network: record.network,
     networkBackend: record.networkBackend,
     displayMode: record.displayMode,
@@ -95,6 +100,15 @@ const DISPLAY_MODE_LABELS: Record<VmDisplayModeId, string> = {
   stretch: '拉伸',
   contain: '等比',
   native: '原始',
+}
+
+const POINTER_MODE_LABELS: Record<VmPointerModeId, string> = {
+  follow: '跟随',
+  lock: '独占',
+}
+
+export function formatVmPointerModeLabel(id: VmPointerModeId): string {
+  return POINTER_MODE_LABELS[id]
 }
 
 export function formatVmDisplayModeLabel(id: VmDisplayModeId): string {
@@ -177,6 +191,16 @@ export const VM_DISPLAY_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_DISPL
   }),
 )
 
+export const VM_POINTER_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_POINTER_MODE_IDS.map(
+  (id) => ({
+    id,
+    label:
+      id === DEFAULT_VIRTUAL_MACHINE_POINTER_MODE
+        ? `${formatVmPointerModeLabel(id)}（默认）`
+        : formatVmPointerModeLabel(id),
+  }),
+)
+
 export const VM_HARD_DISK_ACCEPT_EXTENSIONS = ['img', 'raw', 'bin', 'dsk'] as const
 export const VM_CDROM_ACCEPT_EXTENSIONS = ['iso'] as const
 export const VM_FLOPPY_ACCEPT_EXTENSIONS = ['img', 'ima', 'bin'] as const
@@ -208,4 +232,8 @@ export function isVmNetworkBackendId(value: string): value is VmNetworkBackendId
 
 export function isVmDisplayModeId(value: string): value is VmDisplayModeId {
   return (VM_DISPLAY_MODE_IDS as readonly string[]).includes(value)
+}
+
+export function isVmPointerModeId(value: string): value is VmPointerModeId {
+  return (VM_POINTER_MODE_IDS as readonly string[]).includes(value)
 }

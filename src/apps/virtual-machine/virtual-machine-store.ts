@@ -11,6 +11,7 @@ import {
   VM_MEMORY_MB_OPTIONS,
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
+  VM_POINTER_MODE_IDS,
   VM_VGA_MEMORY_MB_OPTIONS,
   type VirtualMachineRecord,
   type VirtualMachineSettings,
@@ -74,6 +75,7 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
     speaker: normalizeBoolean(record.speaker, defaults.speaker),
     keyboard: normalizeBoolean(record.keyboard, defaults.keyboard),
     mouse: normalizeBoolean(record.mouse, defaults.mouse),
+    pointerMode: normalizeOneOf(record.pointerMode, VM_POINTER_MODE_IDS, defaults.pointerMode),
     network: normalizeOneOf(record.network, VM_NETWORK_IDS, defaults.network),
     networkBackend: normalizeOneOf(
       record.networkBackend,

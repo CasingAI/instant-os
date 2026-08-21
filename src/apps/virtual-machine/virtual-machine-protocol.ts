@@ -61,6 +61,14 @@ export const INSTANT_VM_NETWORK_BACKEND_IDS = ['off', 'fetch'] as const
 
 export type InstantVmNetworkBackendId = (typeof INSTANT_VM_NETWORK_BACKEND_IDS)[number]
 
+/**
+ * 指针工作方式：`follow` 跟随（默认、绝对坐标）；`lock` 独占（点击锁定、Esc 释放）。
+ * Keep in sync with instant-app `VmPointerModeId`。
+ */
+export const INSTANT_VM_POINTER_MODES = ['follow', 'lock'] as const
+
+export type InstantVmPointerMode = (typeof INSTANT_VM_POINTER_MODES)[number]
+
 export type InstantVmStartConfig = {
   memoryMb: number
   vgaMemoryMb: number
@@ -76,6 +84,8 @@ export type InstantVmStartConfig = {
   networkBackend?: InstantVmNetworkBackendId
   /** 启动时应用的显示比例；缺省按 contain。 */
   displayMode?: InstantVmDisplayMode
+  /** 指针工作方式；缺省按 follow。 */
+  pointerMode?: InstantVmPointerMode
   /** copy.sh Android profile sends Enter after 3s to skip isolinux. */
   sendEnterAfterMs?: number
 }
@@ -221,6 +231,12 @@ function isNetworkBackendId(value: unknown): value is InstantVmNetworkBackendId 
   )
 }
 
+function isPointerMode(value: unknown): value is InstantVmPointerMode {
+  return (
+    typeof value === 'string' && (INSTANT_VM_POINTER_MODES as readonly string[]).includes(value)
+  )
+}
+
 function isPositiveIntIn<T extends number>(
   value: unknown,
   allowed: readonly T[],
@@ -267,6 +283,9 @@ export function isInstantVmStartConfig(value: unknown): value is InstantVmStartC
     return false
   }
   if (value.networkBackend !== undefined && !isNetworkBackendId(value.networkBackend)) {
+    return false
+  }
+  if (value.pointerMode !== undefined && !isPointerMode(value.pointerMode)) {
     return false
   }
   return true

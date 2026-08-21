@@ -188,6 +188,13 @@ function testNetworkFields(): void {
     }),
     false,
   )
+  assert.equal(
+    isInstantVmStartMessage({
+      ...message,
+      config: { ...config, pointerMode: 'grab' },
+    }),
+    false,
+  )
 }
 
 function testOriginAllowList(): void {

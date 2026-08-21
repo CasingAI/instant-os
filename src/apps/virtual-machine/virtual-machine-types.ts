@@ -55,6 +55,13 @@ export type VmNetworkBackendId = (typeof VM_NETWORK_BACKEND_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND: VmNetworkBackendId = 'off'
 
+/** 指针工作方式：`follow` 跟随默认（绝对坐标、可自由移出）；`lock` 独占（点击锁定，Esc 释放）。 */
+export const VM_POINTER_MODE_IDS = ['follow', 'lock'] as const
+
+export type VmPointerModeId = (typeof VM_POINTER_MODE_IDS)[number]
+
+export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'follow'
+
 export const DEFAULT_VIRTUAL_MACHINE_ID = 'vm-default'
 export const DEFAULT_VIRTUAL_MACHINE_NAME = '未命名虚拟机'
 
@@ -72,6 +79,7 @@ export type VirtualMachineSettings = {
   speaker: boolean
   keyboard: boolean
   mouse: boolean
+  pointerMode: VmPointerModeId
   network: VmNetworkId
   networkBackend: VmNetworkBackendId
   displayMode: VmDisplayModeId

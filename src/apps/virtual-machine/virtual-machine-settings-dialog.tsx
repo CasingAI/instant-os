@@ -14,6 +14,7 @@ import {
   isVmMemoryMb,
   isVmNetworkBackendId,
   isVmNetworkId,
+  isVmPointerModeId,
   isVmVgaMemoryMb,
   VM_BOOT_ORDER_CHOICES,
   VM_CDROM_ACCEPT_EXTENSIONS,
@@ -23,6 +24,7 @@ import {
   VM_MEMORY_CHOICES,
   VM_NETWORK_BACKEND_CHOICES,
   VM_NETWORK_CHOICES,
+  VM_POINTER_MODE_CHOICES,
   VM_STATE_ACCEPT_EXTENSIONS,
   VM_VGA_MEMORY_CHOICES,
 } from './virtual-machine-config.ts'
@@ -655,13 +657,34 @@ export function VirtualMachineSettingsDialog({
                   />
                 ) : null}
                 {selectedDevice === 'mouse' ? (
-                  <SwitchRow
-                    label="鼠标"
-                    checked={draft.mouse}
-                    disabled={busy}
-                    detail="关闭后客户机收不到指针。"
-                    onChange={(mouse) => patch({ mouse })}
-                  />
+                  <>
+                    <SwitchRow
+                      label="鼠标"
+                      checked={draft.mouse}
+                      disabled={busy}
+                      detail="关闭后客户机收不到指针。"
+                      onChange={(mouse) => patch({ mouse })}
+                    />
+                    <SettingsChoiceField
+                      label="指针模式"
+                      value={draft.pointerMode}
+                      options={VM_POINTER_MODE_CHOICES}
+                      onChange={(value) => {
+                        if (isVmPointerModeId(value)) {
+                          patch({ pointerMode: value })
+                        }
+                      }}
+                      wideLayout
+                      presentation="form"
+                      disabled={busy || !draft.mouse}
+                      fieldClass="virtual-machine-settings__field"
+                      labelClass="virtual-machine-settings__label"
+                    />
+                    <p class="virtual-machine-settings__hint">
+                      独占：点击屏幕后指针被锁定，无法移出屏幕；按 Esc 释放，再次点击重新锁定。
+                      注意：独占模式解决的是「鼠标移出屏幕」问题，不是鼠标灵敏度或拉伸同步问题。
+                    </p>
+                  </>
                 ) : null}
               </div>
             </div>

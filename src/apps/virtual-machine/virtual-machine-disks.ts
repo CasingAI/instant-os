@@ -29,6 +29,7 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     network: settings.network,
     networkBackend: settings.networkBackend,
     displayMode: settings.displayMode,
+    pointerMode: settings.pointerMode,
     sendEnterAfterMs: settings.cdromPath.trim() ? 3000 : undefined,
   }
 }
