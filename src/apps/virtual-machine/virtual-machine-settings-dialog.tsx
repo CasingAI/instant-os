@@ -266,6 +266,7 @@ export function VirtualMachineSettingsDialog({
         themeColor={THEME}
         wide
         scrollBody
+        align="top"
         panelClass="virtual-machine-settings-modal"
         onClose={busy ? undefined : onClose}
         actions={actions}

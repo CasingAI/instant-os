@@ -20,6 +20,8 @@ export type WindowModalAction = {
   onClick: () => void | boolean | Promise<void | boolean>
 }
 
+export type WindowModalAlign = 'center' | 'top'
+
 export type WindowModalProps = {
   open: boolean
   title: string
@@ -27,6 +29,7 @@ export type WindowModalProps = {
   themeColor?: string
   wide?: boolean
   scrollBody?: boolean
+  align?: WindowModalAlign
   titleId?: string
   panelClass?: string
   onClose?: () => void
@@ -45,6 +48,7 @@ export function WindowModal({
   themeColor,
   wide,
   scrollBody,
+  align = 'center',
   titleId,
   panelClass,
   onClose,
@@ -61,6 +65,7 @@ export function WindowModal({
     themeColor,
     wide,
     scrollBody,
+    align,
     titleId,
     panelClass,
     onClose,
@@ -74,6 +79,7 @@ export function WindowModal({
       themeColor,
       wide,
       scrollBody,
+      align,
       titleId,
       panelClass,
       onClose,
@@ -119,12 +125,12 @@ export function WindowModal({
 
   const modal = (
     <div
-      class={`window-modal-backdrop${closing ? ' window-modal-backdrop--closing' : ''}`}
+      class={`window-modal-backdrop${closing ? ' window-modal-backdrop--closing' : ''}${display.align === 'top' ? ' window-modal-backdrop--top' : ''}`}
       role="presentation"
       onClick={display.onClose}
     >
       <div
-        class={`window-modal${display.wide ? ' window-modal--wide' : ''}${closing ? ' window-modal--closing' : ''}${display.panelClass ? ` ${display.panelClass}` : ''}`}
+        class={`window-modal${display.wide ? ' window-modal--wide' : ''}${closing ? ' window-modal--closing' : ''}${display.align === 'top' ? ' window-modal--top' : ''}${display.panelClass ? ` ${display.panelClass}` : ''}`}
         style={panelStyle}
         role={display.role}
         aria-modal="true"

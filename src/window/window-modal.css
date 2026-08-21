@@ -94,6 +94,16 @@
   width: min(100%, 520px);
 }
 
+.window-modal-backdrop--top {
+  align-items: flex-start;
+}
+
+.window-modal--top {
+  margin-top: 24px;
+  max-height: min(560px, calc(100% - 72px));
+  transform-origin: top center;
+}
+
 .window-modal__header {
   flex-shrink: 0;
   padding: 14px 16px 10px;
@@ -372,6 +382,11 @@
     border-radius: 10px;
   }
 
+  .window-modal--top {
+    margin-top: 24px;
+    max-height: calc(100% - 44px);
+  }
+
   .window-modal__header {
     padding: 12px 12px 8px;
   }
@@ -416,6 +431,11 @@
   .window-modal--wide {
     max-height: calc(100% - 16px);
     border-radius: 10px;
+  }
+
+  .window-modal--top {
+    margin-top: 16px;
+    max-height: calc(100% - 32px);
   }
 
   .window-modal__header {
