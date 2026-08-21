@@ -87,13 +87,13 @@ const BOOT_ORDER_LABELS: Record<VmBootOrderId, string> = {
 
 const NETWORK_LABELS: Record<VmNetworkId, string> = {
   none: '关闭',
-  ne2k: 'NE2000（旧系统）',
-  virtio: 'VirtIO（现代 Linux）',
+  ne2k: 'NE2000 旧系统',
+  virtio: 'VirtIO 现代 Linux',
 }
 
 const NETWORK_BACKEND_LABELS: Record<VmNetworkBackendId, string> = {
   off: '关闭',
-  fetch: 'Fetch（直接连通，仅 HTTP）',
+  fetch: 'Fetch 直接连通，仅 HTTP',
 }
 
 const DISPLAY_MODE_LABELS: Record<VmDisplayModeId, string> = {
@@ -161,7 +161,7 @@ export const VM_MEMORY_CHOICES: readonly SettingsChoiceOption[] = VM_MEMORY_MB_O
 export const VM_VGA_MEMORY_CHOICES: readonly SettingsChoiceOption[] = VM_VGA_MEMORY_MB_OPTIONS.map(
   (mb) => ({
     id: String(mb),
-    label: mb === DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB ? `${mb} MB（默认）` : `${mb} MB`,
+    label: mb === DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB ? `${mb} MB 默认` : `${mb} MB`,
   }),
 )
 
@@ -186,7 +186,7 @@ export const VM_DISPLAY_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_DISPL
     id,
     label:
       id === DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE
-        ? `${formatVmDisplayModeLabel(id)}（默认）`
+        ? `${formatVmDisplayModeLabel(id)} 默认`
         : formatVmDisplayModeLabel(id),
   }),
 )
@@ -196,7 +196,7 @@ export const VM_POINTER_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_POINT
     id,
     label:
       id === DEFAULT_VIRTUAL_MACHINE_POINTER_MODE
-        ? `${formatVmPointerModeLabel(id)}（默认）`
+        ? `${formatVmPointerModeLabel(id)} 默认`
         : formatVmPointerModeLabel(id),
   }),
 )

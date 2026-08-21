@@ -111,7 +111,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
         contentWindow.postMessage(message, origin, transfer)
       } catch {
         throw new Error(
-          `无法联系模拟器：当前页面是 ${window.location.origin}，运行时是 ${origin}（localhost 与 127.0.0.1 不是同一个源）`,
+          `无法联系模拟器：当前页面是 ${window.location.origin}，运行时是 ${origin}，localhost 与 127.0.0.1 不是同一个源`,
         )
       }
     },

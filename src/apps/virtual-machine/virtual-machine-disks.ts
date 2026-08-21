@@ -52,7 +52,7 @@ async function loadDisk(path: string, label: string): Promise<LoadedDisk> {
     return { buffer: await blob.arrayBuffer() }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`无法读取${label}（${trimmed}）：${detail}`)
+    throw new Error(`无法读取${label} ${trimmed}：${detail}`)
   }
 }
 

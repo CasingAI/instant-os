@@ -482,7 +482,7 @@ export function VirtualMachineSettingsDialog({
                 {selectedSource === 'network' ? (
                   <>
                     <p class="virtual-machine-settings__hint">
-                      填 http(s) 地址。copy.sh 允许跨域（Access-Control-Allow-Origin: *），可直接用。
+                      填 http 或 https 地址。copy.sh 允许跨域，可直接用。
                     </p>
                     <input
                       class="virtual-machine-settings__input"
@@ -631,7 +631,7 @@ export function VirtualMachineSettingsDialog({
                       labelClass="virtual-machine-settings__label"
                     />
                     <p class="virtual-machine-settings__hint">
-                      Fetch 后端（仅 HTTP）由浏览器直接发起请求，目标站点需放行 CORS；第一版不支持系统代理。
+                      Fetch 后端仅 HTTP，由浏览器直接发起请求，目标站点需放行 CORS；第一版不支持系统代理。
                       {draft.network !== 'none'
                         ? ' 客户机内把 HTTP 代理指向 10.0.2.2:8000 即可出网。'
                         : ''}
