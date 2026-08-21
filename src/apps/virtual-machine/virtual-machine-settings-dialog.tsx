@@ -270,13 +270,6 @@ export function VirtualMachineSettingsDialog({
         panelClass="virtual-machine-settings-modal"
         onClose={busy ? undefined : onClose}
         actions={actions}
-        footer={
-          <p class="window-modal__footer-note">
-            {mode === 'create'
-              ? '点「创建」后才会把这台虚拟机加入列表。开机时才会把镜像交给模拟器。'
-              : '改动保存后只更新配置。正在运行的虚拟机不会立刻套用，需要关机后再开。'}
-          </p>
-        }
       >
         <SegmentedControl
           value={tab}
@@ -285,6 +278,11 @@ export function VirtualMachineSettingsDialog({
           ariaLabel="设置分类"
           className="virtual-machine-settings__tabs"
         />
+        <p class="window-modal__message">
+          {mode === 'create'
+            ? '点「创建」后才会把这台虚拟机加入列表。开机时才会把镜像交给模拟器。'
+            : '改动保存后只更新配置。正在运行的虚拟机不会立刻套用，需要关机后再开。'}
+        </p>
         {error ? <p class="window-modal__error">{error}</p> : null}
         {tab === 'general' ? (
           <div class="virtual-machine-settings__pane">
