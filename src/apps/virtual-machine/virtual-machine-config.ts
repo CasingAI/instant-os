@@ -87,8 +87,8 @@ const BOOT_ORDER_LABELS: Record<VmBootOrderId, string> = {
 
 const NETWORK_LABELS: Record<VmNetworkId, string> = {
   none: '关闭',
-  ne2k: 'NE2000 旧系统',
-  virtio: 'VirtIO 现代 Linux',
+  ne2k: 'NE2000',
+  virtio: 'VirtIO',
 }
 
 const NETWORK_BACKEND_LABELS: Record<VmNetworkBackendId, string> = {
