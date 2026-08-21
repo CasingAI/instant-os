@@ -179,6 +179,7 @@
 
 .virtual-machine__frame--idle {
   pointer-events: none;
+  visibility: hidden;
 }
 
 .virtual-machine__screen-message {
