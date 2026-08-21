@@ -34,6 +34,8 @@ export type WindowModalProps = {
   panelClass?: string
   onClose?: () => void
   children?: ComponentChildren
+  /** 显示在 body 下方、actions 上方的页脚区域（自带顶部横线分隔） */
+  footer?: ComponentChildren
   actions?: WindowModalAction[]
 }
 
@@ -53,6 +55,7 @@ export function WindowModal({
   panelClass,
   onClose,
   children,
+  footer,
   actions,
 }: WindowModalProps) {
   const overlayRoot = useContext(WindowModalOverlayContext)
@@ -70,6 +73,7 @@ export function WindowModal({
     panelClass,
     onClose,
     children,
+    footer,
     actions,
   })
   if (open) {
@@ -84,6 +88,7 @@ export function WindowModal({
       panelClass,
       onClose,
       children,
+      footer,
       actions,
     }
   }
@@ -149,6 +154,7 @@ export function WindowModal({
             {display.children}
           </div>
         )}
+        {display.footer && <div class="window-modal__footer">{display.footer}</div>}
         {displayActions && displayActions.length > 0 && (
           <div class={`window-modal__actions window-modal__actions--${actionsMode}`}>
             {displayActions.map((action) => (
