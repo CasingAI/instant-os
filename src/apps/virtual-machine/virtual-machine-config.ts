@@ -246,6 +246,8 @@ export const VM_POINTER_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_POINT
   }),
 )
 
+export { VM_MEMORY_MB_MIN, VM_MEMORY_MB_MAX, VM_MEMORY_MB_STEP }
+
 export const VM_HARD_DISK_ACCEPT_EXTENSIONS = ['img', 'raw', 'bin', 'dsk'] as const
 export const VM_CDROM_ACCEPT_EXTENSIONS = ['iso'] as const
 export const VM_FLOPPY_ACCEPT_EXTENSIONS = ['img', 'ima', 'bin'] as const

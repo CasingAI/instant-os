@@ -34,7 +34,6 @@ import {
   VM_NETWORK_CHOICES,
   VM_POINTER_MODE_CHOICES,
   VM_STATE_ACCEPT_EXTENSIONS,
-  VM_VGA_MEMORY_CHOICES,
 } from './virtual-machine-config.ts'
 import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
 import {

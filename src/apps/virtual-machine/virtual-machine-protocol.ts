@@ -238,7 +238,6 @@ export type InstantVmRuntimeToHostMessage =
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 4096
-const MEMORY_MB_STEP = 16
 const VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
