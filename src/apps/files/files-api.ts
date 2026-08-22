@@ -50,6 +50,7 @@ import {
   trashNode,
   upsertFilesBatch,
   writeBinaryFile,
+  writeFileBytesRange,
   writeTextFile,
   type FilesSubtreeFileEntry,
   type FilesUpsertBatchItem,
@@ -529,6 +530,24 @@ export async function filesWriteBinary(path: string, bytes: ArrayBuffer): Promis
     throw new Error('不能写入命名空间根')
   }
   const node = await writeBinaryFile(absolutePath, bytes)
+  return toEntry(node)
+}
+
+/**
+ * 按偏移随机写：在文件 [offset, offset+bytes.byteLength) 处覆盖写入。
+ * 挂载卷走 FSA seek + write；IndexedDB 本地卷走 chunk 拆分/合并。
+ * offset 不能超过当前文件末尾（不支持空洞扩展）。
+ */
+export async function filesWriteBytesRange(
+  path: string,
+  offset: number,
+  bytes: ArrayBuffer | Uint8Array,
+): Promise<FilesApiEntry> {
+  const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能写入命名空间根')
+  }
+  const node = await writeFileBytesRange(absolutePath, offset, bytes)
   return toEntry(node)
 }
 

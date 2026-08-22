@@ -31,6 +31,7 @@ import {
   FilesStorageFullError,
   uniqueNameAmong,
   writeBlobBytes,
+  writeBlobBytesRange,
   writeBlobText,
   type FilesNodeNameMode,
   type FilesStorageBatchOp,
@@ -53,6 +54,7 @@ import {
   resolveMountPath,
   resolveMountRelativePath,
   writeMountBlob,
+  writeMountBytesRange,
   writeMountText,
 } from './files-location-mount.ts'
 import {
@@ -1139,6 +1141,40 @@ export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<
   })
   await emitNodeModified(written)
   recordFilesIoWrite(written, bytes.byteLength, 'writeBinary', performance.now() - startedAt)
+  return written
+}
+
+/**
+ * 按偏移随机写：在文件 [offset, offset+bytes.byteLength) 处覆盖写入。
+ * 挂载卷使用 FSA seek + write；IndexedDB 本地卷使用 chunk 拆分/合并。
+ * offset 不能超过当前文件末尾（不支持空洞扩展）。
+ */
+export async function writeFileBytesRange(
+  ref: string,
+  offset: number,
+  bytes: ArrayBuffer | Uint8Array,
+): Promise<FilesNode> {
+  const target = isFilesAbsolutePath(ref) ? await resolveFileRef(ref) : await getNodeOrThrow(ref)
+  if (target.kind !== 'file') {
+    throw new Error('文件不存在')
+  }
+  assertNodeWritable(target)
+
+  const startedAt = performance.now()
+  if (isMountNodeId(target.id)) {
+    const written = await writeMountBytesRange(target.id, offset, bytes)
+    await emitNodeModified(written)
+    recordFilesIoWrite(written, bytes.byteLength, 'writeBytesRange', performance.now() - startedAt)
+    return written
+  }
+
+  const written = await writeBlobBytesRange({
+    nodeId: target.id,
+    offset,
+    bytes,
+  })
+  await emitNodeModified(written)
+  recordFilesIoWrite(written, bytes.byteLength, 'writeBytesRange', performance.now() - startedAt)
   return written
 }
 

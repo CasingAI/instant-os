@@ -425,6 +425,54 @@ export async function writeMountBlob(id: string, bytes: ArrayBuffer): Promise<Fi
 }
 
 /**
+ * 挂载卷按偏移随机写：open + seek + write。
+ * 若 offset 超过当前文件大小，中间空洞用 0 填充。
+ */
+export async function writeMountBytesRange(
+  id: string,
+  offset: number,
+  bytes: ArrayBuffer | Uint8Array,
+): Promise<FilesNode> {
+  if (offset < 0) {
+    throw new Error('offset 不能为负数')
+  }
+  const parsed = parseFilePath(id)
+  if (!parsed) {
+    throw new Error('文件不存在')
+  }
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  const { parent, name } = await resolveParentAndName(parsed.locationId, parsed.path)
+  const handle = await parent.getFileHandle(name)
+
+  const before = await handle.getFile().catch(() => new File([], name))
+  const writable = await handle.createWritable({ keepExistingData: true })
+  try {
+    if (offset > before.size) {
+      // offset 超出原文件大小：先补零扩展，避免 seek 越界行为不一致
+      const pad = new Uint8Array(offset - before.size)
+      await writable.seek(before.size)
+      await writable.write(pad)
+    }
+    if (offset > 0) {
+      await writable.seek(offset)
+    }
+    await writable.write(data)
+    await writable.close()
+  } catch (error) {
+    try {
+      await writable.abort()
+    } catch {
+      // ignore
+    }
+    throw error
+  }
+
+  const blob = await handle.getFile()
+  invalidateMountDirHandleCache(parsed.locationId, parentDirPath(parsed.path) ?? '')
+  return makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified)
+}
+
+/**
  * 挂载卷流式写：复用 FileSystemWritableFileStream 原生增量写（逐 chunk 落盘）。
  * `createWritable()` 默认清空既有文件，与 writeMountBlob 语义一致；
  * 因此 abort 无法恢复被覆盖文件的旧内容（与真实 curl 覆盖行为类似）。
