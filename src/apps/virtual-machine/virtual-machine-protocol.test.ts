@@ -86,6 +86,22 @@ function testStartMessageTransfers(): void {
   assert.equal(message.type, INSTANT_VM_MESSAGE_TYPE.start)
 }
 
+function testHighMemoryAndDiskStreamStartMessage(): void {
+  const message = buildStartMessage(
+    'req-stream',
+    {
+      ...defaultVirtualMachineSettings(),
+      memoryMb: 1024,
+      hdaPath: '/user/Downloads/windowsxp.img',
+    },
+    { hdaStream: { id: 'ds-xp', size: 2 * 1024 * 1024 * 1024 } },
+  )
+  assert.equal(isInstantVmStartMessage(message), true)
+  assert.equal(startMessageHasDisk(message), true)
+  assert.equal(message.config.memoryMb, 1024)
+  assert.deepEqual(message.hdaStream, { id: 'ds-xp', size: 2 * 1024 * 1024 * 1024 })
+}
+
 function testReactOsRemoteStartMessage(): void {
   const message = buildStartMessage(
     'req-2',
@@ -155,7 +171,6 @@ function testStatsFormatting(): void {
       },
       vga: { mode: 'graphical', width: 800, height: 600, bpp: 16 },
       mouse: false,
-      mouseCapabilities: { hasAbsolute: false, hasRelative: false },
     }),
     '800×600×16',
   )
@@ -259,6 +274,7 @@ testBootOrderMatchesV86()
 testHasBootMedia()
 testCdromSendsEnterAndHddDoesNot()
 testStartMessageTransfers()
+testHighMemoryAndDiskStreamStartMessage()
 testReactOsRemoteStartMessage()
 testPathSummaryForRemoteUrl()
 testStatsFormatting()

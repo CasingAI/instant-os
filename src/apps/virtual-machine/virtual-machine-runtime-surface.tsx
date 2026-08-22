@@ -37,18 +37,18 @@ export function VmRuntimeSurface({
   onBootError,
 }: VmRuntimeSurfaceProps) {
   const resolvedOrigin = buildMode ? buildVmRuntimeOriginWithMode(origin, buildMode) : origin
-  const { iframeRef, ready, stats, bootProgress, pointerLocked, lastEdgeHit, start, stop, reset, setDisplayMode, requestPointerLock } =
+  const { iframeRef, ready, stats, bootProgress, start, stop, reset, setDisplayMode } =
     useVirtualMachineRuntime(resolvedOrigin)
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 
   useEffect(() => {
-    onRegister(machineId, { start, stop, reset, setDisplayMode, requestPointerLock })
+    onRegister(machineId, { start, stop, reset, setDisplayMode })
     return () => onUnregister(machineId)
-  }, [machineId, onRegister, onUnregister, start, stop, reset, setDisplayMode, requestPointerLock])
+  }, [machineId, onRegister, onUnregister, start, stop, reset, setDisplayMode])
 
   useEffect(() => {
-    onStateChange(machineId, { ready, stats, bootProgress, pointerLocked })
-  }, [machineId, onStateChange, ready, stats, bootProgress, pointerLocked])
+    onStateChange(machineId, { ready, stats, bootProgress })
+  }, [machineId, onStateChange, ready, stats, bootProgress])
 
   useEffect(() => {
     if (!ready || !startMessage) {
@@ -71,30 +71,14 @@ export function VmRuntimeSurface({
   }
 
   return (
-    <div class="virtual-machine__surface-wrapper">
-      <iframe
-        ref={iframeRef}
-        class="virtual-machine__frame"
-        title={`虚拟机显示器 ${machineId}`}
-        src={resolvedOrigin}
-        referrerPolicy="origin"
-        sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
-        allow="autoplay; fullscreen; pointer-lock"
-      />
-      {pointerLocked ? (
-        <div class="virtual-machine__pointer-overlay virtual-machine__pointer-overlay--locked">
-          鼠标已捕获。移到屏幕边缘释放，或按 Esc。
-          {lastEdgeHit ? (
-            <span class="virtual-machine__edge-indicator virtual-machine__edge-indicator--{lastEdgeHit.edge}">
-              {' '}边界命中: {lastEdgeHit.edge}
-            </span>
-          ) : null}
-        </div>
-      ) : (
-        <div class="virtual-machine__pointer-overlay virtual-machine__pointer-overlay--unlocked">
-          点击画面捕获鼠标，移到 Guest 边缘自动释放。
-        </div>
-      )}
-    </div>
+    <iframe
+      ref={iframeRef}
+      class="virtual-machine__frame"
+      title={`虚拟机显示器 ${machineId}`}
+      src={resolvedOrigin}
+      referrerPolicy="origin"
+      sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
+      allow="autoplay; fullscreen; pointer-lock"
+    />
   )
 }

@@ -38,20 +38,6 @@ function Row({ label, value }: { label: string; value: preact.ComponentChildren 
   )
 }
 
-function CapabilityBadge({ active, label }: { active: boolean; label: string }) {
-  return (
-    <span
-      class={
-        active
-          ? 'virtual-machine-inspector__badge virtual-machine-inspector__badge--active'
-          : 'virtual-machine-inspector__badge'
-      }
-    >
-      {label}
-    </span>
-  )
-}
-
 export function VirtualMachineInspectorOverlay({
   machine,
   running,
@@ -60,7 +46,6 @@ export function VirtualMachineInspectorOverlay({
 }: VirtualMachineInspectorOverlayProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const stats = snapshot?.stats
-  const mouseCapabilities = stats?.mouseCapabilities
 
   useEffect(() => {
     panelRef.current?.focus()
@@ -124,21 +109,6 @@ export function VirtualMachineInspectorOverlay({
             <Row label="分辨率" value={running && stats ? formatVmVgaResolution(stats) : '—'} />
             <Row label="已运行" value={running && stats ? `${Math.round(stats.runningMs / 1000)}s` : '—'} />
             <Row label="速度" value={running && stats ? `${stats.speedMips.toFixed(1)} mIPS` : '—'} />
-          </Section>
-
-          <Section title="鼠标能力">
-            <div class="virtual-machine-inspector__badges">
-              <CapabilityBadge active={Boolean(mouseCapabilities?.enabled)} label="鼠标已启用" />
-              <CapabilityBadge active={Boolean(mouseCapabilities?.pointerLocked)} label="Pointer Lock" />
-              <CapabilityBadge active={Boolean(mouseCapabilities?.absoluteMouse)} label="Absolute Mouse" />
-            </div>
-            <p class="virtual-machine-inspector__hint">
-              {mouseCapabilities?.absoluteMouse
-                ? 'Guest 已启用 absolute mouse，宿主指针位置会直接映射到客户机内部。'
-                : running
-                  ? 'Guest 尚未报告 absolute mouse 支持。'
-                  : '虚拟机未运行，无法检测鼠标能力。'}
-            </p>
           </Section>
 
           <Section title="外设">
