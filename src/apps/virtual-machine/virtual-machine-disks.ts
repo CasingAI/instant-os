@@ -1,4 +1,5 @@
 import { filesReadBlob } from '../files/files-api.ts'
+import { cpuidLevelForCpuModel } from './virtual-machine-config.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
@@ -17,6 +18,7 @@ export function virtualMachineHasBootMedia(
 }
 
 export function settingsToStartConfig(settings: VirtualMachineSettings): InstantVmStartConfig {
+  const cpuidLevel = cpuidLevelForCpuModel(settings.cpuModel)
   return {
     memoryMb: settings.memoryMb,
     vgaMemoryMb: settings.vgaMemoryMb,
@@ -30,6 +32,7 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     networkBackend: settings.networkBackend,
     displayMode: settings.displayMode,
     pointerMode: settings.pointerMode,
+    ...(cpuidLevel !== undefined ? { cpuidLevel } : {}),
     sendEnterAfterMs: settings.cdromPath.trim() ? 3000 : undefined,
   }
 }

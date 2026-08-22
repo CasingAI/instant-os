@@ -54,7 +54,7 @@ function testHasBootMedia(): void {
 function testCdromSendsEnterAndHddDoesNot(): void {
   const cdromSettings = {
     ...defaultVirtualMachineSettings('Android'),
-    memoryMb: 512 as const,
+    memoryMb: 512,
     bootOrder: 'cd-floppy-hdd' as const,
     cdromPath: '/user/android-x86-1.6-r2.iso',
   }
@@ -62,7 +62,7 @@ function testCdromSendsEnterAndHddDoesNot(): void {
 
   const reactos = {
     ...defaultVirtualMachineSettings('ReactOS'),
-    memoryMb: 512 as const,
+    memoryMb: 512,
     acpi: true,
     hdaPath: 'https://i.copy.sh/reactos-v3/.img',
     statePath: 'https://i.copy.sh/reactos_state-v3.bin.zst',
@@ -155,6 +155,7 @@ function testStatsFormatting(): void {
       },
       vga: { mode: 'graphical', width: 800, height: 600, bpp: 16 },
       mouse: false,
+      mouseCapabilities: { hasAbsolute: false, hasRelative: false },
     }),
     '800×600×16',
   )
@@ -195,6 +196,19 @@ function testNetworkFields(): void {
     }),
     false,
   )
+}
+
+function testCpuModelPassedThrough(): void {
+  // 默认 → 不传 cpuidLevel
+  const defaultCfg = settingsToStartConfig(defaultVirtualMachineSettings())
+  assert.equal(defaultCfg.cpuidLevel, undefined)
+
+  // windows-nt4 → cpuidLevel=2
+  const nt4 = settingsToStartConfig({
+    ...defaultVirtualMachineSettings(),
+    cpuModel: 'windows-nt4',
+  })
+  assert.equal(nt4.cpuidLevel, 2)
 }
 
 function testOriginAllowList(): void {
@@ -249,6 +263,7 @@ testReactOsRemoteStartMessage()
 testPathSummaryForRemoteUrl()
 testStatsFormatting()
 testNetworkFields()
+testCpuModelPassedThrough()
 testOriginAllowList()
 testStatsMessage()
 console.log('virtual-machine-protocol.test.ts ok')

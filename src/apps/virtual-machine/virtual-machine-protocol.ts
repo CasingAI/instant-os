@@ -236,7 +236,9 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmPointerLockChangedMessage
   | InstantVmPointerEdgeHitMessage
 
-const MEMORY_MB_OPTIONS = [16, 32, 64, 128, 256, 512] as const
+const MEMORY_MB_MIN = 16
+const MEMORY_MB_MAX = 4096
+const MEMORY_MB_STEP = 16
 const VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -277,11 +279,15 @@ function isPositiveIntIn<T extends number>(
   return typeof value === 'number' && Number.isInteger(value) && allowed.includes(value as T)
 }
 
+function isIntegerInRange(value: unknown, min: number, max: number): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
+}
+
 export function isInstantVmStartConfig(value: unknown): value is InstantVmStartConfig {
   if (!isRecord(value)) {
     return false
   }
-  if (!isPositiveIntIn(value.memoryMb, MEMORY_MB_OPTIONS)) {
+  if (!isIntegerInRange(value.memoryMb, MEMORY_MB_MIN, MEMORY_MB_MAX)) {
     return false
   }
   if (!isPositiveIntIn(value.vgaMemoryMb, VGA_MEMORY_MB_OPTIONS)) {

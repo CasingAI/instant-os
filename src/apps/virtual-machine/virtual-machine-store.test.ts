@@ -23,6 +23,7 @@ import {
 } from './virtual-machine-store.ts'
 import {
   DEFAULT_VIRTUAL_MACHINE_BUILD_MODE,
+  DEFAULT_VIRTUAL_MACHINE_CPU_MODEL,
   DEFAULT_VIRTUAL_MACHINE_ID,
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -42,6 +43,7 @@ function testNormalizeMissingSeedsDefault(): void {
   assert.equal(machines[0]?.backend, 'v86')
   assert.equal(machines[0]?.memoryMb, DEFAULT_VIRTUAL_MACHINE_MEMORY_MB)
   assert.equal(machines[0]?.vgaMemoryMb, DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB)
+  assert.equal(machines[0]?.cpuModel, DEFAULT_VIRTUAL_MACHINE_CPU_MODEL)
   assert.equal(machines[0]?.bootOrder, 'auto')
   assert.equal(machines[0]?.network, 'none')
   assert.equal(machines[0]?.networkBackend, 'off')
@@ -123,6 +125,42 @@ function testNormalizeDropsGarbageAndDuplicates(): void {
   assert.equal(machines[1]?.networkBackend, 'off')
 }
 
+function testNormalizeMemoryMbRange(): void {
+  // 旧值 512 在范围内，保留
+  const a = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 512 })
+  assert.equal(a?.memoryMb, 512)
+
+  // 非 16 倍数，向下取整到 16 的倍数
+  const b = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 100 })
+  assert.equal(b?.memoryMb, 96)
+
+  // 超过上限 4096，clamp 到 4096
+  const c = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 8192 })
+  assert.equal(c?.memoryMb, 4096)
+
+  // 低于下限 16，clamp 到 16
+  const d = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 1 })
+  assert.equal(d?.memoryMb, 16)
+
+  // 缺失 → 默认值
+  const e = normalizeVirtualMachineSettings({ name: 'test' })
+  assert.equal(e?.memoryMb, DEFAULT_VIRTUAL_MACHINE_MEMORY_MB)
+}
+
+function testNormalizeCpuModelFallback(): void {
+  // 缺失 → 默认值
+  const a = normalizeVirtualMachineSettings({ name: 'test' })
+  assert.equal(a?.cpuModel, DEFAULT_VIRTUAL_MACHINE_CPU_MODEL)
+
+  // 合法值保留
+  const b = normalizeVirtualMachineSettings({ name: 'test', cpuModel: 'windows-nt4' })
+  assert.equal(b?.cpuModel, 'windows-nt4')
+
+  // 非法值 → 回退
+  const c = normalizeVirtualMachineSettings({ name: 'test', cpuModel: 'fake-cpu' })
+  assert.equal(c?.cpuModel, DEFAULT_VIRTUAL_MACHINE_CPU_MODEL)
+}
+
 function testNormalizeKeepsHttpUrls(): void {
   const machines = normalizeVirtualMachines([
     {
@@ -184,6 +222,7 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
   assert.equal(created.name, '测试机')
   assert.equal(created.backend, 'v86')
   assert.equal(created.memoryMb, DEFAULT_VIRTUAL_MACHINE_MEMORY_MB)
+  assert.equal(created.cpuModel, DEFAULT_VIRTUAL_MACHINE_CPU_MODEL)
   const afterAdd = await readVirtualMachineStore()
   assert.equal(afterAdd.machines.length, 1)
   assert.equal(afterAdd.machines[0]?.id, created.id)
@@ -191,6 +230,7 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
   const updated = await updateVirtualMachine(created.id, {
     ...defaultVirtualMachineSettings('改名'),
     memoryMb: 256,
+    cpuModel: 'windows-nt4',
     network: 'ne2k',
     networkBackend: 'fetch',
     hdaPath: '/user/vm/disk.img',
@@ -199,6 +239,7 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
   assert.equal(updated?.id, created.id)
   assert.equal(updated?.name, '改名')
   assert.equal(updated?.memoryMb, 256)
+  assert.equal(updated?.cpuModel, 'windows-nt4')
   assert.equal(updated?.network, 'ne2k')
   assert.equal(updated?.networkBackend, 'fetch')
   assert.equal(updated?.hdaPath, '/user/vm/disk.img')
@@ -220,6 +261,8 @@ testNormalizeDropsGarbageAndDuplicates()
 testNormalizeKeepsHttpUrls()
 testNormalizeRecordRejectsInvalid()
 testNormalizeBuildModeFallback()
+testNormalizeMemoryMbRange()
+testNormalizeCpuModelFallback()
 testNextMachineName()
 await testFirstReadPersistsDefault()
 await testEmptyWriteDoesNotReseed()

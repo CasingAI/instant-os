@@ -10,10 +10,11 @@ export type VmDisplayModeId = (typeof VM_DISPLAY_MODE_IDS)[number]
 export const DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE: VmDisplayModeId = 'contain'
 
 /** v86 `memory_size` 要求 2 的幂；浏览器里再往上容易把标签页撑爆。 */
-export const VM_MEMORY_MB_OPTIONS = [16, 32, 64, 128, 256, 512] as const
+export type VmMemoryMb = number
 
-export type VmMemoryMb = (typeof VM_MEMORY_MB_OPTIONS)[number]
-
+export const VM_MEMORY_MB_MIN = 16
+export const VM_MEMORY_MB_MAX = 4096
+export const VM_MEMORY_MB_STEP = 16
 export const DEFAULT_VIRTUAL_MACHINE_MEMORY_MB: VmMemoryMb = 64
 
 /** 对应 v86 `vga_memory_size`。 */
@@ -22,6 +23,17 @@ export const VM_VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16] as const
 export type VmVgaMemoryMb = (typeof VM_VGA_MEMORY_MB_OPTIONS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB: VmVgaMemoryMb = 8
+
+/**
+ * v86 能调整的「处理器」参数只有 `cpuid_level`。
+ * - `default`：不覆盖，使用 v86 默认值（Pentium III 级别）。
+ * - `windows-nt4`：cpuid_level=2，供 Windows NT 4.0 等老系统启动。
+ */
+export const VM_CPU_MODEL_IDS = ['default', 'windows-nt4'] as const
+
+export type VmCpuModelId = (typeof VM_CPU_MODEL_IDS)[number]
+
+export const DEFAULT_VIRTUAL_MACHINE_CPU_MODEL: VmCpuModelId = 'default'
 
 /**
  * 对应 v86 `BootOrder`。
@@ -81,6 +93,7 @@ export type VirtualMachineSettings = {
   buildMode: VmBuildModeId
   memoryMb: VmMemoryMb
   vgaMemoryMb: VmVgaMemoryMb
+  cpuModel: VmCpuModelId
   bootOrder: VmBootOrderId
   acpi: boolean
   fastboot: boolean

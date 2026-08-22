@@ -1,5 +1,9 @@
 import { createRegistryStore } from '../../os/registry-store.ts'
-import { defaultVirtualMachineSettings, settingsFromRecord } from './virtual-machine-config.ts'
+import {
+  clampVmMemoryMb,
+  defaultVirtualMachineSettings,
+  settingsFromRecord,
+} from './virtual-machine-config.ts'
 import {
   DEFAULT_VIRTUAL_MACHINE_ID,
   DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -8,8 +12,8 @@ import {
   VM_BACKEND_IDS,
   VM_BOOT_ORDER_IDS,
   VM_BUILD_MODE_IDS,
+  VM_CPU_MODEL_IDS,
   VM_DISPLAY_MODE_IDS,
-  VM_MEMORY_MB_OPTIONS,
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
   VM_POINTER_MODE_IDS,
@@ -41,6 +45,14 @@ function normalizeName(raw: unknown): string | undefined {
   return name || undefined
 }
 
+function normalizeMemoryMb(raw: unknown, fallback: number): number {
+  const num = typeof raw === 'number' ? raw : Number(raw)
+  if (!Number.isFinite(num)) {
+    return fallback
+  }
+  return clampVmMemoryMb(num)
+}
+
 function normalizePath(raw: unknown): string {
   if (typeof raw !== 'string') {
     return ''
@@ -69,8 +81,9 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
     name,
     backend: normalizeOneOf(record.backend, VM_BACKEND_IDS, defaults.backend),
     buildMode: normalizeOneOf(record.buildMode, VM_BUILD_MODE_IDS, defaults.buildMode),
-    memoryMb: normalizeOneOf(record.memoryMb, VM_MEMORY_MB_OPTIONS, defaults.memoryMb),
+    memoryMb: normalizeMemoryMb(record.memoryMb, defaults.memoryMb),
     vgaMemoryMb: normalizeOneOf(record.vgaMemoryMb, VM_VGA_MEMORY_MB_OPTIONS, defaults.vgaMemoryMb),
+    cpuModel: normalizeOneOf(record.cpuModel, VM_CPU_MODEL_IDS, defaults.cpuModel),
     bootOrder: normalizeOneOf(record.bootOrder, VM_BOOT_ORDER_IDS, defaults.bootOrder),
     acpi: normalizeBoolean(record.acpi, defaults.acpi),
     fastboot: normalizeBoolean(record.fastboot, defaults.fastboot),

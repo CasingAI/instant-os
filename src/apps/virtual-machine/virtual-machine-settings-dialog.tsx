@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { IosButton } from '../../ui/ios-button.tsx'
+import { IosRangeSlider } from '../../ui/ios-range-slider.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import {
+  formatVmCpuModelLabel,
+  formatVmMemoryLabel,
   formatVmNetworkBackendLabel,
   formatVmNetworkLabel,
   formatVmPathSummary,
   isVmBootOrderId,
   isVmBuildModeId,
+  isVmCpuModelId,
   isVmDisplayModeId,
-  isVmMemoryMb,
   isVmNetworkBackendId,
   isVmNetworkId,
   isVmPointerModeId,
@@ -20,10 +23,13 @@ import {
   VM_BOOT_ORDER_CHOICES,
   VM_BUILD_MODE_CHOICES,
   VM_CDROM_ACCEPT_EXTENSIONS,
+  VM_CPU_MODEL_CHOICES,
   VM_DISPLAY_MODE_CHOICES,
   VM_FLOPPY_ACCEPT_EXTENSIONS,
   VM_HARD_DISK_ACCEPT_EXTENSIONS,
-  VM_MEMORY_CHOICES,
+  VM_MEMORY_MB_MAX,
+  VM_MEMORY_MB_MIN,
+  VM_MEMORY_MB_STEP,
   VM_NETWORK_BACKEND_CHOICES,
   VM_NETWORK_CHOICES,
   VM_POINTER_MODE_CHOICES,
@@ -52,7 +58,7 @@ import {
 
 const THEME = '#3d5a80'
 
-type SettingsTab = 'general' | 'storage' | 'devices'
+type SettingsTab = 'general' | 'hardware' | 'storage' | 'devices'
 
 type VirtualMachineSettingsDialogProps = {
   open: boolean
@@ -64,6 +70,7 @@ type VirtualMachineSettingsDialogProps = {
 
 const TAB_ITEMS = [
   { id: 'general', label: '常规' },
+  { id: 'hardware', label: '硬件' },
   { id: 'storage', label: '存储' },
   { id: 'devices', label: '外设' },
 ] as const
@@ -94,6 +101,14 @@ const DEVICE_ITEMS: readonly { id: VmDeviceId; label: string }[] = [
   { id: 'speaker', label: '扬声器' },
   { id: 'keyboard', label: '键盘' },
   { id: 'mouse', label: '鼠标' },
+]
+
+type VmHardwareId = 'ram' | 'vga' | 'cpu'
+
+const HARDWARE_ITEMS: readonly { id: VmHardwareId; label: string }[] = [
+  { id: 'ram', label: '内存' },
+  { id: 'vga', label: '显存' },
+  { id: 'cpu', label: '处理器' },
 ]
 
 function cloneSettings(settings: VirtualMachineSettings): VirtualMachineSettings {
@@ -136,6 +151,7 @@ export function VirtualMachineSettingsDialog({
   const [tab, setTab] = useState<SettingsTab>('general')
   const [selectedDrive, setSelectedDrive] = useState<VmDriveId>('hdaPath')
   const [selectedDevice, setSelectedDevice] = useState<VmDeviceId>('network')
+  const [selectedHardware, setSelectedHardware] = useState<VmHardwareId>('ram')
   const [sourceByDrive, setSourceByDrive] = useState<Record<VmDriveId, VmDriveSourceId>>(() =>
     inferDriveSources(initial),
   )
@@ -150,6 +166,7 @@ export function VirtualMachineSettingsDialog({
     setTab('general')
     setSelectedDrive('hdaPath')
     setSelectedDevice('network')
+    setSelectedHardware('ram')
     setSourceByDrive(inferDriveSources(initial))
     setError(undefined)
     setBusy(false)
@@ -338,38 +355,6 @@ export function VirtualMachineSettingsDialog({
               Debug 版加载未压缩 JS，可单步调试 V86 内部；Release 版压缩混淆，性能更好。运行中切换需要重新开机。
             </p>
             <SettingsChoiceField
-              label="内存"
-              value={String(draft.memoryMb)}
-              options={VM_MEMORY_CHOICES}
-              onChange={(value) => {
-                const memoryMb = Number(value)
-                if (isVmMemoryMb(memoryMb)) {
-                  patch({ memoryMb })
-                }
-              }}
-              wideLayout
-              presentation="form"
-              disabled={busy}
-              fieldClass="virtual-machine-settings__field"
-              labelClass="virtual-machine-settings__label"
-            />
-            <SettingsChoiceField
-              label="显存"
-              value={String(draft.vgaMemoryMb)}
-              options={VM_VGA_MEMORY_CHOICES}
-              onChange={(value) => {
-                const vgaMemoryMb = Number(value)
-                if (isVmVgaMemoryMb(vgaMemoryMb)) {
-                  patch({ vgaMemoryMb })
-                }
-              }}
-              wideLayout
-              presentation="form"
-              disabled={busy}
-              fieldClass="virtual-machine-settings__field"
-              labelClass="virtual-machine-settings__label"
-            />
-            <SettingsChoiceField
               label="启动顺序"
               value={draft.bootOrder}
               options={VM_BOOT_ORDER_CHOICES}
@@ -416,6 +401,107 @@ export function VirtualMachineSettingsDialog({
               detail="跳过 Bochs BIOS 启动菜单。"
               onChange={(fastboot) => patch({ fastboot })}
             />
+          </div>
+        ) : null}
+        {tab === 'hardware' ? (
+          <div class="virtual-machine-settings__pane">
+            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+              左边选硬件，右边调参数。内存建议不超过标签页物理内存的 1/4。
+            </p>
+            <div class="virtual-machine-settings__storage virtual-machine-settings__storage--devices">
+              <div class="virtual-machine-settings__drives" role="listbox" aria-label="硬件">
+                {HARDWARE_ITEMS.map((item) => {
+                  const active = item.id === selectedHardware
+                  const meta =
+                    item.id === 'ram'
+                      ? formatVmMemoryLabel(draft.memoryMb)
+                      : item.id === 'vga'
+                        ? formatVmMemoryLabel(draft.vgaMemoryMb)
+                        : formatVmCpuModelLabel(draft.cpuModel)
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      class={`virtual-machine-settings__drive${
+                        active ? ' virtual-machine-settings__drive--active' : ''
+                      }`}
+                      disabled={busy}
+                      onClick={() => setSelectedHardware(item.id)}
+                    >
+                      <span class="virtual-machine-settings__drive-name">{item.label}</span>
+                      <span class="virtual-machine-settings__drive-meta">{meta}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div class="virtual-machine-settings__source">
+                <span class="virtual-machine-settings__source-title">
+                  {HARDWARE_ITEMS.find((item) => item.id === selectedHardware)?.label}
+                </span>
+                {selectedHardware === 'ram' ? (
+                  <>
+                    <IosRangeSlider
+                      label="内存"
+                      value={draft.memoryMb}
+                      min={VM_MEMORY_MB_MIN}
+                      max={VM_MEMORY_MB_MAX}
+                      step={VM_MEMORY_MB_STEP}
+                      suffix="MB"
+                      disabled={busy}
+                      onChange={(mb) => patch({ memoryMb: mb })}
+                    />
+                    <p class="virtual-machine-settings__hint">
+                      当前 {formatVmMemoryLabel(draft.memoryMb)}。v86 内部按字节分配，最少 16 MB，浏览器标签页建议不超过物理内存 1/4。
+                    </p>
+                  </>
+                ) : null}
+                {selectedHardware === 'vga' ? (
+                  <>
+                    <IosRangeSlider
+                      label="显存"
+                      value={draft.vgaMemoryMb}
+                      min={2}
+                      max={16}
+                      step={2}
+                      suffix="MB"
+                      disabled={busy}
+                      onChange={(vgaMemoryMb) => {
+                        if (isVmVgaMemoryMb(vgaMemoryMb)) {
+                          patch({ vgaMemoryMb })
+                        }
+                      }}
+                    />
+                    <p class="virtual-machine-settings__hint">
+                      当前 {draft.vgaMemoryMb} MB。显存用于 VGA 帧缓冲，文本/简单 GUI 用 2 MB 足够。
+                    </p>
+                  </>
+                ) : null}
+                {selectedHardware === 'cpu' ? (
+                  <>
+                    <SettingsChoiceField
+                      label="处理器"
+                      value={draft.cpuModel}
+                      options={VM_CPU_MODEL_CHOICES}
+                      onChange={(value) => {
+                        if (isVmCpuModelId(value)) {
+                          patch({ cpuModel: value })
+                        }
+                      }}
+                      wideLayout
+                      presentation="form"
+                      disabled={busy}
+                      fieldClass="virtual-machine-settings__field"
+                      labelClass="virtual-machine-settings__label"
+                    />
+                    <p class="virtual-machine-settings__hint">
+                      默认的 Pentium III 级别适用于大多数系统。Windows NT 4.0 等老系统需要降低 CPUID level 才能启动。
+                    </p>
+                  </>
+                ) : null}
+              </div>
+            </div>
           </div>
         ) : null}
         {tab === 'storage' ? (

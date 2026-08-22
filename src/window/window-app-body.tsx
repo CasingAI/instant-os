@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { IosButton } from '../ui/ios-button.tsx'
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { isBuiltinAppId } from '../os/builtin-app-display-names.ts'
 import { isExtAppId, isGeneratedAppId } from '../os/types.ts'
@@ -141,13 +142,9 @@ export function WindowAppBody({ window }: { window: WindowState }) {
       return (
         <div class="window-app-body__splash window-app-body__splash--static" role="alert">
           <p>{state.message}</p>
-          <button
-            type="button"
-            class="window-app-body__retry"
-            onClick={() => setRetryNonce((value) => value + 1)}
-          >
+          <IosButton tone="primary" onClick={() => setRetryNonce((value) => value + 1)}>
             重试
-          </button>
+          </IosButton>
         </div>
       )
     }
@@ -171,13 +168,9 @@ export function WindowAppBody({ window }: { window: WindowState }) {
             <>
               <WindowAppSplashArt window={window} />
               <p>{state.message}</p>
-              <button
-                type="button"
-                class="window-app-body__retry"
-                onClick={() => setRetryNonce((value) => value + 1)}
-              >
+              <IosButton tone="primary" onClick={() => setRetryNonce((value) => value + 1)}>
                 重试
-              </button>
+              </IosButton>
             </>
           ) : (
             <>

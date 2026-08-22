@@ -2,6 +2,7 @@ import type { SettingsChoiceOption } from '../../ui/settings-choice-option-list.
 import {
   DEFAULT_VIRTUAL_MACHINE_BOOT_ORDER,
   DEFAULT_VIRTUAL_MACHINE_BUILD_MODE,
+  DEFAULT_VIRTUAL_MACHINE_CPU_MODEL,
   DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -12,8 +13,11 @@ import {
   VM_BACKEND_IDS,
   VM_BOOT_ORDER_IDS,
   VM_BUILD_MODE_IDS,
+  VM_CPU_MODEL_IDS,
   VM_DISPLAY_MODE_IDS,
-  VM_MEMORY_MB_OPTIONS,
+  VM_MEMORY_MB_MAX,
+  VM_MEMORY_MB_MIN,
+  VM_MEMORY_MB_STEP,
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
   VM_POINTER_MODE_IDS,
@@ -21,6 +25,7 @@ import {
   type VmBackendId,
   type VmBootOrderId,
   type VmBuildModeId,
+  type VmCpuModelId,
   type VmDisplayModeId,
   type VmMemoryMb,
   type VmNetworkBackendId,
@@ -40,6 +45,7 @@ export function defaultVirtualMachineSettings(
     buildMode: DEFAULT_VIRTUAL_MACHINE_BUILD_MODE,
     memoryMb: DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
     vgaMemoryMb: DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB,
+    cpuModel: DEFAULT_VIRTUAL_MACHINE_CPU_MODEL,
     bootOrder: DEFAULT_VIRTUAL_MACHINE_BOOT_ORDER,
     acpi: false,
     fastboot: false,
@@ -64,6 +70,7 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     buildMode: record.buildMode,
     memoryMb: record.memoryMb,
     vgaMemoryMb: record.vgaMemoryMb,
+    cpuModel: record.cpuModel,
     bootOrder: record.bootOrder,
     acpi: record.acpi,
     fastboot: record.fastboot,
@@ -117,6 +124,11 @@ const BUILD_MODE_LABELS: Record<VmBuildModeId, string> = {
   release: 'Release（正式版）',
 }
 
+const CPU_MODEL_LABELS: Record<VmCpuModelId, string> = {
+  default: '默认（Pentium III 级别）',
+  'windows-nt4': 'Windows NT 4.0 兼容（CPUID level 2）',
+}
+
 export function formatVmPointerModeLabel(id: VmPointerModeId): string {
   return POINTER_MODE_LABELS[id]
 }
@@ -139,6 +151,10 @@ export function formatVmNetworkLabel(id: VmNetworkId): string {
 
 export function formatVmNetworkBackendLabel(id: VmNetworkBackendId): string {
   return NETWORK_BACKEND_LABELS[id]
+}
+
+export function formatVmCpuModelLabel(id: VmCpuModelId): string {
+  return CPU_MODEL_LABELS[id]
 }
 
 export function formatVmMemoryLabel(mb: number): string {
@@ -177,10 +193,15 @@ export const VM_BUILD_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_BUILD_M
   }),
 )
 
-export const VM_MEMORY_CHOICES: readonly SettingsChoiceOption[] = VM_MEMORY_MB_OPTIONS.map((mb) => ({
-  id: String(mb),
-  label: formatVmMemoryLabel(mb),
-}))
+export const VM_CPU_MODEL_CHOICES: readonly SettingsChoiceOption[] = VM_CPU_MODEL_IDS.map(
+  (id) => ({
+    id,
+    label:
+      id === DEFAULT_VIRTUAL_MACHINE_CPU_MODEL
+        ? `${formatVmCpuModelLabel(id)} 默认`
+        : formatVmCpuModelLabel(id),
+  }),
+)
 
 export const VM_VGA_MEMORY_CHOICES: readonly SettingsChoiceOption[] = VM_VGA_MEMORY_MB_OPTIONS.map(
   (mb) => ({
@@ -235,11 +256,32 @@ export function isVmBackendId(value: string): value is VmBackendId {
 }
 
 export function isVmMemoryMb(value: number): value is VmMemoryMb {
-  return (VM_MEMORY_MB_OPTIONS as readonly number[]).includes(value)
+  return (
+    Number.isInteger(value) &&
+    value >= VM_MEMORY_MB_MIN &&
+    value <= VM_MEMORY_MB_MAX &&
+    value % VM_MEMORY_MB_STEP === 0
+  )
+}
+
+export function clampVmMemoryMb(value: number): number {
+  const rounded = Math.round(value / VM_MEMORY_MB_STEP) * VM_MEMORY_MB_STEP
+  return Math.max(VM_MEMORY_MB_MIN, Math.min(VM_MEMORY_MB_MAX, rounded))
 }
 
 export function isVmVgaMemoryMb(value: number): value is VmVgaMemoryMb {
   return (VM_VGA_MEMORY_MB_OPTIONS as readonly number[]).includes(value)
+}
+
+export function isVmCpuModelId(value: string): value is VmCpuModelId {
+  return (VM_CPU_MODEL_IDS as readonly string[]).includes(value)
+}
+
+export function cpuidLevelForCpuModel(id: VmCpuModelId): number | undefined {
+  if (id === 'windows-nt4') {
+    return 2
+  }
+  return undefined
 }
 
 export function isVmBootOrderId(value: string): value is VmBootOrderId {
