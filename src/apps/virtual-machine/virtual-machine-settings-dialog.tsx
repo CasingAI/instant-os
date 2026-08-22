@@ -452,7 +452,9 @@ export function VirtualMachineSettingsDialog({
                       onChange={(mb) => patch({ memoryMb: mb })}
                     />
                     <p class="virtual-machine-settings__hint">
-                      当前 {formatVmMemoryLabel(draft.memoryMb)}。v86 内部按字节分配，最少 16 MB，浏览器标签页建议不超过物理内存 1/4。
+                      当前 {formatVmMemoryLabel(draft.memoryMb)}。最少 {VM_MEMORY_MB_MIN} MB，最多{' '}
+                      {VM_MEMORY_MB_MAX} MB（v86 无法分配满 2048 MB）。浏览器标签页建议不超过物理内存
+                      1/4。
                     </p>
                   </>
                 ) : null}

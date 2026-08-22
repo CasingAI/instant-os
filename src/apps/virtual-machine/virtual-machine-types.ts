@@ -9,11 +9,11 @@ export type VmDisplayModeId = (typeof VM_DISPLAY_MODE_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE: VmDisplayModeId = 'contain'
 
-/** v86 `memory_size` 要求 2 的幂；浏览器里再往上容易把标签页撑爆。 */
+/** v86 用有符号 32 位处理 `memory_size`，2048 MB 会溢出；16 MB 步进下最大可用 2032 MB。 */
 export type VmMemoryMb = number
 
 export const VM_MEMORY_MB_MIN = 16
-export const VM_MEMORY_MB_MAX = 4096
+export const VM_MEMORY_MB_MAX = 2032
 export const VM_MEMORY_MB_STEP = 16
 export const DEFAULT_VIRTUAL_MACHINE_MEMORY_MB: VmMemoryMb = 64
 

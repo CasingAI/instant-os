@@ -134,9 +134,9 @@ function testNormalizeMemoryMbRange(): void {
   const b = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 100 })
   assert.equal(b?.memoryMb, 96)
 
-  // 超过上限 4096，clamp 到 4096
+  // 超过上限 2032，clamp 到 2032（v86 无法使用满 2048 MB）
   const c = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 8192 })
-  assert.equal(c?.memoryMb, 4096)
+  assert.equal(c?.memoryMb, 2032)
 
   // 低于下限 16，clamp 到 16
   const d = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 1 })
