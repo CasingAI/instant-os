@@ -132,7 +132,9 @@ export function WindowModal({
     <div
       class={`window-modal-backdrop${closing ? ' window-modal-backdrop--closing' : ''}${display.align === 'top' ? ' window-modal-backdrop--top' : ''}`}
       role="presentation"
-      onClick={display.onClose}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) display.onClose?.()
+      }}
     >
       <div
         class={`window-modal${display.wide ? ' window-modal--wide' : ''}${closing ? ' window-modal--closing' : ''}${display.align === 'top' ? ' window-modal--top' : ''}${display.panelClass ? ` ${display.panelClass}` : ''}`}
