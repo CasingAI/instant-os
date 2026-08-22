@@ -562,12 +562,13 @@
 }
 
 .virtual-machine-settings__drive {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  display: block;
   width: 100%;
-  padding: 8px 10px;
+  min-width: 0;
+  padding: 6px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   border: none;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   background: transparent;
@@ -600,12 +601,12 @@
 }
 
 .virtual-machine-settings__drive-meta {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 11px;
   color: var(--vm-muted);
+}
+
+.virtual-machine-settings__drive-meta::before {
+  content: ' · ';
 }
 
 .virtual-machine-settings__drive--active .virtual-machine-settings__drive-meta {
