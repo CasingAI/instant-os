@@ -2690,6 +2690,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const handleFolderDrop = useCallback(
     (event: DragEvent, node: FilesNode) => {
       event.preventDefault()
+      event.stopPropagation()
       setDropTarget(undefined)
       if (node.kind === 'folder') {
         externalDropTargets(event, { destLocationId: node.locationId, destParentId: node.id })
