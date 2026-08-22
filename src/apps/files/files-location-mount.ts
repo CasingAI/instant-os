@@ -456,7 +456,7 @@ export async function writeMountBytesRange(
     if (offset > 0) {
       await writable.seek(offset)
     }
-    await writable.write(data)
+    await writable.write(data instanceof Uint8Array ? data.slice() : data)
     await writable.close()
   } catch (error) {
     try {

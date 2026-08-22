@@ -1415,7 +1415,6 @@ export async function writeBlobBytesRange(params: {
       'readwrite',
     )
     const blobs = writeTx.objectStore(FILES_BLOBS_STORE)
-    const chunks = writeTx.objectStore(FILES_CHUNKS_STORE)
 
     await deleteBlobChunksInTx(writeTx, targetBlobId)
     putChunksInTx(writeTx, targetBlobId, newChunks, newByteSize)
@@ -1460,8 +1459,6 @@ export async function writeBlobBytesRange(params: {
       [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
       'readwrite',
     )
-    const blobs = writeTx.objectStore(FILES_BLOBS_STORE)
-
     if (blob?.chunked === true) {
       await deleteBlobChunksInTx(writeTx, blobId)
     }

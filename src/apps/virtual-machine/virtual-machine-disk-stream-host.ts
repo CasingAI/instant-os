@@ -93,7 +93,7 @@ function onDiskReadMessage(event: MessageEvent): void {
           status: 404,
           totalSize: 0,
         }
-        source.postMessage(reply, event.origin)
+        source.postMessage(reply, { targetOrigin: event.origin })
         return
       }
       const result = await readDiskRange(entry, message.offset, message.length)
@@ -103,7 +103,7 @@ function onDiskReadMessage(event: MessageEvent): void {
         streamId: message.streamId,
       }
       const transfer = reply.bytes ? [reply.bytes] : []
-      source.postMessage(reply, event.origin, transfer)
+      source.postMessage(reply, { targetOrigin: event.origin, transfer })
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error)
       source.postMessage(
@@ -112,7 +112,7 @@ function onDiskReadMessage(event: MessageEvent): void {
           requestId: message.requestId,
           message: text || '读取镜像失败',
         },
-        event.origin,
+        { targetOrigin: event.origin },
       )
     }
   })()
