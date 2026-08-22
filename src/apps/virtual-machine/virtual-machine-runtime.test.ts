@@ -20,9 +20,11 @@ function testPickDisplayedMachineId(): void {
   assert.equal(pickDisplayedMachineId('a', []), undefined)
 
   assert.equal(pickDisplayedMachineId('b', ['a', 'b', 'c']), 'b')
-  assert.equal(pickDisplayedMachineId('missing', ['a', 'b']), 'a')
-  assert.equal(pickDisplayedMachineId(undefined, ['a', 'b']), 'a')
   assert.equal(pickDisplayedMachineId('a', ['a']), 'a')
+  // 选中未运行的机器时，绝不能把另一台正在跑的画面顶到右侧
+  assert.equal(pickDisplayedMachineId('b', ['a']), undefined)
+  assert.equal(pickDisplayedMachineId('missing', ['a', 'b']), undefined)
+  assert.equal(pickDisplayedMachineId(undefined, ['a', 'b']), undefined)
 }
 
 function testPickBackgroundMachineIds(): void {

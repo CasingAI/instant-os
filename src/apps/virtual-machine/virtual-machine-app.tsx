@@ -22,7 +22,6 @@ import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
 import {
-  pickBackgroundMachineIds,
   pickDisplayedMachineId,
   useVirtualMachineRuntimePool,
 } from './virtual-machine-runtime.ts'
@@ -147,11 +146,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   )
 
   const displayedId = pickDisplayedMachineId(selected?.id, pool.runningIds)
-  const displayedMachine = runningMachines.find((machine) => machine.id === displayedId)
   const selectedSnapshot = pool.snapshots.get(selectedId ?? '')
-  const displayedSnapshot = pool.snapshots.get(displayedId ?? '')
-  const displayedRunning = Boolean(displayedId !== undefined)
-  const displayedBusy = Boolean(displayedSnapshot && displayedRunning && !displayedSnapshot.ready)
+  const displayedBusy = Boolean(
+    displayedId !== undefined && selectedSnapshot && !selectedSnapshot.ready,
+  )
 
   const handleNew = useCallback(() => {
     setSettingsSession((current) => {
@@ -400,11 +398,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     ? '正在加载…'
     : !runtimeOrigin
       ? '未配置虚拟机运行时'
-      : runningMachines.length === 0
-        ? selected
+      : !selected
+        ? '选择左侧的虚拟机，或新建一台。'
+        : displayedId === undefined
           ? '已关机。点开机启动。'
-          : '选择左侧的虚拟机，或新建一台。'
-        : undefined
+          : undefined
 
   const focusMachine = useCallback(
     (machineId: string) => {
@@ -500,62 +498,46 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         </aside>
         <section class="virtual-machine__display-pane" aria-label="显示器">
           <div class="virtual-machine__monitors">
-            {runningMachines.length === 0 ? (
+            {runningMachines.map((machine) => {
+              const isDisplayed = machine.id === displayedId
+              return (
+                <div
+                  key={machine.id}
+                  class={
+                    isDisplayed
+                      ? 'virtual-machine__screen virtual-machine__screen--main'
+                      : 'virtual-machine__screen virtual-machine__screen--background'
+                  }
+                  aria-hidden={isDisplayed ? undefined : 'true'}
+                >
+                  <VmRuntimeSurface
+                    machineId={machine.id}
+                    origin={runtimeOrigin}
+                    buildMode={machine.buildMode}
+                    startMessage={pool.startMessages.get(machine.id)}
+                    onRegister={pool.onRegister}
+                    onUnregister={pool.onUnregister}
+                    onStateChange={pool.onStateChange}
+                    onStarted={pool.onStarted}
+                    onBootError={handleBootError}
+                  />
+                </div>
+              )
+            })}
+            {displayedId === undefined ? (
               <div class="virtual-machine__screen virtual-machine__screen--single">
                 {screenMessage ? (
                   <div class="virtual-machine__screen-message">{screenMessage}</div>
                 ) : null}
               </div>
-            ) : (
-              <>
-                <div class="virtual-machine__screen virtual-machine__screen--main">
-                  {displayedId !== undefined ? (
-                    <VmRuntimeSurface
-                      machineId={displayedId}
-                      origin={runtimeOrigin}
-                      buildMode={displayedMachine?.buildMode}
-                      startMessage={pool.startMessages.get(displayedId)}
-                      onRegister={pool.onRegister}
-                      onUnregister={pool.onUnregister}
-                      onStateChange={pool.onStateChange}
-                      onStarted={pool.onStarted}
-                      onBootError={handleBootError}
-                    />
-                  ) : null}
-                </div>
-                {pickBackgroundMachineIds(displayedId, runningMachines.map((m) => m.id)).map(
-                  (machineId) => {
-                    const bgMachine = runningMachines.find((m) => m.id === machineId)
-                    return (
-                      <div
-                        key={machineId}
-                        class="virtual-machine__screen virtual-machine__screen--background"
-                        aria-hidden="true"
-                      >
-                        <VmRuntimeSurface
-                          machineId={machineId}
-                          origin={runtimeOrigin}
-                          buildMode={bgMachine?.buildMode}
-                          startMessage={pool.startMessages.get(machineId)}
-                          onRegister={pool.onRegister}
-                          onUnregister={pool.onUnregister}
-                          onStateChange={pool.onStateChange}
-                          onStarted={pool.onStarted}
-                          onBootError={handleBootError}
-                        />
-                      </div>
-                    )
-                  },
-                )}
-              </>
-            )}
-            {displayedBusy && runningMachines.length > 0 ? (
+            ) : null}
+            {displayedBusy ? (
               <div class="virtual-machine__screen-message">正在连接模拟器…</div>
             ) : null}
           </div>
           <VirtualMachineActivity
-            stats={displayedSnapshot?.stats}
-            running={displayedRunning && !displayedBusy}
+            stats={selectedSnapshot?.stats}
+            running={selectedRunning && !displayedBusy}
           />
           {inspectorOpen && selected ? (
             <VirtualMachineInspectorOverlay

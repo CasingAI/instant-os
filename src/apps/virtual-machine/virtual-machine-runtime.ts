@@ -24,7 +24,7 @@ export function newVmRequestId(): string {
   return `vm-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`
 }
 
-/** 决定右侧显示器聚焦哪台运行中的虚拟机：选中项在跑就选中项，否则最早的运行实例。 */
+/** 右侧主屏只跟当前选中项走：选中项在跑才显示它，否则不显示任何其它机器的画面。 */
 export function pickDisplayedMachineId(
   selectedId: string | undefined,
   runningIds: readonly string[],
@@ -32,7 +32,7 @@ export function pickDisplayedMachineId(
   if (selectedId !== undefined && runningIds.includes(selectedId)) {
     return selectedId
   }
-  return runningIds[0]
+  return undefined
 }
 
 /** 后台保持挂载（但不显示）的实例：除主显实例外的所有运行中实例。 */
