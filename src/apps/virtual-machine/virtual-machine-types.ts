@@ -36,6 +36,17 @@ export type VmCpuModelId = (typeof VM_CPU_MODEL_IDS)[number]
 export const DEFAULT_VIRTUAL_MACHINE_CPU_MODEL: VmCpuModelId = 'default'
 
 /**
+ * 对应 Windows 安装程序中的 HAL 选择，以及 v86 `acpi` 开关。
+ * - `standard`：Standard PC（acpi=false）
+ * - `acpi`：ACPI PC（acpi=true）
+ */
+export const VM_PC_TYPE_IDS = ['standard', 'acpi'] as const
+
+export type VmPcTypeId = (typeof VM_PC_TYPE_IDS)[number]
+
+export const DEFAULT_VIRTUAL_MACHINE_PC_TYPE: VmPcTypeId = 'standard'
+
+/**
  * 对应 v86 `BootOrder`。
  * AUTO / CD_FLOPPY_HARDDISK / CD_HARDDISK_FLOPPY / FLOPPY_CD_HARDDISK /
  * FLOPPY_HARDDISK_CD / HARDDISK_CD_FLOPPY

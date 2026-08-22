@@ -12,14 +12,18 @@ import {
   formatVmNetworkBackendLabel,
   formatVmNetworkLabel,
   formatVmPathSummary,
+  formatVmPcTypeLabel,
   isVmBootOrderId,
   isVmBuildModeId,
   isVmCpuModelId,
   isVmDisplayModeId,
   isVmNetworkBackendId,
   isVmNetworkId,
+  isVmPcTypeId,
   isVmPointerModeId,
   isVmVgaMemoryMb,
+  acpiFromPcType,
+  pcTypeFromAcpi,
   VM_BOOT_ORDER_CHOICES,
   VM_BUILD_MODE_CHOICES,
   VM_CDROM_ACCEPT_EXTENSIONS,
@@ -32,6 +36,7 @@ import {
   VM_MEMORY_MB_STEP,
   VM_NETWORK_BACKEND_CHOICES,
   VM_NETWORK_CHOICES,
+  VM_PC_TYPE_CHOICES,
   VM_POINTER_MODE_CHOICES,
   VM_STATE_ACCEPT_EXTENSIONS,
 } from './virtual-machine-config.ts'
@@ -102,12 +107,13 @@ const DEVICE_ITEMS: readonly { id: VmDeviceId; label: string }[] = [
   { id: 'mouse', label: '鼠标' },
 ]
 
-type VmHardwareId = 'ram' | 'vga' | 'cpu'
+type VmHardwareId = 'ram' | 'vga' | 'cpu' | 'pc-type'
 
 const HARDWARE_ITEMS: readonly { id: VmHardwareId; label: string }[] = [
   { id: 'ram', label: '内存' },
   { id: 'vga', label: '显存' },
   { id: 'cpu', label: '处理器' },
+  { id: 'pc-type', label: 'PC 类型' },
 ]
 
 function cloneSettings(settings: VirtualMachineSettings): VirtualMachineSettings {
@@ -387,13 +393,6 @@ export function VirtualMachineSettingsDialog({
               只影响画面呈现，不改客户机内部分辨率；运行中也能在工具栏切换。
             </p>
             <SwitchRow
-              label="ACPI"
-              checked={draft.acpi}
-              disabled={busy}
-              detail="对应 v86 的 ACPI/APIC，实验性，部分客户机需要。"
-              onChange={(acpi) => patch({ acpi })}
-            />
-            <SwitchRow
               label="快速启动"
               checked={draft.fastboot}
               disabled={busy}
@@ -416,7 +415,9 @@ export function VirtualMachineSettingsDialog({
                       ? formatVmMemoryLabel(draft.memoryMb)
                       : item.id === 'vga'
                         ? formatVmMemoryLabel(draft.vgaMemoryMb)
-                        : formatVmCpuModelLabel(draft.cpuModel)
+                        : item.id === 'cpu'
+                          ? formatVmCpuModelLabel(draft.cpuModel)
+                          : formatVmPcTypeLabel(pcTypeFromAcpi(draft.acpi))
                   return (
                     <button
                       key={item.id}
@@ -498,6 +499,28 @@ export function VirtualMachineSettingsDialog({
                     />
                     <p class="virtual-machine-settings__hint">
                       默认的 Pentium III 级别适用于大多数系统。Windows NT 4.0 等老系统需要降低 CPUID level 才能启动。
+                    </p>
+                  </>
+                ) : null}
+                {selectedHardware === 'pc-type' ? (
+                  <>
+                    <SettingsChoiceField
+                      label="PC 类型"
+                      value={pcTypeFromAcpi(draft.acpi)}
+                      options={VM_PC_TYPE_CHOICES}
+                      onChange={(value) => {
+                        if (isVmPcTypeId(value)) {
+                          patch({ acpi: acpiFromPcType(value) })
+                        }
+                      }}
+                      wideLayout
+                      presentation="form"
+                      disabled={busy}
+                      fieldClass="virtual-machine-settings__field"
+                      labelClass="virtual-machine-settings__label"
+                    />
+                    <p class="virtual-machine-settings__hint">
+                      安装 Windows 2000 及更高版本时须使用 Standard PC。安装程序蓝屏阶段若默认是 ACPI PC，按 F5 改选 Standard PC。
                     </p>
                   </>
                 ) : null}

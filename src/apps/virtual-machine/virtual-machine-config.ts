@@ -8,6 +8,7 @@ import {
   DEFAULT_VIRTUAL_MACHINE_NAME,
   DEFAULT_VIRTUAL_MACHINE_NETWORK,
   DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
+  DEFAULT_VIRTUAL_MACHINE_PC_TYPE,
   DEFAULT_VIRTUAL_MACHINE_POINTER_MODE,
   DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB,
   VM_BACKEND_IDS,
@@ -15,6 +16,7 @@ import {
   VM_BUILD_MODE_IDS,
   VM_CPU_MODEL_IDS,
   VM_DISPLAY_MODE_IDS,
+  VM_PC_TYPE_IDS,
   VM_MEMORY_MB_MAX,
   VM_MEMORY_MB_MIN,
   VM_MEMORY_MB_STEP,
@@ -30,6 +32,7 @@ import {
   type VmMemoryMb,
   type VmNetworkBackendId,
   type VmNetworkId,
+  type VmPcTypeId,
   type VmPointerModeId,
   type VmVgaMemoryMb,
   type VirtualMachineRecord,
@@ -129,6 +132,11 @@ const CPU_MODEL_LABELS: Record<VmCpuModelId, string> = {
   'windows-nt4': 'Windows NT 4.0 兼容（CPUID level 2）',
 }
 
+const PC_TYPE_LABELS: Record<VmPcTypeId, string> = {
+  standard: 'Standard PC',
+  acpi: 'ACPI PC',
+}
+
 export function formatVmPointerModeLabel(id: VmPointerModeId): string {
   return POINTER_MODE_LABELS[id]
 }
@@ -155,6 +163,18 @@ export function formatVmNetworkBackendLabel(id: VmNetworkBackendId): string {
 
 export function formatVmCpuModelLabel(id: VmCpuModelId): string {
   return CPU_MODEL_LABELS[id]
+}
+
+export function formatVmPcTypeLabel(id: VmPcTypeId): string {
+  return PC_TYPE_LABELS[id]
+}
+
+export function pcTypeFromAcpi(acpi: boolean): VmPcTypeId {
+  return acpi ? 'acpi' : 'standard'
+}
+
+export function acpiFromPcType(pcType: VmPcTypeId): boolean {
+  return pcType === 'acpi'
 }
 
 export function formatVmMemoryLabel(mb: number): string {
@@ -202,6 +222,14 @@ export const VM_CPU_MODEL_CHOICES: readonly SettingsChoiceOption[] = VM_CPU_MODE
         : formatVmCpuModelLabel(id),
   }),
 )
+
+export const VM_PC_TYPE_CHOICES: readonly SettingsChoiceOption[] = VM_PC_TYPE_IDS.map((id) => ({
+  id,
+  label:
+    id === DEFAULT_VIRTUAL_MACHINE_PC_TYPE
+      ? `${formatVmPcTypeLabel(id)} 默认`
+      : formatVmPcTypeLabel(id),
+}))
 
 export const VM_VGA_MEMORY_CHOICES: readonly SettingsChoiceOption[] = VM_VGA_MEMORY_MB_OPTIONS.map(
   (mb) => ({
@@ -277,6 +305,10 @@ export function isVmVgaMemoryMb(value: number): value is VmVgaMemoryMb {
 
 export function isVmCpuModelId(value: string): value is VmCpuModelId {
   return (VM_CPU_MODEL_IDS as readonly string[]).includes(value)
+}
+
+export function isVmPcTypeId(value: string): value is VmPcTypeId {
+  return (VM_PC_TYPE_IDS as readonly string[]).includes(value)
 }
 
 export function cpuidLevelForCpuModel(id: VmCpuModelId): number | undefined {
