@@ -253,6 +253,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '支持把文件夹压缩为 zip / tar.gz 新归档；打开归档后可在文件菜单中解压。双击压缩包会直接在本工具中打开浏览。',
     ],
   },
+  downloader: {
+    version: '文件下载',
+    paragraphs: [
+      '下载器支持普通 HTTP 文件与 .metalink 多镜像下载，自动并发分段、断点续传与镜像 failover。',
+      '通过菜单或快捷键 ⌘N 新建下载，双击 .metalink 文件可直接添加任务；任务列表展示进度、速度与状态，并支持暂停、继续和删除。',
+    ],
+  },
   'space-sniffer': {
     version: '文件占用可视化',
     paragraphs: [

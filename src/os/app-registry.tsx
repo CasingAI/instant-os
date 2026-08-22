@@ -2,7 +2,7 @@ import { FileInfoIcon } from '../apps/file-info/file-info-icon.tsx'
 import { WelcomeIcon } from '../apps/welcome/welcome-icon.tsx'
 import { WelcomeNextIcon } from '../apps/welcome-next/welcome-next-icon.tsx'
 import { WelcomeHelloIcon } from '../apps/welcome-hello/welcome-hello-icon.tsx'
-import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, VirtualMachineIcon, UiKitIcon, SrmlDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, DownloaderIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, VirtualMachineIcon, UiKitIcon, SrmlDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
 import { RegistryIcon } from '../apps/registry/registry-icon.tsx'
 import { AttuneBenchIcon } from '../apps/attunebench/attunebench-icon.tsx'
 import { withAppIconDecoration } from '../icons/app-icon-decoration.tsx'
@@ -299,6 +299,14 @@ export const APP_REGISTRY: AppDefinition[] = [
     dockWhenRunning: true,
     desktop: false,
     multiWindow: true,
+  }),
+  withAbout({
+    id: 'downloader',
+    name: BUILTIN_APP_DISPLAY_NAMES['downloader'],
+    icon: DownloaderIcon,
+    dock: true,
+    dockWhenRunning: true,
+    desktop: true,
   }),
   withAbout({
     id: 'space-sniffer',

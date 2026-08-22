@@ -20,7 +20,6 @@ import type {
 import {
   addCompletedRange,
   type InstantDownloadHeader,
-  mergeByteRanges,
   readDownloadHeader,
   serializeDownloadHeader,
   subtractByteRanges,
@@ -31,12 +30,18 @@ const DEFAULT_RETRY_COUNT = 3
 const DEFAULT_PIECE_SIZE = 4 * 1024 * 1024
 const ZERO_FILL_CHUNK_SIZE = 1024 * 1024
 
+function asArrayBuffer(buffer: ArrayBuffer | SharedArrayBuffer): ArrayBuffer {
+  if (buffer instanceof ArrayBuffer) return buffer
+  return (buffer as unknown as ArrayBuffer).slice(0) as ArrayBuffer
+}
+
 export type DownloaderEngineDeps = {
   fetch?: typeof proxiedFetch
   writeFileBytesRange?: typeof filesWriteBytesRange
   readFileBlobRange?: typeof filesReadBlobRange
   createBinaryFile?: typeof filesCreateBinary
   writeBinaryFile?: typeof filesWriteBinary
+  writeBinary?: typeof filesWriteBinary
   statFile?: typeof filesStat
   nowMs?: () => number
 }
@@ -71,7 +76,6 @@ export async function runDownloadTask(
     totalSize,
     readRange,
     createBinary,
-    writeRange,
     nowMs,
   )
   let currentPayloadOffset = payloadOffset
@@ -196,7 +200,6 @@ async function loadOrCreateHeader(
   totalSize: number | undefined,
   readRange: typeof filesReadBlobRange,
   createBinary: typeof filesCreateBinary,
-  writeRange: typeof filesWriteBytesRange,
   nowMs: () => number,
 ): Promise<{ header: InstantDownloadHeader; payloadOffset: number }> {
   const existing = await readExistingHeader(task.targetPath, readRange)
@@ -222,7 +225,7 @@ async function loadOrCreateHeader(
     },
   }
   const serialized = serializeDownloadHeader(header)
-  await createBinary(task.targetPath, serialized.buffer)
+  await createBinary(task.targetPath, asArrayBuffer(serialized.buffer))
   return { header, payloadOffset: serialized.byteLength }
 }
 
@@ -431,7 +434,7 @@ async function stripDownloadHeader(
   writeBinary: typeof filesWriteBinary,
 ): Promise<void> {
   const payload = await readFileBytes(targetPath, payloadOffset, Number.MAX_SAFE_INTEGER, readRange)
-  await writeBinary(targetPath, payload.buffer)
+  await writeBinary(targetPath, asArrayBuffer(payload.buffer))
 }
 
 async function readPayloadSize(
@@ -456,7 +459,7 @@ async function readFileBytes(
 async function verifyHash(bytes: Uint8Array, hash: HashInfo): Promise<void> {
   const algorithm =
     hash.algorithm === 'sha-1' ? 'SHA-1' : hash.algorithm === 'md5' ? 'MD5' : 'SHA-256'
-  const digest = await crypto.subtle.digest(algorithm, bytes)
+  const digest = await crypto.subtle.digest(algorithm, asArrayBuffer(bytes.buffer))
   const actual = bufferToHex(digest)
   const expected = hash.value.toLowerCase()
   if (actual !== expected) {

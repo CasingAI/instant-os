@@ -1,6 +1,5 @@
 import { proxiedFetch } from '../os/proxy-server-api.ts'
 import {
-  filesCreateBinary,
   filesMkdir,
   filesReadBlobRange,
   filesReadText,
@@ -42,13 +41,17 @@ export type DownloadCoreOptions = {
   }
 }
 
+function asArrayBuffer(buffer: ArrayBuffer | SharedArrayBuffer): ArrayBuffer {
+  if (buffer instanceof ArrayBuffer) return buffer
+  return (buffer as unknown as ArrayBuffer).slice(0) as ArrayBuffer
+}
+
 const tasks = new Map<string, DownloadTask>()
 const taskConcurrency = new Map<string, number>()
 const controllers = new Map<string, AbortController>()
 const progressListeners = new Set<(taskId: string, progress: DownloadProgress) => void>()
 
 let taskIndexLoaded = false
-let taskIndexCache: DownloadTaskIndex | undefined
 
 /** 测试用：清空内存中的任务与控制器状态。 */
 export function resetDownloadTasksForTests(): void {
@@ -60,7 +63,6 @@ export function resetDownloadTasksForTests(): void {
   controllers.clear()
   progressListeners.clear()
   taskIndexLoaded = false
-  taskIndexCache = undefined
 }
 
 export async function addDownload(
@@ -91,7 +93,7 @@ export async function addDownload(
   const concurrency = Math.max(1, params.concurrency ?? DEFAULT_CONCURRENCY)
   taskConcurrency.set(task.id, concurrency)
   tasks.set(task.id, task)
-  await saveTaskIndex(writeBinary, nowMs)
+  await saveTaskIndex(writeBinary)
 
   startTask(task, { concurrency, deps: options.deps })
   return task
@@ -110,7 +112,7 @@ export async function pauseDownload(
   controller?.abort()
   task.state = 'paused'
   task.updatedAt = (options.deps?.nowMs ?? osNowMs)()
-  await saveTaskIndex(options.deps?.writeBinary ?? filesWriteBinary, options.deps?.nowMs ?? osNowMs)
+  await saveTaskIndex(options.deps?.writeBinary ?? filesWriteBinary)
 }
 
 export async function resumeDownload(
@@ -126,7 +128,7 @@ export async function resumeDownload(
   task.updatedAt = (options.deps?.nowMs ?? osNowMs)()
   const concurrency = taskConcurrency.get(taskId) ?? DEFAULT_CONCURRENCY
   startTask(task, { concurrency, deps: options.deps })
-  await saveTaskIndex(options.deps?.writeBinary ?? filesWriteBinary, options.deps?.nowMs ?? osNowMs)
+  await saveTaskIndex(options.deps?.writeBinary ?? filesWriteBinary)
 }
 
 export async function cancelDownload(
@@ -148,7 +150,7 @@ export async function cancelDownload(
   } catch {
     // ignore
   }
-  await saveTaskIndex(options.deps?.writeBinary ?? filesWriteBinary, options.deps?.nowMs ?? osNowMs)
+  await saveTaskIndex(options.deps?.writeBinary ?? filesWriteBinary)
 }
 
 export function listDownloads(): DownloadTask[] {
@@ -255,10 +257,7 @@ function startTask(
       task.state = 'completed'
       task.error = undefined
       controllers.delete(task.id)
-      await saveTaskIndex(
-        options.deps?.writeBinary ?? filesWriteBinary,
-        options.deps?.nowMs ?? osNowMs,
-      )
+      await saveTaskIndex(options.deps?.writeBinary ?? filesWriteBinary)
     })
     .catch(async (error: unknown) => {
       if (controller.signal.aborted) {
@@ -270,24 +269,17 @@ function startTask(
         task.error = error instanceof Error ? error.message : String(error)
       }
       controllers.delete(task.id)
-      await saveTaskIndex(
-        options.deps?.writeBinary ?? filesWriteBinary,
-        options.deps?.nowMs ?? osNowMs,
-      )
+      await saveTaskIndex(options.deps?.writeBinary ?? filesWriteBinary)
     })
 }
 
-async function saveTaskIndex(
-  writeBinary: typeof filesWriteBinary,
-  nowMs: () => number,
-): Promise<void> {
+async function saveTaskIndex(writeBinary: typeof filesWriteBinary): Promise<void> {
   const index: DownloadTaskIndex = {
     version: 1,
     tasks: [...tasks.values()],
   }
-  taskIndexCache = index
   const json = JSON.stringify(index)
-  await writeBinary(DOWNLOADER_TASK_INDEX_PATH, new TextEncoder().encode(json).buffer)
+  await writeBinary(DOWNLOADER_TASK_INDEX_PATH, asArrayBuffer(new TextEncoder().encode(json).buffer))
 }
 
 /** 启动时从持久化索引恢复任务列表。 */
@@ -305,7 +297,6 @@ export async function loadDownloadTasks(options: DownloadCoreOptions = {}): Prom
         }
         tasks.set(task.id, task)
       }
-      taskIndexCache = index
     }
   } catch {
     // ignore

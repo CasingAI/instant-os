@@ -166,6 +166,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   /** @deprecated 模拟终端已弃用，窗口尺寸保留仅为过渡，后续移除 */
   'simulated-terminal': { title: '模拟终端', width: 760, height: 520 },
   'archive-utility': { title: '压缩包实用工具', width: 860, height: 560 },
+  downloader: { title: '下载器', width: 900, height: 560 },
   'space-sniffer': { title: '空间嗅探', width: 1020, height: 720 },
   packages: { title: '包管理', width: 720, height: 520 },
   'virtual-js': { title: 'Virtual JS', width: 860, height: 640 },

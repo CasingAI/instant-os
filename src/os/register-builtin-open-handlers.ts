@@ -2,6 +2,7 @@
 import '../apps/archive-utility/archive-utility-open.ts'
 import '../apps/browser/browser-open-handlers.ts'
 import '../apps/chromo/chromo-url-open.ts'
+import '../apps/downloader/downloader-open.ts'
 import '../apps/music/music-file-open.ts'
 import '../apps/pages/pages-file-open.ts'
 import '../apps/preview/preview-file-open.ts'

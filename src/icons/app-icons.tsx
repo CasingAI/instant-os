@@ -1060,6 +1060,19 @@ export function ArchiveUtilityIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function DownloaderIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#3a7bd5" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="26" r="12" fill="none" stroke="#fff" stroke-width="3" />
+        <path d="M32 16 V30" stroke="#fff" stroke-width="3" stroke-linecap="round" />
+        <path d="M26 24 L32 30 L38 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+        <rect x="14" y="42" width="36" height="6" rx="1.5" fill="#fff" opacity="0.85" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function HelpIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#e8b014" size={size}>
