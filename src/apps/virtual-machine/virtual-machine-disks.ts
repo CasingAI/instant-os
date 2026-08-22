@@ -55,7 +55,11 @@ type LoadedDisk = {
   stream?: InstantVmDiskStreamRef
 }
 
-async function loadDisk(path: string, label: string): Promise<LoadedDisk> {
+async function loadDisk(
+  path: string,
+  label: string,
+  allowStream = true,
+): Promise<LoadedDisk> {
   const trimmed = path.trim()
   if (!trimmed) {
     return {}
@@ -69,7 +73,7 @@ async function loadDisk(path: string, label: string): Promise<LoadedDisk> {
     throw new Error(`无法读取${label} ${trimmed}：文件不存在`)
   }
 
-  if (!isMountPath(trimmed) && stat.byteSize > DISK_BLOB_THRESHOLD_BYTES) {
+  if (allowStream && !isMountPath(trimmed) && stat.byteSize > DISK_BLOB_THRESHOLD_BYTES) {
     const id = await registerVirtualMachineDiskStream(trimmed)
     return { stream: { id, size: stat.byteSize } }
   }
@@ -113,7 +117,7 @@ export async function loadVirtualMachineDisks(
     loadDisk(settings.hdaPath, '硬盘'),
     loadDisk(settings.cdromPath, '光盘'),
     loadDisk(settings.fdaPath, '软盘'),
-    loadDisk(settings.statePath, '快照'),
+    loadDisk(settings.statePath, '快照', false),
   ])
   return {
     hda: hda.buffer,
