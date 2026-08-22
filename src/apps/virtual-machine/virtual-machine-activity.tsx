@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useState } from 'preact/hooks'
 import type { InstantVmDiskStats, InstantVmStatsSnapshot } from './virtual-machine-protocol.ts'
 import {
   diskActivityTitle,
@@ -71,12 +71,6 @@ export function VirtualMachineActivity({
   running: boolean
 }) {
   const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    if (running) {
-      setOpen(true)
-    }
-  }, [running])
 
   const hda = stats?.hda
   const cdrom = stats?.cdrom

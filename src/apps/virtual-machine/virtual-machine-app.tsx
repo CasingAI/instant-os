@@ -12,17 +12,14 @@ import {
 } from './virtual-machine-backends.ts'
 import {
   defaultVirtualMachineSettings,
-  formatVmBootOrderLabel,
   formatVmBuildModeLabel,
   formatVmDisplayModeLabel,
   formatVmMemoryLabel,
-  formatVmNetworkBackendLabel,
-  formatVmNetworkLabel,
-  formatVmPathSummary,
   settingsFromRecord,
 } from './virtual-machine-config.ts'
 import { virtualMachineHasBootMedia } from './virtual-machine-disks.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
+import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
 import {
   pickBackgroundMachineIds,
@@ -31,7 +28,6 @@ import {
 } from './virtual-machine-runtime.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 import { VirtualMachineSettingsDialog } from './virtual-machine-settings-dialog.tsx'
-import { formatVmVgaResolution } from './virtual-machine-stats-format.ts'
 import {
   addVirtualMachine,
   nextVirtualMachineName,
@@ -83,6 +79,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const [powerHint, setPowerHint] = useState<string | undefined>(undefined)
   const [ready, setReady] = useState(false)
   const [settingsSession, setSettingsSession] = useState<SettingsSession | undefined>(undefined)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
 
   const applyStore = useCallback((next: VirtualMachineRecord[]) => {
     setMachines(next)
@@ -144,6 +141,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
 
   const displayedId = pickDisplayedMachineId(selected?.id, pool.runningIds)
   const displayedMachine = runningMachines.find((machine) => machine.id === displayedId)
+  const selectedSnapshot = pool.snapshots.get(selectedId ?? '')
   const displayedSnapshot = pool.snapshots.get(displayedId ?? '')
   const displayedRunning = Boolean(displayedId !== undefined)
   const displayedBusy = Boolean(displayedSnapshot && displayedRunning && !displayedSnapshot.ready)
@@ -424,6 +422,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           <IosButton size="compact" disabled={!canReset} onClick={() => handlePower('reset')}>
             重置
           </IosButton>
+          <IosButton size="compact" disabled={!selected} onClick={() => setInspectorOpen(true)}>
+            详细信息
+          </IosButton>
         </div>
         {selected ? (
           <SegmentedControl
@@ -541,63 +542,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             stats={displayedSnapshot?.stats}
             running={displayedRunning && !displayedBusy}
           />
-          {displayedMachine ? (
-            <dl class="virtual-machine__inspector">
-              <div class="virtual-machine__inspector-item">
-                <dt>名称</dt>
-                <dd>{displayedMachine.name}</dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>后端</dt>
-                <dd>{formatVmBackendLabel(displayedMachine.backend)}</dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>构建模式</dt>
-                <dd>{formatVmBuildModeLabel(displayedMachine.buildMode)}</dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>内存</dt>
-                <dd>{formatVmMemoryLabel(displayedMachine.memoryMb)}</dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>显存</dt>
-                <dd>{formatVmMemoryLabel(displayedMachine.vgaMemoryMb)}</dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>分辨率</dt>
-                <dd>
-                  {displayedRunning && displayedSnapshot?.stats
-                    ? formatVmVgaResolution(displayedSnapshot.stats)
-                    : '—'}
-                </dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>启动</dt>
-                <dd>{formatVmBootOrderLabel(displayedMachine.bootOrder)}</dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>网卡</dt>
-                <dd>
-                  {displayedMachine.network === 'none'
-                    ? formatVmNetworkLabel(displayedMachine.network)
-                    : `${formatVmNetworkLabel(displayedMachine.network)} · ${formatVmNetworkBackendLabel(
-                        displayedMachine.networkBackend,
-                      )}`}
-                </dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>硬盘</dt>
-                <dd>{formatVmPathSummary(displayedMachine.hdaPath)}</dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>光盘</dt>
-                <dd>{formatVmPathSummary(displayedMachine.cdromPath)}</dd>
-              </div>
-              <div class="virtual-machine__inspector-item">
-                <dt>快照</dt>
-                <dd>{formatVmPathSummary(displayedMachine.statePath)}</dd>
-              </div>
-            </dl>
+          {inspectorOpen && selected ? (
+            <VirtualMachineInspectorOverlay
+              machine={selected}
+              running={selectedRunning}
+              snapshot={selectedSnapshot}
+              onClose={() => setInspectorOpen(false)}
+            />
           ) : null}
         </section>
       </div>

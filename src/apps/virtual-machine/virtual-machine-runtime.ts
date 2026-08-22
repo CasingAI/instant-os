@@ -50,12 +50,14 @@ export type VmRuntimeApi = {
   stop(): Promise<void>
   reset(): Promise<void>
   setDisplayMode(mode: InstantVmDisplayMode): Promise<void>
+  requestPointerLock(): Promise<void>
 }
 
 export type VmRuntimeSnapshot = {
   ready: boolean
   stats: InstantVmStatsSnapshot | undefined
   bootProgress: string | undefined
+  pointerLocked: boolean
 }
 
 /**
@@ -68,6 +70,10 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   const [ready, setReady] = useState(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
   const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
+  const [pointerLocked, setPointerLocked] = useState(false)
+  const [lastEdgeHit, setLastEdgeHit] = useState<
+    { edge: string; x: number; y: number } | undefined
+  >(undefined)
 
   // iframe src 可能带 ?v86= 参数，但 postMessage 的 event.origin 只包含 scheme/host/port。
   const targetOrigin = useMemo(
@@ -86,6 +92,8 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     setReady(false)
     setStats(undefined)
     setBootProgress(undefined)
+    setPointerLocked(false)
+    setLastEdgeHit(undefined)
     failAll(new Error('运行时已重新加载'))
   }, [failAll, targetOrigin])
 
@@ -118,6 +126,16 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
 
       if (message.type === INSTANT_VM_MESSAGE_TYPE.stats) {
         setStats(message)
+        return
+      }
+
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.pointerLockChanged) {
+        setPointerLocked(message.locked)
+        return
+      }
+
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.pointerEdgeHit) {
+        setLastEdgeHit({ edge: message.edge, x: message.x, y: message.y })
         return
       }
 
@@ -236,15 +254,25 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     [request],
   )
 
+  const requestPointerLock = useCallback(async () => {
+    await request({
+      type: INSTANT_VM_MESSAGE_TYPE.requestPointerLock,
+      requestId: newVmRequestId(),
+    })
+  }, [request])
+
   return {
     iframeRef,
     ready,
     stats,
     bootProgress,
+    pointerLocked,
+    lastEdgeHit,
     start,
     stop,
     reset,
     setDisplayMode,
+    requestPointerLock,
   }
 }
 
@@ -385,6 +413,17 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     [],
   )
 
+  const requestPointerLock = useCallback(
+    async (id: string): Promise<void> => {
+      const api = apiByIdRef.current.get(id)
+      if (!api) {
+        return
+      }
+      await api.requestPointerLock()
+    },
+    [],
+  )
+
   return {
     origin,
     runningIds,
@@ -396,6 +435,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     shutdown,
     resetInstance,
     setActiveDisplayMode,
+    requestPointerLock,
     onRegister,
     onUnregister,
     onStateChange,

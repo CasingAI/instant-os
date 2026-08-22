@@ -14,6 +14,9 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   error: 'instant-vm:error',
   progress: 'instant-vm:progress',
   stats: 'instant-vm:stats',
+  requestPointerLock: 'instant-vm:request-pointer-lock',
+  pointerLockChanged: 'instant-vm:pointer-lock-changed',
+  pointerEdgeHit: 'instant-vm:pointer-edge-hit',
 } as const
 
 export type InstantVmMessageType =
@@ -124,6 +127,23 @@ export type InstantVmSetDisplayModeMessage = {
   mode: InstantVmDisplayMode
 }
 
+export type InstantVmRequestPointerLockMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.requestPointerLock
+  requestId: string
+}
+
+export type InstantVmPointerLockChangedMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.pointerLockChanged
+  locked: boolean
+}
+
+export type InstantVmPointerEdgeHitMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.pointerEdgeHit
+  edge: 'left' | 'right' | 'top' | 'bottom'
+  x: number
+  y: number
+}
+
 export type InstantVmStartedMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.started
   requestId: string
@@ -173,6 +193,15 @@ export type InstantVmVgaStats = {
   bpp: number
 }
 
+export type InstantVmMouseCapabilities = {
+  /** 模拟器是否已启用鼠标。 */
+  enabled: boolean
+  /** 当前是否处于 Pointer Lock 状态。 */
+  pointerLocked: boolean
+  /** Guest 是否启用了 vmware absolute mouse（绝对坐标）模式。 */
+  absoluteMouse: boolean
+}
+
 export type InstantVmStatsSnapshot = {
   runningMs: number
   speedMips: number
@@ -183,6 +212,7 @@ export type InstantVmStatsSnapshot = {
   fda: InstantVmDiskStats
   vga: InstantVmVgaStats
   mouse: boolean
+  mouseCapabilities: InstantVmMouseCapabilities
 }
 
 export type InstantVmStatsMessage = InstantVmStatsSnapshot & {
@@ -194,6 +224,7 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmStopMessage
   | InstantVmResetMessage
   | InstantVmSetDisplayModeMessage
+  | InstantVmRequestPointerLockMessage
 
 export type InstantVmRuntimeToHostMessage =
   | InstantVmReadyMessage
@@ -202,6 +233,8 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmErrorMessage
   | InstantVmProgressMessage
   | InstantVmStatsMessage
+  | InstantVmPointerLockChangedMessage
+  | InstantVmPointerEdgeHitMessage
 
 const MEMORY_MB_OPTIONS = [16, 32, 64, 128, 256, 512] as const
 const VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16] as const
@@ -374,6 +407,14 @@ export function emptyVmDiskStats(present = false): InstantVmDiskStats {
   }
 }
 
+export function emptyVmMouseCapabilities(): InstantVmMouseCapabilities {
+  return {
+    enabled: false,
+    pointerLocked: false,
+    absoluteMouse: false,
+  }
+}
+
 export function emptyVmStatsSnapshot(): InstantVmStatsSnapshot {
   return {
     runningMs: 0,
@@ -385,6 +426,7 @@ export function emptyVmStatsSnapshot(): InstantVmStatsSnapshot {
     fda: emptyVmDiskStats(),
     vga: { mode: 'text', width: 0, height: 0, bpp: 0 },
     mouse: false,
+    mouseCapabilities: emptyVmMouseCapabilities(),
   }
 }
 
@@ -426,6 +468,15 @@ function isVmVgaStats(value: unknown): value is InstantVmVgaStats {
   return isNonNegFinite(value.width) && isNonNegFinite(value.height) && isNonNegFinite(value.bpp)
 }
 
+function isVmMouseCapabilities(value: unknown): value is InstantVmMouseCapabilities {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    typeof value.pointerLocked === 'boolean' &&
+    typeof value.absoluteMouse === 'boolean'
+  )
+}
+
 export function isInstantVmStatsMessage(value: unknown): value is InstantVmStatsMessage {
   if (!isRecord(value) || value.type !== INSTANT_VM_MESSAGE_TYPE.stats) {
     return false
@@ -440,7 +491,8 @@ export function isInstantVmStatsMessage(value: unknown): value is InstantVmStats
     isVmDiskStats(value.hda) &&
     isVmDiskStats(value.cdrom) &&
     isVmDiskStats(value.fda) &&
-    isVmVgaStats(value.vga)
+    isVmVgaStats(value.vga) &&
+    isVmMouseCapabilities(value.mouseCapabilities)
   )
 }
 
@@ -451,7 +503,40 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmStartMessage(value) ||
     isInstantVmStopMessage(value) ||
     isInstantVmResetMessage(value) ||
-    isInstantVmSetDisplayModeMessage(value)
+    isInstantVmSetDisplayModeMessage(value) ||
+    isInstantVmRequestPointerLockMessage(value)
+  )
+}
+
+export function isInstantVmPointerLockChangedMessage(
+  value: unknown,
+): value is InstantVmPointerLockChangedMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.pointerLockChanged &&
+    typeof value.locked === 'boolean'
+  )
+}
+
+export function isInstantVmPointerEdgeHitMessage(
+  value: unknown,
+): value is InstantVmPointerEdgeHitMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.pointerEdgeHit &&
+    ['left', 'right', 'top', 'bottom'].includes(value.edge as string) &&
+    typeof value.x === 'number' &&
+    typeof value.y === 'number'
+  )
+}
+
+export function isInstantVmRequestPointerLockMessage(
+  value: unknown,
+): value is InstantVmRequestPointerLockMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.requestPointerLock &&
+    isRequestId(value.requestId)
   )
 }
 
@@ -481,6 +566,12 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.stats) {
     return isInstantVmStatsMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.pointerLockChanged) {
+    return isInstantVmPointerLockChangedMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.pointerEdgeHit) {
+    return isInstantVmPointerEdgeHitMessage(value)
   }
   return false
 }
