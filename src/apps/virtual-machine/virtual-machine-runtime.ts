@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { buildStartMessage, loadVirtualMachineDisks } from './virtual-machine-disks.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
@@ -69,6 +69,12 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
   const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
 
+  // iframe src 可能带 ?v86= 参数，但 postMessage 的 event.origin 只包含 scheme/host/port。
+  const targetOrigin = useMemo(
+    () => (origin ? new URL(origin).origin : origin),
+    [origin],
+  )
+
   const failAll = useCallback((error: Error) => {
     for (const pending of pendingRef.current.values()) {
       pending.reject(error)
@@ -81,15 +87,15 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     setStats(undefined)
     setBootProgress(undefined)
     failAll(new Error('运行时已重新加载'))
-  }, [failAll, origin])
+  }, [failAll, targetOrigin])
 
   useEffect(() => {
-    if (!origin) {
+    if (!targetOrigin) {
       return
     }
 
     const onMessage = (event: MessageEvent) => {
-      if (event.origin !== origin) {
+      if (event.origin !== targetOrigin) {
         return
       }
       if (event.source !== iframeRef.current?.contentWindow) {
@@ -141,23 +147,23 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
       window.removeEventListener('message', onMessage)
       failAll(new Error('运行时已卸载'))
     }
-  }, [failAll, origin])
+  }, [failAll, targetOrigin])
 
   const post = useCallback(
     (message: object, transfer: Transferable[] = []) => {
       const contentWindow = iframeRef.current?.contentWindow
-      if (!origin || !contentWindow) {
+      if (!targetOrigin || !contentWindow) {
         throw new Error('虚拟机运行时未就绪')
       }
       try {
-        contentWindow.postMessage(message, origin, transfer)
+        contentWindow.postMessage(message, targetOrigin, transfer)
       } catch {
         throw new Error(
-          `无法联系模拟器：当前页面是 ${window.location.origin}，运行时是 ${origin}，localhost 与 127.0.0.1 不是同一个源`,
+          `无法联系模拟器：当前页面是 ${window.location.origin}，运行时是 ${targetOrigin}，localhost 与 127.0.0.1 不是同一个源`,
         )
       }
     },
-    [origin],
+    [targetOrigin],
   )
 
   const request = useCallback(
