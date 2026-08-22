@@ -16,6 +16,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   stats: 'instant-vm:stats',
   diskRead: 'instant-vm:disk-read',
   diskReadResult: 'instant-vm:disk-read-result',
+  keyboard: 'instant-vm:keyboard',
 } as const
 
 /** 运行时 fetch 拦截器识别的本地镜像流 URL 前缀（挂在运行时 origin 上）。 */
@@ -161,6 +162,23 @@ export type InstantVmSetDisplayModeMessage = {
   mode: InstantVmDisplayMode
 }
 
+export type InstantVmKeyboardPhase = 'down' | 'up'
+
+/** 主程序在运行时未持有焦点时转发按键；运行时已有焦点时不应再发。 */
+export type InstantVmKeyboardMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.keyboard
+  phase: InstantVmKeyboardPhase
+  key: string
+  code: string
+  keyCode: number
+  location: number
+  repeat: boolean
+  shiftKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  metaKey: boolean
+}
+
 export type InstantVmStartedMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.started
   requestId: string
@@ -231,6 +249,7 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmStopMessage
   | InstantVmResetMessage
   | InstantVmSetDisplayModeMessage
+  | InstantVmKeyboardMessage
 
 export type InstantVmRuntimeToHostMessage =
   | InstantVmReadyMessage
@@ -475,6 +494,25 @@ export function isInstantVmSetDisplayModeMessage(
   )
 }
 
+export function isInstantVmKeyboardMessage(value: unknown): value is InstantVmKeyboardMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.keyboard &&
+    (value.phase === 'down' || value.phase === 'up') &&
+    typeof value.key === 'string' &&
+    typeof value.code === 'string' &&
+    typeof value.keyCode === 'number' &&
+    Number.isFinite(value.keyCode) &&
+    typeof value.location === 'number' &&
+    Number.isFinite(value.location) &&
+    typeof value.repeat === 'boolean' &&
+    typeof value.shiftKey === 'boolean' &&
+    typeof value.ctrlKey === 'boolean' &&
+    typeof value.altKey === 'boolean' &&
+    typeof value.metaKey === 'boolean'
+  )
+}
+
 export function emptyVmDiskStats(present = false): InstantVmDiskStats {
   return {
     present,
@@ -563,7 +601,8 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmStartMessage(value) ||
     isInstantVmStopMessage(value) ||
     isInstantVmResetMessage(value) ||
-    isInstantVmSetDisplayModeMessage(value)
+    isInstantVmSetDisplayModeMessage(value) ||
+    isInstantVmKeyboardMessage(value)
   )
 }
 

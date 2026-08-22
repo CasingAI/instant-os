@@ -20,6 +20,10 @@ import {
 import { virtualMachineHasBootMedia } from './virtual-machine-disks.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
+import {
+  INSTANT_VM_MESSAGE_TYPE,
+  type InstantVmKeyboardMessage,
+} from './virtual-machine-protocol.ts'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
 import {
   pickDisplayedMachineId,
@@ -66,6 +70,40 @@ function formatStatus(machine: VirtualMachineRecord | undefined, running: boolea
   return `${running ? '运行中' : '已停止'} · ${formatVmBackendLabel(machine.backend)}`
 }
 
+function isVmHostTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+  if (target.isContentEditable) {
+    return true
+  }
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
+function guestKeyboardFromEvent(
+  event: KeyboardEvent,
+  phase: InstantVmKeyboardMessage['phase'],
+): InstantVmKeyboardMessage {
+  return {
+    type: INSTANT_VM_MESSAGE_TYPE.keyboard,
+    phase,
+    key: event.key,
+    code: event.code,
+    keyCode: event.keyCode,
+    location: event.location,
+    repeat: event.repeat,
+    shiftKey: event.shiftKey,
+    ctrlKey: event.ctrlKey,
+    altKey: event.altKey,
+    metaKey: event.metaKey,
+  }
+}
+
+function isImeKey(event: KeyboardEvent): boolean {
+  return event.isComposing || event.keyCode === 229 || event.key === 'Process' || event.key === 'Unidentified'
+}
+
 export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const { activeWindowId } = useOs()
   const isActiveWindow = windowId === undefined || windowId === activeWindowId
@@ -79,6 +117,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const [ready, setReady] = useState(false)
   const [settingsSession, setSettingsSession] = useState<SettingsSession | undefined>(undefined)
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [guestKeyboardArmed, setGuestKeyboardArmed] = useState(false)
 
   const applyStore = useCallback((next: VirtualMachineRecord[]) => {
     setMachines(next)
@@ -150,6 +189,27 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const displayedBusy = Boolean(
     displayedId !== undefined && selectedSnapshot && !selectedSnapshot.ready,
   )
+
+  const captureGuestKeyboard = useCallback(() => {
+    setGuestKeyboardArmed(true)
+  }, [])
+
+  const releaseGuestKeyboard = useCallback(() => {
+    setGuestKeyboardArmed(false)
+    if (displayedId !== undefined) {
+      pool.releaseKeyboard(displayedId)
+    }
+  }, [displayedId, pool.releaseKeyboard])
+
+  useEffect(() => {
+    if (!settingsOpen && !inspectorOpen && displayedId !== undefined) {
+      return
+    }
+    setGuestKeyboardArmed(false)
+    if (displayedId !== undefined) {
+      pool.releaseKeyboard(displayedId)
+    }
+  }, [displayedId, inspectorOpen, pool.releaseKeyboard, settingsOpen])
 
   const handleNew = useCallback(() => {
     setSettingsSession((current) => {
@@ -388,11 +448,50 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
         event.preventDefault()
         handleNew()
+        return
       }
+      if (
+        !guestKeyboardArmed ||
+        displayedId === undefined ||
+        settingsOpen ||
+        inspectorOpen ||
+        isImeKey(event) ||
+        isVmHostTypingTarget(event.target)
+      ) {
+        return
+      }
+      event.preventDefault()
+      pool.sendKeyboard(displayedId, guestKeyboardFromEvent(event, 'down'))
+    }
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (
+        !guestKeyboardArmed ||
+        displayedId === undefined ||
+        settingsOpen ||
+        inspectorOpen ||
+        isImeKey(event) ||
+        isVmHostTypingTarget(event.target)
+      ) {
+        return
+      }
+      event.preventDefault()
+      pool.sendKeyboard(displayedId, guestKeyboardFromEvent(event, 'up'))
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [handleNew, isActiveWindow])
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [
+    displayedId,
+    guestKeyboardArmed,
+    handleNew,
+    inspectorOpen,
+    isActiveWindow,
+    pool.sendKeyboard,
+    settingsOpen,
+  ])
 
   const screenMessage = !ready
     ? '正在加载…'
@@ -414,7 +513,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
 
   return (
     <div class="virtual-machine">
-      <div class="virtual-machine__toolbar">
+      <div class="virtual-machine__toolbar" onPointerDown={releaseGuestKeyboard}>
         <div class="virtual-machine__toolbar-actions">
           <IosButton size="compact" onClick={handleNew}>
             新建
@@ -456,7 +555,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         </span>
       </div>
       <div class="virtual-machine__body">
-        <aside class="virtual-machine__list-pane" aria-label="虚拟机列表">
+        <aside
+          class="virtual-machine__list-pane"
+          aria-label="虚拟机列表"
+          onPointerDown={releaseGuestKeyboard}
+        >
           <div class="virtual-machine__list-head">虚拟机</div>
           {machines.length === 0 && ready ? (
             <p class="virtual-machine__list-empty">还没有虚拟机。点「新建」添加一台。</p>
@@ -520,6 +623,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     onStateChange={pool.onStateChange}
                     onStarted={pool.onStarted}
                     onBootError={handleBootError}
+                    onCaptureKeyboard={captureGuestKeyboard}
+                    isDisplayed={isDisplayed}
                   />
                 </div>
               )
@@ -535,10 +640,12 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               <div class="virtual-machine__screen-message">正在连接模拟器…</div>
             ) : null}
           </div>
-          <VirtualMachineActivity
-            stats={selectedSnapshot?.stats}
-            running={selectedRunning && !displayedBusy}
-          />
+          <div onPointerDown={releaseGuestKeyboard}>
+            <VirtualMachineActivity
+              stats={selectedSnapshot?.stats}
+              running={selectedRunning && !displayedBusy}
+            />
+          </div>
           {inspectorOpen && selected ? (
             <VirtualMachineInspectorOverlay
               machine={selected}

@@ -7,6 +7,7 @@ import {
   isHttpDiskUrl,
   isInstantVmRuntimeToHostMessage,
   type InstantVmDisplayMode,
+  type InstantVmKeyboardMessage,
   type InstantVmStartMessage,
   type InstantVmStatsSnapshot,
 } from './virtual-machine-protocol.ts'
@@ -51,6 +52,9 @@ export type VmRuntimeApi = {
   stop(): Promise<void>
   reset(): Promise<void>
   setDisplayMode(mode: InstantVmDisplayMode): Promise<void>
+  sendKeyboard(message: InstantVmKeyboardMessage): void
+  captureKeyboard(): void
+  releaseKeyboard(): void
 }
 
 export type VmRuntimeSnapshot = {
@@ -238,6 +242,25 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     [request],
   )
 
+  const sendKeyboard = useCallback(
+    (message: InstantVmKeyboardMessage) => {
+      try {
+        post(message)
+      } catch {
+        // 运行时未就绪时丢弃，避免按键把开机流程打爆
+      }
+    },
+    [post],
+  )
+
+  const captureKeyboard = useCallback(() => {
+    iframeRef.current?.focus()
+  }, [])
+
+  const releaseKeyboard = useCallback(() => {
+    iframeRef.current?.blur()
+  }, [])
+
   return {
     iframeRef,
     ready,
@@ -247,6 +270,9 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     stop,
     reset,
     setDisplayMode,
+    sendKeyboard,
+    captureKeyboard,
+    releaseKeyboard,
   }
 }
 
@@ -392,6 +418,18 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     [],
   )
 
+  const sendKeyboard = useCallback((id: string, message: InstantVmKeyboardMessage) => {
+    apiByIdRef.current.get(id)?.sendKeyboard(message)
+  }, [])
+
+  const captureKeyboard = useCallback((id: string) => {
+    apiByIdRef.current.get(id)?.captureKeyboard()
+  }, [])
+
+  const releaseKeyboard = useCallback((id: string) => {
+    apiByIdRef.current.get(id)?.releaseKeyboard()
+  }, [])
+
   return {
     origin,
     runningIds,
@@ -403,6 +441,9 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     shutdown,
     resetInstance,
     setActiveDisplayMode,
+    sendKeyboard,
+    captureKeyboard,
+    releaseKeyboard,
     onRegister,
     onUnregister,
     onStateChange,

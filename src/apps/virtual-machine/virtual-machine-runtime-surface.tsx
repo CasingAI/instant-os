@@ -19,6 +19,8 @@ export type VmRuntimeSurfaceProps = {
   onStateChange: (machineId: string, snapshot: VmRuntimeSnapshot) => void
   onStarted: (machineId: string) => void
   onBootError: (machineId: string, message: string) => void
+  onCaptureKeyboard: () => void
+  isDisplayed: boolean
 }
 
 /**
@@ -35,16 +37,48 @@ export function VmRuntimeSurface({
   onStateChange,
   onStarted,
   onBootError,
+  onCaptureKeyboard,
+  isDisplayed,
 }: VmRuntimeSurfaceProps) {
   const resolvedOrigin = buildMode ? buildVmRuntimeOriginWithMode(origin, buildMode) : origin
-  const { iframeRef, ready, stats, bootProgress, start, stop, reset, setDisplayMode } =
-    useVirtualMachineRuntime(resolvedOrigin)
+  const {
+    iframeRef,
+    ready,
+    stats,
+    bootProgress,
+    start,
+    stop,
+    reset,
+    setDisplayMode,
+    sendKeyboard,
+    captureKeyboard,
+    releaseKeyboard,
+  } = useVirtualMachineRuntime(resolvedOrigin)
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 
   useEffect(() => {
-    onRegister(machineId, { start, stop, reset, setDisplayMode })
+    onRegister(machineId, {
+      start,
+      stop,
+      reset,
+      setDisplayMode,
+      sendKeyboard,
+      captureKeyboard,
+      releaseKeyboard,
+    })
     return () => onUnregister(machineId)
-  }, [machineId, onRegister, onUnregister, start, stop, reset, setDisplayMode])
+  }, [
+    machineId,
+    onRegister,
+    onUnregister,
+    start,
+    stop,
+    reset,
+    setDisplayMode,
+    sendKeyboard,
+    captureKeyboard,
+    releaseKeyboard,
+  ])
 
   useEffect(() => {
     onStateChange(machineId, { ready, stats, bootProgress })
@@ -60,11 +94,27 @@ export function VmRuntimeSurface({
     const target = startMessage
     processedRef.current = target
     void start(target)
-      .then(() => onStarted(machineId))
+      .then(() => {
+        onStarted(machineId)
+        if (isDisplayed) {
+          captureKeyboard()
+          onCaptureKeyboard()
+        }
+      })
       .catch((error) => {
         onBootError(machineId, error instanceof Error ? error.message : String(error))
       })
-  }, [machineId, onBootError, onStarted, ready, start, startMessage])
+  }, [
+    captureKeyboard,
+    isDisplayed,
+    machineId,
+    onBootError,
+    onCaptureKeyboard,
+    onStarted,
+    ready,
+    start,
+    startMessage,
+  ])
 
   if (!resolvedOrigin) {
     return null
@@ -76,9 +126,14 @@ export function VmRuntimeSurface({
       class="virtual-machine__frame"
       title={`虚拟机显示器 ${machineId}`}
       src={resolvedOrigin}
+      tabIndex={-1}
       referrerPolicy="origin"
       sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
       allow="autoplay; fullscreen; pointer-lock"
+      onPointerDown={() => {
+        captureKeyboard()
+        onCaptureKeyboard()
+      }}
     />
   )
 }

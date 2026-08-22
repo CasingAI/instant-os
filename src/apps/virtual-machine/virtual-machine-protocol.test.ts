@@ -22,6 +22,8 @@ import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
   isAllowedOrigin,
+  isInstantVmHostToRuntimeMessage,
+  isInstantVmKeyboardMessage,
   isInstantVmRuntimeToHostMessage,
   isInstantVmStartMessage,
   parseAllowedOrigins,
@@ -270,6 +272,25 @@ function testStatsMessage(): void {
   assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, mouse: 'no' }), false)
 }
 
+function testKeyboardMessage(): void {
+  const message = {
+    type: INSTANT_VM_MESSAGE_TYPE.keyboard,
+    phase: 'down' as const,
+    key: 'a',
+    code: 'KeyA',
+    keyCode: 65,
+    location: 0,
+    repeat: false,
+    shiftKey: false,
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+  }
+  assert.equal(isInstantVmKeyboardMessage(message), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(message), true)
+  assert.equal(isInstantVmKeyboardMessage({ ...message, phase: 'hold' }), false)
+}
+
 testBootOrderMatchesV86()
 testHasBootMedia()
 testCdromSendsEnterAndHddDoesNot()
@@ -282,4 +303,5 @@ testNetworkFields()
 testCpuModelPassedThrough()
 testOriginAllowList()
 testStatsMessage()
+testKeyboardMessage()
 console.log('virtual-machine-protocol.test.ts ok')

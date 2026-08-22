@@ -204,6 +204,11 @@
   background: #000;
 }
 
+.virtual-machine__frame:focus,
+.virtual-machine__frame:focus-visible {
+  outline: none;
+}
+
 .virtual-machine__frame--idle {
   pointer-events: none;
   visibility: hidden;
