@@ -3,7 +3,11 @@
  * 运行：node --experimental-strip-types src/apps/virtual-machine/virtual-machine-runtime.test.ts
  */
 import assert from 'node:assert/strict'
-import { newVmRequestId, pickDisplayedMachineId } from './virtual-machine-runtime.ts'
+import {
+  newVmRequestId,
+  pickBackgroundMachineIds,
+  pickDisplayedMachineId,
+} from './virtual-machine-runtime.ts'
 
 function testRequestIdFormat(): void {
   const id = newVmRequestId()
@@ -21,6 +25,14 @@ function testPickDisplayedMachineId(): void {
   assert.equal(pickDisplayedMachineId('a', ['a']), 'a')
 }
 
+function testPickBackgroundMachineIds(): void {
+  assert.deepEqual(pickBackgroundMachineIds(undefined, []), [])
+  assert.deepEqual(pickBackgroundMachineIds('b', ['a', 'b', 'c']), ['a', 'c'])
+  assert.deepEqual(pickBackgroundMachineIds('a', ['a']), [])
+  assert.deepEqual(pickBackgroundMachineIds(undefined, ['a', 'b']), ['a', 'b'])
+}
+
 testRequestIdFormat()
 testPickDisplayedMachineId()
+testPickBackgroundMachineIds()
 console.log('virtual-machine-runtime.test.ts ok')

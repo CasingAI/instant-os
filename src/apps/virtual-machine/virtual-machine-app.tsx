@@ -23,7 +23,11 @@ import {
 import { virtualMachineHasBootMedia } from './virtual-machine-disks.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
-import { pickDisplayedMachineId, useVirtualMachineRuntimePool } from './virtual-machine-runtime.ts'
+import {
+  pickBackgroundMachineIds,
+  pickDisplayedMachineId,
+  useVirtualMachineRuntimePool,
+} from './virtual-machine-runtime.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 import { VirtualMachineSettingsDialog } from './virtual-machine-settings-dialog.tsx'
 import { formatVmVgaResolution } from './virtual-machine-stats-format.ts'
@@ -388,17 +392,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           : '选择左侧的虚拟机，或新建一台。'
         : undefined
 
-  const bannerText = (() => {
-    if (selected && pool.runningIds.includes(selected.id)) {
-      const snapshot = pool.snapshots.get(selected.id)
-      if (!snapshot?.ready) {
-        return '正在连接模拟器…'
-      }
-      return snapshot.bootProgress ?? pool.hints.get(selected.id) ?? undefined
-    }
-    return powerHint
-  })()
-
   const focusMachine = useCallback(
     (machineId: string) => {
       setSelectedId(machineId)
@@ -440,13 +433,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             className="virtual-machine__display-mode"
           />
         ) : null}
-        <span class="virtual-machine__status">{formatStatus(selected, selectedRunning)}</span>
+        <span class="virtual-machine__status" role="status">
+          {formatStatus(selected, selectedRunning)}
+          {powerHint ? (
+            <span class="virtual-machine__status-hint"> · {powerHint}</span>
+          ) : null}
+        </span>
       </div>
-      {bannerText ? (
-        <div class="virtual-machine__banner" role="status">
-          {bannerText}
-        </div>
-      ) : null}
       <div class="virtual-machine__body">
         <aside class="virtual-machine__list-pane" aria-label="虚拟机列表">
           <div class="virtual-machine__list-head">虚拟机</div>
@@ -490,57 +483,51 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         </aside>
         <section class="virtual-machine__display-pane" aria-label="显示器">
           <div class="virtual-machine__monitors">
-            {runningMachines.length === 1 ? (
+            {runningMachines.length === 0 ? (
               <div class="virtual-machine__screen virtual-machine__screen--single">
-                <VmRuntimeSurface
-                  machineId={runningMachines[0].id}
-                  origin={runtimeOrigin}
-                  startMessage={pool.startMessages.get(runningMachines[0].id)}
-                  onRegister={pool.onRegister}
-                  onUnregister={pool.onUnregister}
-                  onStateChange={pool.onStateChange}
-                  onStarted={pool.onStarted}
-                  onBootError={pool.onBootError}
-                />
+                {screenMessage ? (
+                  <div class="virtual-machine__screen-message">{screenMessage}</div>
+                ) : null}
               </div>
-            ) : runningMachines.length > 1 ? (
-              <div class="virtual-machine__screen-grid">
-                {runningMachines.map((machine) => (
-                  <div
-                    key={machine.id}
-                    class="virtual-machine__screen virtual-machine__screen--cell"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => focusMachine(machine.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        focusMachine(machine.id)
-                      }
-                    }}
-                  >
-                    <span class="virtual-machine__cell-label">{machine.name}</span>
+            ) : (
+              <>
+                <div class="virtual-machine__screen virtual-machine__screen--main">
+                  {displayedId !== undefined ? (
                     <VmRuntimeSurface
-                      machineId={machine.id}
+                      machineId={displayedId}
                       origin={runtimeOrigin}
-                      startMessage={pool.startMessages.get(machine.id)}
+                      startMessage={pool.startMessages.get(displayedId)}
                       onRegister={pool.onRegister}
                       onUnregister={pool.onUnregister}
                       onStateChange={pool.onStateChange}
                       onStarted={pool.onStarted}
                       onBootError={pool.onBootError}
                     />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div class="virtual-machine__screen virtual-machine__screen--single">
-                {screenMessage ? (
-                  <div class="virtual-machine__screen-message">{screenMessage}</div>
-                ) : null}
-              </div>
+                  ) : null}
+                </div>
+                {pickBackgroundMachineIds(displayedId, runningMachines.map((m) => m.id)).map(
+                  (machineId) => (
+                    <div
+                      key={machineId}
+                      class="virtual-machine__screen virtual-machine__screen--background"
+                      aria-hidden="true"
+                    >
+                      <VmRuntimeSurface
+                        machineId={machineId}
+                        origin={runtimeOrigin}
+                        startMessage={pool.startMessages.get(machineId)}
+                        onRegister={pool.onRegister}
+                        onUnregister={pool.onUnregister}
+                        onStateChange={pool.onStateChange}
+                        onStarted={pool.onStarted}
+                        onBootError={pool.onBootError}
+                      />
+                    </div>
+                  ),
+                )}
+              </>
             )}
-            {displayedBusy && runningMachines.length === 1 ? (
+            {displayedBusy && runningMachines.length > 0 ? (
               <div class="virtual-machine__screen-message">正在连接模拟器…</div>
             ) : null}
           </div>

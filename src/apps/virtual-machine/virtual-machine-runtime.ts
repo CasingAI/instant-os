@@ -34,6 +34,17 @@ export function pickDisplayedMachineId(
   return runningIds[0]
 }
 
+/** 后台保持挂载（但不显示）的实例：除主显实例外的所有运行中实例。 */
+export function pickBackgroundMachineIds(
+  displayedId: string | undefined,
+  runningIds: readonly string[],
+): readonly string[] {
+  if (displayedId === undefined) {
+    return runningIds
+  }
+  return runningIds.filter((id) => id !== displayedId)
+}
+
 export type VmRuntimeApi = {
   start(message: InstantVmStartMessage): Promise<void>
   stop(): Promise<void>
