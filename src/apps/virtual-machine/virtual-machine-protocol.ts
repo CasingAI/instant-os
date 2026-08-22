@@ -17,7 +17,12 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   requestPointerLock: 'instant-vm:request-pointer-lock',
   pointerLockChanged: 'instant-vm:pointer-lock-changed',
   pointerEdgeHit: 'instant-vm:pointer-edge-hit',
+  diskRead: 'instant-vm:disk-read',
+  diskReadResult: 'instant-vm:disk-read-result',
 } as const
+
+/** 运行时 fetch 拦截器识别的本地镜像流 URL 前缀（挂在运行时 origin 上）。 */
+export const VM_DISK_STREAM_PATH_PREFIX = '/__instant-vm-disk/'
 
 export type InstantVmMessageType =
   (typeof INSTANT_VM_MESSAGE_TYPE)[keyof typeof INSTANT_VM_MESSAGE_TYPE]
@@ -97,6 +102,11 @@ export type InstantVmReadyMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.ready
 }
 
+export type InstantVmDiskStreamRef = {
+  id: string
+  size: number
+}
+
 export type InstantVmStartMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.start
   requestId: string
@@ -105,10 +115,37 @@ export type InstantVmStartMessage = {
   cdrom?: ArrayBuffer
   fda?: ArrayBuffer
   state?: ArrayBuffer
+  /** 大文件走 Blob 传递（structured clone 零拷贝），iframe 侧创建 blob URL 给 v86 async 加载。 */
+  hdaBlob?: Blob
+  cdromBlob?: Blob
+  fdaBlob?: Blob
+  stateBlob?: Blob
   hdaUrl?: string
   cdromUrl?: string
   fdaUrl?: string
   stateUrl?: string
+  /** 大体积本地镜像：运行时经 fetch 拦截按范围向宿主拉取，避免整文件进内存。 */
+  hdaStream?: InstantVmDiskStreamRef
+  cdromStream?: InstantVmDiskStreamRef
+  fdaStream?: InstantVmDiskStreamRef
+  stateStream?: InstantVmDiskStreamRef
+}
+
+export type InstantVmDiskReadMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.diskRead
+  requestId: string
+  streamId: string
+  offset: number
+  length: number
+}
+
+export type InstantVmDiskReadResultMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.diskReadResult
+  requestId: string
+  streamId: string
+  status: number
+  totalSize: number
+  bytes?: ArrayBuffer
 }
 
 export type InstantVmStopMessage = {
@@ -235,6 +272,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmStatsMessage
   | InstantVmPointerLockChangedMessage
   | InstantVmPointerEdgeHitMessage
+  | InstantVmDiskReadMessage
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 4096
@@ -344,14 +382,75 @@ function isOptionalBuffer(value: unknown): value is ArrayBuffer | undefined {
   return value === undefined || value instanceof ArrayBuffer
 }
 
+function isOptionalBlob(value: unknown): value is Blob | undefined {
+  return value === undefined || value instanceof Blob
+}
+
 export function isHttpDiskUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim())
 }
 
-function isOptionalHttpUrl(value: unknown): value is string | undefined {
+export function isBlobDiskUrl(value: string): boolean {
+  return /^blob:/i.test(value.trim())
+}
+
+function isOptionalDiskUrl(value: unknown): value is string | undefined {
+  if (value === undefined) return true
+  if (typeof value !== 'string') return false
+  const trimmed = value.trim()
+  if (trimmed.length >= 500) return false
+  return isHttpDiskUrl(trimmed) || isBlobDiskUrl(trimmed)
+}
+
+function isDiskStreamRef(value: unknown): value is InstantVmDiskStreamRef {
   return (
-    value === undefined ||
-    (typeof value === 'string' && isHttpDiskUrl(value) && value.trim().length < 500)
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    value.id.length < 80 &&
+    typeof value.size === 'number' &&
+    Number.isFinite(value.size) &&
+    value.size >= 0
+  )
+}
+
+function isOptionalDiskStreamRef(value: unknown): value is InstantVmDiskStreamRef | undefined {
+  return value === undefined || isDiskStreamRef(value)
+}
+
+export function isInstantVmDiskReadMessage(value: unknown): value is InstantVmDiskReadMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.diskRead &&
+    isRequestId(value.requestId) &&
+    typeof value.streamId === 'string' &&
+    value.streamId.length > 0 &&
+    value.streamId.length < 80 &&
+    typeof value.offset === 'number' &&
+    Number.isFinite(value.offset) &&
+    value.offset >= 0 &&
+    typeof value.length === 'number' &&
+    Number.isFinite(value.length) &&
+    value.length >= 0
+  )
+}
+
+export function isInstantVmDiskReadResultMessage(
+  value: unknown,
+): value is InstantVmDiskReadResultMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.diskReadResult &&
+    isRequestId(value.requestId) &&
+    typeof value.streamId === 'string' &&
+    value.streamId.length > 0 &&
+    value.streamId.length < 80 &&
+    typeof value.status === 'number' &&
+    Number.isInteger(value.status) &&
+    typeof value.totalSize === 'number' &&
+    Number.isFinite(value.totalSize) &&
+    value.totalSize >= 0 &&
+    (value.bytes === undefined || value.bytes instanceof ArrayBuffer)
   )
 }
 
@@ -367,10 +466,18 @@ export function isInstantVmStartMessage(value: unknown): value is InstantVmStart
     isOptionalBuffer(value.cdrom) &&
     isOptionalBuffer(value.fda) &&
     isOptionalBuffer(value.state) &&
-    isOptionalHttpUrl(value.hdaUrl) &&
-    isOptionalHttpUrl(value.cdromUrl) &&
-    isOptionalHttpUrl(value.fdaUrl) &&
-    isOptionalHttpUrl(value.stateUrl)
+    isOptionalBlob(value.hdaBlob) &&
+    isOptionalBlob(value.cdromBlob) &&
+    isOptionalBlob(value.fdaBlob) &&
+    isOptionalBlob(value.stateBlob) &&
+    isOptionalDiskUrl(value.hdaUrl) &&
+    isOptionalDiskUrl(value.cdromUrl) &&
+    isOptionalDiskUrl(value.fdaUrl) &&
+    isOptionalDiskUrl(value.stateUrl) &&
+    isOptionalDiskStreamRef(value.hdaStream) &&
+    isOptionalDiskStreamRef(value.cdromStream) &&
+    isOptionalDiskStreamRef(value.fdaStream) &&
+    isOptionalDiskStreamRef(value.stateStream)
   )
 }
 
@@ -578,6 +685,9 @@ export function isInstantVmRuntimeToHostMessage(
   if (value.type === INSTANT_VM_MESSAGE_TYPE.pointerEdgeHit) {
     return isInstantVmPointerEdgeHitMessage(value)
   }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.diskRead) {
+    return isInstantVmDiskReadMessage(value)
+  }
   return false
 }
 
@@ -616,8 +726,18 @@ export function startMessageHasDisk(message: InstantVmStartMessage): boolean {
     (message.hda && message.hda.byteLength > 0) ||
       (message.cdrom && message.cdrom.byteLength > 0) ||
       (message.fda && message.fda.byteLength > 0) ||
+      message.state ||
+      message.stateBlob ||
+      message.stateUrl ||
+      message.hdaBlob ||
+      message.cdromBlob ||
+      message.fdaBlob ||
       message.hdaUrl ||
       message.cdromUrl ||
-      message.fdaUrl,
+      message.fdaUrl ||
+      message.hdaStream ||
+      message.cdromStream ||
+      message.fdaStream ||
+      message.stateStream,
   )
 }

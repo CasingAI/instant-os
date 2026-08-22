@@ -139,6 +139,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const canStop = Boolean(hasSelection && selectedRunning && !powerBusy)
   const canReset = canStop
 
+  const showVmError = useCallback(
+    (message: string, title = '虚拟机错误') => {
+      void modal.alert({ title, message, themeColor: THEME })
+    },
+    [modal],
+  )
+
   const displayedId = pickDisplayedMachineId(selected?.id, pool.runningIds)
   const displayedMachine = runningMachines.find((machine) => machine.id === displayedId)
   const selectedSnapshot = pool.snapshots.get(selectedId ?? '')
@@ -202,7 +209,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         try {
           await pool.setActiveDisplayMode(selected.id, mode)
         } catch (error) {
-          setPowerHint(error instanceof Error ? error.message : '切换显示比例失败')
+          showVmError(error instanceof Error ? error.message : '切换显示比例失败')
           return
         }
       }
@@ -236,7 +243,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         try {
           await pool.shutdown(target.id)
         } catch (error) {
-          setPowerHint(error instanceof Error ? error.message : '关机失败')
+          showVmError(error instanceof Error ? error.message : '关机失败')
           return
         }
       }
@@ -246,7 +253,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       setSelectedId(next?.id)
       setPowerHint(undefined)
     })()
-  }, [machines, modal, pool, selected])
+  }, [machines, modal, pool, selected, showVmError])
 
   const handlePower = useCallback(
     (action: 'start' | 'stop' | 'reset') => {
@@ -287,13 +294,21 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           await pool.boot(machine)
           setPowerHint(undefined)
         } catch (error) {
-          setPowerHint(error instanceof Error ? error.message : '操作失败')
+          showVmError(error instanceof Error ? error.message : '操作失败')
         } finally {
           setPowerBusy(false)
         }
       })()
     },
-    [pool, runtimeOrigin, selected, selectedBackend],
+    [pool, runtimeOrigin, selected, selectedBackend, showVmError],
+  )
+
+  const handleBootError = useCallback(
+    (machineId: string, message: string) => {
+      pool.onBootError(machineId, message)
+      showVmError(message)
+    },
+    [pool, showVmError],
   )
 
   const menuBar = useMemo((): MenuDefinition[] => {
@@ -504,7 +519,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                       onUnregister={pool.onUnregister}
                       onStateChange={pool.onStateChange}
                       onStarted={pool.onStarted}
-                      onBootError={pool.onBootError}
+                      onBootError={handleBootError}
                     />
                   ) : null}
                 </div>
@@ -526,7 +541,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                           onUnregister={pool.onUnregister}
                           onStateChange={pool.onStateChange}
                           onStarted={pool.onStarted}
-                          onBootError={pool.onBootError}
+                          onBootError={handleBootError}
                         />
                       </div>
                     )

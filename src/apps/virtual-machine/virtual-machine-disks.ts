@@ -1,9 +1,13 @@
-import { filesReadBlob } from '../files/files-api.ts'
+import { filesReadBlob, filesStat } from '../files/files-api.ts'
 import { cpuidLevelForCpuModel } from './virtual-machine-config.ts'
+import {
+  registerVirtualMachineDiskStream,
+} from './virtual-machine-disk-stream-host.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
   isHttpDiskUrl,
+  type InstantVmDiskStreamRef,
   type InstantVmStartConfig,
   type InstantVmStartMessage,
 } from './virtual-machine-protocol.ts'
@@ -37,9 +41,18 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
   }
 }
 
+/** 超过此阈值的本地卷镜像走范围流式读取，避免整文件分配 ArrayBuffer。 */
+const DISK_BLOB_THRESHOLD_BYTES = 256 * 1024 * 1024
+
+function isMountPath(path: string): boolean {
+  return path.startsWith('/mount/')
+}
+
 type LoadedDisk = {
   buffer?: ArrayBuffer
+  blob?: Blob
   url?: string
+  stream?: InstantVmDiskStreamRef
 }
 
 async function loadDisk(path: string, label: string): Promise<LoadedDisk> {
@@ -50,8 +63,22 @@ async function loadDisk(path: string, label: string): Promise<LoadedDisk> {
   if (isHttpDiskUrl(trimmed)) {
     return { url: trimmed }
   }
+
+  const stat = await filesStat(trimmed)
+  if (!stat || stat.kind !== 'file') {
+    throw new Error(`无法读取${label} ${trimmed}：文件不存在`)
+  }
+
+  if (!isMountPath(trimmed) && stat.byteSize > DISK_BLOB_THRESHOLD_BYTES) {
+    const id = await registerVirtualMachineDiskStream(trimmed)
+    return { stream: { id, size: stat.byteSize } }
+  }
+
   try {
     const blob = await filesReadBlob(trimmed)
+    if (blob.size > DISK_BLOB_THRESHOLD_BYTES) {
+      return { blob }
+    }
     return { buffer: await blob.arrayBuffer() }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
@@ -64,7 +91,22 @@ export async function loadVirtualMachineDisks(
 ): Promise<
   Pick<
     InstantVmStartMessage,
-    'hda' | 'cdrom' | 'fda' | 'state' | 'hdaUrl' | 'cdromUrl' | 'fdaUrl' | 'stateUrl'
+    | 'hda'
+    | 'cdrom'
+    | 'fda'
+    | 'state'
+    | 'hdaBlob'
+    | 'cdromBlob'
+    | 'fdaBlob'
+    | 'stateBlob'
+    | 'hdaUrl'
+    | 'cdromUrl'
+    | 'fdaUrl'
+    | 'stateUrl'
+    | 'hdaStream'
+    | 'cdromStream'
+    | 'fdaStream'
+    | 'stateStream'
   >
 > {
   const [hda, cdrom, fda, state] = await Promise.all([
@@ -78,10 +120,18 @@ export async function loadVirtualMachineDisks(
     cdrom: cdrom.buffer,
     fda: fda.buffer,
     state: state.buffer,
+    hdaBlob: hda.blob,
+    cdromBlob: cdrom.blob,
+    fdaBlob: fda.blob,
+    stateBlob: state.blob,
     hdaUrl: hda.url,
     cdromUrl: cdrom.url,
     fdaUrl: fda.url,
     stateUrl: state.url,
+    hdaStream: hda.stream,
+    cdromStream: cdrom.stream,
+    fdaStream: fda.stream,
+    stateStream: state.stream,
   }
 }
 
@@ -90,7 +140,22 @@ export function buildStartMessage(
   settings: VirtualMachineSettings,
   disks: Pick<
     InstantVmStartMessage,
-    'hda' | 'cdrom' | 'fda' | 'state' | 'hdaUrl' | 'cdromUrl' | 'fdaUrl' | 'stateUrl'
+    | 'hda'
+    | 'cdrom'
+    | 'fda'
+    | 'state'
+    | 'hdaBlob'
+    | 'cdromBlob'
+    | 'fdaBlob'
+    | 'stateBlob'
+    | 'hdaUrl'
+    | 'cdromUrl'
+    | 'fdaUrl'
+    | 'stateUrl'
+    | 'hdaStream'
+    | 'cdromStream'
+    | 'fdaStream'
+    | 'stateStream'
   >,
 ): InstantVmStartMessage {
   const message: InstantVmStartMessage = {
@@ -110,6 +175,18 @@ export function buildStartMessage(
   if (disks.state) {
     message.state = disks.state
   }
+  if (disks.hdaBlob) {
+    message.hdaBlob = disks.hdaBlob
+  }
+  if (disks.cdromBlob) {
+    message.cdromBlob = disks.cdromBlob
+  }
+  if (disks.fdaBlob) {
+    message.fdaBlob = disks.fdaBlob
+  }
+  if (disks.stateBlob) {
+    message.stateBlob = disks.stateBlob
+  }
   if (disks.hdaUrl) {
     message.hdaUrl = disks.hdaUrl
   }
@@ -121,6 +198,18 @@ export function buildStartMessage(
   }
   if (disks.stateUrl) {
     message.stateUrl = disks.stateUrl
+  }
+  if (disks.hdaStream) {
+    message.hdaStream = disks.hdaStream
+  }
+  if (disks.cdromStream) {
+    message.cdromStream = disks.cdromStream
+  }
+  if (disks.fdaStream) {
+    message.fdaStream = disks.fdaStream
+  }
+  if (disks.stateStream) {
+    message.stateStream = disks.stateStream
   }
   return message
 }

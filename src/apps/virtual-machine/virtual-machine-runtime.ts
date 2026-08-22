@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { buildStartMessage, loadVirtualMachineDisks } from './virtual-machine-disks.ts'
+import { releaseVirtualMachineDiskStreams } from './virtual-machine-disk-stream-host.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
@@ -221,10 +222,11 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     async (message: InstantVmStartMessage) => {
       setStats(undefined)
       setBootProgress(undefined)
-      const timeoutMs =
-        message.hdaUrl || message.cdromUrl || message.fdaUrl || message.stateUrl
-          ? REMOTE_DISK_REQUEST_TIMEOUT_MS
-          : REQUEST_TIMEOUT_MS
+      const hasRemoteDisk =
+        message.hdaUrl || message.cdromUrl || message.fdaUrl || message.stateUrl ||
+        message.hdaBlob || message.cdromBlob || message.fdaBlob || message.stateBlob ||
+        message.hdaStream || message.cdromStream || message.fdaStream || message.stateStream
+      const timeoutMs = hasRemoteDisk ? REMOTE_DISK_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS
       await request(message, collectStartTransfers(message), timeoutMs)
     },
     [request],
@@ -302,6 +304,10 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     setRunningIds([...runningIdsRef.current])
     setStartMessages((current) => {
       const next = new Map(current)
+      const message = next.get(id)
+      if (message) {
+        releaseVirtualMachineDiskStreams(message)
+      }
       next.delete(id)
       return next
     })
@@ -339,8 +345,9 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
   }, [])
 
   const onBootError = useCallback((id: string, message: string) => {
+    removeRunningId(id)
     setHints((current) => new Map(current).set(id, message))
-  }, [])
+  }, [removeRunningId])
 
   const boot = useCallback(
     async (machine: VirtualMachineRecord): Promise<void> => {
