@@ -69,3 +69,23 @@ export function getVmRuntimeOrigin(): string | undefined {
 export function isVmRuntimeConfigured(): boolean {
   return getVmRuntimeOrigin() !== undefined
 }
+
+/**
+ * 根据构建模式为运行时 origin 拼接 `?v86=debug|release` 参数。
+ * 当 baseOrigin 为 undefined 时原样返回。
+ */
+export function buildVmRuntimeOriginWithMode(
+  baseOrigin: string | undefined,
+  buildMode: string,
+): string | undefined {
+  if (!baseOrigin) {
+    return baseOrigin
+  }
+  try {
+    const url = new URL(baseOrigin)
+    url.searchParams.set('v86', buildMode)
+    return url.origin + url.pathname + url.search + url.hash
+  } catch {
+    return baseOrigin
+  }
+}

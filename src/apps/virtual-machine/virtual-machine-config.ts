@@ -1,6 +1,7 @@
 import type { SettingsChoiceOption } from '../../ui/settings-choice-option-list.tsx'
 import {
   DEFAULT_VIRTUAL_MACHINE_BOOT_ORDER,
+  DEFAULT_VIRTUAL_MACHINE_BUILD_MODE,
   DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -10,6 +11,7 @@ import {
   DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB,
   VM_BACKEND_IDS,
   VM_BOOT_ORDER_IDS,
+  VM_BUILD_MODE_IDS,
   VM_DISPLAY_MODE_IDS,
   VM_MEMORY_MB_OPTIONS,
   VM_NETWORK_BACKEND_IDS,
@@ -18,6 +20,7 @@ import {
   VM_VGA_MEMORY_MB_OPTIONS,
   type VmBackendId,
   type VmBootOrderId,
+  type VmBuildModeId,
   type VmDisplayModeId,
   type VmMemoryMb,
   type VmNetworkBackendId,
@@ -34,6 +37,7 @@ export function defaultVirtualMachineSettings(
   return {
     name,
     backend: 'v86',
+    buildMode: DEFAULT_VIRTUAL_MACHINE_BUILD_MODE,
     memoryMb: DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
     vgaMemoryMb: DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB,
     bootOrder: DEFAULT_VIRTUAL_MACHINE_BOOT_ORDER,
@@ -57,6 +61,7 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
   return {
     name: record.name,
     backend: record.backend,
+    buildMode: record.buildMode,
     memoryMb: record.memoryMb,
     vgaMemoryMb: record.vgaMemoryMb,
     bootOrder: record.bootOrder,
@@ -107,8 +112,17 @@ const POINTER_MODE_LABELS: Record<VmPointerModeId, string> = {
   lock: '独占',
 }
 
+const BUILD_MODE_LABELS: Record<VmBuildModeId, string> = {
+  debug: 'Debug（调试版）',
+  release: 'Release（正式版）',
+}
+
 export function formatVmPointerModeLabel(id: VmPointerModeId): string {
   return POINTER_MODE_LABELS[id]
+}
+
+export function formatVmBuildModeLabel(id: VmBuildModeId): string {
+  return BUILD_MODE_LABELS[id]
 }
 
 export function formatVmDisplayModeLabel(id: VmDisplayModeId): string {
@@ -152,6 +166,16 @@ export const VM_BACKEND_CHOICES: readonly SettingsChoiceOption[] = VM_BACKEND_ID
   id,
   label: id === 'v86' ? 'V86' : id,
 }))
+
+export const VM_BUILD_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_BUILD_MODE_IDS.map(
+  (id) => ({
+    id,
+    label:
+      id === DEFAULT_VIRTUAL_MACHINE_BUILD_MODE
+        ? `${formatVmBuildModeLabel(id)} 默认`
+        : formatVmBuildModeLabel(id),
+  }),
+)
 
 export const VM_MEMORY_CHOICES: readonly SettingsChoiceOption[] = VM_MEMORY_MB_OPTIONS.map((mb) => ({
   id: String(mb),
@@ -236,4 +260,8 @@ export function isVmDisplayModeId(value: string): value is VmDisplayModeId {
 
 export function isVmPointerModeId(value: string): value is VmPointerModeId {
   return (VM_POINTER_MODE_IDS as readonly string[]).includes(value)
+}
+
+export function isVmBuildModeId(value: string): value is VmBuildModeId {
+  return (VM_BUILD_MODE_IDS as readonly string[]).includes(value)
 }

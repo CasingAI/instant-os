@@ -7,6 +7,7 @@ import {
   VIRTUAL_MACHINE_PATH_MAX_LENGTH,
   VM_BACKEND_IDS,
   VM_BOOT_ORDER_IDS,
+  VM_BUILD_MODE_IDS,
   VM_DISPLAY_MODE_IDS,
   VM_MEMORY_MB_OPTIONS,
   VM_NETWORK_BACKEND_IDS,
@@ -67,6 +68,7 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
   return {
     name,
     backend: normalizeOneOf(record.backend, VM_BACKEND_IDS, defaults.backend),
+    buildMode: normalizeOneOf(record.buildMode, VM_BUILD_MODE_IDS, defaults.buildMode),
     memoryMb: normalizeOneOf(record.memoryMb, VM_MEMORY_MB_OPTIONS, defaults.memoryMb),
     vgaMemoryMb: normalizeOneOf(record.vgaMemoryMb, VM_VGA_MEMORY_MB_OPTIONS, defaults.vgaMemoryMb),
     bootOrder: normalizeOneOf(record.bootOrder, VM_BOOT_ORDER_IDS, defaults.bootOrder),

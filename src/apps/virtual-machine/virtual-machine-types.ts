@@ -62,6 +62,13 @@ export type VmPointerModeId = (typeof VM_POINTER_MODE_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'follow'
 
+/** V86 构建模式：`debug`（未压缩，可单步调试）；`release`（压缩混淆，性能更好）。 */
+export const VM_BUILD_MODE_IDS = ['debug', 'release'] as const
+
+export type VmBuildModeId = (typeof VM_BUILD_MODE_IDS)[number]
+
+export const DEFAULT_VIRTUAL_MACHINE_BUILD_MODE: VmBuildModeId = 'release'
+
 export const DEFAULT_VIRTUAL_MACHINE_ID = 'vm-default'
 export const DEFAULT_VIRTUAL_MACHINE_NAME = '未命名虚拟机'
 
@@ -71,6 +78,7 @@ export const VIRTUAL_MACHINE_PATH_MAX_LENGTH = 500
 export type VirtualMachineSettings = {
   name: string
   backend: VmBackendId
+  buildMode: VmBuildModeId
   memoryMb: VmMemoryMb
   vgaMemoryMb: VmVgaMemoryMb
   bootOrder: VmBootOrderId

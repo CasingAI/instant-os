@@ -13,6 +13,7 @@ import {
 import {
   defaultVirtualMachineSettings,
   formatVmBootOrderLabel,
+  formatVmBuildModeLabel,
   formatVmDisplayModeLabel,
   formatVmMemoryLabel,
   formatVmNetworkBackendLabel,
@@ -58,7 +59,7 @@ type SettingsSession =
   | { mode: 'edit'; id: string; initial: VirtualMachineSettings }
 
 function formatMachineMeta(machine: VirtualMachineRecord, running: boolean): string {
-  return `${formatVmMemoryLabel(machine.memoryMb)} · ${formatVmBackendLabel(machine.backend)} · ${
+  return `${formatVmMemoryLabel(machine.memoryMb)} · ${formatVmBackendLabel(machine.backend)} · ${formatVmBuildModeLabel(machine.buildMode)} · ${
     running ? '运行中' : '已停止'
   }`
 }
@@ -496,6 +497,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     <VmRuntimeSurface
                       machineId={displayedId}
                       origin={runtimeOrigin}
+                      buildMode={displayedMachine?.buildMode}
                       startMessage={pool.startMessages.get(displayedId)}
                       onRegister={pool.onRegister}
                       onUnregister={pool.onUnregister}
@@ -506,24 +508,28 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                   ) : null}
                 </div>
                 {pickBackgroundMachineIds(displayedId, runningMachines.map((m) => m.id)).map(
-                  (machineId) => (
-                    <div
-                      key={machineId}
-                      class="virtual-machine__screen virtual-machine__screen--background"
-                      aria-hidden="true"
-                    >
-                      <VmRuntimeSurface
-                        machineId={machineId}
-                        origin={runtimeOrigin}
-                        startMessage={pool.startMessages.get(machineId)}
-                        onRegister={pool.onRegister}
-                        onUnregister={pool.onUnregister}
-                        onStateChange={pool.onStateChange}
-                        onStarted={pool.onStarted}
-                        onBootError={pool.onBootError}
-                      />
-                    </div>
-                  ),
+                  (machineId) => {
+                    const bgMachine = runningMachines.find((m) => m.id === machineId)
+                    return (
+                      <div
+                        key={machineId}
+                        class="virtual-machine__screen virtual-machine__screen--background"
+                        aria-hidden="true"
+                      >
+                        <VmRuntimeSurface
+                          machineId={machineId}
+                          origin={runtimeOrigin}
+                          buildMode={bgMachine?.buildMode}
+                          startMessage={pool.startMessages.get(machineId)}
+                          onRegister={pool.onRegister}
+                          onUnregister={pool.onUnregister}
+                          onStateChange={pool.onStateChange}
+                          onStarted={pool.onStarted}
+                          onBootError={pool.onBootError}
+                        />
+                      </div>
+                    )
+                  },
                 )}
               </>
             )}
@@ -544,6 +550,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               <div class="virtual-machine__inspector-item">
                 <dt>后端</dt>
                 <dd>{formatVmBackendLabel(displayedMachine.backend)}</dd>
+              </div>
+              <div class="virtual-machine__inspector-item">
+                <dt>构建模式</dt>
+                <dd>{formatVmBuildModeLabel(displayedMachine.buildMode)}</dd>
               </div>
               <div class="virtual-machine__inspector-item">
                 <dt>内存</dt>

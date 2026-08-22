@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'preact/hooks'
 import type {
   InstantVmStartMessage,
 } from './virtual-machine-protocol.ts'
+import { buildVmRuntimeOriginWithMode } from './virtual-machine-runtime-config.ts'
 import {
   useVirtualMachineRuntime,
   type VmRuntimeApi,
@@ -11,6 +12,7 @@ import {
 export type VmRuntimeSurfaceProps = {
   machineId: string
   origin: string | undefined
+  buildMode?: string
   startMessage: InstantVmStartMessage | undefined
   onRegister: (machineId: string, api: VmRuntimeApi) => void
   onUnregister: (machineId: string) => void
@@ -26,6 +28,7 @@ export type VmRuntimeSurfaceProps = {
 export function VmRuntimeSurface({
   machineId,
   origin,
+  buildMode,
   startMessage,
   onRegister,
   onUnregister,
@@ -33,8 +36,9 @@ export function VmRuntimeSurface({
   onStarted,
   onBootError,
 }: VmRuntimeSurfaceProps) {
+  const resolvedOrigin = buildMode ? buildVmRuntimeOriginWithMode(origin, buildMode) : origin
   const { iframeRef, ready, stats, bootProgress, start, stop, reset, setDisplayMode } =
-    useVirtualMachineRuntime(origin)
+    useVirtualMachineRuntime(resolvedOrigin)
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 
   useEffect(() => {
@@ -62,7 +66,7 @@ export function VmRuntimeSurface({
       })
   }, [machineId, onBootError, onStarted, ready, start, startMessage])
 
-  if (!origin) {
+  if (!resolvedOrigin) {
     return null
   }
 
@@ -71,7 +75,7 @@ export function VmRuntimeSurface({
       ref={iframeRef}
       class="virtual-machine__frame"
       title={`虚拟机显示器 ${machineId}`}
-      src={origin}
+      src={resolvedOrigin}
       referrerPolicy="origin"
       sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
       allow="autoplay; fullscreen; pointer-lock"

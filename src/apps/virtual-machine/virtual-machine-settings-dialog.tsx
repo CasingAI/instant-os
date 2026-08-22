@@ -10,6 +10,7 @@ import {
   formatVmNetworkLabel,
   formatVmPathSummary,
   isVmBootOrderId,
+  isVmBuildModeId,
   isVmDisplayModeId,
   isVmMemoryMb,
   isVmNetworkBackendId,
@@ -17,6 +18,7 @@ import {
   isVmPointerModeId,
   isVmVgaMemoryMb,
   VM_BOOT_ORDER_CHOICES,
+  VM_BUILD_MODE_CHOICES,
   VM_CDROM_ACCEPT_EXTENSIONS,
   VM_DISPLAY_MODE_CHOICES,
   VM_FLOPPY_ACCEPT_EXTENSIONS,
@@ -316,6 +318,24 @@ export function VirtualMachineSettingsDialog({
             </div>
             <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
               目前只有 V86。模拟器在独立页面里运行，不和桌面抢同一条主线程。
+            </p>
+            <SettingsChoiceField
+              label="构建模式"
+              value={draft.buildMode}
+              options={VM_BUILD_MODE_CHOICES}
+              onChange={(value) => {
+                if (isVmBuildModeId(value)) {
+                  patch({ buildMode: value })
+                }
+              }}
+              wideLayout
+              presentation="form"
+              disabled={busy}
+              fieldClass="virtual-machine-settings__field"
+              labelClass="virtual-machine-settings__label"
+            />
+            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+              Debug 版加载未压缩 JS，可单步调试 V86 内部；Release 版压缩混淆，性能更好。运行中切换需要重新开机。
             </p>
             <SettingsChoiceField
               label="内存"

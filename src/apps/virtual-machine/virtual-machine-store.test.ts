@@ -22,6 +22,7 @@ import {
   writeVirtualMachineStore,
 } from './virtual-machine-store.ts'
 import {
+  DEFAULT_VIRTUAL_MACHINE_BUILD_MODE,
   DEFAULT_VIRTUAL_MACHINE_ID,
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -48,6 +49,21 @@ function testNormalizeMissingSeedsDefault(): void {
   assert.equal(machines[0]?.statePath, '')
   assert.equal(machines[0]?.speaker, true)
   assert.equal(machines[0]?.acpi, false)
+  assert.equal(machines[0]?.buildMode, DEFAULT_VIRTUAL_MACHINE_BUILD_MODE)
+}
+
+function testNormalizeBuildModeFallback(): void {
+  // 缺失 buildMode → 回退到默认 release
+  const noMode = normalizeVirtualMachineSettings({ name: 'test' })
+  assert.equal(noMode?.buildMode, 'release')
+
+  // 非法值 → 回退到默认
+  const badMode = normalizeVirtualMachineSettings({ name: 'test', buildMode: 'unknown' })
+  assert.equal(badMode?.buildMode, 'release')
+
+  // 合法值保留
+  const debugMode = normalizeVirtualMachineSettings({ name: 'test', buildMode: 'debug' })
+  assert.equal(debugMode?.buildMode, 'debug')
 }
 
 function testNormalizeEmptyArrayStaysEmpty(): void {
@@ -100,6 +116,7 @@ function testNormalizeDropsGarbageAndDuplicates(): void {
   assert.equal(machines[0]?.fdaPath, '')
   assert.equal(machines[0]?.statePath, '')
   assert.equal(machines[0]?.createdAt, 12)
+  assert.equal(machines[0]?.buildMode, 'release') // 非法 backend 不影响 buildMode 回退
   assert.equal(machines[1]?.id, 'c')
   assert.equal(machines[1]?.memoryMb, DEFAULT_VIRTUAL_MACHINE_MEMORY_MB)
   assert.equal(machines[1]?.network, 'none')
@@ -202,6 +219,7 @@ testNormalizeEmptyArrayStaysEmpty()
 testNormalizeDropsGarbageAndDuplicates()
 testNormalizeKeepsHttpUrls()
 testNormalizeRecordRejectsInvalid()
+testNormalizeBuildModeFallback()
 testNextMachineName()
 await testFirstReadPersistsDefault()
 await testEmptyWriteDoesNotReseed()
