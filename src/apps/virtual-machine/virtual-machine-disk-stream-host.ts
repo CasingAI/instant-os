@@ -16,9 +16,6 @@ let listenerInstalled = false
 
 function runtimeOrigins(): string[] {
   const configured = getVmRuntimeOrigin()
-  if (!configured) {
-    return []
-  }
   try {
     const url = new URL(configured)
     const origins = new Set<string>([url.origin])
@@ -52,7 +49,7 @@ async function readDiskRange(
       totalSize,
     }
   }
-  const want = Math.min(length, totalSize - offset)
+  const want = Math.min(length, totalSize - offset, 16 * 1024 * 1024)
   try {
     const blob = await filesReadBlobRange(entry.path, offset, want)
     const bytes = await blob.arrayBuffer()
@@ -72,10 +69,11 @@ async function readDiskRange(
 }
 
 function onDiskReadMessage(event: MessageEvent): void {
-  if (!isRuntimeOrigin(event.origin)) {
+  if (!isInstantVmDiskReadMessage(event.data)) {
     return
   }
-  if (!isInstantVmDiskReadMessage(event.data)) {
+  if (!isRuntimeOrigin(event.origin)) {
+    console.warn('[vm-disk-host] 忽略来自非运行时源的磁盘读取', event.origin)
     return
   }
   const message = event.data

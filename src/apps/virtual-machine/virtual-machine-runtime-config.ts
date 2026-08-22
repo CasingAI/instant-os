@@ -1,5 +1,6 @@
 const VM_RUNTIME_PORT = '6175'
 const DEFAULT_DEV_ORIGIN = `http://localhost:${VM_RUNTIME_PORT}`
+const DEFAULT_PROD_ORIGIN = 'https://vm.casing-ai.com'
 
 function readViteEnv(): { DEV?: boolean; VITE_VM_RUNTIME_ORIGIN?: string } | undefined {
   try {
@@ -53,8 +54,8 @@ function pageOrigin(): string | undefined {
   }
 }
 
-/** Cross-origin V86 runtime. Dev defaults to the Instant-virtual-machine Vite port. */
-export function getVmRuntimeOrigin(): string | undefined {
+/** Cross-origin V86 runtime. Dev defaults to the Instant-virtual-machine Vite port; production defaults to vm.casing-ai.com. */
+export function getVmRuntimeOrigin(): string {
   const env = readViteEnv()
   const configured = env?.VITE_VM_RUNTIME_ORIGIN?.trim().replace(/\/+$/, '')
   if (configured) {
@@ -63,7 +64,7 @@ export function getVmRuntimeOrigin(): string | undefined {
   if (env?.DEV) {
     return defaultDevRuntimeOrigin(pageOrigin())
   }
-  return undefined
+  return DEFAULT_PROD_ORIGIN
 }
 
 export function isVmRuntimeConfigured(): boolean {
