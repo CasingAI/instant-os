@@ -58,6 +58,58 @@ function splashLabel(window: WindowState): string {
   return window.title
 }
 
+function WindowAppSplashPanel({
+  window,
+  state,
+  onRetry,
+  className,
+  role,
+  'aria-busy': ariaBusy,
+  'aria-live': ariaLive,
+  onTransitionEnd,
+}: {
+  window: WindowState
+  state: LoadState
+  onRetry: () => void
+  className?: string
+  role?: 'alert' | 'status'
+  'aria-busy'?: boolean
+  'aria-live'?: 'polite' | 'off'
+  onTransitionEnd?: (event: TransitionEvent) => void
+}) {
+  const isError = state.status === 'error'
+
+  return (
+    <div
+      class={className}
+      role={role}
+      aria-busy={ariaBusy}
+      aria-live={ariaLive}
+      onTransitionEnd={onTransitionEnd}
+    >
+      <div class="window-app-body__splash-stack">
+        <div class="window-app-body__splash-icon-slot">
+          <WindowAppSplashArt window={window} />
+        </div>
+        <div class="window-app-body__splash-description">
+          {isError ? (
+            <p class="window-app-body__splash-message">{state.message}</p>
+          ) : (
+            <p class="window-app-body__splash-name">{splashLabel(window)}</p>
+          )}
+        </div>
+        <div class="window-app-body__splash-action" aria-hidden={isError ? undefined : true}>
+          {isError ? (
+            <IosButton tone="primary" onClick={onRetry}>
+              重试
+            </IosButton>
+          ) : undefined}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function WindowAppBody({ window }: { window: WindowState }) {
   const skipSplash = Boolean(window.windowless)
   const [retryNonce, setRetryNonce] = useState(0)
@@ -140,12 +192,13 @@ export function WindowAppBody({ window }: { window: WindowState }) {
     }
     if (skipSplash && state.status === 'error') {
       return (
-        <div class="window-app-body__splash window-app-body__splash--static" role="alert">
-          <p>{state.message}</p>
-          <IosButton tone="primary" onClick={() => setRetryNonce((value) => value + 1)}>
-            重试
-          </IosButton>
-        </div>
+        <WindowAppSplashPanel
+          window={window}
+          state={state}
+          onRetry={() => setRetryNonce((value) => value + 1)}
+          className="window-app-body__splash window-app-body__splash--static"
+          role="alert"
+        />
       )
     }
     return undefined
@@ -157,28 +210,16 @@ export function WindowAppBody({ window }: { window: WindowState }) {
     <div class="window-app-body">
       <div class="window-app-body__content">{content}</div>
       {splashPhase !== 'hidden' ? (
-        <div
-          class={`window-app-body__splash${splashPhase === 'exiting' ? ' window-app-body__splash--exiting' : ''}`}
+        <WindowAppSplashPanel
+          window={window}
+          state={state}
+          onRetry={() => setRetryNonce((value) => value + 1)}
+          className={`window-app-body__splash${splashPhase === 'exiting' ? ' window-app-body__splash--exiting' : ''}`}
           role={state.status === 'error' ? 'alert' : 'status'}
           aria-busy={splashBusy || undefined}
           aria-live={state.status === 'error' ? undefined : 'polite'}
           onTransitionEnd={handleSplashTransitionEnd}
-        >
-          {state.status === 'error' ? (
-            <>
-              <WindowAppSplashArt window={window} />
-              <p>{state.message}</p>
-              <IosButton tone="primary" onClick={() => setRetryNonce((value) => value + 1)}>
-                重试
-              </IosButton>
-            </>
-          ) : (
-            <>
-              <WindowAppSplashArt window={window} />
-              <p class="window-app-body__splash-name">{splashLabel(window)}</p>
-            </>
-          )}
-        </div>
+        />
       ) : undefined}
     </div>
   )

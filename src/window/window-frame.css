@@ -659,7 +659,6 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   margin: 0;
   padding: 24px;
   box-sizing: border-box;
@@ -668,6 +667,42 @@
   font-size: 13px;
   opacity: 1;
   transition: opacity 200ms ease;
+}
+
+.window-app-body__splash-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.window-app-body__splash-icon-slot {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.window-app-body__splash-description {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 54px;
+  max-height: 54px;
+  overflow: hidden;
+}
+
+.window-app-body__splash-action {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--ios-button-height, 28px);
 }
 
 .window-app-body__splash--exiting {
@@ -692,9 +727,15 @@
 }
 
 .window-app-body__splash p,
-.window-app-body__splash-name {
+.window-app-body__splash-name,
+.window-app-body__splash-message {
   margin: 0;
   text-align: center;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .window-app-body__splash-name {
