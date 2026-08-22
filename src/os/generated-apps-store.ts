@@ -251,7 +251,7 @@ export function loadInstalledAppsFromCache(): GeneratedAppRecord[] {
 
 /**
  * 异步保存全部已安装生成应用（差分写 Contents，删除已卸载应用的 Contents）。
- * 供 context 写点调用；成功返回 true。写入过程经 files 全局 4GB 配额。
+ * 供 context 写点调用；成功返回 true。写入过程经 files 全局 8GB 配额。
  */
 export async function saveInstalledAppsToFiles(apps: GeneratedAppRecord[]): Promise<boolean> {
   const nextIds: Set<string> = new Set(apps.map((app) => app.id))

@@ -106,7 +106,7 @@
 ## 文件系统、存储与运行时
 
 - 内置应用存储迁入 **App Registry**，按字段拆 key。
-- 数据空间硬上限提到 **4 GB**。
+- 数据空间硬上限提到 **8 GB**。
 - VFS：写时复制、路径级 watch、范围读 / 分块、`instant.grep`。
 - **QuickJS**：会话级实例、CJS / ESM、fs 桥、薄 Node 内建（path / buffer / stream / crypto / zlib / fetch 经代理 等）。
 - **Instant npm**：CAS store + 符号链接 `node_modules`、锁优先、可选 lifecycle 脚本；不是官方 npm，不跑原生 addon。

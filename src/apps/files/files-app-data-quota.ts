@@ -1,6 +1,6 @@
 /**
  * 应用记账：按应用统计 /Applications/{appBundleDirName(appId)}/ 下真实子树字节
- * （Data 数据 + 生成应用 Contents 本体）。无独立子限额；容量由全局 4GB 数据空间
+ * （Data 数据 + 生成应用 Contents 本体）。无独立子限额；容量由全局 8GB 数据空间
  * 兜底（applications 卷真实节点经 files-storage 的 assertCapacity 统一记账）。
  */
 import { GENERATED_APP_CONTENTS_DIR } from '../../os/generated-apps-files.ts'

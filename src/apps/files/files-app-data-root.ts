@@ -1,6 +1,6 @@
 /**
  * 每个应用的独立数据目录：`/Applications/{appBundleDirName(appId)}/Data`。
- * Data 是 applications 卷 IndexedDB 里的真实文件（与用户文件同一全局 4GB）；
+ * Data 是 applications 卷 IndexedDB 里的真实文件（与用户文件同一全局 8GB）；
  * /Applications 卷其余部分（Contents、清单）仍是虚拟投影。
  */
 import { appBundleDirName } from './files-app-id.ts'
