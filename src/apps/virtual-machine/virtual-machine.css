@@ -126,7 +126,38 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.virtual-machine__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #999;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.virtual-machine__status-dot--running {
+  background: #34c759;
+  box-shadow:
+    0 0 6px rgba(52, 199, 89, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.virtual-machine__row--active .virtual-machine__status-dot {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.virtual-machine__row--active .virtual-machine__status-dot--running {
+  background: #fff;
+  box-shadow:
+    0 0 8px rgba(255, 255, 255, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .virtual-machine__row-meta {

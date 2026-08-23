@@ -12,7 +12,6 @@ import {
 } from './virtual-machine-backends.ts'
 import {
   defaultVirtualMachineSettings,
-  formatVmBuildModeLabel,
   formatVmDisplayModeLabel,
   formatVmMemoryLabel,
   settingsFromRecord,
@@ -58,10 +57,8 @@ type SettingsSession =
   | { mode: 'create'; initial: VirtualMachineSettings }
   | { mode: 'edit'; id: string; initial: VirtualMachineSettings }
 
-function formatMachineMeta(machine: VirtualMachineRecord, running: boolean): string {
-  return `${formatVmMemoryLabel(machine.memoryMb)} · ${formatVmBackendLabel(machine.backend)} · ${formatVmBuildModeLabel(machine.buildMode)} · ${
-    running ? '运行中' : '已停止'
-  }`
+function formatMachineMeta(machine: VirtualMachineRecord): string {
+  return formatVmMemoryLabel(machine.memoryMb)
 }
 
 function formatStatus(machine: VirtualMachineRecord | undefined, running: boolean): string {
@@ -656,9 +653,12 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                         })
                       }}
                     >
-                      <span class="virtual-machine__row-name">{machine.name}</span>
+                      <span class="virtual-machine__row-name">
+                        {machine.name}
+                        <span class={running ? 'virtual-machine__status-dot virtual-machine__status-dot--running' : 'virtual-machine__status-dot'} aria-label={running ? '运行中' : '已停止'} />
+                      </span>
                       <span class="virtual-machine__row-meta">
-                        {formatMachineMeta(machine, running)}
+                        {formatMachineMeta(machine)}
                       </span>
                     </button>
                   </li>
