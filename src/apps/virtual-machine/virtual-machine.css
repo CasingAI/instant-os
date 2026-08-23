@@ -166,32 +166,8 @@
   }
 }
 
-.virtual-machine__row--active .virtual-machine__status-dot {
+.virtual-machine__row--active .virtual-machine__status-dot:not(.virtual-machine__status-dot--running):not(.virtual-machine__status-dot--starting) {
   background: rgba(255, 255, 255, 0.7);
-}
-
-.virtual-machine__row--active .virtual-machine__status-dot--running {
-  background: #fff;
-  box-shadow:
-    0 0 8px rgba(255, 255, 255, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-}
-
-.virtual-machine__row--active .virtual-machine__status-dot--starting {
-  background: #fff;
-  box-shadow:
-    0 0 8px rgba(255, 255, 255, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  animation: vm-status-pulse-active 1.5s ease-in-out infinite;
-}
-
-@keyframes vm-status-pulse-active {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
 }
 
 .virtual-machine__row-meta {
