@@ -103,7 +103,7 @@ export function inferStorageDeviceSource(path: string): VmStorageDeviceSource {
   return 'local'
 }
 
-function createStorageDevice(
+export function createStorageDevice(
   type: VmStorageDeviceType,
   path: string,
   source?: VmStorageDeviceSource,

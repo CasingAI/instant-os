@@ -9,6 +9,8 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   stop: 'instant-vm:stop',
   reset: 'instant-vm:reset',
   setDisplayMode: 'instant-vm:set-display-mode',
+  saveState: 'instant-vm:save-state',
+  saveStateResult: 'instant-vm:save-state-result',
   started: 'instant-vm:started',
   stopped: 'instant-vm:stopped',
   error: 'instant-vm:error',
@@ -178,6 +180,18 @@ export type InstantVmSetDisplayModeMessage = {
   mode: InstantVmDisplayMode
 }
 
+export type InstantVmSaveStateMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.saveState
+  requestId: string
+}
+
+export type InstantVmSaveStateResultMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.saveStateResult
+  requestId: string
+  /** v86 save_state 返回的运行时状态缓冲。用 transfer 转移所有权，避免再次复制。 */
+  state: ArrayBuffer
+}
+
 export type InstantVmKeyboardPhase = 'down' | 'up'
 
 /** 宿主捕获到的按键。嵌入时焦点留在宿主，运行时必须始终注入，不能因自身有焦点而丢弃。 */
@@ -202,7 +216,8 @@ export type InstantVmStartedMessage = {
 
 export type InstantVmStoppedMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.stopped
-  requestId: string
+  /** 宿主点停止时带请求号；客机自己关完断电时省略。 */
+  requestId?: string
 }
 
 export type InstantVmErrorMessage = {
@@ -267,12 +282,14 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmStopMessage
   | InstantVmResetMessage
   | InstantVmSetDisplayModeMessage
+  | InstantVmSaveStateMessage
   | InstantVmKeyboardMessage
 
 export type InstantVmRuntimeToHostMessage =
   | InstantVmReadyMessage
   | InstantVmStartedMessage
   | InstantVmStoppedMessage
+  | InstantVmSaveStateResultMessage
   | InstantVmErrorMessage
   | InstantVmProgressMessage
   | InstantVmStatsMessage
@@ -520,6 +537,25 @@ export function isInstantVmSetDisplayModeMessage(
   )
 }
 
+export function isInstantVmSaveStateMessage(value: unknown): value is InstantVmSaveStateMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.saveState &&
+    isRequestId(value.requestId)
+  )
+}
+
+export function isInstantVmSaveStateResultMessage(
+  value: unknown,
+): value is InstantVmSaveStateResultMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.saveStateResult &&
+    isRequestId(value.requestId) &&
+    value.state instanceof ArrayBuffer
+  )
+}
+
 export function isInstantVmKeyboardMessage(value: unknown): value is InstantVmKeyboardMessage {
   return (
     isRecord(value) &&
@@ -630,6 +666,7 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmStopMessage(value) ||
     isInstantVmResetMessage(value) ||
     isInstantVmSetDisplayModeMessage(value) ||
+    isInstantVmSaveStateMessage(value) ||
     isInstantVmKeyboardMessage(value)
   )
 }
@@ -643,11 +680,14 @@ export function isInstantVmRuntimeToHostMessage(
   if (value.type === INSTANT_VM_MESSAGE_TYPE.ready) {
     return true
   }
-  if (
-    value.type === INSTANT_VM_MESSAGE_TYPE.started ||
-    value.type === INSTANT_VM_MESSAGE_TYPE.stopped
-  ) {
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.started) {
     return isRequestId(value.requestId)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.stopped) {
+    return value.requestId === undefined || isRequestId(value.requestId)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.saveStateResult) {
+    return isInstantVmSaveStateResultMessage(value)
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.error) {
     if (typeof value.message !== 'string' || !value.message.trim()) {

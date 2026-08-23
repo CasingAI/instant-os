@@ -18,6 +18,7 @@ export type VmRuntimeSurfaceProps = {
   onUnregister: (machineId: string) => void
   onStateChange: (machineId: string, snapshot: VmRuntimeSnapshot) => void
   onStarted: (machineId: string) => void
+  onGuestPoweredOff: (machineId: string) => void
   onBootError: (machineId: string, message: string) => void
   onCaptureKeyboard: () => void
   isDisplayed: boolean
@@ -36,6 +37,7 @@ export function VmRuntimeSurface({
   onUnregister,
   onStateChange,
   onStarted,
+  onGuestPoweredOff,
   onBootError,
   onCaptureKeyboard,
   isDisplayed,
@@ -49,11 +51,12 @@ export function VmRuntimeSurface({
     start,
     stop,
     reset,
+    saveState,
     setDisplayMode,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
-  } = useVirtualMachineRuntime(resolvedOrigin)
+  } = useVirtualMachineRuntime(resolvedOrigin, () => onGuestPoweredOff(machineId))
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 
   useEffect(() => {
@@ -61,6 +64,7 @@ export function VmRuntimeSurface({
       start,
       stop,
       reset,
+      saveState,
       setDisplayMode,
       sendKeyboard,
       captureKeyboard,
@@ -71,6 +75,7 @@ export function VmRuntimeSurface({
     machineId,
     onRegister,
     onUnregister,
+    saveState,
     start,
     stop,
     reset,

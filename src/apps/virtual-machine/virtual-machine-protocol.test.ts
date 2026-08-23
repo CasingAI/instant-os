@@ -304,6 +304,62 @@ function testStatsMessage(): void {
   assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, mouse: 'no' }), false)
 }
 
+function testSaveStateMessage(): void {
+  assert.equal(
+    isInstantVmHostToRuntimeMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.saveState,
+      requestId: 'rs-1',
+    }),
+    true,
+  )
+  assert.equal(
+    isInstantVmHostToRuntimeMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.saveState,
+      requestId: '',
+    }),
+    false,
+  )
+  const state = new ArrayBuffer(8)
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.saveStateResult,
+      requestId: 'rs-2',
+      state,
+    }),
+    true,
+  )
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.saveStateResult,
+      requestId: 'rs-3',
+    }),
+    false,
+  )
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.saveStateResult,
+      requestId: 'rs-4',
+      state: new Uint8Array(8),
+    }),
+    false,
+  )
+}
+
+function testStoppedWithoutRequestId(): void {
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({ type: INSTANT_VM_MESSAGE_TYPE.stopped }),
+    true,
+  )
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({ type: INSTANT_VM_MESSAGE_TYPE.stopped, requestId: 'a' }),
+    true,
+  )
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({ type: INSTANT_VM_MESSAGE_TYPE.stopped, requestId: '' }),
+    false,
+  )
+}
+
 function testKeyboardMessage(): void {
   const message = {
     type: INSTANT_VM_MESSAGE_TYPE.keyboard,
@@ -336,5 +392,7 @@ testNetworkFields()
 testCpuModelPassedThrough()
 testOriginAllowList()
 testStatsMessage()
+testSaveStateMessage()
+testStoppedWithoutRequestId()
 testKeyboardMessage()
 console.log('virtual-machine-protocol.test.ts ok')

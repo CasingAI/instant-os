@@ -7,7 +7,9 @@ import {
   newVmRequestId,
   pickBackgroundMachineIds,
   pickDisplayedMachineId,
+  isUnsolicitedVmStopped,
 } from './virtual-machine-runtime.ts'
+import { INSTANT_VM_MESSAGE_TYPE } from './virtual-machine-protocol.ts'
 
 function testRequestIdFormat(): void {
   const id = newVmRequestId()
@@ -34,7 +36,17 @@ function testPickBackgroundMachineIds(): void {
   assert.deepEqual(pickBackgroundMachineIds(undefined, ['a', 'b']), ['a', 'b'])
 }
 
+function testUnsolicitedStopped(): void {
+  assert.equal(isUnsolicitedVmStopped({ type: INSTANT_VM_MESSAGE_TYPE.stopped }), true)
+  assert.equal(
+    isUnsolicitedVmStopped({ type: INSTANT_VM_MESSAGE_TYPE.stopped, requestId: 'r1' }),
+    false,
+  )
+  assert.equal(isUnsolicitedVmStopped({ type: INSTANT_VM_MESSAGE_TYPE.started }), false)
+}
+
 testRequestIdFormat()
 testPickDisplayedMachineId()
 testPickBackgroundMachineIds()
+testUnsolicitedStopped()
 console.log('virtual-machine-runtime.test.ts ok')

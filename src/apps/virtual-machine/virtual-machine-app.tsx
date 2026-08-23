@@ -20,6 +20,7 @@ import {
 import { virtualMachineHasBootMedia } from './virtual-machine-disks.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
+import { saveVirtualMachineSnapshot } from './virtual-machine-save-snapshot.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
   type InstantVmKeyboardMessage,
@@ -182,6 +183,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   )
   const canStop = Boolean(hasSelection && selectedRunning && !powerBusy)
   const canReset = canStop
+  const canSaveSnapshot = canStop
 
   const showVmError = useCallback(
     (message: string, title = '虚拟机错误') => {
@@ -289,16 +291,18 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       if (!selected) {
         return
       }
+      // 立即捕获当前选中的虚拟机，避免异步操作中的闭包陷阱
+      const machine = { ...selected }
       if (selectedRunning) {
         try {
-          await pool.setActiveDisplayMode(selected.id, mode)
+          await pool.setActiveDisplayMode(machine.id, mode)
         } catch (error) {
           showVmError(error instanceof Error ? error.message : '切换显示比例失败')
           return
         }
       }
-      await updateVirtualMachine(selected.id, {
-        ...settingsFromRecord(selected),
+      await updateVirtualMachine(machine.id, {
+        ...settingsFromRecord(machine),
         displayMode: mode,
       })
       setPowerHint(undefined)
@@ -310,7 +314,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     if (!selected) {
       return
     }
-    const target = selected
+    // 立即捕获当前选中的虚拟机，避免异步操作中的闭包陷阱
+    const target = { ...selected }
     void (async () => {
       const confirmed = await modal.confirm({
         title: '删除虚拟机',
@@ -361,7 +366,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         return
       }
 
-      const machine = selected
+      // 立即捕获当前选中的虚拟机，避免异步操作中的闭包陷阱
+      const machine = { ...selected }
       void (async () => {
         setPowerBusy(true)
         try {
@@ -386,6 +392,36 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     },
     [pool, runtimeOrigin, selected, selectedBackend, showVmError],
   )
+
+  const handleSaveSnapshot = useCallback(() => {
+    if (!selected || !selectedBackend) {
+      return
+    }
+    if (!selectedBackend.available || !runtimeOrigin) {
+      setPowerHint(vmPowerUnavailableMessage('start'))
+      return
+    }
+    if (!pool.runningIds.includes(selected.id)) {
+      setPowerHint('这台虚拟机未在运行')
+      return
+    }
+
+    // 立即捕获当前选中的虚拟机，避免异步操作中的闭包陷阱
+    const machine = { ...selected }
+    void (async () => {
+      setPowerBusy(true)
+      setPowerHint('正在保存快照，画面可能会停顿…')
+      try {
+        const state = await pool.saveInstanceState(machine.id)
+        const result = await saveVirtualMachineSnapshot(machine, state)
+        setPowerHint(`快照已保存至 ${result.path}`)
+      } catch (error) {
+        showVmError(error instanceof Error ? error.message : '保存快照失败')
+      } finally {
+        setPowerBusy(false)
+      }
+    })()
+  }, [pool, runtimeOrigin, selected, selectedBackend, showVmError])
 
   const handleBootError = useCallback(
     (machineId: string, message: string) => {
@@ -449,13 +485,21 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             disabled: !canReset,
             onClick: () => handlePower('reset'),
           },
+          {
+            type: 'action',
+            label: '保存快照',
+            disabled: !canSaveSnapshot,
+            onClick: handleSaveSnapshot,
+          },
         ],
       },
     ]
   }, [
     canReset,
+    canSaveSnapshot,
     canStart,
     canStop,
+    handleSaveSnapshot,
     handleDelete,
     handleNew,
     handlePower,
@@ -560,6 +604,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           <IosButton size="compact" disabled={!canReset} onClick={() => handlePower('reset')}>
             重置
           </IosButton>
+          <IosButton size="compact" disabled={!canSaveSnapshot} onClick={handleSaveSnapshot}>
+            保存快照
+          </IosButton>
           <IosButton size="compact" disabled={!selected} onClick={() => setInspectorOpen(true)}>
             详细信息
           </IosButton>
@@ -654,6 +701,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     onUnregister={pool.onUnregister}
                     onStateChange={pool.onStateChange}
                     onStarted={pool.onStarted}
+                    onGuestPoweredOff={pool.onGuestPoweredOff}
                     onBootError={handleBootError}
                     onCaptureKeyboard={captureGuestKeyboard}
                     isDisplayed={isDisplayed}

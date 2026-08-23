@@ -8,6 +8,7 @@ import {
   isInstantVmRuntimeToHostMessage,
   type InstantVmDisplayMode,
   type InstantVmKeyboardMessage,
+  type InstantVmSaveStateResultMessage,
   type InstantVmStartMessage,
   type InstantVmStatsSnapshot,
 } from './virtual-machine-protocol.ts'
@@ -68,7 +69,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 type Pending = {
-  resolve: () => void
+  resolve: (value?: unknown) => void
   reject: (error: Error) => void
 }
 
@@ -98,10 +99,19 @@ export function pickBackgroundMachineIds(
   return runningIds.filter((id) => id !== displayedId)
 }
 
+/** 客机自己关完后发来的停止，没有对应的宿主请求号。 */
+export function isUnsolicitedVmStopped(message: {
+  type: string
+  requestId?: string
+}): boolean {
+  return message.type === INSTANT_VM_MESSAGE_TYPE.stopped && message.requestId === undefined
+}
+
 export type VmRuntimeApi = {
   start(message: InstantVmStartMessage): Promise<void>
   stop(): Promise<void>
   reset(): Promise<void>
+  saveState(): Promise<ArrayBuffer>
   setDisplayMode(mode: InstantVmDisplayMode): Promise<void>
   sendKeyboard(message: InstantVmKeyboardMessage): void
   captureKeyboard(): void
@@ -118,9 +128,14 @@ export type VmRuntimeSnapshot = {
  * 单个虚拟机运行时实例。每个实例有独立的 iframe 与状态，消息按 iframe 来源隔离，
  * 因此可同时存在多个互不干扰的实例。
  */
-export function useVirtualMachineRuntime(origin: string | undefined) {
+export function useVirtualMachineRuntime(
+  origin: string | undefined,
+  onGuestPoweredOff?: () => void,
+) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
+  const onGuestPoweredOffRef = useRef(onGuestPoweredOff)
+  onGuestPoweredOffRef.current = onGuestPoweredOff
   const [ready, setReady] = useState(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
   const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
@@ -190,12 +205,27 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
         return
       }
 
-      const pending = pendingRef.current.get(message.requestId)
+      if (isUnsolicitedVmStopped(message)) {
+        setStats(undefined)
+        setBootProgress(undefined)
+        onGuestPoweredOffRef.current?.()
+        return
+      }
+
+      const requestId = 'requestId' in message ? message.requestId : undefined
+      if (typeof requestId !== 'string') {
+        return
+      }
+      const pending = pendingRef.current.get(requestId)
       if (!pending) {
         return
       }
-      pendingRef.current.delete(message.requestId)
-      pending.resolve()
+      pendingRef.current.delete(requestId)
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.saveStateResult) {
+        pending.resolve(message)
+      } else {
+        pending.resolve()
+      }
     }
 
     window.addEventListener('message', onMessage)
@@ -223,20 +253,21 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   )
 
   const request = useCallback(
-    (
+    <T = void>(
       message: { requestId: string; type?: string; mode?: InstantVmDisplayMode },
       transfer: Transferable[] = [],
       timeoutMs = REQUEST_TIMEOUT_MS,
+      resolver?: (message: unknown) => T,
     ) => {
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<T>((resolve, reject) => {
         const timer = window.setTimeout(() => {
           pendingRef.current.delete(message.requestId)
           reject(new Error('运行时无响应'))
         }, timeoutMs)
         pendingRef.current.set(message.requestId, {
-          resolve: () => {
+          resolve: (value) => {
             window.clearTimeout(timer)
-            resolve()
+            resolve(resolver ? resolver(value) : (undefined as T))
           },
           reject: (error) => {
             window.clearTimeout(timer)
@@ -312,6 +343,16 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     iframeRef.current?.blur()
   }, [])
 
+  const saveState = useCallback(async (): Promise<ArrayBuffer> => {
+    const result = await request<InstantVmSaveStateResultMessage>(
+      { type: INSTANT_VM_MESSAGE_TYPE.saveState, requestId: newVmRequestId() },
+      [],
+      REMOTE_DISK_REQUEST_TIMEOUT_MS,
+      (value) => value as InstantVmSaveStateResultMessage,
+    )
+    return result.state
+  }, [request])
+
   return {
     iframeRef,
     ready,
@@ -320,6 +361,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     start,
     stop,
     reset,
+    saveState,
     setDisplayMode,
     sendKeyboard,
     captureKeyboard,
@@ -393,6 +435,13 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     setStartedIds((current) => new Set(current).add(id))
   }, [])
 
+  const onGuestPoweredOff = useCallback(
+    (id: string) => {
+      removeRunningId(id)
+    },
+    [removeRunningId],
+  )
+
   const onBootError = useCallback((id: string, message: string) => {
     removeRunningId(id)
     setHints((current) => new Map(current).set(id, message))
@@ -465,6 +514,14 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     await api.reset()
   }, [])
 
+  const saveInstanceState = useCallback(async (id: string): Promise<ArrayBuffer> => {
+    const api = apiByIdRef.current.get(id)
+    if (!api) {
+      throw new Error('虚拟机未在运行')
+    }
+    return await api.saveState()
+  }, [])
+
   const setActiveDisplayMode = useCallback(
     async (id: string, mode: InstantVmDisplayMode): Promise<void> => {
       const api = apiByIdRef.current.get(id)
@@ -498,6 +555,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     boot,
     shutdown,
     resetInstance,
+    saveInstanceState,
     setActiveDisplayMode,
     sendKeyboard,
     captureKeyboard,
@@ -506,6 +564,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     onUnregister,
     onStateChange,
     onStarted,
+    onGuestPoweredOff,
     onBootError,
   }
 }
