@@ -1,14 +1,18 @@
-import { filesReadBlobRange, filesStat } from '../files/files-api.ts'
+import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
 import {
+  INSTANT_VM_DISK_RANGE_MAX_BYTES,
   INSTANT_VM_MESSAGE_TYPE,
   isInstantVmDiskReadMessage,
+  isInstantVmDiskWriteMessage,
   type InstantVmDiskReadResultMessage,
+  type InstantVmDiskWriteResultMessage,
 } from './virtual-machine-protocol.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 
 type StreamEntry = {
   path: string
   size: number
+  writable: boolean
 }
 
 const streams = new Map<string, StreamEntry>()
@@ -34,6 +38,29 @@ function isRuntimeOrigin(origin: string): boolean {
   return runtimeOrigins().includes(origin)
 }
 
+export function diskWriteReplyStatus(
+  entry: Pick<StreamEntry, 'size' | 'writable'> | undefined,
+  offset: number,
+  byteLength: number,
+): number {
+  if (!entry) {
+    return 404
+  }
+  if (!entry.writable) {
+    return 403
+  }
+  if (!Number.isFinite(offset) || offset < 0 || !Number.isFinite(byteLength) || byteLength <= 0) {
+    return 416
+  }
+  if (byteLength > INSTANT_VM_DISK_RANGE_MAX_BYTES) {
+    return 413
+  }
+  if (offset >= entry.size || offset + byteLength > entry.size) {
+    return 416
+  }
+  return 200
+}
+
 async function readDiskRange(
   entry: StreamEntry,
   offset: number,
@@ -49,7 +76,7 @@ async function readDiskRange(
       totalSize,
     }
   }
-  const want = Math.min(length, totalSize - offset, 16 * 1024 * 1024)
+  const want = Math.min(length, totalSize - offset, INSTANT_VM_DISK_RANGE_MAX_BYTES)
   try {
     const blob = await filesReadBlobRange(entry.path, offset, want)
     const bytes = await blob.arrayBuffer()
@@ -68,51 +95,137 @@ async function readDiskRange(
   }
 }
 
-function onDiskReadMessage(event: MessageEvent): void {
-  if (!isInstantVmDiskReadMessage(event.data)) {
+async function writeDiskRange(
+  entry: StreamEntry,
+  offset: number,
+  bytes: ArrayBuffer,
+): Promise<InstantVmDiskWriteResultMessage> {
+  const status = diskWriteReplyStatus(entry, offset, bytes.byteLength)
+  if (status !== 200) {
+    return {
+      type: INSTANT_VM_MESSAGE_TYPE.diskWriteResult,
+      requestId: '',
+      streamId: '',
+      status,
+      totalSize: entry.size,
+    }
+  }
+  try {
+    await filesWriteBytesRange(entry.path, offset, bytes)
+    return {
+      type: INSTANT_VM_MESSAGE_TYPE.diskWriteResult,
+      requestId: '',
+      streamId: '',
+      status: 200,
+      totalSize: entry.size,
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`回写镜像失败：${detail}`)
+  }
+}
+
+function postSource(
+  source: {
+    postMessage: (
+      message: unknown,
+      options: { targetOrigin: string; transfer?: Transferable[] },
+    ) => void
+  },
+  message: object,
+  origin: string,
+  transfer: Transferable[] = [],
+): void {
+  source.postMessage(message, { targetOrigin: origin, transfer })
+}
+
+function onDiskStreamMessage(event: MessageEvent): void {
+  const isRead = isInstantVmDiskReadMessage(event.data)
+  const isWrite = isInstantVmDiskWriteMessage(event.data)
+  if (!isRead && !isWrite) {
     return
   }
   if (!isRuntimeOrigin(event.origin)) {
-    console.warn('[vm-disk-host] 忽略来自非运行时源的磁盘读取', event.origin)
+    console.warn('[vm-disk-host] 忽略来自非运行时源的磁盘消息', event.origin)
     return
   }
-  const message = event.data
-  const entry = streams.get(message.streamId)
+  const entry = streams.get(event.data.streamId)
   const source = event.source
   if (!source || typeof source !== 'object' || !('postMessage' in source)) {
     return
   }
+  const target = source as {
+    postMessage: (
+      message: unknown,
+      options: { targetOrigin: string; transfer?: Transferable[] },
+    ) => void
+  }
 
   void (async () => {
     try {
+      if (isInstantVmDiskWriteMessage(event.data)) {
+        const write = event.data
+        if (!entry) {
+          postSource(
+            target,
+            {
+              type: INSTANT_VM_MESSAGE_TYPE.diskWriteResult,
+              requestId: write.requestId,
+              streamId: write.streamId,
+              status: 404,
+              totalSize: 0,
+            } satisfies InstantVmDiskWriteResultMessage,
+            event.origin,
+          )
+          return
+        }
+        const result = await writeDiskRange(entry, write.offset, write.bytes)
+        postSource(
+          target,
+          {
+            ...result,
+            requestId: write.requestId,
+            streamId: write.streamId,
+          },
+          event.origin,
+        )
+        return
+      }
+
+      if (!isInstantVmDiskReadMessage(event.data)) {
+        return
+      }
+      const read = event.data
       if (!entry) {
         const reply: InstantVmDiskReadResultMessage = {
           type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
-          requestId: message.requestId,
-          streamId: message.streamId,
+          requestId: read.requestId,
+          streamId: read.streamId,
           status: 404,
           totalSize: 0,
         }
-        source.postMessage(reply, { targetOrigin: event.origin })
+        postSource(target, reply, event.origin)
         return
       }
-      const result = await readDiskRange(entry, message.offset, message.length)
+      const result = await readDiskRange(entry, read.offset, read.length)
       const reply: InstantVmDiskReadResultMessage = {
         ...result,
-        requestId: message.requestId,
-        streamId: message.streamId,
+        requestId: read.requestId,
+        streamId: read.streamId,
       }
       const transfer = reply.bytes ? [reply.bytes] : []
-      source.postMessage(reply, { targetOrigin: event.origin, transfer })
+      postSource(target, reply, event.origin, transfer)
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error)
-      source.postMessage(
+      const failed = event.data as { requestId?: string }
+      postSource(
+        target,
         {
           type: INSTANT_VM_MESSAGE_TYPE.error,
-          requestId: message.requestId,
-          message: text || '读取镜像失败',
+          requestId: typeof failed.requestId === 'string' ? failed.requestId : 'disk',
+          message: text || (isWrite ? '回写镜像失败' : '读取镜像失败'),
         },
-        { targetOrigin: event.origin },
+        event.origin,
       )
     }
   })()
@@ -123,17 +236,24 @@ function ensureListener(): void {
     return
   }
   listenerInstalled = true
-  window.addEventListener('message', onDiskReadMessage)
+  window.addEventListener('message', onDiskStreamMessage)
 }
 
-/** 为大体积本地镜像注册按需范围读会话；返回 stream id。 */
-export async function registerVirtualMachineDiskStream(path: string): Promise<string> {
+/** 为本地镜像注册按需范围读（及可选回写）会话；返回 stream id。 */
+export async function registerVirtualMachineDiskStream(
+  path: string,
+  options?: { writable?: boolean },
+): Promise<string> {
   const stat = await filesStat(path)
   if (!stat || stat.kind !== 'file') {
     throw new Error(`文件不存在：${path}`)
   }
   const id = `ds-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`
-  streams.set(id, { path, size: stat.byteSize })
+  streams.set(id, {
+    path,
+    size: stat.byteSize,
+    writable: options?.writable === true,
+  })
   ensureListener()
   return id
 }

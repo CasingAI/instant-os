@@ -166,10 +166,14 @@ function assignDevicesToSlots(devices: readonly VmStorageDevice[]): SlotAssignme
   return assignments
 }
 
+export function virtualMachineDiskPersistsWrites(type: VmStorageDeviceType): boolean {
+  return type === 'hdd' || type === 'floppy'
+}
+
 async function loadDisk(
   path: string,
   label: string,
-  allowStream = true,
+  options: { persist?: boolean; stream?: boolean } = {},
 ): Promise<LoadedDisk> {
   const trimmed = path.trim()
   if (!trimmed) {
@@ -184,8 +188,15 @@ async function loadDisk(
     throw new Error(`无法读取${label} ${trimmed}：文件不存在`)
   }
 
+  const persist = options.persist === true
+  if (persist) {
+    const id = await registerVirtualMachineDiskStream(trimmed, { writable: true })
+    return { stream: { id, size: stat.byteSize } }
+  }
+
+  const allowStream = options.stream !== false
   if (allowStream && !isMountPath(trimmed) && stat.byteSize > DISK_BLOB_THRESHOLD_BYTES) {
-    const id = await registerVirtualMachineDiskStream(trimmed)
+    const id = await registerVirtualMachineDiskStream(trimmed, { writable: false })
     return { stream: { id, size: stat.byteSize } }
   }
 
@@ -208,7 +219,10 @@ export async function loadVirtualMachineDisks(
   const loaded = await Promise.all(
     assignments.map(async (assignment) => ({
       slot: assignment.slot,
-      ...await loadDisk(assignment.device.path, assignment.label, assignment.device.type !== 'state'),
+      ...await loadDisk(assignment.device.path, assignment.label, {
+        persist: virtualMachineDiskPersistsWrites(assignment.device.type),
+        stream: assignment.device.type !== 'state',
+      }),
     })),
   )
   const result: Partial<Pick<InstantVmStartMessage, SlotName | `${SlotName}Blob` | `${SlotName}Url` | `${SlotName}Stream`>> = {}

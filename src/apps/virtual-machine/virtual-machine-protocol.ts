@@ -19,11 +19,16 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   stats: 'instant-vm:stats',
   diskRead: 'instant-vm:disk-read',
   diskReadResult: 'instant-vm:disk-read-result',
+  diskWrite: 'instant-vm:disk-write',
+  diskWriteResult: 'instant-vm:disk-write-result',
   keyboard: 'instant-vm:keyboard',
 } as const
 
 /** 运行时 fetch 拦截器识别的本地镜像流 URL 前缀（挂在运行时 origin 上）。 */
 export const VM_DISK_STREAM_PATH_PREFIX = '/__instant-vm-disk/'
+
+/** 单次范围读/写上限，避免一次把整份大镜像打过 postMessage。 */
+export const INSTANT_VM_DISK_RANGE_MAX_BYTES = 16 * 1024 * 1024
 
 export type InstantVmMessageType =
   (typeof INSTANT_VM_MESSAGE_TYPE)[keyof typeof INSTANT_VM_MESSAGE_TYPE]
@@ -184,6 +189,22 @@ export type InstantVmDiskReadResultMessage = {
   bytes?: ArrayBuffer
 }
 
+export type InstantVmDiskWriteMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.diskWrite
+  requestId: string
+  streamId: string
+  offset: number
+  bytes: ArrayBuffer
+}
+
+export type InstantVmDiskWriteResultMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.diskWriteResult
+  requestId: string
+  streamId: string
+  status: number
+  totalSize: number
+}
+
 export type InstantVmStopMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.stop
   requestId: string
@@ -322,6 +343,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmProgressMessage
   | InstantVmStatsMessage
   | InstantVmDiskReadMessage
+  | InstantVmDiskWriteMessage
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 2032
@@ -491,6 +513,41 @@ export function isInstantVmDiskReadResultMessage(
     Number.isFinite(value.totalSize) &&
     value.totalSize >= 0 &&
     (value.bytes === undefined || value.bytes instanceof ArrayBuffer)
+  )
+}
+
+export function isInstantVmDiskWriteMessage(value: unknown): value is InstantVmDiskWriteMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.diskWrite &&
+    isRequestId(value.requestId) &&
+    typeof value.streamId === 'string' &&
+    value.streamId.length > 0 &&
+    value.streamId.length < 80 &&
+    typeof value.offset === 'number' &&
+    Number.isFinite(value.offset) &&
+    value.offset >= 0 &&
+    value.bytes instanceof ArrayBuffer &&
+    value.bytes.byteLength > 0 &&
+    value.bytes.byteLength <= INSTANT_VM_DISK_RANGE_MAX_BYTES
+  )
+}
+
+export function isInstantVmDiskWriteResultMessage(
+  value: unknown,
+): value is InstantVmDiskWriteResultMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.diskWriteResult &&
+    isRequestId(value.requestId) &&
+    typeof value.streamId === 'string' &&
+    value.streamId.length > 0 &&
+    value.streamId.length < 80 &&
+    typeof value.status === 'number' &&
+    Number.isInteger(value.status) &&
+    typeof value.totalSize === 'number' &&
+    Number.isFinite(value.totalSize) &&
+    value.totalSize >= 0
   )
 }
 
@@ -735,6 +792,9 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.diskRead) {
     return isInstantVmDiskReadMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.diskWrite) {
+    return isInstantVmDiskWriteMessage(value)
   }
   return false
 }

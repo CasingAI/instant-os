@@ -10,6 +10,7 @@ import {
 import {
   buildStartMessage,
   settingsToStartConfig,
+  virtualMachineDiskPersistsWrites,
   virtualMachineHasBootMedia,
 } from './virtual-machine-disks.ts'
 import {
@@ -19,9 +20,12 @@ import {
 } from './virtual-machine-stats-format.ts'
 import {
   INSTANT_VM_BOOT_ORDER_TO_V86,
+  INSTANT_VM_DISK_RANGE_MAX_BYTES,
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
   isAllowedOrigin,
+  isInstantVmDiskWriteMessage,
+  isInstantVmDiskWriteResultMessage,
   isInstantVmHostToRuntimeMessage,
   isInstantVmKeyboardMessage,
   isInstantVmRuntimeToHostMessage,
@@ -68,6 +72,13 @@ function testHasBootMedia(): void {
     }),
     true,
   )
+}
+
+function testPersistWritesOnlyHddAndFloppy(): void {
+  assert.equal(virtualMachineDiskPersistsWrites('hdd'), true)
+  assert.equal(virtualMachineDiskPersistsWrites('floppy'), true)
+  assert.equal(virtualMachineDiskPersistsWrites('cdrom'), false)
+  assert.equal(virtualMachineDiskPersistsWrites('state'), false)
 }
 
 function testStartMessageTransfers(): void {
@@ -378,8 +389,41 @@ function testKeyboardMessage(): void {
   assert.equal(isInstantVmKeyboardMessage({ ...message, phase: 'hold' }), false)
 }
 
+function testDiskWriteMessages(): void {
+  const bytes = new Uint8Array([1, 2, 3, 4]).buffer
+  const write = {
+    type: INSTANT_VM_MESSAGE_TYPE.diskWrite,
+    requestId: 'dw-1',
+    streamId: 'ds-hda',
+    offset: 512,
+    bytes,
+  }
+  assert.equal(isInstantVmDiskWriteMessage(write), true)
+  assert.equal(isInstantVmRuntimeToHostMessage(write), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(write), false)
+  assert.equal(isInstantVmDiskWriteMessage({ ...write, bytes: new Uint8Array(4) }), false)
+  assert.equal(isInstantVmDiskWriteMessage({ ...write, bytes: new ArrayBuffer(0) }), false)
+  assert.equal(
+    isInstantVmDiskWriteMessage({ ...write, bytes: new ArrayBuffer(INSTANT_VM_DISK_RANGE_MAX_BYTES + 1) }),
+    false,
+  )
+  assert.equal(isInstantVmDiskWriteMessage({ ...write, offset: -1 }), false)
+  const result = {
+    type: INSTANT_VM_MESSAGE_TYPE.diskWriteResult,
+    requestId: 'dw-1',
+    streamId: 'ds-hda',
+    status: 200,
+    totalSize: 1024,
+  }
+  assert.equal(isInstantVmDiskWriteResultMessage(result), true)
+  assert.equal(isInstantVmRuntimeToHostMessage(result), false)
+  assert.equal(isInstantVmHostToRuntimeMessage(result), false)
+  assert.equal(isInstantVmDiskWriteResultMessage({ ...result, status: 1.5 }), false)
+}
+
 testBootOrderMatchesV86()
 testHasBootMedia()
+testPersistWritesOnlyHddAndFloppy()
 testStartMessageTransfers()
 testStartMessageMapsMultipleHdds()
 testHighMemoryAndDiskStreamStartMessage()
@@ -395,4 +439,5 @@ testStatsMessage()
 testSaveStateMessage()
 testStoppedWithoutRequestId()
 testKeyboardMessage()
+testDiskWriteMessages()
 console.log('virtual-machine-protocol.test.ts ok')
