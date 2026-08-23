@@ -223,9 +223,11 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
         message.hdaBlob || message.cdromBlob || message.fdaBlob || message.stateBlob ||
         message.hdaStream || message.cdromStream || message.fdaStream || message.stateStream
       const timeoutMs = hasRemoteDisk ? REMOTE_DISK_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS
+      console.log('[vm-boot] posting start', message.requestId, targetOrigin)
       await request(message, collectStartTransfers(message), timeoutMs)
+      console.log('[vm-boot] start acknowledged', message.requestId)
     },
-    [request],
+    [request, targetOrigin],
   )
 
   const stop = useCallback(async () => {

@@ -232,6 +232,18 @@ function testOriginAllowList(): void {
   assert.deepEqual(parseAllowedOrigins('', ['http://localhost:6173']), ['http://localhost:6173'])
   assert.equal(isAllowedOrigin('http://localhost:6175', ['http://localhost:6175']), true)
   assert.equal(isAllowedOrigin('https://evil.example', ['http://localhost:6175']), false)
+
+  const prodAllowed = [
+    'http://localhost:6173',
+    'http://127.0.0.1:6173',
+    'https://*.instant-os.pages.dev',
+    'https://*.casing-ai.com',
+  ]
+  assert.equal(isAllowedOrigin('https://experimental.instant-os.pages.dev', prodAllowed), true)
+  assert.equal(isAllowedOrigin('https://instant-os.pages.dev', prodAllowed), true)
+  assert.equal(isAllowedOrigin('https://vm.casing-ai.com', prodAllowed), true)
+  assert.equal(isAllowedOrigin('http://experimental.instant-os.pages.dev', prodAllowed), false)
+  assert.equal(isAllowedOrigin('https://evil.example', prodAllowed), false)
 }
 
 function testStatsMessage(): void {

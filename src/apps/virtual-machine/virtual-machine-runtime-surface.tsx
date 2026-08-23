@@ -86,6 +86,10 @@ export function VmRuntimeSurface({
 
   useEffect(() => {
     if (!ready || !startMessage) {
+      console.log('[vm-boot] wait for runtime', machineId, {
+        ready,
+        hasStart: Boolean(startMessage),
+      })
       return
     }
     if (processedRef.current === startMessage) {
@@ -93,6 +97,7 @@ export function VmRuntimeSurface({
     }
     const target = startMessage
     processedRef.current = target
+    console.log('[vm-boot] sending start to runtime', machineId, target.requestId)
     void start(target)
       .then(() => {
         onStarted(machineId)

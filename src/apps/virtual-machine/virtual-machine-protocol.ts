@@ -648,8 +648,46 @@ export function parseAllowedOrigins(raw: string | undefined, fallback: readonly 
   return [...new Set(list)]
 }
 
+function hostnameMatchesPattern(hostname: string, patternHost: string): boolean {
+  const host = hostname.toLowerCase()
+  const suffix = patternHost.toLowerCase()
+  return host === suffix || host.endsWith(`.${suffix}`)
+}
+
+/** `*.example.com` 或 CSP 风格 `https://*.example.com`（可带端口）。 */
+function originMatchesPattern(origin: URL, pattern: string): boolean {
+  if (pattern.startsWith('*.')) {
+    return hostnameMatchesPattern(origin.hostname, pattern.slice(2))
+  }
+  const wildcard = /^(https?):\/\/\*\.([^/]+)$/i.exec(pattern)
+  if (!wildcard) {
+    return false
+  }
+  const scheme = wildcard[1].toLowerCase()
+  let hostPart = wildcard[2]
+  let expectedPort = ''
+  const colon = hostPart.lastIndexOf(':')
+  if (colon !== -1 && /^\d+$/.test(hostPart.slice(colon + 1))) {
+    expectedPort = hostPart.slice(colon + 1)
+    hostPart = hostPart.slice(0, colon)
+  }
+  if (origin.protocol !== `${scheme}:` || origin.port !== expectedPort) {
+    return false
+  }
+  return hostnameMatchesPattern(origin.hostname, hostPart)
+}
+
 export function isAllowedOrigin(origin: string, allowed: readonly string[]): boolean {
-  return allowed.includes(origin)
+  if (allowed.includes(origin)) {
+    return true
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(origin)
+  } catch {
+    return false
+  }
+  return allowed.some((item) => originMatchesPattern(parsed, item))
 }
 
 export function collectStartTransfers(message: InstantVmStartMessage): Transferable[] {
