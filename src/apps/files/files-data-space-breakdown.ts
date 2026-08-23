@@ -10,7 +10,6 @@ export type DataSpaceFilesBreakdownRow = {
   id: string
   label: string
   bytes: number
-  hint?: string
 }
 
 export type DataSpaceFilesBreakdown = {
@@ -24,10 +23,6 @@ export type DataSpaceFilesBreakdown = {
 }
 
 const VOLUME_LOCATION_IDS: readonly FilesLocationId[] = ['local', 'dev', 'tmp', 'trash']
-
-const VOLUME_HINTS: Partial<Record<FilesLocationId, string>> = {
-  trash: '已删除但未清空的文件仍占数据空间',
-}
 
 export async function loadDataSpaceFilesBreakdown(): Promise<DataSpaceFilesBreakdown> {
   const [filesTotal, appDataBytes, byLocation] = await Promise.all([
@@ -45,7 +40,6 @@ export async function loadDataSpaceFilesBreakdown(): Promise<DataSpaceFilesBreak
       id: locationId,
       label: filesLocationDisplayName(locationId),
       bytes: bytesByLocation.get(locationId) ?? 0,
-      hint: VOLUME_HINTS[locationId],
     })
   }
 
@@ -56,7 +50,6 @@ export async function loadDataSpaceFilesBreakdown(): Promise<DataSpaceFilesBreak
       id: 'applications-remainder',
       label: '应用包元数据',
       bytes: applicationsRemainder,
-      hint: '应用程序卷中未归入「应用」分类的部分',
     })
   }
 
@@ -67,7 +60,6 @@ export async function loadDataSpaceFilesBreakdown(): Promise<DataSpaceFilesBreak
       id: 'unattributed',
       label: '未归类',
       bytes: unattributedBytes,
-      hint: '文件元数据或历史记账与分卷汇总存在差额',
     })
   }
 

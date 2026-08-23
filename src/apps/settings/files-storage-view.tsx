@@ -53,8 +53,6 @@ export function FilesStorageView({ onBack, onOpenSpaceSniffer }: FilesStorageVie
       })
   }, [clearBusy, refresh])
 
-  const rowSum = breakdown?.rows.reduce((sum, row) => sum + row.bytes, 0) ?? 0
-
   return (
     <div class="settings">
       <div class="settings__nav">
@@ -66,18 +64,6 @@ export function FilesStorageView({ onBack, onOpenSpaceSniffer }: FilesStorageVie
           <p class="settings__section-subtitle">
             计入数据空间的文件系统占用。各应用 Data/Contents 在「应用」分类单独统计。
           </p>
-          <div class="settings__box">
-            <dl class="settings__form-row">
-              <dt>合计</dt>
-              <dd>{breakdown === undefined ? '计算中…' : formatStorageSize(breakdown.totalBytes)}</dd>
-            </dl>
-            {breakdown && breakdown.appDataBytes > 0 ? (
-              <p class="settings__section-footnote">
-                另有 {formatStorageSize(breakdown.appDataBytes)} 在「应用」分类（各应用 Data /
-                Contents）。
-              </p>
-            ) : null}
-          </div>
           <div class="settings__list">
             <div class="settings__list-head">
               <span>卷</span>
@@ -92,15 +78,7 @@ export function FilesStorageView({ onBack, onOpenSpaceSniffer }: FilesStorageVie
               ) : (
                 breakdown.rows.map((row) => (
                   <div key={row.id} class="settings__row settings__row--static">
-                    <span class="settings__row-name">
-                      {row.label}
-                      {row.hint ? (
-                        <span class="settings__row-hint" title={row.hint}>
-                          {' '}
-                          ⓘ
-                        </span>
-                      ) : null}
-                    </span>
+                    <span class="settings__row-name">{row.label}</span>
                     <span class="settings__row-size">{formatStorageSize(row.bytes)}</span>
                   </div>
                 ))
@@ -111,9 +89,6 @@ export function FilesStorageView({ onBack, onOpenSpaceSniffer }: FilesStorageVie
           <div class="settings__actions settings__actions--inline">
             <p class="settings__hint">
               临时文件长期保留；清理仅删除本次系统启动之前创建的目录，不影响当前运行中的终端。
-              {breakdown && rowSum !== breakdown.totalBytes
-                ? ` 分卷合计 ${formatStorageSize(rowSum)}，与上方合计存在差额时已单列「未归类」。`
-                : ''}
             </p>
             <button type="button" class="settings__btn" onClick={onOpenSpaceSniffer}>
               在空间嗅探中查看
