@@ -70,7 +70,8 @@ export const INSTANT_VM_NETWORK_BACKEND_IDS = ['off', 'fetch'] as const
 export type InstantVmNetworkBackendId = (typeof INSTANT_VM_NETWORK_BACKEND_IDS)[number]
 
 /**
- * 指针工作方式：`follow` 跟随（默认、绝对坐标）；`lock` 独占（点击锁定、Esc 释放）。
+ * 指针工作方式：`follow` 跟随（绝对坐标、可自由移出）；`lock` 独占（点击锁定、Esc 释放）。
+ * instant-app 新建虚拟机默认下发 `lock`；协议字段省略时运行时按 `follow`。
  * Keep in sync with instant-app `VmPointerModeId`。
  */
 export const INSTANT_VM_POINTER_MODES = ['follow', 'lock'] as const
@@ -92,7 +93,7 @@ export type InstantVmStartConfig = {
   networkBackend?: InstantVmNetworkBackendId
   /** 启动时应用的显示比例；缺省按 contain。 */
   displayMode?: InstantVmDisplayMode
-  /** 指针工作方式；缺省按 follow。 */
+  /** 指针工作方式；instant-app 显式下发；省略时运行时按 follow。 */
   pointerMode?: InstantVmPointerMode
   /** copy.sh Android profile sends Enter after 3s to skip isolinux. */
   sendEnterAfterMs?: number

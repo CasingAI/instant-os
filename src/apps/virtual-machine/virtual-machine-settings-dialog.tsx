@@ -941,7 +941,8 @@ export function VirtualMachineSettingsDialog({
                       labelClass="virtual-machine-settings__label"
                     />
                     <p class="virtual-machine-settings__hint">
-                      独占：点击屏幕后指针被锁定，无法移出屏幕；按 Esc 释放，再次点击重新锁定。
+                      独占：未点击锁定前客机指针不会跟随；点击屏幕后指针被锁定，无法移出屏幕；按 Esc
+                      释放，再次点击重新锁定。
                       注意：独占模式解决的是「鼠标移出屏幕」问题，不是鼠标灵敏度或拉伸同步问题。
                     </p>
                   </>

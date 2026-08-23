@@ -19,7 +19,7 @@ export function isSnapshotPathWritable(path: string): boolean {
 }
 
 export function sanitizeSnapshotFileName(name: string): string {
-  const trimmed = name.trim().replace(/[\\/:\u0000-\u001f\u007f]/g, '-')
+  const trimmed = name.trim().replace(/[\\/:*\u0000-\u001f\u007f]/g, '-')
   const base = trimmed || 'snapshot'
   return base.endsWith('.bin') ? base : `${base}.bin`
 }

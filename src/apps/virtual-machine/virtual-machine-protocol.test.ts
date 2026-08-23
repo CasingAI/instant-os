@@ -250,6 +250,11 @@ function testNetworkFields(): void {
   )
 }
 
+function testDefaultPointerModeInStartConfig(): void {
+  const config = settingsToStartConfig(sampleSettings())
+  assert.equal(config.pointerMode, 'lock')
+}
+
 function testCpuModelPassedThrough(): void {
   const defaultCfg = settingsToStartConfig(sampleSettings())
   assert.equal(defaultCfg.cpuidLevel, undefined)
@@ -389,6 +394,7 @@ testReactOsRemoteStartMessage()
 testPathSummaryForRemoteUrl()
 testStatsFormatting()
 testNetworkFields()
+testDefaultPointerModeInStartConfig()
 testCpuModelPassedThrough()
 testOriginAllowList()
 testStatsMessage()
