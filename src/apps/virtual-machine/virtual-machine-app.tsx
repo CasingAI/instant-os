@@ -291,18 +291,16 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       if (!selected) {
         return
       }
-      // 立即捕获当前选中的虚拟机，避免异步操作中的闭包陷阱
-      const machine = { ...selected }
       if (selectedRunning) {
         try {
-          await pool.setActiveDisplayMode(machine.id, mode)
+          await pool.setActiveDisplayMode(selected.id, mode)
         } catch (error) {
           showVmError(error instanceof Error ? error.message : '切换显示比例失败')
           return
         }
       }
-      await updateVirtualMachine(machine.id, {
-        ...settingsFromRecord(machine),
+      await updateVirtualMachine(selected.id, {
+        ...settingsFromRecord(selected),
         displayMode: mode,
       })
       setPowerHint(undefined)
@@ -314,8 +312,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     if (!selected) {
       return
     }
-    // 立即捕获当前选中的虚拟机，避免异步操作中的闭包陷阱
-    const target = { ...selected }
+    const target = selected
     void (async () => {
       const confirmed = await modal.confirm({
         title: '删除虚拟机',
@@ -366,8 +363,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         return
       }
 
-      // 立即捕获当前选中的虚拟机，避免异步操作中的闭包陷阱
-      const machine = { ...selected }
+      const machine = selected
       void (async () => {
         setPowerBusy(true)
         try {
@@ -406,8 +402,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       return
     }
 
-    // 立即捕获当前选中的虚拟机，避免异步操作中的闭包陷阱
-    const machine = { ...selected }
+    const machine = selected
     void (async () => {
       setPowerBusy(true)
       setPowerHint('正在保存快照，画面可能会停顿…')

@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact'
 import { createContext } from 'preact'
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { bindMenusToLive } from './menu-bar-live-handlers.ts'
 import type { AppId } from './types.ts'
 import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
 
@@ -39,19 +40,30 @@ function menuSignature(menus: MenuDefinition[]): string {
 
 export function MenuBarProvider({ children }: { children: ComponentChildren }) {
   const [menusByApp, setMenusByApp] = useState<Record<string, MenuDefinition[]>>({})
+  const liveMenusRef = useRef<Record<string, MenuDefinition[]>>({})
 
   const registerAppMenus = useCallback((appId: AppId, menus: MenuDefinition[]) => {
+    liveMenusRef.current = { ...liveMenusRef.current, [appId]: menus }
     const signature = menuSignature(menus)
     setMenusByApp((current) => {
       if (current[appId] && menuSignature(current[appId]) === signature) {
         return current
       }
-      return { ...current, [appId]: menus }
+      return {
+        ...current,
+        [appId]: bindMenusToLive(() => liveMenusRef.current[appId], menus),
+      }
     })
   }, [])
 
   const unregisterAppMenus = useCallback((appId: AppId) => {
+    const nextLive = { ...liveMenusRef.current }
+    delete nextLive[appId]
+    liveMenusRef.current = nextLive
     setMenusByApp((current) => {
+      if (!(appId in current)) {
+        return current
+      }
       const next = { ...current }
       delete next[appId]
       return next
@@ -76,13 +88,16 @@ export function useMenuBar() {
 
 export function useAppMenuBar(appId: AppId, menus: MenuDefinition[], enabled = true) {
   const { registerAppMenus, unregisterAppMenus } = useMenuBar()
-  const menusRef = useRef(menus)
-  menusRef.current = menus
-  const signature = menuSignature(menus)
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      unregisterAppMenus(appId)
+      return
+    }
+    registerAppMenus(appId, menus)
+  }, [appId, enabled, menus, registerAppMenus, unregisterAppMenus])
 
   useEffect(() => {
-    if (!enabled) return
-    registerAppMenus(appId, menusRef.current)
     return () => unregisterAppMenus(appId)
-  }, [appId, enabled, signature, registerAppMenus, unregisterAppMenus])
+  }, [appId, unregisterAppMenus])
 }
