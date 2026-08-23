@@ -6,7 +6,7 @@
 import { osNowMs } from '../../os/os-clock.ts'
 import { beginIdbTransaction } from '../../os/idb-transaction.ts'
 import {
-  DATA_CAPACITY_BYTES,
+  getDataCapacityBytes,
   DATA_STORAGE_CHANGED_EVENT,
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
@@ -120,7 +120,7 @@ type FilesMetaRecord = {
 
 export class FilesStorageFullError extends Error {
   constructor() {
-    super(`数据空间已满（${formatStorageSize(DATA_CAPACITY_BYTES)} 上限）`)
+    super(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限）`)
     this.name = 'FilesStorageFullError'
   }
 }
@@ -844,7 +844,7 @@ async function assertCapacity(additionalBytes: number): Promise<number> {
     getFilesTotalBytes(),
     getTotalDataStorageBytes(),
   ])
-  if (additionalBytes > 0 && filesTotal + dataTotal + additionalBytes > DATA_CAPACITY_BYTES) {
+  if (additionalBytes > 0 && filesTotal + dataTotal + additionalBytes > getDataCapacityBytes()) {
     throw new FilesStorageFullError()
   }
   return filesTotal

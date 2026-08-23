@@ -31,6 +31,8 @@ import type {
 } from '../apps/appstore/types.ts'
 import type { AppCapabilityTag } from '../apps/appstore/app-capability-tags.ts'
 import { DeviceStorageFullError } from './device-storage.ts'
+import { getDataCapacityBytes } from './device-data-storage.ts'
+import { formatStorageSize } from './format-storage-size.ts'
 import {
   clearGeneratedAppData,
   saveGeneratedAppDataAsync,
@@ -217,7 +219,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   useEffect(() => {
     void saveInstalledApps(installedApps).then((ok) => {
       if (!ok) {
-        setListingsError('数据空间已满（8 GB 上限），无法保存应用。')
+        setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法保存应用。`)
       }
     })
   }, [installedApps])
@@ -480,7 +482,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
 
       const nextApps = replaceInstalledApp(installedApps, appId, rolledBack)
       void saveInstalledApps(nextApps).then((ok) => {
-        if (!ok) setListingsError('数据空间已满（8 GB 上限），无法保存应用。')
+        if (!ok) setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法保存应用。`)
       })
       setInstalledApps(nextApps)
       return true
@@ -498,7 +500,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       const pruned = pruneArchivedVersions(app)
       const nextApps = replaceInstalledApp(installedApps, appId, pruned)
       void saveInstalledApps(nextApps).then((ok) => {
-        if (!ok) setListingsError('数据空间已满（8 GB 上限），无法保存应用。')
+        if (!ok) setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法保存应用。`)
       })
 
       setInstalledApps(nextApps)
@@ -822,7 +824,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         : [...installedApps, record]
 
       void saveInstalledApps(nextApps).then((ok) => {
-        if (!ok) setListingsError('数据空间已满（8 GB 上限），无法发布应用。')
+        if (!ok) setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法发布应用。`)
       })
 
       // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（数据空间总配额）
@@ -901,7 +903,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         : [...installedApps, record]
 
       void saveInstalledApps(nextApps).then((ok) => {
-        if (!ok) setListingsError('数据空间已满（8 GB 上限），无法同步应用。')
+        if (!ok) setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法同步应用。`)
       })
 
       // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（数据空间总配额）
@@ -936,7 +938,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
 
       const nextApps = replaceInstalledApp(installedApps, appId, record)
       void saveInstalledApps(nextApps).then((ok) => {
-        if (!ok) setListingsError('数据空间已满（8 GB 上限），无法保存应用。')
+        if (!ok) setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法保存应用。`)
       })
 
       setInstalledApps(nextApps)

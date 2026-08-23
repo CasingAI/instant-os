@@ -13,7 +13,8 @@ import {
 } from '../../os/generated-app-data-storage.ts'
 import { GENERATED_APP_STORAGE_ERROR_MESSAGE_TYPE } from '../../os/generated-app-data-storage.ts'
 import { getRegistryUsedBytesSync, getRegistryWriteLimitBytes, hydrateAppRegistry } from '../../os/app-registry.ts'
-import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
+import { getDataCapacityBytes } from '../../os/device-data-storage.ts'
+import { DATA_CAPACITY_CHANGED_EVENT } from '../../os/data-capacity-settings-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
@@ -54,7 +55,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   const suppressRuntimeErrorAlertRef = useRef(false)
   const [processIsolated, setProcessIsolated] = useState(() => isGeneratedAppProcessIsolationActive())
   const [registryHydrated, setRegistryHydrated] = useState(false)
-  const [storageLimitBytes, setStorageLimitBytes] = useState(DATA_CAPACITY_BYTES)
+  const [storageLimitBytes, setStorageLimitBytes] = useState(getDataCapacityBytes)
   const {
     registerHeartbeat,
     unregisterHeartbeat,
@@ -122,6 +123,18 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
       alive = false
     }
   }, [appId, dataRevision, registryHydrated])
+
+  useEffect(() => {
+    const refreshLimit = () => {
+      void getRegistryWriteLimitBytes(appId).then((limit) => {
+        setStorageLimitBytes(limit)
+      })
+    }
+    window.addEventListener(DATA_CAPACITY_CHANGED_EVENT, refreshLimit)
+    return () => {
+      window.removeEventListener(DATA_CAPACITY_CHANGED_EVENT, refreshLimit)
+    }
+  }, [appId])
 
   const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}-${processIsolated ? 'iso' : 'std'}`
 

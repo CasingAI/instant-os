@@ -1,8 +1,17 @@
+import {
+  DEFAULT_DATA_CAPACITY_BYTES,
+  loadDataCapacityBytes,
+} from './data-capacity-settings-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 import { beginIdbTransaction } from './idb-transaction.ts'
 import { osNowMs } from './os-clock.ts'
-/** IndexedDB 数据空间硬上限 8 GB */
-export const DATA_CAPACITY_BYTES = 8 * 1024 * 1024 * 1024
+
+/** IndexedDB 数据空间默认上限 8 GB（用户可在设置中升级） */
+export const DATA_CAPACITY_BYTES = DEFAULT_DATA_CAPACITY_BYTES
+
+export function getDataCapacityBytes(): number {
+  return loadDataCapacityBytes()
+}
 
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
@@ -63,7 +72,7 @@ type DataMetaRecord = {
 
 export class DeviceDataStorageFullError extends Error {
   constructor() {
-    super(`数据空间已满（${formatStorageSize(DATA_CAPACITY_BYTES)} 上限）`)
+    super(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限）`)
     this.name = 'DeviceDataStorageFullError'
   }
 }
@@ -249,7 +258,7 @@ export async function getCombinedDataStorageBytes(): Promise<number> {
 /** 核心数据写入后的 projectedTotal（不含文件）是否会使合并数据空间超限。 */
 export async function wouldExceedDataCapacity(projectedCoreDataTotal: number): Promise<boolean> {
   const filesBytes = await getFilesBytesForQuota()
-  return projectedCoreDataTotal + filesBytes > DATA_CAPACITY_BYTES
+  return projectedCoreDataTotal + filesBytes > getDataCapacityBytes()
 }
 
 async function sumStoreBytes(storeName: string): Promise<number> {
@@ -738,7 +747,7 @@ export async function fillDataStorageToCapacityForDev(): Promise<{
   let chunkIndex = 0
 
   while (true) {
-    const remaining = DATA_CAPACITY_BYTES - (currentTotal + filesBytes)
+    const remaining = getDataCapacityBytes() - (currentTotal + filesBytes)
     if (remaining <= 0) {
       break
     }

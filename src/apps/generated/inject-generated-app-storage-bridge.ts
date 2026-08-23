@@ -3,7 +3,7 @@ import {
   GENERATED_APP_STORAGE_MESSAGE_TYPE,
 } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
-import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
+import { getDataCapacityBytes } from '../../os/device-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 
 export type GeneratedAppStorageQuota = {
@@ -186,7 +186,7 @@ export function injectGeneratedAppStorageBridge(
   html: string,
   appId: GeneratedAppId,
   initialData: GeneratedAppDataStore,
-  quota: GeneratedAppStorageQuota = { usedBytes: 0, limitBytes: DATA_CAPACITY_BYTES },
+  quota: GeneratedAppStorageQuota = { usedBytes: 0, limitBytes: getDataCapacityBytes() },
 ): string {
   if (!html.trim()) {
     return html

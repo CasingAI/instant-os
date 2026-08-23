@@ -1,5 +1,5 @@
 import {
-  DATA_CAPACITY_BYTES,
+  getDataCapacityBytes,
   DATA_STORAGE_CHANGED_EVENT,
   getCombinedDataStorageBytes,
 } from './device-data-storage.ts'
@@ -52,8 +52,9 @@ export function getAvailableStoragePercent(): number {
 
 export async function getAvailableDataStoragePercent(): Promise<number> {
   const used = await getCombinedDataStorageBytes()
-  const available = Math.max(0, DATA_CAPACITY_BYTES - used)
-  return (available / DATA_CAPACITY_BYTES) * 100
+  const capacity = getDataCapacityBytes()
+  const available = Math.max(0, capacity - used)
+  return (available / capacity) * 100
 }
 
 export async function areAllStorageWarningsRecovered(): Promise<boolean> {

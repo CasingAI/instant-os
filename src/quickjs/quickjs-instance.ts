@@ -49,6 +49,7 @@ import {
 } from './quickjs-process.ts'
 import { formatFatalErrorMessage, isQuickJsWasmBoundaryFatalError } from './quickjs-runtime-fatal.ts'
 import {
+  getQuickJsDefaultMaxFileBytes,
   QUICKJS_DEFAULT_MAX_FILE_BYTES,
   QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
 } from './quickjs-quotas.ts'
@@ -158,7 +159,7 @@ function resolveHostQuotas(options: QuickJsInstanceOptions): QuickJsHostQuotas {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     memoryLimitBytes: options.memoryLimitBytes ?? QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
     maxStackSizeBytes: options.maxStackSizeBytes ?? DEFAULT_MAX_STACK_SIZE_BYTES,
-    maxFileBytes: options.maxFileBytes ?? QUICKJS_DEFAULT_MAX_FILE_BYTES,
+    maxFileBytes: options.maxFileBytes ?? getQuickJsDefaultMaxFileBytes(),
   }
 }
 

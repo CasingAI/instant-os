@@ -210,10 +210,10 @@ export function NewsPaneIcon() {
 export function ResetPaneIcon() {
   const svgSize = paneSvg(22)
   return (
-    <AppIconTile color="#b0723a" size={PANE_ICON_SIZE}>
+    <AppIconTile color="#3d8b6e" size={PANE_ICON_SIZE}>
       <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
         <path
-          d="M4 11 L10 5 M4 11 L10 17"
+          d="M11 16 V6 M11 6 L7.2 10 M11 6 L14.8 10"
           fill="none"
           stroke="#fff"
           stroke-width="2"
@@ -221,14 +221,7 @@ export function ResetPaneIcon() {
           stroke-linejoin="round"
           opacity="0.95"
         />
-        <path
-          d="M4 11 H18"
-          fill="none"
-          stroke="#fff"
-          stroke-width="2"
-          stroke-linecap="round"
-          opacity="0.95"
-        />
+        <rect x="5" y="17.2" width="12" height="2.2" rx="1.1" fill="#fff" opacity="0.95" />
       </svg>
     </AppIconTile>
   )

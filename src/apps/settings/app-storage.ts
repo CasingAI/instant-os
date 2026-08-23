@@ -19,7 +19,7 @@ import {
   sumLocalStorageKeys,
 } from '../../os/device-storage.ts'
 import {
-  DATA_CAPACITY_BYTES,
+  getDataCapacityBytes,
   getBooksContentBytes,
   getDevDataStorageFillBytes,
   getFolderIconSnapshotsBytes,
@@ -280,7 +280,7 @@ export function getStorageSummary(
   const otherBytes = getOtherStorageBytes()
   const usedBytes = getTotalLocalStorageBytes()
   const availableBytes = Math.max(0, DEVICE_CAPACITY_BYTES - usedBytes)
-  const dataAvailableBytes = Math.max(0, DATA_CAPACITY_BYTES - dataUsedBytes)
+  const dataAvailableBytes = Math.max(0, getDataCapacityBytes() - dataUsedBytes)
 
   const entriesWithData = entries.map((entry) => {
     const appDirectoryBytes = dataStorage.appDataBytesByApp[entry.id] ?? 0

@@ -14,7 +14,8 @@ import {
   saveGeneratedAppDataAsync,
 } from '../../os/generated-app-data-storage.ts'
 import { getRegistryUsedBytesSync, getRegistryWriteLimitBytes, hydrateAppRegistry } from '../../os/app-registry.ts'
-import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
+import { getDataCapacityBytes } from '../../os/device-data-storage.ts'
+import { DATA_CAPACITY_CHANGED_EVENT } from '../../os/data-capacity-settings-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { ExtAppId } from '../../os/types.ts'
 import { APP_CAPABILITY_TAG_WEBVIEW } from '../appstore/app-capability-tags.ts'
@@ -125,13 +126,25 @@ export function ExtApp({ appId, windowId }: ExtAppProps) {
       })
       .catch(() => {
         if (alive) {
-          setStorageLimitBytes(DATA_CAPACITY_BYTES)
+          setStorageLimitBytes(getDataCapacityBytes())
         }
       })
     return () => {
       alive = false
     }
   }, [appId, registryHydrated])
+
+  useEffect(() => {
+    const refreshLimit = () => {
+      void getRegistryWriteLimitBytes(appId).then((limit) => {
+        setStorageLimitBytes(limit)
+      })
+    }
+    window.addEventListener(DATA_CAPACITY_CHANGED_EVENT, refreshLimit)
+    return () => {
+      window.removeEventListener(DATA_CAPACITY_CHANGED_EVENT, refreshLimit)
+    }
+  }, [appId])
 
   useEffect(() => {
     sendBootstrap()

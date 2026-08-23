@@ -4,8 +4,11 @@
  */
 import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
-import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
-import { QUICKJS_DEFAULT_MAX_FILE_BYTES } from '../../quickjs/quickjs-quotas.ts'
+import { getDataCapacityBytes } from '../../os/device-data-storage.ts'
+import {
+  getQuickJsDefaultMaxFileBytes,
+  QUICKJS_DEFAULT_MAX_FILE_BYTES,
+} from '../../quickjs/quickjs-quotas.ts'
 import { parseFilesAbsolutePath } from './files-path.ts'
 import { resetFilesDbForTests } from './files-storage.ts'
 import {
@@ -82,8 +85,9 @@ async function testWorkspaceContainer(): Promise<void> {
 }
 
 async function testQuotaConstant(): Promise<void> {
-  assert.equal(QUICKJS_DEFAULT_MAX_FILE_BYTES, DATA_CAPACITY_BYTES)
-  console.log('ok: maxFileBytes === DATA_CAPACITY_BYTES')
+  assert.equal(getQuickJsDefaultMaxFileBytes(), getDataCapacityBytes())
+  assert.equal(QUICKJS_DEFAULT_MAX_FILE_BYTES, getDataCapacityBytes())
+  console.log('ok: maxFileBytes === getDataCapacityBytes()')
 }
 
 async function main(): Promise<void> {

@@ -14,7 +14,7 @@ import {
   patchSystemDebugLogSettings,
 } from '../../os/system-debug-log-settings-storage.ts'
 import {
-  DATA_CAPACITY_BYTES,
+  getDataCapacityBytes,
   clearDevDataStorageFill,
   fillDataStorageToCapacityForDev,
   getCombinedDataStorageBytes,
@@ -233,14 +233,15 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
 
     try {
       const before = await getCombinedDataStorageBytes()
-      if (before >= DATA_CAPACITY_BYTES) {
-        setDataFillStatus(`数据空间已满（${formatStorageSize(DATA_CAPACITY_BYTES)}）`)
+      const capacityBytes = getDataCapacityBytes()
+      if (before >= capacityBytes) {
+        setDataFillStatus(`数据空间已满（${formatStorageSize(capacityBytes)}）`)
         return
       }
 
       const result = await fillDataStorageToCapacityForDev()
       setDataFillStatus(
-        `已写满：新增 ${formatStorageSize(result.addedBytes)}，当前 ${formatStorageSize(result.totalBytes)} / ${formatStorageSize(DATA_CAPACITY_BYTES)}`,
+        `已写满：新增 ${formatStorageSize(result.addedBytes)}，当前 ${formatStorageSize(result.totalBytes)} / ${formatStorageSize(capacityBytes)}`,
       )
     } catch {
       setFillError('写满数据空间失败，请稍后重试')
@@ -257,8 +258,9 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
     try {
       await clearDevDataStorageFill()
       const total = await getCombinedDataStorageBytes()
+      const capacityBytes = getDataCapacityBytes()
       setDataFillStatus(
-        `已清除填充数据，当前 ${formatStorageSize(total)} / ${formatStorageSize(DATA_CAPACITY_BYTES)}`,
+        `已清除填充数据，当前 ${formatStorageSize(total)} / ${formatStorageSize(capacityBytes)}`,
       )
     } catch {
       setFillError('清除数据空间填充数据失败，请稍后重试')
@@ -392,7 +394,7 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
             <h3 class="settings__section-title settings__section-title--minor">存储调试</h3>
             <p class="settings__section-footnote settings__section-footnote--flush">
               分别将系统空间（localStorage，上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}）与数据空间（IndexedDB，上限{' '}
-              {formatStorageSize(DATA_CAPACITY_BYTES)}）写入至硬上限，用于测试快满通知与写满拦截。填充数据可单独清除，不影响其它真实数据。
+              {formatStorageSize(getDataCapacityBytes())}）写入至硬上限，用于测试快满通知与写满拦截。填充数据可单独清除，不影响其它真实数据。
             </p>
 
             <div class="settings__box">

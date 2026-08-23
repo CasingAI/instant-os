@@ -23,7 +23,10 @@ import {
   type RegistryStoredValueType,
   type RegistryValueType,
 } from './app-registry-db.ts'
-import { DATA_CAPACITY_BYTES, getCombinedDataStorageBytes } from './device-data-storage.ts'
+import {
+  getDataCapacityBytes,
+  getCombinedDataStorageBytes,
+} from './device-data-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 
 export type { RegistryStoredValueType, RegistryValueType } from './app-registry-db.ts'
@@ -37,7 +40,7 @@ export function __setRegistryDataCapacityForTest(bytes: number | undefined): voi
 }
 
 function registryDataCapacityBytes(): number {
-  return dataCapacityOverride ?? DATA_CAPACITY_BYTES
+  return dataCapacityOverride ?? getDataCapacityBytes()
 }
 
 export class RegistryQuotaExceededError extends Error {

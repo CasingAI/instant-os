@@ -11,7 +11,7 @@ import {
 } from '../../os/app-registry.ts'
 import { entryValueType, type RegistryEntry } from '../../os/app-registry-db.ts'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
-import { DATA_CAPACITY_BYTES } from '../../os/device-data-storage.ts'
+import { getDataCapacityBytes } from '../../os/device-data-storage.ts'
 import { loadInstalledAppsFromCache } from '../../os/generated-apps-store.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -518,7 +518,7 @@ function RegistryRootPane({
           <p class="settings__section-subtitle">
             应用注册表（IndexedDB）按应用命名空间存储数据，当前{' '}
             {formatStorageSize(namespaces.reduce((sum, namespace) => sum + namespace.bytes, 0))} /{' '}
-            {formatStorageSize(DATA_CAPACITY_BYTES)}
+            {formatStorageSize(getDataCapacityBytes())}
           </p>
           {loading ? (
             <div class="settings__loading">

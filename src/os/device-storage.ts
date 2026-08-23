@@ -70,6 +70,7 @@ export const DEVICE_STORAGE_KEYS = {
   attunebench: 'instant-os-attunebench',
   welcomeSeen: 'instant-os-welcome-seen',
   modelSourceSettings: 'instant-os-model-source-settings',
+  dataCapacitySettings: 'instant-os-data-capacity-settings',
 } as const
 
 /** Frimousse 表情选择器缓存的 localStorage 键前缀 */

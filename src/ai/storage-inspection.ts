@@ -4,7 +4,7 @@ import {
   getTotalLocalStorageBytes,
   isAccountedStorageKey,
 } from '../os/device-storage.ts'
-import { DATA_CAPACITY_BYTES } from '../os/device-data-storage.ts'
+import { getDataCapacityBytes } from '../os/device-data-storage.ts'
 import { formatStorageSize } from '../os/format-storage-size.ts'
 import { loadInstalledApps } from '../os/generated-apps-storage.ts'
 import { hydrateInstalledAppsFromFiles } from '../os/generated-apps-store.ts'
@@ -291,9 +291,10 @@ export async function getStorageUsageSnapshot(): Promise<{
     DEVICE_CAPACITY_BYTES > 0
       ? Math.min(100, Math.round((summary.usedBytes / DEVICE_CAPACITY_BYTES) * 1000) / 10)
       : 0
+  const dataCapacityBytes = getDataCapacityBytes()
   const dataUsedPercent =
-    DATA_CAPACITY_BYTES > 0
-      ? Math.min(100, Math.round((summary.dataUsedBytes / DATA_CAPACITY_BYTES) * 1000) / 10)
+    dataCapacityBytes > 0
+      ? Math.min(100, Math.round((summary.dataUsedBytes / dataCapacityBytes) * 1000) / 10)
       : 0
 
   const topApps = summary.entries
@@ -332,8 +333,8 @@ export async function getStorageUsageSnapshot(): Promise<{
     data: {
       usedBytes: summary.dataUsedBytes,
       usedLabel: formatStorageSize(summary.dataUsedBytes),
-      capacityBytes: DATA_CAPACITY_BYTES,
-      capacityLabel: formatStorageSize(DATA_CAPACITY_BYTES),
+      capacityBytes: dataCapacityBytes,
+      capacityLabel: formatStorageSize(dataCapacityBytes),
       availableBytes: summary.dataAvailableBytes,
       availableLabel: formatStorageSize(summary.dataAvailableBytes),
       usedPercent: dataUsedPercent,
@@ -365,7 +366,7 @@ export async function getStorageUsageSnapshot(): Promise<{
     },
     topApps,
     note:
-      `系统空间=配置与索引（约 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间=文件、应用目录与缓存（约 ${formatStorageSize(DATA_CAPACITY_BYTES)}）。数据空间「应用」只计各应用目录，占用分析按应用拆同一笔账，不含用户文件。用户文件在「文件」分类。应用文档在注册表，不计入系统空间。本工具只读，不能清理或卸载。账户/API Key 内容不可读。`,
+      `系统空间=配置与索引（约 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间=文件、应用目录与缓存（约 ${formatStorageSize(dataCapacityBytes)}）。数据空间「应用」只计各应用目录，占用分析按应用拆同一笔账，不含用户文件。用户文件在「文件」分类。应用文档在注册表，不计入系统空间。本工具只读，不能清理或卸载。账户/API Key 内容不可读。`,
   }
 }
 

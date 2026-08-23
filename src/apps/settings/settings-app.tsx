@@ -16,7 +16,8 @@ import {
   buildSystemSpaceBreakdown,
   type ManagedAppEntry,
 } from './app-storage.ts'
-import { DATA_CAPACITY_BYTES, DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
+import { getDataCapacityBytes, DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
+import { DATA_CAPACITY_CHANGED_EVENT } from '../../os/data-capacity-settings-storage.ts'
 import { STORAGE_CHANGED_EVENT } from '../../os/device-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 import { initBrowserPageCache } from '../browser/browser-page-cache.ts'
@@ -141,12 +142,17 @@ export function SettingsApp() {
     const refreshSystemBytes = () => {
       setCacheRevision((value) => value + 1)
     }
+    const refreshCapacity = () => {
+      setCacheRevision((value) => value + 1)
+    }
     refreshDataBytes()
     window.addEventListener(DATA_STORAGE_CHANGED_EVENT, refreshDataBytes)
     window.addEventListener(STORAGE_CHANGED_EVENT, refreshSystemBytes)
+    window.addEventListener(DATA_CAPACITY_CHANGED_EVENT, refreshCapacity)
     return () => {
       window.removeEventListener(DATA_STORAGE_CHANGED_EVENT, refreshDataBytes)
       window.removeEventListener(STORAGE_CHANGED_EVENT, refreshSystemBytes)
+      window.removeEventListener(DATA_CAPACITY_CHANGED_EVENT, refreshCapacity)
     }
   }, [cacheRevision, storageRevision])
 
@@ -710,6 +716,7 @@ function UsageView({
   onOpenEventLogStorage,
   onOpenFilesStorage,
 }: UsageViewProps) {
+  const dataCapacityBytes = getDataCapacityBytes()
   const systemBreakdown = buildSystemSpaceBreakdown({
     usedBytes: summary.usedBytes,
     capacityBytes: DEVICE_CAPACITY_BYTES,
@@ -781,9 +788,9 @@ function UsageView({
                   <span>
                     已用 <strong>{formatStorageSize(summary.dataUsedBytes)}</strong>
                   </span>
-                  <span>上限 {formatStorageSize(DATA_CAPACITY_BYTES)}</span>
+                  <span>上限 {formatStorageSize(dataCapacityBytes)}</span>
                 </div>
-                <StorageMeter capacityBytes={DATA_CAPACITY_BYTES} segments={dataSegments} />
+                <StorageMeter capacityBytes={dataCapacityBytes} segments={dataSegments} />
               </div>
             </section>
 
@@ -876,7 +883,7 @@ function UsageView({
           )}
             <p class="settings__section-footnote">
               系统空间存放配置与索引（上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间存放网页缓存、图书章节、文件、应用目录与注册表（上限{' '}
-              {formatStorageSize(DATA_CAPACITY_BYTES)}），均为硬限制。
+              {formatStorageSize(dataCapacityBytes)}），均为硬限制。
               应用文稿存放在注册表，计入数据空间总上限。
             </p>
           </section>

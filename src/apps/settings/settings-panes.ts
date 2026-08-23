@@ -151,7 +151,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
     group: 'system',
   },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' }, group: 'system' },
-  { id: 'reset', label: '还原', Icon: ResetPaneIcon, route: { view: 'reset' }, group: 'general' },
+  { id: 'reset', label: '升级和还原', Icon: ResetPaneIcon, route: { view: 'reset' }, group: 'general' },
   // 账户
   { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' }, group: 'account' },
   // 网络与内容
