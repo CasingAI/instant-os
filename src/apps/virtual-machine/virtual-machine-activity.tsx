@@ -156,6 +156,7 @@ export function VirtualMachineActivity({
               <DetailRow label="VGA" value={formatVmVgaMode(stats)} />
               <DetailRow label="Resolution" value={formatVmVgaResolution(stats)} />
               <DetailRow label="Mouse" value={stats.mouse ? 'Yes' : 'No'} />
+              <DetailRow label="Absolute mouse" value={stats.absoluteMouse ? 'Yes' : 'No'} />
             </>
           ) : (
             <p class="virtual-machine__stats-empty">开机后显示速度、磁盘读写和显示模式。</p>

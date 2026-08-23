@@ -115,6 +115,9 @@ export function VirtualMachineInspectorOverlay({
           <Section title="外设">
             <Row label="键盘" value={machine.keyboard ? '开启' : '关闭'} />
             <Row label="鼠标" value={machine.mouse ? '开启' : '关闭'} />
+            {running && stats && (
+              <Row label="鼠标绝对坐标" value={stats.absoluteMouse ? '支持' : '不支持'} />
+            )}
             <Row label="扬声器" value={machine.speaker ? '开启' : '关闭'} />
             <Row
               label="网卡"

@@ -304,9 +304,11 @@ function testStatsMessage(): void {
     fdb: emptyDiskStats(),
     vga: { mode: 'graphical' as const, width: 800, height: 600, bpp: 16 },
     mouse: false,
+    absoluteMouse: false,
   }
   assert.equal(isInstantVmRuntimeToHostMessage(stats), true)
   assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, mouse: 'no' }), false)
+  assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, absoluteMouse: 'no' }), false)
 }
 
 function testSaveStateMessage(): void {

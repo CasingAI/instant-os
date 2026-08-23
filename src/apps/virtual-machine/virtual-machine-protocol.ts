@@ -272,6 +272,7 @@ export type InstantVmStatsSnapshot = {
   fdb: InstantVmDiskStats
   vga: InstantVmVgaStats
   mouse: boolean
+  absoluteMouse: boolean
 }
 
 export type InstantVmStatsMessage = InstantVmStatsSnapshot & {
@@ -600,6 +601,7 @@ export function emptyVmStatsSnapshot(): InstantVmStatsSnapshot {
     fdb: emptyVmDiskStats(),
     vga: { mode: 'text', width: 0, height: 0, bpp: 0 },
     mouse: false,
+    absoluteMouse: false,
   }
 }
 
@@ -648,7 +650,7 @@ export function isInstantVmStatsMessage(value: unknown): value is InstantVmStats
   if (!isNonNegFinite(value.runningMs) || !isNonNegFinite(value.speedMips) || !isNonNegFinite(value.avgSpeedMips)) {
     return false
   }
-  if (!isVmIdeLabel(value.ideLabel) || typeof value.mouse !== 'boolean') {
+  if (!isVmIdeLabel(value.ideLabel) || typeof value.mouse !== 'boolean' || typeof value.absoluteMouse !== 'boolean') {
     return false
   }
   return (
