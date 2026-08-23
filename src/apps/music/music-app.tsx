@@ -509,25 +509,6 @@ export function MusicApp({ windowId }: { windowId?: string }) {
     openApp('files', { documentId: MUSIC_FOLDER })
   }, [openApp])
 
-  const menuBar = useMemo((): MenuDefinition[] => {
-    return [
-      {
-        label: '音乐',
-        items: [
-          {
-            type: 'action',
-            label: '打开音乐文件夹',
-            onClick: handleOpenMusicsFolder,
-          },
-        ],
-      },
-    ]
-  }, [handleOpenMusicsFolder])
-
-  useAppMenuBar(APP_ID, menuBar)
-
-  const currentIndex = tracks.findIndex((track) => track.id === currentId)
-
   // 歌词：分轨包内高精度对齐结果（aligned）与普通歌词按 lyricsSource 切换；
   // 普通优先选有行时间戳的来源：包内原始 .lrc → 同名 .lrc → 包内清洗纯文本；
   // 单一来源缺失时回退另一来源，最后兜底「文件」打开的临时歌词
@@ -545,6 +526,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   // 保存高精度歌词到当前歌曲的同名 .lrc
   const handleSaveAlignedLyrics = useCallback(async () => {
     if (!currentLibraryTrack || !alignedLyrics || alignedLyrics.trim() === '') {
+      void modal.alert({ title: '无法保存', message: '当前没有高精度歌词可以保存。' })
       return
     }
     const saved = await saveLyricsForTrack(currentLibraryTrack, alignedLyrics)
@@ -555,6 +537,31 @@ export function MusicApp({ windowId }: { windowId?: string }) {
     void modal.alert({ title: '保存成功', message: '高精度歌词已保存到音乐文件夹。' })
     await refreshLibrary()
   }, [currentLibraryTrack, alignedLyrics, saveLyricsForTrack, modal, refreshLibrary])
+
+  const menuBar = useMemo((): MenuDefinition[] => {
+    return [
+      {
+        label: '音乐',
+        items: [
+          {
+            type: 'action',
+            label: '打开音乐文件夹',
+            onClick: handleOpenMusicsFolder,
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '保存高精度歌词…',
+            onClick: () => void handleSaveAlignedLyrics(),
+          },
+        ],
+      },
+    ]
+  }, [handleOpenMusicsFolder, handleSaveAlignedLyrics])
+
+  useAppMenuBar(APP_ID, menuBar)
+
+  const currentIndex = tracks.findIndex((track) => track.id === currentId)
 
   const trackRow = useCallback(
     (track: MusicTrack, index: number) => (
@@ -614,11 +621,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
             <span class="music__toolbar-title music__toolbar-title--center">
               {currentLibraryTrack?.title ?? '歌词文件'}
             </span>
-            {alignedLyrics && currentLibraryTrack ? (
-              <IosButton size="compact" onClick={() => void handleSaveAlignedLyrics()}>
-                保存高精度歌词
-              </IosButton>
-            ) : transientLyrics && currentLibraryTrack ? (
+            {transientLyrics && currentLibraryTrack ? (
               <IosButton size="compact" onClick={() => void handleBindTransientLyrics()}>
                 绑定到当前歌曲
               </IosButton>

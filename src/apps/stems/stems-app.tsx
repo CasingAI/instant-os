@@ -7,7 +7,12 @@ import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
-import { filesOpenStreamWrite, filesReadBlobRange, filesReadText } from '../files/files-api.ts'
+import {
+  filesOpenStreamWrite,
+  filesReadBlobRange,
+  filesReadText,
+  filesWriteText,
+} from '../files/files-api.ts'
 import {
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
@@ -796,6 +801,32 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     await saveCurrentStems(tracks.map((t) => t.audio))
   }, [saveCurrentStems, tracks])
 
+  /** 把高精度对齐歌词单独保存为与源音频同名的 .lrc */
+  const handleSaveAlignedLrc = useCallback(async () => {
+    const sourcePath = sourceAbsolutePathRef.current
+    const lrc = alignedLrcRef.current.trim()
+    if (!sourcePath) {
+      setLyricsHint('请先打开音乐文件，才能保存歌词到同目录')
+      return
+    }
+    if (!lrc) {
+      setLyricsHint('当前没有高精度歌词，请先完成歌词对齐')
+      return
+    }
+    try {
+      const dot = sourcePath.lastIndexOf('.')
+      const slash = sourcePath.lastIndexOf('/')
+      const base = dot > slash ? sourcePath.slice(0, dot) : sourcePath
+      const lrcPath = `${base}.lrc`
+      await filesWriteText(lrcPath, alignedLrcRef.current)
+      const lrcName = lrcPath.slice(lrcPath.lastIndexOf('/') + 1)
+      setLyricsHint(`高精度歌词已保存：${lrcName}`)
+      setError(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }, [])
+
   // 顶栏菜单：文件 → 打开 / 重新分轨 / 保存分轨（⌘S）；编辑 → 重新计算节拍
   const menuBar = useMemo<MenuDefinition[]>(() => {
     return [
@@ -833,6 +864,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               !sourceAbsolutePathRef.current,
             onClick: () => void handleSaveArchive(),
           },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '保存高精度歌词…',
+            onClick: () => void handleSaveAlignedLrc(),
+          },
         ],
       },
       {
@@ -848,7 +885,17 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceName, tracks, saveProgress, loadingArchive, tempoDetecting, handleSaveArchive, archiveCodec, changeArchiveCodec])
+  }, [
+    sourceName,
+    tracks,
+    saveProgress,
+    loadingArchive,
+    tempoDetecting,
+    handleSaveArchive,
+    handleSaveAlignedLrc,
+    archiveCodec,
+    changeArchiveCodec,
+  ])
   useAppMenuBar('stems', menuBar)
 
   // ⌘S 保存分轨：菜单 shortcut 仅展示，实际监听与 pages/textedit 一致
