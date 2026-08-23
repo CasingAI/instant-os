@@ -1,4 +1,4 @@
-import { filesReadBlob, filesStat } from '../files/files-api.ts'
+import { filesMkdir, filesOpenStreamWrite, filesReadBlob, filesStat } from '../files/files-api.ts'
 import { cpuidLevelForCpuModel } from './virtual-machine-config.ts'
 import {
   registerVirtualMachineDiskStream,
@@ -12,6 +12,76 @@ import {
   type InstantVmStartMessage,
 } from './virtual-machine-protocol.ts'
 import type { VirtualMachineSettings } from './virtual-machine-types.ts'
+
+export const VM_BLANK_DISK_DIR = '/user/Disks'
+export const VM_BLANK_DISK_MIN_SIZE_MB = 16
+export const VM_BLANK_DISK_MAX_SIZE_MB = 2048
+export const VM_BLANK_DISK_DEFAULT_SIZE_MB = 128
+export const VM_BLANK_DISK_SIZE_STEP_MB = 16
+
+export type CreateBlankDiskOptions = {
+  name?: string
+  sizeMb: number
+}
+
+const BLANK_DISK_CHUNK_BYTES = 1024 * 1024
+
+function clampBlankDiskSizeMb(sizeMb: number): number {
+  const rounded = Math.round(sizeMb / VM_BLANK_DISK_SIZE_STEP_MB) * VM_BLANK_DISK_SIZE_STEP_MB
+  return Math.max(
+    VM_BLANK_DISK_MIN_SIZE_MB,
+    Math.min(VM_BLANK_DISK_MAX_SIZE_MB, rounded),
+  )
+}
+
+function normalizeBlankDiskName(raw: string): string {
+  const trimmed = raw
+    .trim()
+    .replace(/[\\/:\u0000-\u001f\u007f]/g, '')
+    .slice(0, 128)
+  const name = trimmed || 'blank'
+  return name.endsWith('.img') || name.endsWith('.raw') ? name : `${name}.img`
+}
+
+async function ensureBlankDiskDir(): Promise<void> {
+  const stat = await filesStat(VM_BLANK_DISK_DIR)
+  if (stat) {
+    if (stat.kind !== 'folder') {
+      throw new Error(`${VM_BLANK_DISK_DIR} 不是文件夹`)
+    }
+    return
+  }
+  await filesMkdir(VM_BLANK_DISK_DIR)
+}
+
+export async function createBlankVirtualMachineDisk(
+  options: CreateBlankDiskOptions,
+): Promise<string> {
+  const sizeMb = clampBlankDiskSizeMb(options.sizeMb)
+  const name = normalizeBlankDiskName(options.name ?? 'blank')
+  await ensureBlankDiskDir()
+  const path = `${VM_BLANK_DISK_DIR}/${name}`
+  const existing = await filesStat(path)
+  if (existing) {
+    throw new Error(`文件已存在：${name}`)
+  }
+  const writer = await filesOpenStreamWrite(path)
+  try {
+    const zeroChunk = new Uint8Array(BLANK_DISK_CHUNK_BYTES)
+    const totalBytes = sizeMb * 1024 * 1024
+    for (let written = 0; written < totalBytes; written += BLANK_DISK_CHUNK_BYTES) {
+      const remaining = totalBytes - written
+      const chunk =
+        remaining >= BLANK_DISK_CHUNK_BYTES ? zeroChunk : new Uint8Array(remaining)
+      await writer.write(chunk)
+    }
+  } catch (error) {
+    await writer.abort().catch(() => {})
+    throw error
+  }
+  await writer.close()
+  return path
+}
 
 export function virtualMachineHasBootMedia(
   settings: Pick<VirtualMachineSettings, 'hdaPath' | 'cdromPath' | 'fdaPath'>,

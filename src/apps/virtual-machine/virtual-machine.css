@@ -601,6 +601,17 @@
   gap: 6px;
 }
 
+.virtual-machine-settings__create-disk {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.virtual-machine-settings__create-disk .ios-range-slider__body {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
 .virtual-machine-settings__preset {
   display: flex;
   flex-direction: column;

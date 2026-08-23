@@ -40,6 +40,13 @@ import {
   VM_POINTER_MODE_CHOICES,
   VM_STATE_ACCEPT_EXTENSIONS,
 } from './virtual-machine-config.ts'
+import {
+  createBlankVirtualMachineDisk,
+  VM_BLANK_DISK_DEFAULT_SIZE_MB,
+  VM_BLANK_DISK_MAX_SIZE_MB,
+  VM_BLANK_DISK_MIN_SIZE_MB,
+  VM_BLANK_DISK_SIZE_STEP_MB,
+} from './virtual-machine-disks.ts'
 import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
 import {
   applyGuestPreset,
@@ -162,6 +169,11 @@ export function VirtualMachineSettingsDialog({
   )
   const [error, setError] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
+  const [createDiskOpen, setCreateDiskOpen] = useState(false)
+  const [createDiskSizeMb, setCreateDiskSizeMb] = useState(
+    VM_BLANK_DISK_DEFAULT_SIZE_MB,
+  )
+  const [createDiskName, setCreateDiskName] = useState('')
 
   useEffect(() => {
     if (!open) {
@@ -175,6 +187,9 @@ export function VirtualMachineSettingsDialog({
     setSourceByDrive(inferDriveSources(initial))
     setError(undefined)
     setBusy(false)
+    setCreateDiskOpen(false)
+    setCreateDiskSizeMb(VM_BLANK_DISK_DEFAULT_SIZE_MB)
+    setCreateDiskName('')
   }, [open, initial])
 
   const patch = useCallback((partial: Partial<VirtualMachineSettings>) => {
@@ -230,6 +245,36 @@ export function VirtualMachineSettingsDialog({
     },
     [draft],
   )
+
+  const openCreateBlankDisk = useCallback(() => {
+    setCreateDiskOpen(true)
+    setCreateDiskSizeMb(VM_BLANK_DISK_DEFAULT_SIZE_MB)
+    setCreateDiskName('')
+  }, [])
+
+  const closeCreateBlankDisk = useCallback(() => {
+    setCreateDiskOpen(false)
+  }, [])
+
+  const handleCreateBlankDisk = useCallback(async () => {
+    const name = createDiskName.trim() || 'blank'
+    setBusy(true)
+    try {
+      const path = await createBlankVirtualMachineDisk({
+        name,
+        sizeMb: createDiskSizeMb,
+      })
+      setSourceByDrive((current) => ({ ...current, [selectedDrive]: 'local' }))
+      patch({ [selectedDrive]: path })
+      setCreateDiskOpen(false)
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : '创建空白硬盘失败',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }, [createDiskName, createDiskSizeMb, patch, selectedDrive])
 
   const handleSave = useCallback(async () => {
     const name = draft.name.trim()
@@ -598,6 +643,15 @@ export function VirtualMachineSettingsDialog({
                       >
                         选择…
                       </IosButton>
+                      {selectedDrive === 'hdaPath' ? (
+                        <IosButton
+                          size="compact"
+                          disabled={busy}
+                          onClick={() => openCreateBlankDisk()}
+                        >
+                          新建…
+                        </IosButton>
+                      ) : null}
                       {selectedPath.trim() ? (
                         <IosButton
                           size="compact"
@@ -821,6 +875,73 @@ export function VirtualMachineSettingsDialog({
             </div>
           </div>
         ) : null}
+      </WindowModal>
+      <WindowModal
+        open={createDiskOpen}
+        title="新建空白硬盘"
+        themeColor={THEME}
+        wide
+        onClose={busy ? undefined : closeCreateBlankDisk}
+        actions={[
+          {
+            key: 'cancel',
+            label: '取消',
+            tone: 'secondary',
+            disabled: busy,
+            onClick: closeCreateBlankDisk,
+          },
+          {
+            key: 'create',
+            label: '创建',
+            tone: 'primary',
+            disabled: busy,
+            busy,
+            onClick: () => void handleCreateBlankDisk(),
+          },
+        ]}
+      >
+        <div class="virtual-machine-settings__create-disk">
+          <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+            在 /user/Disks 下创建全零原始镜像，自动挂载为当前硬盘。
+          </p>
+          <div class="virtual-machine-settings__field">
+            <label
+              class="virtual-machine-settings__label"
+              for="virtual-machine-create-disk-name"
+            >
+              文件名
+            </label>
+            <input
+              id="virtual-machine-create-disk-name"
+              class="virtual-machine-settings__input"
+              type="text"
+              value={createDiskName}
+              placeholder="blank"
+              maxLength={128}
+              autoComplete="off"
+              spellcheck={false}
+              disabled={busy}
+              onInput={(event) =>
+                setCreateDiskName(
+                  (event.currentTarget as HTMLInputElement).value,
+                )
+              }
+            />
+          </div>
+          <IosRangeSlider
+            label="容量"
+            value={createDiskSizeMb}
+            min={VM_BLANK_DISK_MIN_SIZE_MB}
+            max={VM_BLANK_DISK_MAX_SIZE_MB}
+            step={VM_BLANK_DISK_SIZE_STEP_MB}
+            suffix="MB"
+            disabled={busy}
+            onChange={(mb) => setCreateDiskSizeMb(mb)}
+          />
+          <p class="virtual-machine-settings__hint">
+            当前 {createDiskSizeMb} MB。创建后为空盘，需从光盘/软盘启动后分区、格式化才能使用。
+          </p>
+        </div>
       </WindowModal>
       {openDialog}
     </>
