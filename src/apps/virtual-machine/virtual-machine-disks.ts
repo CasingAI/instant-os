@@ -2,7 +2,6 @@ import { filesMkdir, filesOpenStreamWrite, filesReadBlob, filesStat } from '../f
 import {
   cpuidLevelForCpuModel,
   deviceTypeLabel,
-  devicesByType,
 } from './virtual-machine-config.ts'
 import {
   registerVirtualMachineDiskStream,
@@ -103,9 +102,6 @@ export function virtualMachineHasBootMedia(
 
 export function settingsToStartConfig(settings: VirtualMachineSettings): InstantVmStartConfig {
   const cpuidLevel = cpuidLevelForCpuModel(settings.cpuModel)
-  const hasCdrom = devicesByType(settings.devices, 'cdrom').some(
-    (device) => device.path.trim().length > 0,
-  )
   return {
     memoryMb: settings.memoryMb,
     vgaMemoryMb: settings.vgaMemoryMb,
@@ -120,7 +116,6 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     displayMode: settings.displayMode,
     pointerMode: settings.pointerMode,
     ...(cpuidLevel !== undefined ? { cpuidLevel } : {}),
-    sendEnterAfterMs: hasCdrom ? 3000 : undefined,
   }
 }
 

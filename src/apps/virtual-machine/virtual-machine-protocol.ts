@@ -116,8 +116,6 @@ export type InstantVmStartConfig = {
   displayMode?: InstantVmDisplayMode
   /** 指针工作方式；instant-app 显式下发；省略时运行时按 follow。 */
   pointerMode?: InstantVmPointerMode
-  /** 挂了光盘时延迟发送 Enter，方便跳过 isolinux 一类启动菜单。 */
-  sendEnterAfterMs?: number
 }
 
 export type InstantVmReadyMessage = {
@@ -393,15 +391,6 @@ export function isInstantVmStartConfig(value: unknown): value is InstantVmStartC
     typeof value.mouse !== 'boolean'
   ) {
     return false
-  }
-  if (value.sendEnterAfterMs !== undefined) {
-    if (
-      typeof value.sendEnterAfterMs !== 'number' ||
-      !Number.isFinite(value.sendEnterAfterMs) ||
-      value.sendEnterAfterMs < 0
-    ) {
-      return false
-    }
   }
   if (value.displayMode !== undefined && !isDisplayMode(value.displayMode)) {
     return false

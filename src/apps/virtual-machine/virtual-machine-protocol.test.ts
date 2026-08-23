@@ -70,27 +70,6 @@ function testHasBootMedia(): void {
   )
 }
 
-function testCdromSendsEnterAndHddDoesNot(): void {
-  const cdromSettings = {
-    ...sampleSettings(),
-    memoryMb: 512,
-    bootOrder: 'cd-floppy-hdd' as const,
-    devices: [{ id: 'c', type: 'cdrom', source: 'local', path: '/user/android-x86-1.6-r2.iso' }],
-  }
-  assert.equal(settingsToStartConfig(cdromSettings).sendEnterAfterMs, 3000)
-
-  const reactos = {
-    ...sampleSettings(),
-    memoryMb: 512,
-    acpi: true,
-    devices: [
-      { id: 'h', type: 'hdd', source: 'local', path: '/user/disks/reactos.img' },
-      { id: 's', type: 'state', source: 'local', path: '/user/disks/reactos.bin' },
-    ],
-  }
-  assert.equal(settingsToStartConfig(reactos).sendEnterAfterMs, undefined)
-}
-
 function testStartMessageTransfers(): void {
   const cdrom = new ArrayBuffer(8)
   const message = buildStartMessage(
@@ -167,7 +146,6 @@ function testLocalDiskStartMessage(): void {
   assert.equal(message.state, state)
   assert.equal(message.hdaUrl, undefined)
   assert.equal(message.stateUrl, undefined)
-  assert.equal(message.config.sendEnterAfterMs, undefined)
 }
 
 function testPathSummaryForRemoteUrl(): void {
@@ -402,7 +380,6 @@ function testKeyboardMessage(): void {
 
 testBootOrderMatchesV86()
 testHasBootMedia()
-testCdromSendsEnterAndHddDoesNot()
 testStartMessageTransfers()
 testStartMessageMapsMultipleHdds()
 testHighMemoryAndDiskStreamStartMessage()
