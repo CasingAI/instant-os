@@ -645,16 +645,6 @@
   font-weight: 600;
 }
 
-.virtual-machine-settings__source-tabs {
-  margin: 0;
-}
-
-.virtual-machine-settings__presets {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .virtual-machine-settings__create-disk {
   display: flex;
   flex-direction: column;
@@ -664,45 +654,6 @@
 
 .virtual-machine-settings__create-disk .ios-range-slider__body {
   grid-template-columns: 56px minmax(0, 1fr);
-}
-
-.virtual-machine-settings__preset {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #b7b7b7;
-  border-radius: 6px;
-  background: linear-gradient(180deg, #fff 0%, #f2f2f2 100%);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.virtual-machine-settings__preset:hover:not(:disabled) {
-  border-color: #8bb7e8;
-}
-
-.virtual-machine-settings__preset--active {
-  border-color: #3d7ec8;
-  background: linear-gradient(180deg, #e8f3ff 0%, #d4e8fb 100%);
-}
-
-.virtual-machine-settings__preset:disabled {
-  opacity: 0.6;
-}
-
-.virtual-machine-settings__preset-name {
-  font-weight: 600;
-}
-
-.virtual-machine-settings__preset-detail {
-  font-size: 11px;
-  line-height: 1.35;
-  color: #555;
 }
 
 .virtual-machine-settings__add-device {

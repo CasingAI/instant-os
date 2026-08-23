@@ -181,7 +181,7 @@ async function loadDisk(
     return {}
   }
   if (isHttpDiskUrl(trimmed)) {
-    return { url: trimmed }
+    throw new Error(`${label}只支持本地文件，不能从网络加载`)
   }
 
   const stat = await filesStat(trimmed)

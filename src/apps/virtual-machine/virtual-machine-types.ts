@@ -102,7 +102,8 @@ export const VM_STORAGE_DEVICE_TYPES = ['hdd', 'cdrom', 'floppy', 'state'] as co
 
 export type VmStorageDeviceType = (typeof VM_STORAGE_DEVICE_TYPES)[number]
 
-export const VM_STORAGE_DEVICE_SOURCES = ['local', 'network', 'preset'] as const
+/** 存储只挂本地文件。旧的 `network` / `preset` 来源读入时迁成 `local`。 */
+export const VM_STORAGE_DEVICE_SOURCES = ['local'] as const
 
 export type VmStorageDeviceSource = (typeof VM_STORAGE_DEVICE_SOURCES)[number]
 

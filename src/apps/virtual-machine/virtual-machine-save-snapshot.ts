@@ -1,5 +1,5 @@
 import { filesMkdir, filesOpenStreamWrite, filesStat } from '../files/files-api.ts'
-import { createStorageDevice, inferStorageDeviceSource } from './virtual-machine-config.ts'
+import { createStorageDevice } from './virtual-machine-config.ts'
 import { VM_BLANK_DISK_DIR } from './virtual-machine-disks.ts'
 import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
 import { updateVirtualMachine } from './virtual-machine-store.ts'
@@ -88,7 +88,7 @@ async function writeStateBuffer(state: ArrayBuffer, path: string): Promise<void>
 
 function replaceStateDevice(devices: readonly VmStorageDevice[], path: string): VmStorageDevice[] {
   const next = devices.filter((device) => device.type !== 'state')
-  next.push(createStorageDevice('state', path, inferStorageDeviceSource(path)))
+  next.push(createStorageDevice('state', path))
   return next
 }
 

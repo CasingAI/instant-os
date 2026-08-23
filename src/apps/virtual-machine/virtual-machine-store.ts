@@ -65,7 +65,7 @@ function normalizePath(raw: unknown): string {
     return ''
   }
   if (/^https?:\/\//i.test(path)) {
-    return path
+    return ''
   }
   return path.startsWith('/') ? path : `/${path}`
 }
@@ -81,15 +81,13 @@ function normalizeStorageDeviceType(raw: unknown): 'hdd' | 'cdrom' | 'floppy' | 
   return undefined
 }
 
-function normalizeStorageDeviceSource(
-  raw: unknown,
-): 'local' | 'network' | 'preset' | undefined {
+function normalizeStorageDeviceSource(raw: unknown): 'local' | undefined {
   if (typeof raw !== 'string') {
     return undefined
   }
   const trimmed = raw.trim().toLowerCase()
   if (trimmed === 'local' || trimmed === 'network' || trimmed === 'preset') {
-    return trimmed
+    return 'local'
   }
   return undefined
 }
@@ -106,6 +104,9 @@ function normalizeStorageDevice(raw: unknown): VmStorageDevice | undefined {
   const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : createDeviceId()
   const source = normalizeStorageDeviceSource(record.source) ?? 'local'
   const path = normalizePath(record.path)
+  if (!path && typeof record.path === 'string' && /^https?:\/\//i.test(record.path.trim())) {
+    return undefined
+  }
   return { id, type, source, path }
 }
 

@@ -116,7 +116,7 @@ export type InstantVmStartConfig = {
   displayMode?: InstantVmDisplayMode
   /** 指针工作方式；instant-app 显式下发；省略时运行时按 follow。 */
   pointerMode?: InstantVmPointerMode
-  /** copy.sh Android profile sends Enter after 3s to skip isolinux. */
+  /** 挂了光盘时延迟发送 Enter，方便跳过 isolinux 一类启动菜单。 */
   sendEnterAfterMs?: number
 }
 

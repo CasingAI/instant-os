@@ -4,7 +4,6 @@ import { releaseVirtualMachineDiskStreams } from './virtual-machine-disk-stream-
 import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
-  isHttpDiskUrl,
   isInstantVmRuntimeToHostMessage,
   type InstantVmDisplayMode,
   type InstantVmKeyboardMessage,
@@ -468,14 +467,9 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
         console.log('[vm-boot] already running', id)
         return
       }
-      const hasRemoteDisk = machine.devices.some(
-        (device) => device.path.trim() && isHttpDiskUrl(device.path),
-      )
       addRunningId(id)
-      setHints((current) =>
-        new Map(current).set(id, hasRemoteDisk ? '正在启动模拟器…' : '正在读取镜像…'),
-      )
-      console.log('[vm-boot] loading disks', id, { hasRemoteDisk })
+      setHints((current) => new Map(current).set(id, '正在读取镜像…'))
+      console.log('[vm-boot] loading disks', id)
       try {
         const disks = await withTimeout(
           loadVirtualMachineDisks(machine),

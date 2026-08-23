@@ -92,26 +92,14 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
   }
 }
 
-export function inferStorageDeviceSource(path: string): VmStorageDeviceSource {
-  const trimmed = path.trim()
-  if (!trimmed) {
-    return 'local'
-  }
-  if (isHttpDiskUrl(trimmed)) {
-    return 'network'
-  }
-  return 'local'
-}
-
 export function createStorageDevice(
   type: VmStorageDeviceType,
   path: string,
-  source?: VmStorageDeviceSource,
 ): VmStorageDevice {
   return {
     id: `vm-device-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`,
     type,
-    source: source ?? inferStorageDeviceSource(path),
+    source: 'local',
     path,
   }
 }
@@ -127,16 +115,16 @@ export function migrateLegacyDrivePaths(record: {
     return record.devices
   }
   const devices: VmStorageDevice[] = []
-  const paths: { type: VmStorageDeviceType; path: string; source?: VmStorageDeviceSource }[] = [
+  const paths: { type: VmStorageDeviceType; path: string }[] = [
     { type: 'hdd', path: record.hdaPath ?? '' },
     { type: 'cdrom', path: record.cdromPath ?? '' },
     { type: 'floppy', path: record.fdaPath ?? '' },
     { type: 'state', path: record.statePath ?? '' },
   ]
-  for (const { type, path, source } of paths) {
+  for (const { type, path } of paths) {
     const trimmed = path.trim()
-    if (trimmed) {
-      devices.push(createStorageDevice(type, trimmed, source))
+    if (trimmed && !isHttpDiskUrl(trimmed)) {
+      devices.push(createStorageDevice(type, trimmed))
     }
   }
   return devices

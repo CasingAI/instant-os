@@ -316,7 +316,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: '虚拟机管理器',
     paragraphs: [
       'Virtual Machine 用来新建、列出和开关虚拟机。新建时打开虚拟机设置，保存后才写入列表；已有机器也可再改内存、启动盘和外设。',
-      '开机时把镜像交给独立源上的 V86 运行时（生产 https://vm.casing-ai.com/，开发默认 localhost:6175），画面在跨域 iframe 里。存储可选本地文件、网络地址，或 copy.sh 预制（Android-x86 / ReactOS）。联网走 V86 fetch 后端，仅支持 HTTP，目标站点需允许跨域。',
+      '开机时把镜像交给独立源上的 V86 运行时（生产 https://vm.casing-ai.com/，开发默认 localhost:6175），画面在跨域 iframe 里。存储只挂 Instant OS 里的本地文件。联网走 V86 fetch 后端，仅支持 HTTP，目标站点需允许跨域。',
     ],
   },
   'ui-kit': {

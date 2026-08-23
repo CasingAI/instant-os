@@ -19,7 +19,6 @@ import {
   formatVmNetworkLabel,
   formatVmPathSummary,
   formatVmPcTypeLabel,
-  inferStorageDeviceSource,
   isVmBootOrderId,
   isVmBuildModeId,
   isVmCpuModelId,
@@ -53,12 +52,6 @@ import {
 } from './virtual-machine-disks.ts'
 import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
 import {
-  applyGuestPreset,
-  detectAppliedGuestPreset,
-  VM_GUEST_PRESETS,
-  type VmGuestPresetId,
-} from './virtual-machine-presets.ts'
-import {
   VIRTUAL_MACHINE_NAME_MAX_LENGTH,
   type VirtualMachineSettings,
   type VmStorageDevice,
@@ -82,11 +75,6 @@ const TAB_ITEMS = [
   { id: 'hardware', label: '硬件' },
   { id: 'storage', label: '存储' },
   { id: 'devices', label: '外设' },
-] as const
-
-const DRIVE_SOURCE_ITEMS = [
-  { id: 'local', label: '本地' },
-  { id: 'network', label: '网络' },
 ] as const
 
 type VmDeviceId = 'network' | 'speaker' | 'keyboard' | 'mouse'
@@ -122,7 +110,7 @@ function createDevice(type: VmStorageDeviceType, path = ''): VmStorageDevice {
   return {
     id: createDeviceId(),
     type,
-    source: inferStorageDeviceSource(path),
+    source: 'local',
     path,
   }
 }
@@ -203,13 +191,6 @@ export function VirtualMachineSettingsDialog({
 
   const selectedStorage = selectedDeviceIndex >= 0 ? draft.devices[selectedDeviceIndex] : undefined
 
-  const deviceSourceItems = useMemo(() => {
-    if (selectedStorage?.type === 'state') {
-      return DRIVE_SOURCE_ITEMS
-    }
-    return DRIVE_SOURCE_ITEMS
-  }, [selectedStorage?.type])
-
   const addDevice = useCallback(
     (type: VmStorageDeviceType) => {
       if (!canAddDeviceType(draft.devices, type)) {
@@ -264,35 +245,6 @@ export function VirtualMachineSettingsDialog({
     [draft.devices, showSystemOpenDialog, updateDevice],
   )
 
-  const changeDeviceSource = useCallback(
-    (id: string, source: 'local' | 'network') => {
-      const device = draft.devices.find((d) => d.id === id)
-      if (!device) {
-        return
-      }
-      if (source === 'local' && isHttpDiskUrl(device.path)) {
-        updateDevice(id, { path: '', source })
-        return
-      }
-      if (source === 'network' && device.path.trim() && !isHttpDiskUrl(device.path)) {
-        updateDevice(id, { path: '', source })
-        return
-      }
-      updateDevice(id, { source })
-    },
-    [draft.devices, updateDevice],
-  )
-
-  const applyPreset = useCallback(
-    (presetId: VmGuestPresetId) => {
-      const next = applyGuestPreset(draft, presetId)
-      setDraft(next)
-      setSelectedDeviceId(next.devices[0]?.id)
-      setError(undefined)
-    },
-    [draft],
-  )
-
   const openCreateBlankDisk = useCallback(() => {
     setCreateDiskOpen(true)
     setCreateDiskSizeMb(VM_BLANK_DISK_DEFAULT_SIZE_MB)
@@ -331,10 +283,10 @@ export function VirtualMachineSettingsDialog({
       return
     }
     for (const device of draft.devices) {
-      if (device.source === 'network' && device.path.trim() && !isHttpDiskUrl(device.path)) {
+      if (isHttpDiskUrl(device.path)) {
         setTab('storage')
         setSelectedDeviceId(device.id)
-        setError(`${deviceTypeLabel(device.type)}的网络镜像需要 http(s) 地址`)
+        setError(`${deviceTypeLabel(device.type)}只支持本地文件`)
         return
       }
     }
@@ -368,8 +320,6 @@ export function VirtualMachineSettingsDialog({
     ],
     [busy, handleSave, mode, onClose],
   )
-
-  const appliedPreset = detectAppliedGuestPreset(draft)
 
   return (
     <>
@@ -672,97 +622,50 @@ export function VirtualMachineSettingsDialog({
                         ),
                       )}
                     </span>
-                    <SegmentedControl
-                      value={selectedStorage.source}
-                      items={deviceSourceItems}
-                      onChange={(source) => {
-                        if (source === 'local' || source === 'network') {
-                          changeDeviceSource(selectedStorage.id, source)
+                    <p class="virtual-machine-settings__hint">
+                      从 Instant OS 文件里选镜像。大文件会占内存。
+                    </p>
+                    <div class="virtual-machine-settings__path">
+                      <input
+                        class="virtual-machine-settings__input"
+                        type="text"
+                        value={selectedStorage.path}
+                        placeholder="未选择"
+                        spellcheck={false}
+                        autoComplete="off"
+                        disabled={busy}
+                        onInput={(event) =>
+                          updateDevice(selectedStorage.id, {
+                            path: (event.currentTarget as HTMLInputElement).value,
+                          })
                         }
-                      }}
-                      ariaLabel="镜像来源"
-                      className="virtual-machine-settings__source-tabs"
-                    />
-                    {selectedStorage.source === 'local' ? (
-                      <>
-                        <p class="virtual-machine-settings__hint">
-                          从 Instant OS 文件里选镜像。大文件会占内存。
-                        </p>
-                        <div class="virtual-machine-settings__path">
-                          <input
-                            class="virtual-machine-settings__input"
-                            type="text"
-                            value={isHttpDiskUrl(selectedStorage.path) ? '' : selectedStorage.path}
-                            placeholder="未选择"
-                            spellcheck={false}
-                            autoComplete="off"
-                            disabled={busy}
-                            onInput={(event) =>
-                              updateDevice(selectedStorage.id, {
-                                path: (event.currentTarget as HTMLInputElement).value,
-                              })
-                            }
-                          />
-                          <IosButton
-                            size="compact"
-                            disabled={busy}
-                            onClick={() => void pickDevicePath(selectedStorage.id)}
-                          >
-                            选择…
-                          </IosButton>
-                          {selectedStorage.type === 'hdd' ? (
-                            <IosButton
-                              size="compact"
-                              disabled={busy}
-                              onClick={() => openCreateBlankDisk()}
-                            >
-                              新建…
-                            </IosButton>
-                          ) : null}
-                          {selectedStorage.path.trim() ? (
-                            <IosButton
-                              size="compact"
-                              disabled={busy}
-                              onClick={() => updateDevice(selectedStorage.id, { path: '' })}
-                            >
-                              清除
-                            </IosButton>
-                          ) : null}
-                        </div>
-                      </>
-                    ) : null}
-                    {selectedStorage.source === 'network' ? (
-                      <>
-                        <p class="virtual-machine-settings__hint">
-                          填 http 或 https 地址。copy.sh 允许跨域，可直接用。
-                        </p>
-                        <input
-                          class="virtual-machine-settings__input"
-                          type="text"
-                          value={selectedStorage.path}
-                          placeholder="https://"
-                          spellcheck={false}
-                          autoComplete="off"
+                      />
+                      <IosButton
+                        size="compact"
+                        disabled={busy}
+                        onClick={() => void pickDevicePath(selectedStorage.id)}
+                      >
+                        选择…
+                      </IosButton>
+                      {selectedStorage.type === 'hdd' ? (
+                        <IosButton
+                          size="compact"
                           disabled={busy}
-                          onInput={(event) =>
-                            updateDevice(selectedStorage.id, {
-                              path: (event.currentTarget as HTMLInputElement).value,
-                            })
-                          }
-                        />
-                        {selectedStorage.path.trim() ? (
-                          <div class="virtual-machine-settings__path">
-                            <IosButton
-                              size="compact"
-                              disabled={busy}
-                              onClick={() => updateDevice(selectedStorage.id, { path: '' })}
-                            >
-                              清除
-                            </IosButton>
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
+                          onClick={() => openCreateBlankDisk()}
+                        >
+                          新建…
+                        </IosButton>
+                      ) : null}
+                      {selectedStorage.path.trim() ? (
+                        <IosButton
+                          size="compact"
+                          disabled={busy}
+                          onClick={() => updateDevice(selectedStorage.id, { path: '' })}
+                        >
+                          清除
+                        </IosButton>
+                      ) : null}
+                    </div>
                     <div class="virtual-machine-settings__path">
                       <IosButton
                         size="compact"
@@ -779,27 +682,6 @@ export function VirtualMachineSettingsDialog({
                     点击左侧「添加设备」加入硬盘、光盘或软驱。
                   </p>
                 )}
-                <div class="virtual-machine-settings__presets">
-                  {VM_GUEST_PRESETS.map((preset) => {
-                    const selected = appliedPreset === preset.id
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        class={`virtual-machine-settings__preset${
-                          selected ? ' virtual-machine-settings__preset--active' : ''
-                        }`}
-                        disabled={busy}
-                        onClick={() => applyPreset(preset.id)}
-                      >
-                        <span class="virtual-machine-settings__preset-name">{preset.name}</span>
-                        <span class="virtual-machine-settings__preset-detail">
-                          {preset.detail}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
               </div>
             </div>
           </div>

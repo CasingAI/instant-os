@@ -64,9 +64,7 @@ function testHasBootMedia(): void {
   assert.equal(
     virtualMachineHasBootMedia({
       ...empty,
-      devices: [
-        { id: 'h', type: 'hdd', source: 'network', path: 'https://i.copy.sh/reactos-v3/.img' },
-      ],
+      devices: [{ id: 'h', type: 'hdd', source: 'local', path: '/user/disks/reactos.img' }],
     }),
     true,
   )
@@ -86,8 +84,8 @@ function testCdromSendsEnterAndHddDoesNot(): void {
     memoryMb: 512,
     acpi: true,
     devices: [
-      { id: 'h', type: 'hdd', source: 'network', path: 'https://i.copy.sh/reactos-v3/.img' },
-      { id: 's', type: 'state', source: 'network', path: 'https://i.copy.sh/reactos_state-v3.bin.zst' },
+      { id: 'h', type: 'hdd', source: 'local', path: '/user/disks/reactos.img' },
+      { id: 's', type: 'state', source: 'local', path: '/user/disks/reactos.bin' },
     ],
   }
   assert.equal(settingsToStartConfig(reactos).sendEnterAfterMs, undefined)
@@ -146,7 +144,9 @@ function testHighMemoryAndDiskStreamStartMessage(): void {
   assert.equal(message.hdbStream, undefined)
 }
 
-function testReactOsRemoteStartMessage(): void {
+function testLocalDiskStartMessage(): void {
+  const hda = new ArrayBuffer(8)
+  const state = new ArrayBuffer(4)
   const message = buildStartMessage(
     'req-2',
     {
@@ -154,20 +154,19 @@ function testReactOsRemoteStartMessage(): void {
       memoryMb: 512,
       acpi: true,
       devices: [
-        { id: 'h', type: 'hdd', source: 'network', path: 'https://i.copy.sh/reactos-v3/.img' },
-        { id: 's', type: 'state', source: 'network', path: 'https://i.copy.sh/reactos_state-v3.bin.zst' },
+        { id: 'h', type: 'hdd', source: 'local', path: '/user/disks/reactos.img' },
+        { id: 's', type: 'state', source: 'local', path: '/user/disks/reactos.bin' },
       ],
     },
-    {
-      hdaUrl: 'https://i.copy.sh/reactos-v3/.img',
-      stateUrl: 'https://i.copy.sh/reactos_state-v3.bin.zst',
-    },
+    { hda, state },
   )
   assert.equal(isInstantVmStartMessage(message), true)
   assert.equal(startMessageHasDisk(message), true)
-  assert.deepEqual(collectStartTransfers(message), [])
-  assert.equal(message.hdaUrl, 'https://i.copy.sh/reactos-v3/.img')
-  assert.equal(message.stateUrl, 'https://i.copy.sh/reactos_state-v3.bin.zst')
+  assert.deepEqual(collectStartTransfers(message), [hda, state])
+  assert.equal(message.hda, hda)
+  assert.equal(message.state, state)
+  assert.equal(message.hdaUrl, undefined)
+  assert.equal(message.stateUrl, undefined)
   assert.equal(message.config.sendEnterAfterMs, undefined)
 }
 
@@ -225,7 +224,7 @@ function testNetworkFields(): void {
   assert.equal(config.networkBackend, 'fetch')
 
   const message = buildStartMessage('req-net', withFetch, {
-    hdaUrl: 'https://i.copy.sh/reactos-v3/.img',
+    hda: new ArrayBuffer(8),
   })
   assert.equal(isInstantVmStartMessage(message), true)
   assert.equal(
@@ -407,7 +406,7 @@ testCdromSendsEnterAndHddDoesNot()
 testStartMessageTransfers()
 testStartMessageMapsMultipleHdds()
 testHighMemoryAndDiskStreamStartMessage()
-testReactOsRemoteStartMessage()
+testLocalDiskStartMessage()
 testPathSummaryForRemoteUrl()
 testStatsFormatting()
 testNetworkFields()

@@ -130,15 +130,12 @@ function testNormalizeMigratesLegacyPaths(): void {
     fdaPath: '   ',
     statePath: '/user/state.bin',
   })
-  assert.equal(migrated?.devices.length, 3)
+  assert.equal(migrated?.devices.length, 2)
   assert.equal(migrated?.devices[0]?.type, 'hdd')
   assert.equal(migrated?.devices[0]?.path, '/user/disks/hda.img')
   assert.equal(migrated?.devices[0]?.source, 'local')
-  assert.equal(migrated?.devices[1]?.type, 'cdrom')
-  assert.equal(migrated?.devices[1]?.path, 'https://example.com/os.iso')
-  assert.equal(migrated?.devices[1]?.source, 'network')
-  assert.equal(migrated?.devices[2]?.type, 'state')
-  assert.equal(migrated?.devices[2]?.path, '/user/state.bin')
+  assert.equal(migrated?.devices[1]?.type, 'state')
+  assert.equal(migrated?.devices[1]?.path, '/user/state.bin')
 }
 
 function testNormalizeDevicesArray(): void {
@@ -150,10 +147,9 @@ function testNormalizeDevicesArray(): void {
       { type: 'cdrom', source: 'preset', path: 'https://p' },
     ],
   })
-  assert.equal(array?.devices.length, 2)
+  assert.equal(array?.devices.length, 1)
   assert.equal(array?.devices[0]?.id, 'x')
-  assert.equal(array?.devices[1]?.type, 'cdrom')
-  assert.equal(array?.devices[1]?.source, 'preset')
+  assert.equal(array?.devices[0]?.type, 'hdd')
 }
 
 function testNormalizeMemoryMbRange(): void {
@@ -184,7 +180,7 @@ function testNormalizeCpuModelFallback(): void {
   assert.equal(c?.cpuModel, DEFAULT_VIRTUAL_MACHINE_CPU_MODEL)
 }
 
-function testNormalizeKeepsHttpUrls(): void {
+function testNormalizeDropsHttpUrls(): void {
   const machines = normalizeVirtualMachines([
     {
       id: 'reactos',
@@ -192,11 +188,13 @@ function testNormalizeKeepsHttpUrls(): void {
       devices: [
         { id: 'h', type: 'hdd', source: 'network', path: 'https://i.copy.sh/reactos-v3/.img' },
         { id: 's', type: 'state', source: 'network', path: 'https://i.copy.sh/reactos_state-v3.bin.zst' },
+        { id: 'l', type: 'cdrom', source: 'local', path: '/user/os.iso' },
       ],
     },
   ])
-  assert.equal(machines[0]?.devices[0]?.path, 'https://i.copy.sh/reactos-v3/.img')
-  assert.equal(machines[0]?.devices[1]?.path, 'https://i.copy.sh/reactos_state-v3.bin.zst')
+  assert.equal(machines[0]?.devices.length, 1)
+  assert.equal(machines[0]?.devices[0]?.path, '/user/os.iso')
+  assert.equal(machines[0]?.devices[0]?.source, 'local')
 }
 
 function testNormalizeRecordRejectsInvalid(): void {
@@ -285,7 +283,7 @@ testNormalizeEmptyArrayStaysEmpty()
 testNormalizeDropsGarbageAndDuplicates()
 testNormalizeMigratesLegacyPaths()
 testNormalizeDevicesArray()
-testNormalizeKeepsHttpUrls()
+testNormalizeDropsHttpUrls()
 testNormalizeRecordRejectsInvalid()
 testNormalizeBuildModeFallback()
 testNormalizeMemoryMbRange()
