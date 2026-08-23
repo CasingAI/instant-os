@@ -276,11 +276,18 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         setSelectedId(machine.id)
       } else {
         await updateVirtualMachine(settingsSession.id, settings)
+        if (pool.runningIds.includes(settingsSession.id)) {
+          try {
+            await pool.setActivePointerMode(settingsSession.id, settings.pointerMode)
+          } catch (error) {
+            showVmError(error instanceof Error ? error.message : '切换指针模式失败')
+          }
+        }
       }
       setSettingsSession(undefined)
       setPowerHint(undefined)
     },
-    [settingsSession],
+    [pool, settingsSession, showVmError],
   )
 
   const handleDisplayMode = useCallback(

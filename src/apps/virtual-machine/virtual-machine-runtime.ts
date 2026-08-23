@@ -8,6 +8,7 @@ import {
   isInstantVmRuntimeToHostMessage,
   type InstantVmDisplayMode,
   type InstantVmKeyboardMessage,
+  type InstantVmPointerMode,
   type InstantVmSaveStateResultMessage,
   type InstantVmStartMessage,
   type InstantVmStatsSnapshot,
@@ -113,6 +114,7 @@ export type VmRuntimeApi = {
   reset(): Promise<void>
   saveState(): Promise<ArrayBuffer>
   setDisplayMode(mode: InstantVmDisplayMode): Promise<void>
+  setPointerMode(mode: InstantVmPointerMode): Promise<void>
   sendKeyboard(message: InstantVmKeyboardMessage): void
   captureKeyboard(): void
   releaseKeyboard(): void
@@ -254,7 +256,7 @@ export function useVirtualMachineRuntime(
 
   const request = useCallback(
     <T = void>(
-      message: { requestId: string; type?: string; mode?: InstantVmDisplayMode },
+      message: { requestId: string; type?: string; mode?: InstantVmDisplayMode | InstantVmPointerMode },
       transfer: Transferable[] = [],
       timeoutMs = REQUEST_TIMEOUT_MS,
       resolver?: (message: unknown) => T,
@@ -322,6 +324,17 @@ export function useVirtualMachineRuntime(
     [request],
   )
 
+  const setPointerMode = useCallback(
+    async (mode: InstantVmPointerMode) => {
+      await request({
+        type: INSTANT_VM_MESSAGE_TYPE.setPointerMode,
+        requestId: newVmRequestId(),
+        mode,
+      })
+    },
+    [request],
+  )
+
   const sendKeyboard = useCallback(
     (message: InstantVmKeyboardMessage) => {
       try {
@@ -363,6 +376,7 @@ export function useVirtualMachineRuntime(
     reset,
     saveState,
     setDisplayMode,
+    setPointerMode,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
@@ -533,6 +547,17 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     [],
   )
 
+  const setActivePointerMode = useCallback(
+    async (id: string, mode: InstantVmPointerMode): Promise<void> => {
+      const api = apiByIdRef.current.get(id)
+      if (!api) {
+        return
+      }
+      await api.setPointerMode(mode)
+    },
+    [],
+  )
+
   const sendKeyboard = useCallback((id: string, message: InstantVmKeyboardMessage) => {
     apiByIdRef.current.get(id)?.sendKeyboard(message)
   }, [])
@@ -557,6 +582,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     resetInstance,
     saveInstanceState,
     setActiveDisplayMode,
+    setActivePointerMode,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,

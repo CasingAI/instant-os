@@ -9,6 +9,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   stop: 'instant-vm:stop',
   reset: 'instant-vm:reset',
   setDisplayMode: 'instant-vm:set-display-mode',
+  setPointerMode: 'instant-vm:set-pointer-mode',
   saveState: 'instant-vm:save-state',
   saveStateResult: 'instant-vm:save-state-result',
   started: 'instant-vm:started',
@@ -70,13 +71,33 @@ export const INSTANT_VM_NETWORK_BACKEND_IDS = ['off', 'fetch'] as const
 export type InstantVmNetworkBackendId = (typeof INSTANT_VM_NETWORK_BACKEND_IDS)[number]
 
 /**
- * 指针工作方式：`follow` 跟随（绝对坐标、可自由移出）；`lock` 独占（点击锁定、Esc 释放）。
- * instant-app 新建虚拟机默认下发 `lock`；协议字段省略时运行时按 `follow`。
+ * 指针工作方式：`auto` 按客机是否报告绝对坐标在独占与跟随间切换；
+ * `follow` 强制跟随（可移出画面）；`lock` 强制独占（点击锁定、Esc 释放）。
+ * instant-app 新建虚拟机默认下发 `auto`；协议字段省略时运行时按 `follow`。
  * Keep in sync with instant-app `VmPointerModeId`。
  */
-export const INSTANT_VM_POINTER_MODES = ['follow', 'lock'] as const
+export const INSTANT_VM_POINTER_MODES = ['auto', 'follow', 'lock'] as const
 
 export type InstantVmPointerMode = (typeof INSTANT_VM_POINTER_MODES)[number]
+
+export type InstantVmEffectivePointerMode = 'follow' | 'lock'
+
+/** 策略落到实际捕获方式。省略字段时按跟随，以兼容旧宿主。 */
+export function resolveEffectivePointerMode(
+  policy: InstantVmPointerMode | undefined,
+  absoluteMouse: boolean,
+): InstantVmEffectivePointerMode {
+  if (policy === 'lock') {
+    return 'lock'
+  }
+  if (policy === 'follow') {
+    return 'follow'
+  }
+  if (policy === 'auto') {
+    return absoluteMouse ? 'follow' : 'lock'
+  }
+  return 'follow'
+}
 
 export type InstantVmStartConfig = {
   memoryMb: number
@@ -179,6 +200,12 @@ export type InstantVmSetDisplayModeMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.setDisplayMode
   requestId: string
   mode: InstantVmDisplayMode
+}
+
+export type InstantVmSetPointerModeMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.setPointerMode
+  requestId: string
+  mode: InstantVmPointerMode
 }
 
 export type InstantVmSaveStateMessage = {
@@ -284,6 +311,7 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmStopMessage
   | InstantVmResetMessage
   | InstantVmSetDisplayModeMessage
+  | InstantVmSetPointerModeMessage
   | InstantVmSaveStateMessage
   | InstantVmKeyboardMessage
 
@@ -326,7 +354,7 @@ function isNetworkBackendId(value: unknown): value is InstantVmNetworkBackendId 
   )
 }
 
-function isPointerMode(value: unknown): value is InstantVmPointerMode {
+export function isPointerMode(value: unknown): value is InstantVmPointerMode {
   return (
     typeof value === 'string' && (INSTANT_VM_POINTER_MODES as readonly string[]).includes(value)
   )
@@ -539,6 +567,17 @@ export function isInstantVmSetDisplayModeMessage(
   )
 }
 
+export function isInstantVmSetPointerModeMessage(
+  value: unknown,
+): value is InstantVmSetPointerModeMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.setPointerMode &&
+    isRequestId(value.requestId) &&
+    isPointerMode(value.mode)
+  )
+}
+
 export function isInstantVmSaveStateMessage(value: unknown): value is InstantVmSaveStateMessage {
   return (
     isRecord(value) &&
@@ -669,6 +708,7 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmStopMessage(value) ||
     isInstantVmResetMessage(value) ||
     isInstantVmSetDisplayModeMessage(value) ||
+    isInstantVmSetPointerModeMessage(value) ||
     isInstantVmSaveStateMessage(value) ||
     isInstantVmKeyboardMessage(value)
   )

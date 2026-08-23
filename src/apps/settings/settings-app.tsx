@@ -829,7 +829,7 @@ function UsageView({
                   <StorageCategoryRow
                     label="文件"
                     bytes={summary.filesBytes}
-                    hint="「文件」应用中的用户文件"
+                    hint="文件系统占用（不含应用 Data/Contents，点进查看分卷）"
                     onClick={onOpenFilesStorage}
                   />
                   <StorageCategoryRow

@@ -27,6 +27,7 @@ import {
   isInstantVmRuntimeToHostMessage,
   isInstantVmStartMessage,
   parseAllowedOrigins,
+  resolveEffectivePointerMode,
   startMessageHasDisk,
 } from './virtual-machine-protocol.ts'
 
@@ -248,11 +249,25 @@ function testNetworkFields(): void {
     }),
     false,
   )
+  assert.equal(
+    isInstantVmStartMessage({
+      ...message,
+      config: { ...config, pointerMode: 'auto' },
+    }),
+    true,
+  )
 }
 
 function testDefaultPointerModeInStartConfig(): void {
   const config = settingsToStartConfig(sampleSettings())
-  assert.equal(config.pointerMode, 'lock')
+  assert.equal(config.pointerMode, 'auto')
+}
+
+function testResolveEffectivePointerMode(): void {
+  assert.equal(resolveEffectivePointerMode('auto', false), 'lock')
+  assert.equal(resolveEffectivePointerMode('auto', true), 'follow')
+  assert.equal(resolveEffectivePointerMode('follow', false), 'follow')
+  assert.equal(resolveEffectivePointerMode('lock', true), 'lock')
 }
 
 function testCpuModelPassedThrough(): void {
@@ -397,6 +412,7 @@ testPathSummaryForRemoteUrl()
 testStatsFormatting()
 testNetworkFields()
 testDefaultPointerModeInStartConfig()
+testResolveEffectivePointerMode()
 testCpuModelPassedThrough()
 testOriginAllowList()
 testStatsMessage()

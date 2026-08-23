@@ -239,8 +239,9 @@ const DISPLAY_MODE_LABELS: Record<VmDisplayModeId, string> = {
 }
 
 const POINTER_MODE_LABELS: Record<VmPointerModeId, string> = {
-  follow: '跟随',
-  lock: '独占',
+  auto: '自动',
+  follow: '强制跟随',
+  lock: '强制独占',
 }
 
 const BUILD_MODE_LABELS: Record<VmBuildModeId, string> = {
@@ -260,6 +261,17 @@ const PC_TYPE_LABELS: Record<VmPcTypeId, string> = {
 
 export function formatVmPointerModeLabel(id: VmPointerModeId): string {
   return POINTER_MODE_LABELS[id]
+}
+
+export function formatVmPointerModeRuntimeLabel(
+  policy: VmPointerModeId,
+  absoluteMouse: boolean | undefined,
+): string {
+  const base = formatVmPointerModeLabel(policy)
+  if (policy !== 'auto' || absoluteMouse === undefined) {
+    return base
+  }
+  return `${base}（当前${absoluteMouse ? '跟随' : '独占'}）`
 }
 
 export function formatVmBuildModeLabel(id: VmBuildModeId): string {

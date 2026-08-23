@@ -941,9 +941,10 @@ export function VirtualMachineSettingsDialog({
                       labelClass="virtual-machine-settings__label"
                     />
                     <p class="virtual-machine-settings__hint">
-                      独占：未点击锁定前客机指针不会跟随；点击屏幕后指针被锁定，无法移出屏幕；按 Esc
-                      释放，再次点击重新锁定。
-                      注意：独占模式解决的是「鼠标移出屏幕」问题，不是鼠标灵敏度或拉伸同步问题。
+                      自动：客机尚未报告绝对坐标时用独占；一旦支持绝对坐标就切到跟随，运行中也会随驱动状态切换。
+                      强制跟随：始终跟随，指针可移出画面。
+                      强制独占：始终点击锁定；与绝对坐标不兼容，客机光标可能消失。
+                      运行中修改此项会立即生效。
                     </p>
                   </>
                 ) : null}

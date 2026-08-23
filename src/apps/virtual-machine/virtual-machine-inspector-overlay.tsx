@@ -9,6 +9,7 @@ import {
   formatVmNetworkBackendLabel,
   formatVmNetworkLabel,
   formatVmPathSummary,
+  formatVmPointerModeRuntimeLabel,
 } from './virtual-machine-config.ts'
 import { formatVmVgaResolution } from './virtual-machine-stats-format.ts'
 import type { VirtualMachineRecord } from './virtual-machine-types.ts'
@@ -115,6 +116,13 @@ export function VirtualMachineInspectorOverlay({
           <Section title="外设">
             <Row label="键盘" value={machine.keyboard ? '开启' : '关闭'} />
             <Row label="鼠标" value={machine.mouse ? '开启' : '关闭'} />
+            <Row
+              label="指针模式"
+              value={formatVmPointerModeRuntimeLabel(
+                machine.pointerMode,
+                running && stats ? stats.absoluteMouse : undefined,
+              )}
+            />
             {running && stats && (
               <Row label="鼠标绝对坐标" value={stats.absoluteMouse ? '支持' : '不支持'} />
             )}

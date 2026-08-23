@@ -78,12 +78,12 @@ export type VmNetworkBackendId = (typeof VM_NETWORK_BACKEND_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND: VmNetworkBackendId = 'off'
 
-/** 指针工作方式：`follow` 跟随默认（绝对坐标、可自由移出）；`lock` 独占（点击锁定，Esc 释放）。 */
-export const VM_POINTER_MODE_IDS = ['follow', 'lock'] as const
+/** 指针工作方式：`auto` 按客机绝对坐标能力自动切换；`follow` 强制跟随；`lock` 强制独占。 */
+export const VM_POINTER_MODE_IDS = ['auto', 'follow', 'lock'] as const
 
 export type VmPointerModeId = (typeof VM_POINTER_MODE_IDS)[number]
 
-export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'lock'
+export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'auto'
 
 /** V86 构建模式：`debug`（未压缩，可单步调试）；`release`（压缩混淆，性能更好）。 */
 export const VM_BUILD_MODE_IDS = ['debug', 'release'] as const
