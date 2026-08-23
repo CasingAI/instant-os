@@ -149,6 +149,23 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
+.virtual-machine__status-dot--starting {
+  background: #ff9500;
+  box-shadow:
+    0 0 6px rgba(255, 149, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  animation: vm-status-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes vm-status-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
 .virtual-machine__row--active .virtual-machine__status-dot {
   background: rgba(255, 255, 255, 0.7);
 }
@@ -158,6 +175,23 @@
   box-shadow:
     0 0 8px rgba(255, 255, 255, 0.6),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.virtual-machine__row--active .virtual-machine__status-dot--starting {
+  background: #fff;
+  box-shadow:
+    0 0 8px rgba(255, 255, 255, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  animation: vm-status-pulse-active 1.5s ease-in-out infinite;
+}
+
+@keyframes vm-status-pulse-active {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 .virtual-machine__row-meta {

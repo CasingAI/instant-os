@@ -542,6 +542,20 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   const showLyricsScreen =
     lyricsOpen && (currentLibraryTrack !== undefined || transientLyrics !== undefined)
 
+  // 保存高精度歌词到当前歌曲的同名 .lrc
+  const handleSaveAlignedLyrics = useCallback(async () => {
+    if (!currentLibraryTrack || !alignedLyrics || alignedLyrics.trim() === '') {
+      return
+    }
+    const saved = await saveLyricsForTrack(currentLibraryTrack, alignedLyrics)
+    if (!saved) {
+      void modal.alert({ title: '保存失败', message: '无法把高精度歌词写入「音乐」文件夹。' })
+      return
+    }
+    void modal.alert({ title: '保存成功', message: '高精度歌词已保存到音乐文件夹。' })
+    await refreshLibrary()
+  }, [currentLibraryTrack, alignedLyrics, saveLyricsForTrack, modal, refreshLibrary])
+
   const trackRow = useCallback(
     (track: MusicTrack, index: number) => (
       <div
@@ -600,7 +614,11 @@ export function MusicApp({ windowId }: { windowId?: string }) {
             <span class="music__toolbar-title music__toolbar-title--center">
               {currentLibraryTrack?.title ?? '歌词文件'}
             </span>
-            {transientLyrics && currentLibraryTrack ? (
+            {alignedLyrics && currentLibraryTrack ? (
+              <IosButton size="compact" onClick={() => void handleSaveAlignedLyrics()}>
+                保存高精度歌词
+              </IosButton>
+            ) : transientLyrics && currentLibraryTrack ? (
               <IosButton size="compact" onClick={() => void handleBindTransientLyrics()}>
                 绑定到当前歌曲
               </IosButton>

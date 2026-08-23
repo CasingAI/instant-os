@@ -633,6 +633,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               {machines.map((machine) => {
                 const active = machine.id === selectedId
                 const running = pool.runningIds.includes(machine.id)
+                const snapshot = pool.snapshots.get(machine.id)
+                const starting = running && snapshot && !snapshot.ready
+                const statusClass = starting
+                  ? 'virtual-machine__status-dot virtual-machine__status-dot--starting'
+                  : running
+                    ? 'virtual-machine__status-dot virtual-machine__status-dot--running'
+                    : 'virtual-machine__status-dot'
+                const statusLabel = starting ? '启动中' : running ? '运行中' : '已停止'
                 return (
                   <li key={machine.id}>
                     <button
@@ -655,7 +663,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     >
                       <span class="virtual-machine__row-name">
                         {machine.name}
-                        <span class={running ? 'virtual-machine__status-dot virtual-machine__status-dot--running' : 'virtual-machine__status-dot'} aria-label={running ? '运行中' : '已停止'} />
+                        <span class={statusClass} aria-label={statusLabel} />
                       </span>
                       <span class="virtual-machine__row-meta">
                         {formatMachineMeta(machine)}
