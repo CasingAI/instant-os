@@ -83,7 +83,7 @@ export const VM_POINTER_MODE_IDS = ['follow', 'lock'] as const
 
 export type VmPointerModeId = (typeof VM_POINTER_MODE_IDS)[number]
 
-export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'follow'
+export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'lock'
 
 /** V86 构建模式：`debug`（未压缩，可单步调试）；`release`（压缩混淆，性能更好）。 */
 export const VM_BUILD_MODE_IDS = ['debug', 'release'] as const
