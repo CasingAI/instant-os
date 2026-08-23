@@ -15,6 +15,16 @@ import type { VirtualMachineRecord } from './virtual-machine-types.ts'
 
 const REQUEST_TIMEOUT_MS = 60_000
 const REMOTE_DISK_REQUEST_TIMEOUT_MS = 180_000
+const DISK_LOAD_TIMEOUT_MS = 120_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      window.setTimeout(() => reject(new Error(`${label} 超时（${ms}ms）`)), ms)
+    }),
+  ])
+}
 
 type Pending = {
   resolve: () => void
@@ -351,6 +361,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     async (machine: VirtualMachineRecord): Promise<void> => {
       const id = machine.id
       if (runningIdsRef.current.has(id)) {
+        console.log('[vm-boot] already running', id)
         return
       }
       const hasRemoteDisk = [
@@ -363,18 +374,32 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
       setHints((current) =>
         new Map(current).set(id, hasRemoteDisk ? '正在启动模拟器…' : '正在读取镜像…'),
       )
+      console.log('[vm-boot] loading disks', id, { hasRemoteDisk })
       try {
-        const disks = await loadVirtualMachineDisks(machine)
+        const disks = await withTimeout(
+          loadVirtualMachineDisks(machine),
+          DISK_LOAD_TIMEOUT_MS,
+          '读取镜像',
+        )
+        console.log('[vm-boot] disks loaded', id, {
+          hda: Boolean(disks.hda ?? disks.hdaBlob ?? disks.hdaUrl ?? disks.hdaStream),
+          cdrom: Boolean(disks.cdrom ?? disks.cdromBlob ?? disks.cdromUrl ?? disks.cdromStream),
+          fda: Boolean(disks.fda ?? disks.fdaBlob ?? disks.fdaUrl ?? disks.fdaStream),
+          state: Boolean(disks.state ?? disks.stateBlob ?? disks.stateUrl ?? disks.stateStream),
+        })
         if (!runningIdsRef.current.has(id)) {
+          console.log('[vm-boot] machine stopped before start message built', id)
           return
         }
         setHints((current) => new Map(current).set(id, '正在启动模拟器…'))
         const message = buildStartMessage(newVmRequestId(), machine, disks)
+        console.log('[vm-boot] built start message', id, message.requestId)
         setStartMessages((current) => new Map(current).set(id, message))
         if (machine.network !== 'none' && machine.networkBackend === 'off') {
           setHints((current) => new Map(current).set(id, '已挂网卡但未选网络后端，按离线启动'))
         }
       } catch (error) {
+        console.error('[vm-boot] failed', id, error)
         removeRunningId(id)
         throw error instanceof Error ? error : new Error(String(error))
       }
