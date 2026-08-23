@@ -30,6 +30,10 @@ import {
   startMessageHasDisk,
 } from './virtual-machine-protocol.ts'
 
+function sampleSettings(): ReturnType<typeof defaultVirtualMachineSettings> {
+  return defaultVirtualMachineSettings('test')
+}
+
 function testBootOrderMatchesV86(): void {
   assert.equal(INSTANT_VM_BOOT_ORDER_TO_V86.auto, 0)
   assert.equal(INSTANT_VM_BOOT_ORDER_TO_V86['cd-floppy-hdd'], 0x213)
@@ -40,14 +44,28 @@ function testBootOrderMatchesV86(): void {
 }
 
 function testHasBootMedia(): void {
-  const empty = defaultVirtualMachineSettings()
+  const empty = sampleSettings()
   assert.equal(virtualMachineHasBootMedia(empty), false)
-  assert.equal(virtualMachineHasBootMedia({ ...empty, cdromPath: '/user/android.iso' }), true)
-  assert.equal(virtualMachineHasBootMedia({ ...empty, hdaPath: '/user/disk.img' }), true)
   assert.equal(
     virtualMachineHasBootMedia({
       ...empty,
-      hdaPath: 'https://i.copy.sh/reactos-v3/.img',
+      devices: [{ id: 'c', type: 'cdrom', source: 'local', path: '/user/android.iso' }],
+    }),
+    true,
+  )
+  assert.equal(
+    virtualMachineHasBootMedia({
+      ...empty,
+      devices: [{ id: 'h', type: 'hdd', source: 'local', path: '/user/disk.img' }],
+    }),
+    true,
+  )
+  assert.equal(
+    virtualMachineHasBootMedia({
+      ...empty,
+      devices: [
+        { id: 'h', type: 'hdd', source: 'network', path: 'https://i.copy.sh/reactos-v3/.img' },
+      ],
     }),
     true,
   )
@@ -55,19 +73,21 @@ function testHasBootMedia(): void {
 
 function testCdromSendsEnterAndHddDoesNot(): void {
   const cdromSettings = {
-    ...defaultVirtualMachineSettings('Android'),
+    ...sampleSettings(),
     memoryMb: 512,
     bootOrder: 'cd-floppy-hdd' as const,
-    cdromPath: '/user/android-x86-1.6-r2.iso',
+    devices: [{ id: 'c', type: 'cdrom', source: 'local', path: '/user/android-x86-1.6-r2.iso' }],
   }
   assert.equal(settingsToStartConfig(cdromSettings).sendEnterAfterMs, 3000)
 
   const reactos = {
-    ...defaultVirtualMachineSettings('ReactOS'),
+    ...sampleSettings(),
     memoryMb: 512,
     acpi: true,
-    hdaPath: 'https://i.copy.sh/reactos-v3/.img',
-    statePath: 'https://i.copy.sh/reactos_state-v3.bin.zst',
+    devices: [
+      { id: 'h', type: 'hdd', source: 'network', path: 'https://i.copy.sh/reactos-v3/.img' },
+      { id: 's', type: 'state', source: 'network', path: 'https://i.copy.sh/reactos_state-v3.bin.zst' },
+    ],
   }
   assert.equal(settingsToStartConfig(reactos).sendEnterAfterMs, undefined)
 }
@@ -77,8 +97,8 @@ function testStartMessageTransfers(): void {
   const message = buildStartMessage(
     'req-1',
     {
-      ...defaultVirtualMachineSettings(),
-      cdromPath: '/user/android.iso',
+      ...sampleSettings(),
+      devices: [{ id: 'c', type: 'cdrom', source: 'local', path: '/user/android.iso' }],
     },
     { cdrom },
   )
@@ -88,13 +108,33 @@ function testStartMessageTransfers(): void {
   assert.equal(message.type, INSTANT_VM_MESSAGE_TYPE.start)
 }
 
+function testStartMessageMapsMultipleHdds(): void {
+  const hda = new ArrayBuffer(8)
+  const hdb = new ArrayBuffer(4)
+  const message = buildStartMessage(
+    'req-multi',
+    {
+      ...sampleSettings(),
+      devices: [
+        { id: 'h1', type: 'hdd', source: 'local', path: '/user/a.img' },
+        { id: 'h2', type: 'hdd', source: 'local', path: '/user/b.img' },
+        { id: 'c', type: 'cdrom', source: 'local', path: '/user/os.iso' },
+      ],
+    },
+    { hda, hdb },
+  )
+  assert.equal(message.hda, hda)
+  assert.equal(message.hdb, hdb)
+  assert.equal(message.cdrom, undefined)
+}
+
 function testHighMemoryAndDiskStreamStartMessage(): void {
   const message = buildStartMessage(
     'req-stream',
     {
-      ...defaultVirtualMachineSettings(),
+      ...sampleSettings(),
       memoryMb: 1024,
-      hdaPath: '/user/Downloads/windowsxp.img',
+      devices: [{ id: 'h', type: 'hdd', source: 'local', path: '/user/Downloads/windowsxp.img' }],
     },
     { hdaStream: { id: 'ds-xp', size: 2 * 1024 * 1024 * 1024 } },
   )
@@ -102,17 +142,20 @@ function testHighMemoryAndDiskStreamStartMessage(): void {
   assert.equal(startMessageHasDisk(message), true)
   assert.equal(message.config.memoryMb, 1024)
   assert.deepEqual(message.hdaStream, { id: 'ds-xp', size: 2 * 1024 * 1024 * 1024 })
+  assert.equal(message.hdbStream, undefined)
 }
 
 function testReactOsRemoteStartMessage(): void {
   const message = buildStartMessage(
     'req-2',
     {
-      ...defaultVirtualMachineSettings('ReactOS'),
+      ...sampleSettings('ReactOS'),
       memoryMb: 512,
       acpi: true,
-      hdaPath: 'https://i.copy.sh/reactos-v3/.img',
-      statePath: 'https://i.copy.sh/reactos_state-v3.bin.zst',
+      devices: [
+        { id: 'h', type: 'hdd', source: 'network', path: 'https://i.copy.sh/reactos-v3/.img' },
+        { id: 's', type: 'state', source: 'network', path: 'https://i.copy.sh/reactos_state-v3.bin.zst' },
+      ],
     },
     {
       hdaUrl: 'https://i.copy.sh/reactos-v3/.img',
@@ -136,6 +179,17 @@ function testPathSummaryForRemoteUrl(): void {
   )
 }
 
+function emptyDiskStats() {
+  return {
+    present: false,
+    busy: 'idle' as const,
+    sectorsRead: 0,
+    bytesRead: 0,
+    sectorsWritten: 0,
+    bytesWritten: 0,
+  }
+}
+
 function testStatsFormatting(): void {
   assert.equal(formatVmRunningDuration(19_000), '19s')
   assert.equal(formatVmRunningDuration(65_000), '1m 5s')
@@ -147,30 +201,11 @@ function testStatsFormatting(): void {
       speedMips: 0,
       avgSpeedMips: 0,
       ideLabel: 'none',
-      hda: {
-        present: false,
-        busy: 'idle',
-        sectorsRead: 0,
-        bytesRead: 0,
-        sectorsWritten: 0,
-        bytesWritten: 0,
-      },
-      cdrom: {
-        present: false,
-        busy: 'idle',
-        sectorsRead: 0,
-        bytesRead: 0,
-        sectorsWritten: 0,
-        bytesWritten: 0,
-      },
-      fda: {
-        present: false,
-        busy: 'idle',
-        sectorsRead: 0,
-        bytesRead: 0,
-        sectorsWritten: 0,
-        bytesWritten: 0,
-      },
+      hda: emptyDiskStats(),
+      hdb: emptyDiskStats(),
+      cdrom: emptyDiskStats(),
+      fda: emptyDiskStats(),
+      fdb: emptyDiskStats(),
       vga: { mode: 'graphical', width: 800, height: 600, bpp: 16 },
       mouse: false,
     }),
@@ -180,7 +215,7 @@ function testStatsFormatting(): void {
 
 function testNetworkFields(): void {
   const withFetch = {
-    ...defaultVirtualMachineSettings(),
+    ...sampleSettings(),
     network: 'virtio' as const,
     networkBackend: 'fetch' as const,
   }
@@ -216,13 +251,11 @@ function testNetworkFields(): void {
 }
 
 function testCpuModelPassedThrough(): void {
-  // 默认 → 不传 cpuidLevel
-  const defaultCfg = settingsToStartConfig(defaultVirtualMachineSettings())
+  const defaultCfg = settingsToStartConfig(sampleSettings())
   assert.equal(defaultCfg.cpuidLevel, undefined)
 
-  // windows-nt4 → cpuidLevel=2
   const nt4 = settingsToStartConfig({
-    ...defaultVirtualMachineSettings(),
+    ...sampleSettings(),
     cpuModel: 'windows-nt4',
   })
   assert.equal(nt4.cpuidLevel, 2)
@@ -253,30 +286,17 @@ function testStatsMessage(): void {
     speedMips: 0.5,
     avgSpeedMips: 97.5,
     ideLabel: 'cdrom' as const,
-    hda: {
-      present: false,
-      busy: 'idle' as const,
-      sectorsRead: 0,
-      bytesRead: 0,
-      sectorsWritten: 0,
-      bytesWritten: 0,
-    },
+    hda: emptyDiskStats(),
+    hdb: emptyDiskStats(),
     cdrom: {
+      ...emptyDiskStats(),
       present: true,
       busy: 'read' as const,
       sectorsRead: 3779,
       bytesRead: 7_739_392,
-      sectorsWritten: 0,
-      bytesWritten: 0,
     },
-    fda: {
-      present: false,
-      busy: 'idle' as const,
-      sectorsRead: 0,
-      bytesRead: 0,
-      sectorsWritten: 0,
-      bytesWritten: 0,
-    },
+    fda: emptyDiskStats(),
+    fdb: emptyDiskStats(),
     vga: { mode: 'graphical' as const, width: 800, height: 600, bpp: 16 },
     mouse: false,
   }
@@ -307,6 +327,7 @@ testBootOrderMatchesV86()
 testHasBootMedia()
 testCdromSendsEnterAndHddDoesNot()
 testStartMessageTransfers()
+testStartMessageMapsMultipleHdds()
 testHighMemoryAndDiskStreamStartMessage()
 testReactOsRemoteStartMessage()
 testPathSummaryForRemoteUrl()

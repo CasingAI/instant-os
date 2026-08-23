@@ -105,27 +105,43 @@ export type InstantVmDiskStreamRef = {
   size: number
 }
 
+export type InstantVmStorageSlot =
+  | 'hda'
+  | 'hdb'
+  | 'cdrom'
+  | 'fda'
+  | 'fdb'
+  | 'state'
+
 export type InstantVmStartMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.start
   requestId: string
   config: InstantVmStartConfig
   hda?: ArrayBuffer
+  hdb?: ArrayBuffer
   cdrom?: ArrayBuffer
   fda?: ArrayBuffer
+  fdb?: ArrayBuffer
   state?: ArrayBuffer
   /** 大文件走 Blob 传递（structured clone 零拷贝），iframe 侧创建 blob URL 给 v86 async 加载。 */
   hdaBlob?: Blob
+  hdbBlob?: Blob
   cdromBlob?: Blob
   fdaBlob?: Blob
+  fdbBlob?: Blob
   stateBlob?: Blob
   hdaUrl?: string
+  hdbUrl?: string
   cdromUrl?: string
   fdaUrl?: string
+  fdbUrl?: string
   stateUrl?: string
   /** 大体积本地镜像：运行时经 fetch 拦截按范围向宿主拉取，避免整文件进内存。 */
   hdaStream?: InstantVmDiskStreamRef
+  hdbStream?: InstantVmDiskStreamRef
   cdromStream?: InstantVmDiskStreamRef
   fdaStream?: InstantVmDiskStreamRef
+  fdbStream?: InstantVmDiskStreamRef
   stateStream?: InstantVmDiskStreamRef
 }
 
@@ -234,8 +250,10 @@ export type InstantVmStatsSnapshot = {
   avgSpeedMips: number
   ideLabel: InstantVmIdeLabel
   hda: InstantVmDiskStats
+  hdb: InstantVmDiskStats
   cdrom: InstantVmDiskStats
   fda: InstantVmDiskStats
+  fdb: InstantVmDiskStats
   vga: InstantVmVgaStats
   mouse: boolean
 }
@@ -449,20 +467,28 @@ export function isInstantVmStartMessage(value: unknown): value is InstantVmStart
   }
   return (
     isOptionalBuffer(value.hda) &&
+    isOptionalBuffer(value.hdb) &&
     isOptionalBuffer(value.cdrom) &&
     isOptionalBuffer(value.fda) &&
+    isOptionalBuffer(value.fdb) &&
     isOptionalBuffer(value.state) &&
     isOptionalBlob(value.hdaBlob) &&
+    isOptionalBlob(value.hdbBlob) &&
     isOptionalBlob(value.cdromBlob) &&
     isOptionalBlob(value.fdaBlob) &&
+    isOptionalBlob(value.fdbBlob) &&
     isOptionalBlob(value.stateBlob) &&
     isOptionalDiskUrl(value.hdaUrl) &&
+    isOptionalDiskUrl(value.hdbUrl) &&
     isOptionalDiskUrl(value.cdromUrl) &&
     isOptionalDiskUrl(value.fdaUrl) &&
+    isOptionalDiskUrl(value.fdbUrl) &&
     isOptionalDiskUrl(value.stateUrl) &&
     isOptionalDiskStreamRef(value.hdaStream) &&
+    isOptionalDiskStreamRef(value.hdbStream) &&
     isOptionalDiskStreamRef(value.cdromStream) &&
     isOptionalDiskStreamRef(value.fdaStream) &&
+    isOptionalDiskStreamRef(value.fdbStream) &&
     isOptionalDiskStreamRef(value.stateStream)
   )
 }
@@ -531,8 +557,10 @@ export function emptyVmStatsSnapshot(): InstantVmStatsSnapshot {
     avgSpeedMips: 0,
     ideLabel: 'none',
     hda: emptyVmDiskStats(),
+    hdb: emptyVmDiskStats(),
     cdrom: emptyVmDiskStats(),
     fda: emptyVmDiskStats(),
+    fdb: emptyVmDiskStats(),
     vga: { mode: 'text', width: 0, height: 0, bpp: 0 },
     mouse: false,
   }
@@ -692,17 +720,11 @@ export function isAllowedOrigin(origin: string, allowed: readonly string[]): boo
 
 export function collectStartTransfers(message: InstantVmStartMessage): Transferable[] {
   const transfers: Transferable[] = []
-  if (message.hda) {
-    transfers.push(message.hda)
-  }
-  if (message.cdrom) {
-    transfers.push(message.cdrom)
-  }
-  if (message.fda) {
-    transfers.push(message.fda)
-  }
-  if (message.state) {
-    transfers.push(message.state)
+  for (const slot of ['hda', 'hdb', 'cdrom', 'fda', 'fdb', 'state'] as const) {
+    const buffer = message[slot]
+    if (buffer) {
+      transfers.push(buffer)
+    }
   }
   return transfers
 }
@@ -710,20 +732,28 @@ export function collectStartTransfers(message: InstantVmStartMessage): Transfera
 export function startMessageHasDisk(message: InstantVmStartMessage): boolean {
   return Boolean(
     (message.hda && message.hda.byteLength > 0) ||
+      (message.hdb && message.hdb.byteLength > 0) ||
       (message.cdrom && message.cdrom.byteLength > 0) ||
       (message.fda && message.fda.byteLength > 0) ||
+      (message.fdb && message.fdb.byteLength > 0) ||
       message.state ||
       message.stateBlob ||
       message.stateUrl ||
       message.hdaBlob ||
+      message.hdbBlob ||
       message.cdromBlob ||
       message.fdaBlob ||
+      message.fdbBlob ||
       message.hdaUrl ||
+      message.hdbUrl ||
       message.cdromUrl ||
       message.fdaUrl ||
+      message.fdbUrl ||
       message.hdaStream ||
+      message.hdbStream ||
       message.cdromStream ||
       message.fdaStream ||
+      message.fdbStream ||
       message.stateStream,
   )
 }

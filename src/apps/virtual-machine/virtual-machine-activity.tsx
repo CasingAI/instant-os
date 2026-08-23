@@ -10,7 +10,7 @@ import {
   formatVmVgaResolution,
 } from './virtual-machine-stats-format.ts'
 
-type LedKind = 'hdd' | 'cdrom' | 'fda' | 'cpu'
+type LedKind = 'hdd1' | 'hdd2' | 'cdrom' | 'fd1' | 'fd2' | 'cpu'
 
 function ledState(disk: InstantVmDiskStats | undefined, running: boolean): 'off' | 'idle' | 'busy' {
   if (!disk?.present) {
@@ -73,8 +73,10 @@ export function VirtualMachineActivity({
   const [open, setOpen] = useState(false)
 
   const hda = stats?.hda
+  const hdb = stats?.hdb
   const cdrom = stats?.cdrom
   const fda = stats?.fda
+  const fdb = stats?.fdb
   const ide = stats
     ? stats.ideLabel === 'hdd'
       ? stats.hda
@@ -88,10 +90,16 @@ export function VirtualMachineActivity({
       <div class="virtual-machine__bezel">
         <div class="virtual-machine__leds" role="group" aria-label="设备指示灯">
           <ActivityLed
-            kind="hdd"
-            label="HDD"
+            kind="hdd1"
+            label="HD1"
             state={ledState(hda, running)}
-            title={hda ? diskActivityTitle('硬盘', hda) : '硬盘未挂载'}
+            title={hda ? diskActivityTitle('硬盘 1', hda) : '硬盘 1 未挂载'}
+          />
+          <ActivityLed
+            kind="hdd2"
+            label="HD2"
+            state={ledState(hdb, running)}
+            title={hdb ? diskActivityTitle('硬盘 2', hdb) : '硬盘 2 未挂载'}
           />
           <ActivityLed
             kind="cdrom"
@@ -100,10 +108,16 @@ export function VirtualMachineActivity({
             title={cdrom ? diskActivityTitle('光盘', cdrom) : '光盘未挂载'}
           />
           <ActivityLed
-            kind="fda"
-            label="FD"
+            kind="fd1"
+            label="FD1"
             state={ledState(fda, running)}
-            title={fda ? diskActivityTitle('软盘', fda) : '软盘未挂载'}
+            title={fda ? diskActivityTitle('软盘 1', fda) : '软盘 1 未挂载'}
+          />
+          <ActivityLed
+            kind="fd2"
+            label="FD2"
+            state={ledState(fdb, running)}
+            title={fdb ? diskActivityTitle('软盘 2', fdb) : '软盘 2 未挂载'}
           />
           <ActivityLed
             kind="cpu"

@@ -16,13 +16,16 @@ import {
   VM_BUILD_MODE_IDS,
   VM_CPU_MODEL_IDS,
   VM_DISPLAY_MODE_IDS,
+  VM_NETWORK_BACKEND_IDS,
+  VM_NETWORK_IDS,
   VM_PC_TYPE_IDS,
+  VM_POINTER_MODE_IDS,
   VM_MEMORY_MB_MAX,
   VM_MEMORY_MB_MIN,
   VM_MEMORY_MB_STEP,
-  VM_NETWORK_BACKEND_IDS,
-  VM_NETWORK_IDS,
-  VM_POINTER_MODE_IDS,
+  VM_STORAGE_DEVICE_LIMITS,
+  VM_STORAGE_DEVICE_SOURCES,
+  VM_STORAGE_DEVICE_TYPES,
   VM_VGA_MEMORY_MB_OPTIONS,
   type VmBackendId,
   type VmBootOrderId,
@@ -34,10 +37,14 @@ import {
   type VmNetworkId,
   type VmPcTypeId,
   type VmPointerModeId,
+  type VmStorageDevice,
+  type VmStorageDeviceSource,
+  type VmStorageDeviceType,
   type VmVgaMemoryMb,
   type VirtualMachineRecord,
   type VirtualMachineSettings,
 } from './virtual-machine-types.ts'
+import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
 
 export function defaultVirtualMachineSettings(
   name = DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -59,10 +66,7 @@ export function defaultVirtualMachineSettings(
     network: DEFAULT_VIRTUAL_MACHINE_NETWORK,
     networkBackend: DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
     displayMode: DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
-    hdaPath: '',
-    cdromPath: '',
-    fdaPath: '',
-    statePath: '',
+    devices: [],
   }
 }
 
@@ -84,11 +88,128 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     network: record.network,
     networkBackend: record.networkBackend,
     displayMode: record.displayMode,
-    hdaPath: record.hdaPath,
-    cdromPath: record.cdromPath,
-    fdaPath: record.fdaPath,
-    statePath: record.statePath,
+    devices: record.devices,
   }
+}
+
+export function inferStorageDeviceSource(path: string): VmStorageDeviceSource {
+  const trimmed = path.trim()
+  if (!trimmed) {
+    return 'local'
+  }
+  if (isHttpDiskUrl(trimmed)) {
+    return 'network'
+  }
+  return 'local'
+}
+
+function createStorageDevice(
+  type: VmStorageDeviceType,
+  path: string,
+  source?: VmStorageDeviceSource,
+): VmStorageDevice {
+  return {
+    id: `vm-device-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`,
+    type,
+    source: source ?? inferStorageDeviceSource(path),
+    path,
+  }
+}
+
+export function migrateLegacyDrivePaths(record: {
+  hdaPath?: string
+  cdromPath?: string
+  fdaPath?: string
+  statePath?: string
+  devices?: VmStorageDevice[]
+}): VmStorageDevice[] {
+  if (Array.isArray(record.devices)) {
+    return record.devices
+  }
+  const devices: VmStorageDevice[] = []
+  const paths: { type: VmStorageDeviceType; path: string; source?: VmStorageDeviceSource }[] = [
+    { type: 'hdd', path: record.hdaPath ?? '' },
+    { type: 'cdrom', path: record.cdromPath ?? '' },
+    { type: 'floppy', path: record.fdaPath ?? '' },
+    { type: 'state', path: record.statePath ?? '' },
+  ]
+  for (const { type, path, source } of paths) {
+    const trimmed = path.trim()
+    if (trimmed) {
+      devices.push(createStorageDevice(type, trimmed, source))
+    }
+  }
+  return devices
+}
+
+export function deviceTypeLabel(type: VmStorageDeviceType): string {
+  if (type === 'hdd') {
+    return '硬盘'
+  }
+  if (type === 'cdrom') {
+    return '光盘'
+  }
+  if (type === 'floppy') {
+    return '软盘'
+  }
+  return '快照'
+}
+
+export function deviceTypeSlotLabel(type: VmStorageDeviceType, index: number): string {
+  const label = deviceTypeLabel(type)
+  return `${label} ${index + 1}`
+}
+
+export function deviceAcceptExtensions(type: VmStorageDeviceType): readonly string[] {
+  if (type === 'hdd') {
+    return VM_HARD_DISK_ACCEPT_EXTENSIONS
+  }
+  if (type === 'cdrom') {
+    return VM_CDROM_ACCEPT_EXTENSIONS
+  }
+  if (type === 'floppy') {
+    return VM_FLOPPY_ACCEPT_EXTENSIONS
+  }
+  return VM_STATE_ACCEPT_EXTENSIONS
+}
+
+export function devicePickTitle(type: VmStorageDeviceType): string {
+  if (type === 'hdd') {
+    return '选择硬盘镜像'
+  }
+  if (type === 'cdrom') {
+    return '选择光盘镜像'
+  }
+  if (type === 'floppy') {
+    return '选择软盘镜像'
+  }
+  return '选择快照'
+}
+
+export function devicesByType(
+  devices: readonly VmStorageDevice[],
+  type: VmStorageDeviceType,
+): VmStorageDevice[] {
+  return devices.filter((device) => device.type === type)
+}
+
+export function canAddDeviceType(
+  devices: readonly VmStorageDevice[],
+  type: VmStorageDeviceType,
+): boolean {
+  const limit = VM_STORAGE_DEVICE_LIMITS.find((item) => item.type === type)
+  if (!limit) {
+    return false
+  }
+  return devices.filter((device) => device.type === type).length < limit.maxCount
+}
+
+export function isVmStorageDeviceType(value: string): value is VmStorageDeviceType {
+  return (VM_STORAGE_DEVICE_TYPES as readonly string[]).includes(value)
+}
+
+export function isVmStorageDeviceSource(value: string): value is VmStorageDeviceSource {
+  return (VM_STORAGE_DEVICE_SOURCES as readonly string[]).includes(value)
 }
 
 const BOOT_ORDER_LABELS: Record<VmBootOrderId, string> = {
@@ -275,6 +396,7 @@ export const VM_POINTER_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_POINT
 )
 
 export { VM_MEMORY_MB_MIN, VM_MEMORY_MB_MAX, VM_MEMORY_MB_STEP }
+export { VM_STORAGE_DEVICE_LIMITS }
 
 export const VM_HARD_DISK_ACCEPT_EXTENSIONS = ['img', 'raw', 'bin', 'dsk'] as const
 export const VM_CDROM_ACCEPT_EXTENSIONS = ['iso'] as const

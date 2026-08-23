@@ -148,13 +148,17 @@ export function releaseVirtualMachineDiskStream(streamId: string | undefined): v
 export function releaseVirtualMachineDiskStreams(
   message: Partial<{
     hdaStream?: { id: string }
+    hdbStream?: { id: string }
     cdromStream?: { id: string }
     fdaStream?: { id: string }
+    fdbStream?: { id: string }
     stateStream?: { id: string }
   }>,
 ): void {
   releaseVirtualMachineDiskStream(message.hdaStream?.id)
+  releaseVirtualMachineDiskStream(message.hdbStream?.id)
   releaseVirtualMachineDiskStream(message.cdromStream?.id)
   releaseVirtualMachineDiskStream(message.fdaStream?.id)
+  releaseVirtualMachineDiskStream(message.fdbStream?.id)
   releaseVirtualMachineDiskStream(message.stateStream?.id)
 }

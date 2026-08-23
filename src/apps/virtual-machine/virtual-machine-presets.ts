@@ -3,16 +3,20 @@ import type {
   VmBootOrderId,
   VmMemoryMb,
   VirtualMachineSettings,
+  VmStorageDevice,
 } from './virtual-machine-types.ts'
 
+/** @deprecated 旧固定槽位 ID，仅作迁移/兼容用。 */
 export const VM_DRIVE_IDS = ['hdaPath', 'cdromPath', 'fdaPath', 'statePath'] as const
 
+/** @deprecated 旧固定槽位 ID 类型。 */
 export type VmDriveId = (typeof VM_DRIVE_IDS)[number]
 
 export type VmDriveSourceId = 'local' | 'network' | 'preset'
 
 export const VM_DRIVE_SOURCE_IDS = ['local', 'network', 'preset'] as const
 
+/** @deprecated 旧固定槽位标签，保留供外部引用。 */
 export const VM_DRIVE_LABELS: Record<VmDriveId, string> = {
   hdaPath: '硬盘',
   cdromPath: '光盘',
@@ -41,7 +45,19 @@ export type VmGuestPreset = {
   memoryMb: VmMemoryMb
   acpi: boolean
   bootOrder: VmBootOrderId
-  paths: Partial<Record<VmDriveId, string>>
+  devices: VmStorageDevice[]
+}
+
+function createDevice(
+  type: VmStorageDevice['type'],
+  path: string,
+): VmStorageDevice {
+  return {
+    id: `vm-preset-${type}-${Date.now().toString(36)}`,
+    type,
+    source: 'preset',
+    path,
+  }
 }
 
 /** copy.sh 公开镜像；CORS 为 `*`，运行时 iframe 可直接按块拉取。 */
@@ -53,9 +69,7 @@ export const VM_GUEST_PRESETS: readonly VmGuestPreset[] = [
     memoryMb: 512,
     acpi: false,
     bootOrder: 'cd-floppy-hdd',
-    paths: {
-      cdromPath: VM_PRESET_ANDROID_CDROM_URL,
-    },
+    devices: [createDevice('cdrom', VM_PRESET_ANDROID_CDROM_URL)],
   },
   {
     id: 'reactos',
@@ -64,16 +78,20 @@ export const VM_GUEST_PRESETS: readonly VmGuestPreset[] = [
     memoryMb: 512,
     acpi: true,
     bootOrder: 'auto',
-    paths: {
-      hdaPath: VM_PRESET_REACTOS_HDA_URL,
-      statePath: VM_PRESET_REACTOS_STATE_URL,
-    },
+    devices: [
+      createDevice('hdd', VM_PRESET_REACTOS_HDA_URL),
+      createDevice('state', VM_PRESET_REACTOS_STATE_URL),
+    ],
   },
 ]
 
-type DrivePaths = Pick<VirtualMachineSettings, VmDriveId>
-
-export function emptyDrivePaths(): DrivePaths {
+/** @deprecated 用 settings.devices 数组代替。 */
+export function emptyDrivePaths(): {
+  hdaPath: string
+  cdromPath: string
+  fdaPath: string
+  statePath: string
+} {
   return {
     hdaPath: '',
     cdromPath: '',
@@ -96,7 +114,13 @@ export function inferDriveSource(path: string): VmDriveSourceId {
   return 'local'
 }
 
-export function inferDriveSources(settings: DrivePaths): Record<VmDriveId, VmDriveSourceId> {
+/** @deprecated 用 inferStorageDeviceSource 代替。 */
+export function inferDriveSources(settings: {
+  hdaPath: string
+  cdromPath: string
+  fdaPath: string
+  statePath: string
+}): Record<VmDriveId, VmDriveSourceId> {
   return {
     hdaPath: inferDriveSource(settings.hdaPath),
     cdromPath: inferDriveSource(settings.cdromPath),
@@ -111,18 +135,24 @@ export function isGuestPresetPath(path: string): boolean {
     return false
   }
   return VM_GUEST_PRESETS.some((preset) =>
-    VM_DRIVE_IDS.some((drive) => preset.paths[drive] === trimmed),
+    preset.devices.some((device) => device.path === trimmed),
   )
 }
 
-export function guestPresetMatches(settings: DrivePaths, preset: VmGuestPreset): boolean {
-  return VM_DRIVE_IDS.every((drive) => {
-    const expected = preset.paths[drive] ?? ''
-    return settings[drive].trim() === expected
-  })
+export function guestPresetMatches(
+  settings: VirtualMachineSettings,
+  preset: VmGuestPreset,
+): boolean {
+  if (preset.devices.length === 0) {
+    return settings.devices.length === 0
+  }
+  const trimmedPaths = new Set(settings.devices.map((device) => device.path.trim()))
+  return preset.devices.every((device) => trimmedPaths.has(device.path.trim()))
 }
 
-export function detectAppliedGuestPreset(settings: DrivePaths): VmGuestPresetId | undefined {
+export function detectAppliedGuestPreset(
+  settings: VirtualMachineSettings,
+): VmGuestPresetId | undefined {
   return VM_GUEST_PRESETS.find((preset) => guestPresetMatches(settings, preset))?.id
 }
 
@@ -139,21 +169,21 @@ export function applyGuestPreset(
     memoryMb: preset.memoryMb,
     acpi: preset.acpi,
     bootOrder: preset.bootOrder,
-    ...emptyDrivePaths(),
-    ...preset.paths,
+    devices: preset.devices.map((device) => ({ ...device, id: createDevice(device.type, device.path).id })),
   }
 }
 
-export function primaryDriveForPreset(presetId: VmGuestPresetId): VmDriveId {
+export function primaryDriveForPreset(presetId: VmGuestPresetId): 'cdrom' | 'hdd' | 'state' {
   const preset = VM_GUEST_PRESETS.find((item) => item.id === presetId)
-  if (preset?.paths.hdaPath) {
-    return 'hdaPath'
+  const first = preset?.devices[0]
+  if (!first) {
+    return 'state'
   }
-  if (preset?.paths.cdromPath) {
-    return 'cdromPath'
+  if (first.type === 'cdrom') {
+    return 'cdrom'
   }
-  if (preset?.paths.fdaPath) {
-    return 'fdaPath'
+  if (first.type === 'hdd') {
+    return 'hdd'
   }
-  return 'statePath'
+  return 'state'
 }

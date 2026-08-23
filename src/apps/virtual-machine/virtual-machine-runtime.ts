@@ -13,6 +13,47 @@ import {
 } from './virtual-machine-protocol.ts'
 import type { VirtualMachineRecord } from './virtual-machine-types.ts'
 
+function hasRemoteDisk(message: InstantVmStartMessage): boolean {
+  return Boolean(
+    message.hdaUrl ||
+      message.hdbUrl ||
+      message.cdromUrl ||
+      message.fdaUrl ||
+      message.fdbUrl ||
+      message.stateUrl ||
+      message.hdaBlob ||
+      message.hdbBlob ||
+      message.cdromBlob ||
+      message.fdaBlob ||
+      message.fdbBlob ||
+      message.stateBlob ||
+      message.hdaStream ||
+      message.hdbStream ||
+      message.cdromStream ||
+      message.fdaStream ||
+      message.fdbStream ||
+      message.stateStream,
+  )
+}
+
+function diskPresence(disks: Partial<InstantVmStartMessage>): {
+  hda: boolean
+  hdb: boolean
+  cdrom: boolean
+  fda: boolean
+  fdb: boolean
+  state: boolean
+} {
+  return {
+    hda: Boolean(disks.hda ?? disks.hdaBlob ?? disks.hdaUrl ?? disks.hdaStream),
+    hdb: Boolean(disks.hdb ?? disks.hdbBlob ?? disks.hdbUrl ?? disks.hdbStream),
+    cdrom: Boolean(disks.cdrom ?? disks.cdromBlob ?? disks.cdromUrl ?? disks.cdromStream),
+    fda: Boolean(disks.fda ?? disks.fdaBlob ?? disks.fdaUrl ?? disks.fdaStream),
+    fdb: Boolean(disks.fdb ?? disks.fdbBlob ?? disks.fdbUrl ?? disks.fdbStream),
+    state: Boolean(disks.state ?? disks.stateBlob ?? disks.stateUrl ?? disks.stateStream),
+  }
+}
+
 const REQUEST_TIMEOUT_MS = 60_000
 const REMOTE_DISK_REQUEST_TIMEOUT_MS = 180_000
 const DISK_LOAD_TIMEOUT_MS = 120_000
@@ -218,11 +259,7 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
     async (message: InstantVmStartMessage) => {
       setStats(undefined)
       setBootProgress(undefined)
-      const hasRemoteDisk =
-        message.hdaUrl || message.cdromUrl || message.fdaUrl || message.stateUrl ||
-        message.hdaBlob || message.cdromBlob || message.fdaBlob || message.stateBlob ||
-        message.hdaStream || message.cdromStream || message.fdaStream || message.stateStream
-      const timeoutMs = hasRemoteDisk ? REMOTE_DISK_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS
+      const timeoutMs = hasRemoteDisk(message) ? REMOTE_DISK_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS
       console.log('[vm-boot] posting start', message.requestId, targetOrigin)
       await request(message, collectStartTransfers(message), timeoutMs)
       console.log('[vm-boot] start acknowledged', message.requestId)
@@ -366,12 +403,9 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
         console.log('[vm-boot] already running', id)
         return
       }
-      const hasRemoteDisk = [
-        machine.hdaPath,
-        machine.cdromPath,
-        machine.fdaPath,
-        machine.statePath,
-      ].some(isHttpDiskUrl)
+      const hasRemoteDisk = machine.devices.some(
+        (device) => device.path.trim() && isHttpDiskUrl(device.path),
+      )
       addRunningId(id)
       setHints((current) =>
         new Map(current).set(id, hasRemoteDisk ? '正在启动模拟器…' : '正在读取镜像…'),
@@ -383,12 +417,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
           DISK_LOAD_TIMEOUT_MS,
           '读取镜像',
         )
-        console.log('[vm-boot] disks loaded', id, {
-          hda: Boolean(disks.hda ?? disks.hdaBlob ?? disks.hdaUrl ?? disks.hdaStream),
-          cdrom: Boolean(disks.cdrom ?? disks.cdromBlob ?? disks.cdromUrl ?? disks.cdromStream),
-          fda: Boolean(disks.fda ?? disks.fdaBlob ?? disks.fdaUrl ?? disks.fdaStream),
-          state: Boolean(disks.state ?? disks.stateBlob ?? disks.stateUrl ?? disks.stateStream),
-        })
+        console.log('[vm-boot] disks loaded', id, diskPresence(disks))
         if (!runningIdsRef.current.has(id)) {
           console.log('[vm-boot] machine stopped before start message built', id)
           return

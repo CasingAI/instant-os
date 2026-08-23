@@ -2,7 +2,7 @@
  * Virtual Machine 机器列表存储单测。
  * 运行：node --experimental-strip-types src/apps/virtual-machine/virtual-machine-store.test.ts
  *
- * 覆盖：缺省播种；空数组不回种；坏数据回落；新建 / 更新 / 删除往返。
+ * 覆盖：缺省播种；空数组不回种；坏数据回落；新建 / 更新 / 删除往返；devices 数组迁移。
  */
 import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
@@ -47,23 +47,19 @@ function testNormalizeMissingSeedsDefault(): void {
   assert.equal(machines[0]?.bootOrder, 'auto')
   assert.equal(machines[0]?.network, 'none')
   assert.equal(machines[0]?.networkBackend, 'off')
-  assert.equal(machines[0]?.hdaPath, '')
-  assert.equal(machines[0]?.statePath, '')
+  assert.deepEqual(machines[0]?.devices, [])
   assert.equal(machines[0]?.speaker, true)
   assert.equal(machines[0]?.acpi, false)
   assert.equal(machines[0]?.buildMode, DEFAULT_VIRTUAL_MACHINE_BUILD_MODE)
 }
 
 function testNormalizeBuildModeFallback(): void {
-  // 缺失 buildMode → 回退到默认 release
   const noMode = normalizeVirtualMachineSettings({ name: 'test' })
   assert.equal(noMode?.buildMode, 'release')
 
-  // 非法值 → 回退到默认
   const badMode = normalizeVirtualMachineSettings({ name: 'test', buildMode: 'unknown' })
   assert.equal(badMode?.buildMode, 'release')
 
-  // 合法值保留
   const debugMode = normalizeVirtualMachineSettings({ name: 'test', buildMode: 'debug' })
   assert.equal(debugMode?.buildMode, 'debug')
 }
@@ -89,9 +85,10 @@ function testNormalizeDropsGarbageAndDuplicates(): void {
       mouse: false,
       network: 'virtio',
       networkBackend: 'fetch',
-      hdaPath: 'user/disks/a.img',
-      cdromPath: '/user/iso/linux.iso',
-      fdaPath: '   ',
+      devices: [
+        { id: 'd1', type: 'hdd', source: 'local', path: '/user/disks/a.img' },
+        { id: 'd2', type: 'cdrom', source: 'local', path: '/user/iso/linux.iso' },
+      ],
       createdAt: 12,
     },
     { id: 'a', name: 'Dup' },
@@ -113,50 +110,76 @@ function testNormalizeDropsGarbageAndDuplicates(): void {
   assert.equal(machines[0]?.mouse, false)
   assert.equal(machines[0]?.network, 'virtio')
   assert.equal(machines[0]?.networkBackend, 'fetch')
-  assert.equal(machines[0]?.hdaPath, '/user/disks/a.img')
-  assert.equal(machines[0]?.cdromPath, '/user/iso/linux.iso')
-  assert.equal(machines[0]?.fdaPath, '')
-  assert.equal(machines[0]?.statePath, '')
+  assert.equal(machines[0]?.devices.length, 2)
+  assert.equal(machines[0]?.devices[0]?.path, '/user/disks/a.img')
+  assert.equal(machines[0]?.devices[1]?.path, '/user/iso/linux.iso')
   assert.equal(machines[0]?.createdAt, 12)
-  assert.equal(machines[0]?.buildMode, 'release') // 非法 backend 不影响 buildMode 回退
+  assert.equal(machines[0]?.buildMode, 'release')
   assert.equal(machines[1]?.id, 'c')
   assert.equal(machines[1]?.memoryMb, DEFAULT_VIRTUAL_MACHINE_MEMORY_MB)
   assert.equal(machines[1]?.network, 'none')
   assert.equal(machines[1]?.networkBackend, 'off')
+  assert.deepEqual(machines[1]?.devices, [])
+}
+
+function testNormalizeMigratesLegacyPaths(): void {
+  const migrated = normalizeVirtualMachineSettings({
+    name: 'legacy',
+    hdaPath: '/user/disks/hda.img',
+    cdromPath: 'https://example.com/os.iso',
+    fdaPath: '   ',
+    statePath: '/user/state.bin',
+  })
+  assert.equal(migrated?.devices.length, 3)
+  assert.equal(migrated?.devices[0]?.type, 'hdd')
+  assert.equal(migrated?.devices[0]?.path, '/user/disks/hda.img')
+  assert.equal(migrated?.devices[0]?.source, 'local')
+  assert.equal(migrated?.devices[1]?.type, 'cdrom')
+  assert.equal(migrated?.devices[1]?.path, 'https://example.com/os.iso')
+  assert.equal(migrated?.devices[1]?.source, 'network')
+  assert.equal(migrated?.devices[2]?.type, 'state')
+  assert.equal(migrated?.devices[2]?.path, '/user/state.bin')
+}
+
+function testNormalizeDevicesArray(): void {
+  const array = normalizeVirtualMachineSettings({
+    name: 'array',
+    devices: [
+      { id: 'x', type: 'hdd', source: 'local', path: '/a.img' },
+      { type: 'unknown', source: 'network', path: 'https://x' },
+      { type: 'cdrom', source: 'preset', path: 'https://p' },
+    ],
+  })
+  assert.equal(array?.devices.length, 2)
+  assert.equal(array?.devices[0]?.id, 'x')
+  assert.equal(array?.devices[1]?.type, 'cdrom')
+  assert.equal(array?.devices[1]?.source, 'preset')
 }
 
 function testNormalizeMemoryMbRange(): void {
-  // 旧值 512 在范围内，保留
   const a = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 512 })
   assert.equal(a?.memoryMb, 512)
 
-  // 非 16 倍数，向下取整到 16 的倍数
   const b = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 100 })
   assert.equal(b?.memoryMb, 96)
 
-  // 超过上限 2032，clamp 到 2032（v86 无法使用满 2048 MB）
   const c = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 8192 })
   assert.equal(c?.memoryMb, 2032)
 
-  // 低于下限 16，clamp 到 16
   const d = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 1 })
   assert.equal(d?.memoryMb, 16)
 
-  // 缺失 → 默认值
   const e = normalizeVirtualMachineSettings({ name: 'test' })
   assert.equal(e?.memoryMb, DEFAULT_VIRTUAL_MACHINE_MEMORY_MB)
 }
 
 function testNormalizeCpuModelFallback(): void {
-  // 缺失 → 默认值
   const a = normalizeVirtualMachineSettings({ name: 'test' })
   assert.equal(a?.cpuModel, DEFAULT_VIRTUAL_MACHINE_CPU_MODEL)
 
-  // 合法值保留
   const b = normalizeVirtualMachineSettings({ name: 'test', cpuModel: 'windows-nt4' })
   assert.equal(b?.cpuModel, 'windows-nt4')
 
-  // 非法值 → 回退
   const c = normalizeVirtualMachineSettings({ name: 'test', cpuModel: 'fake-cpu' })
   assert.equal(c?.cpuModel, DEFAULT_VIRTUAL_MACHINE_CPU_MODEL)
 }
@@ -166,12 +189,14 @@ function testNormalizeKeepsHttpUrls(): void {
     {
       id: 'reactos',
       name: 'ReactOS',
-      hdaPath: 'https://i.copy.sh/reactos-v3/.img',
-      statePath: 'https://i.copy.sh/reactos_state-v3.bin.zst',
+      devices: [
+        { id: 'h', type: 'hdd', source: 'network', path: 'https://i.copy.sh/reactos-v3/.img' },
+        { id: 's', type: 'state', source: 'network', path: 'https://i.copy.sh/reactos_state-v3.bin.zst' },
+      ],
     },
   ])
-  assert.equal(machines[0]?.hdaPath, 'https://i.copy.sh/reactos-v3/.img')
-  assert.equal(machines[0]?.statePath, 'https://i.copy.sh/reactos_state-v3.bin.zst')
+  assert.equal(machines[0]?.devices[0]?.path, 'https://i.copy.sh/reactos-v3/.img')
+  assert.equal(machines[0]?.devices[1]?.path, 'https://i.copy.sh/reactos_state-v3.bin.zst')
 }
 
 function testNormalizeRecordRejectsInvalid(): void {
@@ -233,7 +258,7 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
     cpuModel: 'windows-nt4',
     network: 'ne2k',
     networkBackend: 'fetch',
-    hdaPath: '/user/vm/disk.img',
+    devices: [{ id: 'd', type: 'hdd', source: 'local', path: '/user/vm/disk.img' }],
     acpi: true,
   })
   assert.equal(updated?.id, created.id)
@@ -242,7 +267,7 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
   assert.equal(updated?.cpuModel, 'windows-nt4')
   assert.equal(updated?.network, 'ne2k')
   assert.equal(updated?.networkBackend, 'fetch')
-  assert.equal(updated?.hdaPath, '/user/vm/disk.img')
+  assert.equal(updated?.devices[0]?.path, '/user/vm/disk.img')
   assert.equal(updated?.acpi, true)
   assert.equal(updated?.createdAt, created.createdAt)
 
@@ -258,6 +283,8 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
 testNormalizeMissingSeedsDefault()
 testNormalizeEmptyArrayStaysEmpty()
 testNormalizeDropsGarbageAndDuplicates()
+testNormalizeMigratesLegacyPaths()
+testNormalizeDevicesArray()
 testNormalizeKeepsHttpUrls()
 testNormalizeRecordRejectsInvalid()
 testNormalizeBuildModeFallback()

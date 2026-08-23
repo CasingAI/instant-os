@@ -98,6 +98,21 @@ export const DEFAULT_VIRTUAL_MACHINE_NAME = '未命名虚拟机'
 export const VIRTUAL_MACHINE_NAME_MAX_LENGTH = 80
 export const VIRTUAL_MACHINE_PATH_MAX_LENGTH = 500
 
+export const VM_STORAGE_DEVICE_TYPES = ['hdd', 'cdrom', 'floppy', 'state'] as const
+
+export type VmStorageDeviceType = (typeof VM_STORAGE_DEVICE_TYPES)[number]
+
+export const VM_STORAGE_DEVICE_SOURCES = ['local', 'network', 'preset'] as const
+
+export type VmStorageDeviceSource = (typeof VM_STORAGE_DEVICE_SOURCES)[number]
+
+export type VmStorageDevice = {
+  id: string
+  type: VmStorageDeviceType
+  source: VmStorageDeviceSource
+  path: string
+}
+
 export type VirtualMachineSettings = {
   name: string
   backend: VmBackendId
@@ -115,10 +130,7 @@ export type VirtualMachineSettings = {
   network: VmNetworkId
   networkBackend: VmNetworkBackendId
   displayMode: VmDisplayModeId
-  hdaPath: string
-  cdromPath: string
-  fdaPath: string
-  statePath: string
+  devices: VmStorageDevice[]
 }
 
 export type VirtualMachineRecord = VirtualMachineSettings & {
@@ -129,3 +141,15 @@ export type VirtualMachineRecord = VirtualMachineSettings & {
 export type VirtualMachineStore = {
   machines: VirtualMachineRecord[]
 }
+
+export type VmStorageDeviceTypeWithLimits = {
+  type: VmStorageDeviceType
+  maxCount: number
+}
+
+export const VM_STORAGE_DEVICE_LIMITS: readonly VmStorageDeviceTypeWithLimits[] = [
+  { type: 'hdd', maxCount: 2 },
+  { type: 'cdrom', maxCount: 1 },
+  { type: 'floppy', maxCount: 2 },
+  { type: 'state', maxCount: 1 },
+] as const

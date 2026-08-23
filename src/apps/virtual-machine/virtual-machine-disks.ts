@@ -1,5 +1,9 @@
 import { filesMkdir, filesOpenStreamWrite, filesReadBlob, filesStat } from '../files/files-api.ts'
-import { cpuidLevelForCpuModel } from './virtual-machine-config.ts'
+import {
+  cpuidLevelForCpuModel,
+  deviceTypeLabel,
+  devicesByType,
+} from './virtual-machine-config.ts'
 import {
   registerVirtualMachineDiskStream,
 } from './virtual-machine-disk-stream-host.ts'
@@ -11,7 +15,11 @@ import {
   type InstantVmStartConfig,
   type InstantVmStartMessage,
 } from './virtual-machine-protocol.ts'
-import type { VirtualMachineSettings } from './virtual-machine-types.ts'
+import type {
+  VirtualMachineSettings,
+  VmStorageDevice,
+  VmStorageDeviceType,
+} from './virtual-machine-types.ts'
 
 export const VM_BLANK_DISK_DIR = '/user/Disks'
 export const VM_BLANK_DISK_MIN_SIZE_MB = 16
@@ -84,15 +92,20 @@ export async function createBlankVirtualMachineDisk(
 }
 
 export function virtualMachineHasBootMedia(
-  settings: Pick<VirtualMachineSettings, 'hdaPath' | 'cdromPath' | 'fdaPath'>,
+  settings: Pick<VirtualMachineSettings, 'devices'>,
 ): boolean {
-  return [settings.hdaPath, settings.cdromPath, settings.fdaPath].some(
-    (path) => path.trim().length > 0,
+  return settings.devices.some(
+    (device) =>
+      (device.type === 'hdd' || device.type === 'cdrom' || device.type === 'floppy') &&
+      device.path.trim().length > 0,
   )
 }
 
 export function settingsToStartConfig(settings: VirtualMachineSettings): InstantVmStartConfig {
   const cpuidLevel = cpuidLevelForCpuModel(settings.cpuModel)
+  const hasCdrom = devicesByType(settings.devices, 'cdrom').some(
+    (device) => device.path.trim().length > 0,
+  )
   return {
     memoryMb: settings.memoryMb,
     vgaMemoryMb: settings.vgaMemoryMb,
@@ -107,7 +120,7 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     displayMode: settings.displayMode,
     pointerMode: settings.pointerMode,
     ...(cpuidLevel !== undefined ? { cpuidLevel } : {}),
-    sendEnterAfterMs: settings.cdromPath.trim() ? 3000 : undefined,
+    sendEnterAfterMs: hasCdrom ? 3000 : undefined,
   }
 }
 
@@ -123,6 +136,39 @@ type LoadedDisk = {
   blob?: Blob
   url?: string
   stream?: InstantVmDiskStreamRef
+}
+
+const SLOT_ORDER: Record<VmStorageDeviceType, ('hda' | 'hdb' | 'cdrom' | 'fda' | 'fdb' | 'state')[]> = {
+  hdd: ['hda', 'hdb'],
+  cdrom: ['cdrom'],
+  floppy: ['fda', 'fdb'],
+  state: ['state'],
+}
+
+type SlotName = 'hda' | 'hdb' | 'cdrom' | 'fda' | 'fdb' | 'state'
+
+type SlotAssignment = {
+  slot: SlotName
+  label: string
+  device: VmStorageDevice
+}
+
+function assignDevicesToSlots(devices: readonly VmStorageDevice[]): SlotAssignment[] {
+  const used = new Map<VmStorageDeviceType, number>()
+  const assignments: SlotAssignment[] = []
+  for (const device of devices) {
+    if (!device.path.trim()) {
+      continue
+    }
+    const index = used.get(device.type) ?? 0
+    const slots = SLOT_ORDER[device.type]
+    if (index >= slots.length) {
+      continue
+    }
+    used.set(device.type, index + 1)
+    assignments.push({ slot: slots[index], label: deviceTypeLabel(device.type), device })
+  }
+  return assignments
 }
 
 async function loadDisk(
@@ -161,129 +207,62 @@ async function loadDisk(
 }
 
 export async function loadVirtualMachineDisks(
-  settings: Pick<VirtualMachineSettings, 'hdaPath' | 'cdromPath' | 'fdaPath' | 'statePath'>,
-): Promise<
-  Pick<
-    InstantVmStartMessage,
-    | 'hda'
-    | 'cdrom'
-    | 'fda'
-    | 'state'
-    | 'hdaBlob'
-    | 'cdromBlob'
-    | 'fdaBlob'
-    | 'stateBlob'
-    | 'hdaUrl'
-    | 'cdromUrl'
-    | 'fdaUrl'
-    | 'stateUrl'
-    | 'hdaStream'
-    | 'cdromStream'
-    | 'fdaStream'
-    | 'stateStream'
-  >
-> {
-  const [hda, cdrom, fda, state] = await Promise.all([
-    loadDisk(settings.hdaPath, '硬盘'),
-    loadDisk(settings.cdromPath, '光盘'),
-    loadDisk(settings.fdaPath, '软盘'),
-    loadDisk(settings.statePath, '快照', false),
-  ])
-  return {
-    hda: hda.buffer,
-    cdrom: cdrom.buffer,
-    fda: fda.buffer,
-    state: state.buffer,
-    hdaBlob: hda.blob,
-    cdromBlob: cdrom.blob,
-    fdaBlob: fda.blob,
-    stateBlob: state.blob,
-    hdaUrl: hda.url,
-    cdromUrl: cdrom.url,
-    fdaUrl: fda.url,
-    stateUrl: state.url,
-    hdaStream: hda.stream,
-    cdromStream: cdrom.stream,
-    fdaStream: fda.stream,
-    stateStream: state.stream,
+  settings: Pick<VirtualMachineSettings, 'devices'>,
+): Promise<Partial<Pick<InstantVmStartMessage, SlotName | `${SlotName}Blob` | `${SlotName}Url` | `${SlotName}Stream`>>> {
+  const assignments = assignDevicesToSlots(settings.devices)
+  const loaded = await Promise.all(
+    assignments.map(async (assignment) => ({
+      slot: assignment.slot,
+      ...await loadDisk(assignment.device.path, assignment.label, assignment.device.type !== 'state'),
+    })),
+  )
+  const result: Partial<Pick<InstantVmStartMessage, SlotName | `${SlotName}Blob` | `${SlotName}Url` | `${SlotName}Stream`>> = {}
+  for (const item of loaded) {
+    const slot = item.slot
+    if (item.buffer) {
+      result[slot] = item.buffer
+    }
+    if (item.blob) {
+      result[`${slot}Blob`] = item.blob
+    }
+    if (item.url) {
+      result[`${slot}Url`] = item.url
+    }
+    if (item.stream) {
+      result[`${slot}Stream`] = item.stream
+    }
   }
+  return result
 }
 
 export function buildStartMessage(
   requestId: string,
   settings: VirtualMachineSettings,
-  disks: Pick<
-    InstantVmStartMessage,
-    | 'hda'
-    | 'cdrom'
-    | 'fda'
-    | 'state'
-    | 'hdaBlob'
-    | 'cdromBlob'
-    | 'fdaBlob'
-    | 'stateBlob'
-    | 'hdaUrl'
-    | 'cdromUrl'
-    | 'fdaUrl'
-    | 'stateUrl'
-    | 'hdaStream'
-    | 'cdromStream'
-    | 'fdaStream'
-    | 'stateStream'
-  >,
+  disks: Partial<Pick<InstantVmStartMessage, SlotName | `${SlotName}Blob` | `${SlotName}Url` | `${SlotName}Stream`>>,
 ): InstantVmStartMessage {
   const message: InstantVmStartMessage = {
     type: INSTANT_VM_MESSAGE_TYPE.start,
     requestId,
     config: settingsToStartConfig(settings),
   }
-  if (disks.hda) {
-    message.hda = disks.hda
-  }
-  if (disks.cdrom) {
-    message.cdrom = disks.cdrom
-  }
-  if (disks.fda) {
-    message.fda = disks.fda
-  }
-  if (disks.state) {
-    message.state = disks.state
-  }
-  if (disks.hdaBlob) {
-    message.hdaBlob = disks.hdaBlob
-  }
-  if (disks.cdromBlob) {
-    message.cdromBlob = disks.cdromBlob
-  }
-  if (disks.fdaBlob) {
-    message.fdaBlob = disks.fdaBlob
-  }
-  if (disks.stateBlob) {
-    message.stateBlob = disks.stateBlob
-  }
-  if (disks.hdaUrl) {
-    message.hdaUrl = disks.hdaUrl
-  }
-  if (disks.cdromUrl) {
-    message.cdromUrl = disks.cdromUrl
-  }
-  if (disks.fdaUrl) {
-    message.fdaUrl = disks.fdaUrl
-  }
-  if (disks.stateUrl) {
-    message.stateUrl = disks.stateUrl
-  }
-  if (disks.hdaStream) {
-    message.hdaStream = disks.hdaStream
-  }
-  if (disks.cdromStream) {
-    message.cdromStream = disks.cdromStream
-  }
-  if (disks.fdaStream) {
-    message.fdaStream = disks.fdaStream
-  }
-  if (disks.stateStream) {
-    message.stateStream = disks.stateStream
+  const slots: SlotName[] = ['hda', 'hdb', 'cdrom', 'fda', 'fdb', 'state']
+  for (const slot of slots) {
+    const buffer = disks[slot]
+    const blob = disks[`${slot}Blob` as const]
+    const url = disks[`${slot}Url` as const]
+    const stream = disks[`${slot}Stream` as const]
+    if (buffer) {
+      message[slot] = buffer
+    }
+    if (blob) {
+      message[`${slot}Blob`] = blob
+    }
+    if (url) {
+      message[`${slot}Url`] = url
+    }
+    if (stream) {
+      message[`${slot}Stream`] = stream
+    }
   }
   return message
 }

@@ -2,6 +2,7 @@ import { createPortal } from 'preact/compat'
 import { useEffect, useMemo, useRef } from 'preact/hooks'
 import { formatVmBackendLabel } from './virtual-machine-backends.ts'
 import {
+  deviceTypeLabel,
   formatVmBootOrderLabel,
   formatVmBuildModeLabel,
   formatVmMemoryLabel,
@@ -126,10 +127,14 @@ export function VirtualMachineInspectorOverlay({
           </Section>
 
           <Section title="存储">
-            <Row label="硬盘" value={formatVmPathSummary(machine.hdaPath)} />
-            <Row label="光盘" value={formatVmPathSummary(machine.cdromPath)} />
-            <Row label="软盘" value={formatVmPathSummary(machine.fdaPath)} />
-            <Row label="快照" value={formatVmPathSummary(machine.statePath)} />
+            {machine.devices.length === 0 && <Row label="设备" value="未配置" />}
+            {machine.devices.map((device) => (
+              <Row
+                key={device.id}
+                label={deviceTypeLabel(device.type)}
+                value={formatVmPathSummary(device.path)}
+              />
+            ))}
           </Section>
         </div>
       </div>

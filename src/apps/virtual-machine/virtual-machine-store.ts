@@ -2,6 +2,7 @@ import { createRegistryStore } from '../../os/registry-store.ts'
 import {
   clampVmMemoryMb,
   defaultVirtualMachineSettings,
+  migrateLegacyDrivePaths,
   settingsFromRecord,
 } from './virtual-machine-config.ts'
 import {
@@ -17,10 +18,12 @@ import {
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
   VM_POINTER_MODE_IDS,
+  VM_STORAGE_DEVICE_TYPES,
   VM_VGA_MEMORY_MB_OPTIONS,
   type VirtualMachineRecord,
   type VirtualMachineSettings,
   type VirtualMachineStore,
+  type VmStorageDevice,
 } from './virtual-machine-types.ts'
 
 export const VIRTUAL_MACHINE_STORE_CHANGED_EVENT = 'instant-os:virtual-machine-store-changed'
@@ -67,6 +70,68 @@ function normalizePath(raw: unknown): string {
   return path.startsWith('/') ? path : `/${path}`
 }
 
+function normalizeStorageDeviceType(raw: unknown): 'hdd' | 'cdrom' | 'floppy' | 'state' | undefined {
+  if (typeof raw !== 'string') {
+    return undefined
+  }
+  const trimmed = raw.trim().toLowerCase()
+  if ((VM_STORAGE_DEVICE_TYPES as readonly string[]).includes(trimmed)) {
+    return trimmed as 'hdd' | 'cdrom' | 'floppy' | 'state'
+  }
+  return undefined
+}
+
+function normalizeStorageDeviceSource(
+  raw: unknown,
+): 'local' | 'network' | 'preset' | undefined {
+  if (typeof raw !== 'string') {
+    return undefined
+  }
+  const trimmed = raw.trim().toLowerCase()
+  if (trimmed === 'local' || trimmed === 'network' || trimmed === 'preset') {
+    return trimmed
+  }
+  return undefined
+}
+
+function normalizeStorageDevice(raw: unknown): VmStorageDevice | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined
+  }
+  const record = raw as Record<string, unknown>
+  const type = normalizeStorageDeviceType(record.type)
+  if (!type) {
+    return undefined
+  }
+  const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : createDeviceId()
+  const source = normalizeStorageDeviceSource(record.source) ?? 'local'
+  const path = normalizePath(record.path)
+  return { id, type, source, path }
+}
+
+function createDeviceId(): string {
+  return `vm-device-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeDevices(record: Record<string, unknown>): VmStorageDevice[] {
+  if (Array.isArray(record.devices)) {
+    const devices: VmStorageDevice[] = []
+    for (const raw of record.devices) {
+      const device = normalizeStorageDevice(raw)
+      if (device) {
+        devices.push(device)
+      }
+    }
+    return devices
+  }
+  return migrateLegacyDrivePaths({
+    hdaPath: typeof record.hdaPath === 'string' ? record.hdaPath : undefined,
+    cdromPath: typeof record.cdromPath === 'string' ? record.cdromPath : undefined,
+    fdaPath: typeof record.fdaPath === 'string' ? record.fdaPath : undefined,
+    statePath: typeof record.statePath === 'string' ? record.statePath : undefined,
+  })
+}
+
 export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSettings | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined
@@ -98,10 +163,7 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
       defaults.networkBackend,
     ),
     displayMode: normalizeOneOf(record.displayMode, VM_DISPLAY_MODE_IDS, defaults.displayMode),
-    hdaPath: normalizePath(record.hdaPath),
-    cdromPath: normalizePath(record.cdromPath),
-    fdaPath: normalizePath(record.fdaPath),
-    statePath: normalizePath(record.statePath),
+    devices: normalizeDevices(record),
   }
 }
 

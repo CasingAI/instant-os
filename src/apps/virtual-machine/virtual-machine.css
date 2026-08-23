@@ -651,6 +651,76 @@
   color: #555;
 }
 
+.virtual-machine-settings__add-device {
+  padding: 8px 10px;
+}
+
+.virtual-machine-settings__add-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.virtual-machine-settings__add-options {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--vm-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.virtual-machine-settings__add-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.virtual-machine-settings__add-option:last-child {
+  border-bottom: none;
+}
+
+.virtual-machine-settings__add-option:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.virtual-machine-settings__add-option:active:not(:disabled) {
+  color: #fff;
+  background: var(--vm-selected);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.virtual-machine-settings__add-option:disabled {
+  opacity: 0.48;
+}
+
+.virtual-machine-settings__add-option-name {
+  font-weight: 600;
+}
+
+.virtual-machine-settings__add-option-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--vm-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.virtual-machine-settings__add-option:active:not(:disabled)
+  .virtual-machine-settings__add-option-meta {
+  color: rgba(255, 255, 255, 0.86);
+}
+
 .virtual-machine-inspector__overlay {
   position: fixed;
   inset: 0;
