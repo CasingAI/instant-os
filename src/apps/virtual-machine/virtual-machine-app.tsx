@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -118,6 +118,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const [settingsSession, setSettingsSession] = useState<SettingsSession | undefined>(undefined)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [guestKeyboardArmed, setGuestKeyboardArmed] = useState(false)
+  const keyboardSinkRef = useRef<HTMLDivElement>(null)
+  const settingsOpenRef = useRef(false)
+  const inspectorOpenRef = useRef(false)
+  const stealFocusTokenRef = useRef(0)
 
   const applyStore = useCallback((next: VirtualMachineRecord[]) => {
     setMachines(next)
@@ -167,6 +171,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const selectedRunning = Boolean(selected && pool.runningIds.includes(selected.id))
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
+  settingsOpenRef.current = settingsOpen
+  inspectorOpenRef.current = inspectorOpen
   const canStart = Boolean(
     hasSelection &&
       !powerBusy &&
@@ -191,10 +197,29 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   )
 
   const captureGuestKeyboard = useCallback(() => {
+    // 不要把焦点交给 iframe：跨域画面看起来像聚焦了，按键却进不去。
+    // 焦点留在宿主，按键由窗口监听转发进模拟器。
+    if (settingsOpenRef.current || inspectorOpenRef.current) {
+      return
+    }
     setGuestKeyboardArmed(true)
+    const token = ++stealFocusTokenRef.current
+    const steal = () => {
+      if (token !== stealFocusTokenRef.current) {
+        return
+      }
+      if (settingsOpenRef.current || inspectorOpenRef.current) {
+        return
+      }
+      keyboardSinkRef.current?.focus({ preventScroll: true })
+    }
+    steal()
+    requestAnimationFrame(steal)
+    window.setTimeout(steal, 0)
   }, [])
 
   const releaseGuestKeyboard = useCallback(() => {
+    stealFocusTokenRef.current += 1
     setGuestKeyboardArmed(false)
     if (displayedId !== undefined) {
       pool.releaseKeyboard(displayedId)
@@ -205,6 +230,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     if (!settingsOpen && !inspectorOpen && displayedId !== undefined) {
       return
     }
+    stealFocusTokenRef.current += 1
     setGuestKeyboardArmed(false)
     if (displayedId !== undefined) {
       pool.releaseKeyboard(displayedId)
@@ -477,11 +503,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       event.preventDefault()
       pool.sendKeyboard(displayedId, guestKeyboardFromEvent(event, 'up'))
     }
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('keyup', onKeyUp, true)
     return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('keyup', onKeyUp, true)
     }
   }, [
     displayedId,
@@ -600,6 +626,12 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           )}
         </aside>
         <section class="virtual-machine__display-pane" aria-label="显示器">
+          <div
+            ref={keyboardSinkRef}
+            class="virtual-machine__keyboard-sink"
+            tabIndex={-1}
+            aria-hidden="true"
+          />
           <div class="virtual-machine__monitors">
             {runningMachines.map((machine) => {
               const isDisplayed = machine.id === displayedId

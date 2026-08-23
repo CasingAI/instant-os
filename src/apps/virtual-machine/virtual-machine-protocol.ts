@@ -180,7 +180,7 @@ export type InstantVmSetDisplayModeMessage = {
 
 export type InstantVmKeyboardPhase = 'down' | 'up'
 
-/** 主程序在运行时未持有焦点时转发按键；运行时已有焦点时不应再发。 */
+/** 宿主捕获到的按键。嵌入时焦点留在宿主，运行时必须始终注入，不能因自身有焦点而丢弃。 */
 export type InstantVmKeyboardMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.keyboard
   phase: InstantVmKeyboardPhase

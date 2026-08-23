@@ -303,7 +303,9 @@ export function useVirtualMachineRuntime(origin: string | undefined) {
   )
 
   const captureKeyboard = useCallback(() => {
-    iframeRef.current?.focus()
+    // 跨域 iframe 的 focus() 会把按键从宿主窗口抢走，却经常送不进 iframe 文档。
+    // 键盘由宿主转发，这里只确保 iframe 自己不要占着焦点。
+    iframeRef.current?.blur()
   }, [])
 
   const releaseKeyboard = useCallback(() => {

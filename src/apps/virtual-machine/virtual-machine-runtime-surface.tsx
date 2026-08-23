@@ -135,6 +135,12 @@ export function VmRuntimeSurface({
       referrerPolicy="origin"
       sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
       allow="autoplay; fullscreen; pointer-lock"
+      onFocus={() => {
+        // 点进跨域 iframe 时焦点会落到 iframe 上，宿主窗口就再也收不到按键。
+        // 立刻交还宿主，改走 postMessage 注入。
+        captureKeyboard()
+        onCaptureKeyboard()
+      }}
       onPointerDown={() => {
         captureKeyboard()
         onCaptureKeyboard()
