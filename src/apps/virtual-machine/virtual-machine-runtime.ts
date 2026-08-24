@@ -107,6 +107,57 @@ export function isUnsolicitedVmStopped(message: {
   return message.type === INSTANT_VM_MESSAGE_TYPE.stopped && message.requestId === undefined
 }
 
+export const DISK_WRITE_FAILED_FORCE_STOP_MS = 30_000
+export const DISK_WRITE_FAILED_FORCE_STOP_HINT =
+  '硬盘回写失败，已强制标记为已关机；镜像可能不完整'
+
+export function createDiskWriteFailedWatchdog(options: {
+  delayMs?: number
+  isRunning: (id: string) => boolean
+  onForceStop: (id: string) => void
+  schedule?: (callback: () => void, ms: number) => () => void
+}) {
+  const delayMs = options.delayMs ?? DISK_WRITE_FAILED_FORCE_STOP_MS
+  const schedule =
+    options.schedule ??
+    ((callback, ms) => {
+      const timer = globalThis.setTimeout(callback, ms)
+      return () => globalThis.clearTimeout(timer)
+    })
+  const cancels = new Map<string, () => void>()
+
+  const cancel = (id: string) => {
+    const clear = cancels.get(id)
+    if (!clear) {
+      return
+    }
+    cancels.delete(id)
+    clear()
+  }
+
+  return {
+    arm(id: string) {
+      if (cancels.has(id) || !options.isRunning(id)) {
+        return
+      }
+      const clear = schedule(() => {
+        cancels.delete(id)
+        if (!options.isRunning(id)) {
+          return
+        }
+        options.onForceStop(id)
+      }, delayMs)
+      cancels.set(id, clear)
+    },
+    cancel,
+    dispose() {
+      for (const id of [...cancels.keys()]) {
+        cancel(id)
+      }
+    },
+  }
+}
+
 export type VmRuntimeApi = {
   start(message: InstantVmStartMessage): Promise<void>
   stop(): Promise<void>
@@ -405,6 +456,9 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
   const [hints, setHints] = useState<ReadonlyMap<string, string>>(new Map())
   const runningIdsRef = useRef(new Set<string>())
   const apiByIdRef = useRef(new Map<string, VmRuntimeApi>())
+  const watchdogRef = useRef<{ cancel: (id: string) => void; arm: (id: string) => void } | undefined>(
+    undefined,
+  )
 
   const addRunningId = useCallback((id: string) => {
     runningIdsRef.current.add(id)
@@ -412,6 +466,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
   }, [])
 
   const removeRunningId = useCallback((id: string) => {
+    watchdogRef.current?.cancel(id)
     runningIdsRef.current.delete(id)
     setRunningIds([...runningIdsRef.current])
     setStartMessages((current) => {
@@ -439,6 +494,23 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
       return next
     })
   }, [])
+
+  const diskWriteFailedWatchdog = useMemo(
+    () =>
+      createDiskWriteFailedWatchdog({
+        isRunning: (id) => runningIdsRef.current.has(id),
+        onForceStop: (id) => {
+          removeRunningId(id)
+          setHints((current) => new Map(current).set(id, DISK_WRITE_FAILED_FORCE_STOP_HINT))
+        },
+      }),
+    [removeRunningId],
+  )
+  watchdogRef.current = diskWriteFailedWatchdog
+
+  useEffect(() => {
+    return () => diskWriteFailedWatchdog.dispose()
+  }, [diskWriteFailedWatchdog])
 
   const onRegister = useCallback((id: string, api: VmRuntimeApi) => {
     apiByIdRef.current.set(id, api)
@@ -572,6 +644,10 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     apiByIdRef.current.get(id)?.releaseKeyboard()
   }, [])
 
+  const armDiskWriteFailedWatchdog = useCallback((id: string) => {
+    diskWriteFailedWatchdog.arm(id)
+  }, [diskWriteFailedWatchdog])
+
   return {
     origin,
     runningIds,
@@ -594,5 +670,6 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     onStarted,
     onGuestPoweredOff,
     onBootError,
+    armDiskWriteFailedWatchdog,
   }
 }

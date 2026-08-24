@@ -169,6 +169,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [machines, pool.runningIds],
   )
   const selectedRunning = Boolean(selected && pool.runningIds.includes(selected.id))
+  const selectedHint = selected ? pool.hints.get(selected.id) : undefined
+  const statusHint = powerHint ?? selectedHint
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
   settingsOpenRef.current = settingsOpen
@@ -437,6 +439,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
 
   const handleDiskWriteFailed = useCallback(
     (machineId: string, detail: string) => {
+      pool.armDiskWriteFailedWatchdog(machineId)
       const machine = machines.find((item) => item.id === machineId)
       postVirtualMachineDiskWriteFailedNotification({
         machineId,
@@ -444,7 +447,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         detail,
       })
     },
-    [machines],
+    [machines, pool.armDiskWriteFailedWatchdog],
   )
 
   const menuBar = useMemo((): MenuDefinition[] => {
@@ -638,8 +641,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         ) : null}
         <span class="virtual-machine__status" role="status">
           {formatStatus(selected, selectedRunning)}
-          {powerHint ? (
-            <span class="virtual-machine__status-hint"> · {powerHint}</span>
+          {statusHint ? (
+            <span class="virtual-machine__status-hint"> · {statusHint}</span>
           ) : null}
         </span>
       </div>
