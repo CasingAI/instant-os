@@ -344,6 +344,15 @@ type NewFileMenuState = {
   arrowX: number
 }
 
+function findFirstFileName(node: ExternalImportNode): string | undefined {
+  if (node.kind === 'file' && node.file) return node.name
+  for (const child of node.children ?? []) {
+    const found = findFirstFileName(child)
+    if (found) return found
+  }
+  return undefined
+}
+
 function formatError(error: unknown): string {
   if (error instanceof FilesStorageFullError) return error.message
   if (error instanceof Error && error.message) return error.message
@@ -2575,8 +2584,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     ) => {
       if (nodes.length === 0) return
       try {
-        await importExternalNodes({ nodes, dest, onUiChange: setOpProgressUi })
+        const { fileCount } = await importExternalNodes({ nodes, dest, onUiChange: setOpProgressUi })
         clearSelection()
+        const importedCount = fileCount
+        if (importedCount === 1) {
+          const fileName = nodes.flatMap(findFirstFileName)[0]
+          showToast(fileName ? `已导入「${fileName}」` : '已导入 1 个文件')
+        } else if (importedCount > 1) {
+          showToast(`已导入 ${importedCount} 个文件`)
+        }
         // 仅当导入目标仍是当前目录（refresh 闭包中的 folderId 与目标一致）时才直接刷新。
         // 若导入期间用户已导航到其他目录：直接刷新会用旧目录结果覆盖当前列表
         // （"点击文件夹后立刻跳回前一个目录"），此时改为触发 VFS 事件，
@@ -2591,7 +2607,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         await modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
       }
     },
-    [clearSelection, folderId, modal, refresh],
+    [clearSelection, folderId, modal, refresh, showToast],
   )
 
   /** 外部文件是否进入导入流程（有文件但无内部拖拽数据） */

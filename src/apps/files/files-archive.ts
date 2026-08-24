@@ -20,13 +20,18 @@ export function isArchiveFileName(name: string): boolean {
   return /\.(zip|tar\.gz|tgz)$/i.test(name)
 }
 
-/** 把选中节点压缩为归档：相对路径 = 选中名 + 内部路径（/ 分隔） */
-export async function compressNodesToArchive(
-  nodes: readonly FilesNode[],
-  format: FilesArchiveFormat,
-  onFile?: () => void,
-): Promise<FilesCompressResult> {
-  const entries: { path: string; bytes: ArrayBuffer }[] = []
+export type FilesCompressPlanEntry = { path: string; node: FilesNode }
+
+/**
+ * 扫描阶段：只遍历目录结构、收集文件节点，不读取 blob。
+ * 返回文件数与字节总数，供调用方在进度策略里折算工作量。
+ */
+export async function planCompressNodesToArchive(nodes: readonly FilesNode[]): Promise<{
+  entries: FilesCompressPlanEntry[]
+  fileCount: number
+  byteCount: number
+}> {
+  const entries: FilesCompressPlanEntry[] = []
   const visitedFolders = new Set<string>()
   const visitedFiles = new Set<string>()
 
@@ -43,18 +48,60 @@ export async function compressNodesToArchive(
     }
     if (visitedFiles.has(node.id)) return
     visitedFiles.add(node.id)
-    const { blob } = await readFileBlob(node.id)
-    const bytes = await blob.arrayBuffer()
-    entries.push({ path: relativePath, bytes })
-    onFile?.()
+    entries.push({ path: relativePath, node })
   }
 
   for (const node of nodes) {
     await collectNode(node, node.name)
   }
 
-  const bytes = await encodeArchiveInWorker({ entries, format })
-  return { bytes, entryCount: entries.length }
+  const fileCount = entries.length
+  const byteCount = entries.reduce((sum, entry) => sum + entry.node.byteSize, 0)
+  return { entries, fileCount, byteCount }
+}
+
+export type FilesCompressProgress = {
+  doneFiles: number
+  totalFiles: number
+  doneBytes: number
+  totalBytes: number
+}
+
+/**
+ * 读取 + 编码阶段：按扫描结果读取 blob 并交给 Worker 打包。
+ * onProgress 回调返回文件数与字节数，方便调用方映射为统一工作量单位。
+ */
+export async function compressEntriesToArchive(
+  entries: readonly FilesCompressPlanEntry[],
+  format: FilesArchiveFormat,
+  onProgress?: (progress: FilesCompressProgress) => void,
+): Promise<FilesCompressResult> {
+  const codecEntries: { path: string; bytes: ArrayBuffer }[] = []
+  const totalBytes = entries.reduce((sum, entry) => sum + entry.node.byteSize, 0)
+  let doneFiles = 0
+  let doneBytes = 0
+
+  for (const { path, node } of entries) {
+    const { blob } = await readFileBlob(node.id)
+    const bytes = await blob.arrayBuffer()
+    codecEntries.push({ path, bytes })
+    doneFiles += 1
+    doneBytes += bytes.byteLength
+    onProgress?.({ doneFiles, totalFiles: entries.length, doneBytes, totalBytes })
+  }
+
+  const bytes = await encodeArchiveInWorker({ entries: codecEntries, format })
+  return { bytes, entryCount: codecEntries.length }
+}
+
+/** 把选中节点压缩为归档：相对路径 = 选中名 + 内部路径（/ 分隔） */
+export async function compressNodesToArchive(
+  nodes: readonly FilesNode[],
+  format: FilesArchiveFormat,
+  onProgress?: (progress: FilesCompressProgress) => void,
+): Promise<FilesCompressResult> {
+  const { entries } = await planCompressNodesToArchive(nodes)
+  return compressEntriesToArchive(entries, format, onProgress)
 }
 
 export type FilesExtractResult = { fileCount: number; bytesWritten: number }

@@ -131,7 +131,7 @@ async function testImportDedupAgainstCurrentDir(): Promise<void> {
 
   const target = (await resolveNodeByAbsolutePath('/user/target'))!
   const imported = new File([new Uint8Array([0x62, 0x62])], 'existing.txt')
-  await importExternalNodes({
+  const { fileCount, byteCount } = await importExternalNodes({
     nodes: [
       {
         name: 'sub',
@@ -142,6 +142,8 @@ async function testImportDedupAgainstCurrentDir(): Promise<void> {
     dest: { destLocationId: 'local', destParentId: target.id },
     onUiChange: () => {},
   })
+  assert.equal(fileCount, 1)
+  assert.equal(byteCount, 2)
 
   // 原目录同名文件不被覆盖
   assert.equal(await filesReadText('/user/target/sub/existing.txt'), 'original')
@@ -216,7 +218,7 @@ async function testImportConcurrentSameName(): Promise<void> {
   await resetState()
   const fileA = new File([new Uint8Array([0x61])], 'same.txt')
   const fileB = new File([new Uint8Array([0x62])], 'same.txt')
-  await Promise.all([
+  const [resultA, resultB] = await Promise.all([
     importExternalNodes({
       nodes: [{ name: 'same.txt', kind: 'file', file: fileA }],
       dest: { destLocationId: 'local', destParentId: undefined },
@@ -228,6 +230,9 @@ async function testImportConcurrentSameName(): Promise<void> {
       onUiChange: () => {},
     }),
   ])
+  assert.equal(resultA.fileCount, 1)
+  assert.equal(resultB.fileCount, 1)
+  assert.equal(resultA.byteCount + resultB.byteCount, 2)
   const names = (await listDirectory('local', undefined))
     .filter((node) => node.name.startsWith('same'))
     .map((node) => node.name)

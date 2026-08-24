@@ -1,8 +1,8 @@
 /** 开始操作后观察此时长，再决定是否展示进度对话框 */
-export const FILES_OP_PROGRESS_OBSERVE_MS = 1000
+export const FILES_OP_PROGRESS_OBSERVE_MS = 350
 
 /** 观察结束时剩余 ETA 不低于此值才展示对话框 */
-export const FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS = 5000
+export const FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS = 2000
 
 export type FilesOpProgressSnapshot = {
   done: number

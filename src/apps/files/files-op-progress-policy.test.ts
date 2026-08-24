@@ -13,26 +13,32 @@ import {
 } from './files-op-progress-policy.ts'
 
 {
-  assert.equal(shouldShowFilesOpProgressAtObserve({ done: 100, total: 100, elapsedMs: 1000 }), false)
+  assert.equal(shouldShowFilesOpProgressAtObserve({ done: 100, total: 100, elapsedMs: 350 }), false)
 }
 
 {
-  const snapshot = { done: 10, total: 100, elapsedMs: 1000, estimatedTotalMs: 9000 }
+  const snapshot = { done: 10, total: 100, elapsedMs: 350, estimatedTotalMs: 4000 }
   const remaining = estimateRemainingMs(snapshot)
   assert.ok(remaining >= FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS)
   assert.equal(shouldShowFilesOpProgressAtObserve(snapshot), true)
 }
 
 {
-  const snapshot = { done: 90, total: 100, elapsedMs: 1000, estimatedTotalMs: 1100 }
+  const snapshot = { done: 90, total: 100, elapsedMs: 350, estimatedTotalMs: 1100 }
   const remaining = estimateRemainingMs(snapshot)
   assert.ok(remaining < FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS)
   assert.equal(shouldShowFilesOpProgressAtObserve(snapshot), false)
 }
 
 {
-  const snapshot = { done: 0, total: 100, elapsedMs: 1000, estimatedTotalMs: 12_000 }
+  const snapshot = { done: 0, total: 100, elapsedMs: 350, estimatedTotalMs: 12_000 }
   assert.equal(shouldShowFilesOpProgressAtObserve(snapshot), true)
+}
+
+{
+  // 新阈值下：预估剩余 < 2 秒的操作不应弹进度窗
+  const snapshot = { done: 50, total: 100, elapsedMs: 350, estimatedTotalMs: 9000 }
+  assert.equal(shouldShowFilesOpProgressAtObserve(snapshot), false)
 }
 
 {

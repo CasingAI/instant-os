@@ -149,6 +149,11 @@ export function canUseSystemFilePicker(): boolean {
   return typeof document !== 'undefined' && typeof HTMLInputElement !== 'undefined'
 }
 
+export type ExternalImportResult = {
+  fileCount: number
+  byteCount: number
+}
+
 /**
  * 把外部导入树写入 VFS 指定位置：深度优先建目录 + 流式写入，带进度。
  * 供文件 APP 与「打开文件」对话框共用；错误向上抛，由调用方提示。
@@ -157,11 +162,11 @@ export async function importExternalNodes(params: {
   nodes: readonly ExternalImportNode[]
   dest: { destLocationId: FilesLocationId; destParentId: string | undefined }
   onUiChange: (state: FilesOpProgressUiState | undefined) => void
-}): Promise<void> {
+}): Promise<ExternalImportResult> {
   const { nodes, dest, onUiChange } = params
-  if (nodes.length === 0) return
+  if (nodes.length === 0) return { fileCount: 0, byteCount: 0 }
   const steps = planExternalImport(nodes)
-  if (steps.length === 0) return
+  if (steps.length === 0) return { fileCount: 0, byteCount: 0 }
   const totalBytes = steps.reduce(
     (sum, step) => sum + (step.op === 'write' ? step.byteSize : 0),
     0,
@@ -171,7 +176,7 @@ export async function importExternalNodes(params: {
   if (isLocalTarget) {
     await assertAdditionalBytesAvailable(totalBytes)
   }
-  await runFilesOpWithProgress({
+  return await runFilesOpWithProgress({
     kind: 'paste',
     totalWork: Math.max(1, totalBytes),
     estimatedTotalMs: estimateFilesOpDurationMs(units),
@@ -189,6 +194,7 @@ export async function importExternalNodes(params: {
       const dirStack: { path: string; id: string | undefined }[] = [
         { path: dirPath, id: dest.destParentId },
       ]
+      let fileCount = 0
       for (const step of steps) {
         const current = dirStack[dirStack.length - 1]!
         if (step.op === 'mkdir') {
@@ -230,11 +236,13 @@ export async function importExternalNodes(params: {
             offset = end
           }
           await writer.close()
+          fileCount += 1
         } catch (error) {
           await writer.abort().catch(() => undefined)
           throw error
         }
       }
+      return { fileCount, byteCount: written }
     },
   })
 }

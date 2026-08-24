@@ -4,13 +4,17 @@
  * 组件内部只负责传入当前目录上下文与 UI 回调。
  */
 import {
-  compressNodesToArchive,
+  compressEntriesToArchive,
+  planCompressNodesToArchive,
   extractArchiveToDirectory,
   isArchiveFileName,
   type FilesArchiveFormat,
 } from './files-archive.ts'
+import {
+  estimateFilesOpDurationMs,
+  filesWorkloadUnits,
+} from './files-op-progress-policy.ts'
 import { runFilesOpWithProgress, type FilesOpProgressUiState } from './files-run-with-op-progress.ts'
-import { estimateFilesOpDurationMs } from './files-op-progress-policy.ts'
 import { createBinaryFile } from './files-vfs.ts'
 import type { FilesLocationId, FilesNode } from './files-types.ts'
 
@@ -34,21 +38,20 @@ export async function compressNodesToArchiveOp(
 ): Promise<void> {
   if (nodes.length === 0 || !context.canCreateHere) return
   try {
-    let done = 0
+    const { entries, fileCount, byteCount } = await planCompressNodesToArchive(nodes)
+    const totalWork = filesWorkloadUnits(fileCount, byteCount)
+
     const result = await runFilesOpWithProgress({
       kind: 'compress',
-      totalWork: Math.max(1, nodes.length),
-      estimatedTotalMs: estimateFilesOpDurationMs(nodes.length),
+      totalWork,
+      estimatedTotalMs: estimateFilesOpDurationMs(totalWork),
       onUiChange: context.setOpProgressUi,
-      task: async (report) => {
-        const collected = await compressNodesToArchive(nodes, format, () => {
-          done += 1
-          report({ done: Math.min(done, nodes.length), total: Math.max(1, nodes.length) })
-        })
-        report({ done: nodes.length, total: Math.max(1, nodes.length) })
-        return collected
-      },
+      task: async (report) =>
+        compressEntriesToArchive(entries, format, ({ doneBytes }) => {
+          report({ done: filesWorkloadUnits(fileCount, doneBytes), total: totalWork })
+        }),
     })
+
     const baseName = nodes.length === 1 ? nodes[0]!.name : '归档'
     const name = format === 'zip' ? `${baseName}.zip` : `${baseName}.tar.gz`
     const bytes = result.bytes.buffer.slice(
