@@ -10,6 +10,9 @@ import { requestFilesReveal } from '../files/files-reveal-request.ts'
 import { FILES_MOUNTS_CHANGED_EVENT } from '../files/files-mount-store.ts'
 import { FILES_IMAGE_MOUNTS_CHANGED_EVENT } from '../files/files-image-mount-store.ts'
 import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
+import { unmountDiskImage } from '../files/files-image-actions.ts'
+import { isImageLocationId } from '../files/files-types.ts'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
   DEVICE_CAPACITY_BYTES,
   loadDiskTree,
@@ -18,6 +21,23 @@ import {
   type TreeNode,
   type BrowserStorageSnapshot,
 } from './disk-utility-data.ts'
+import { buildDiskMap, findAncestorImageRoot } from './disk-utility-disk-map.ts'
+import { DiskMapBar } from './disk-utility-disk-map-bar.tsx'
+import {
+  eraseDiskImageFile,
+  formatPartitionInImageFile,
+  partitionDiskImageFile,
+  withExclusiveImageAccess,
+  type DiskScheme,
+  type FatVariant,
+} from './disk-utility-format.ts'
+import {
+  DISK_UTILITY_THEME,
+  EraseDiskDialog,
+  PartitionDiskDialog,
+  type EraseDialogState,
+  type PartitionDialogState,
+} from './disk-utility-dialogs.tsx'
 import '../../ui/ios-nav-back.css'
 import '../settings/settings.css'
 import '../keychain/keychain.css'
@@ -27,8 +47,6 @@ const APP_ID = 'disk-utility' as const
 const DETAIL_REFRESH_DEBOUNCE_MS = 400
 
 type DiskUtilityScreen = 'list' | 'detail'
-
-/* ─── 工具函数 ─── */
 
 function usagePercent(used: number, total: number): number {
   if (!total || !Number.isFinite(total)) return 0
@@ -41,11 +59,9 @@ function formatBytes(value: number | undefined): string {
 
 function occupancyLabel(occupancy: TreeNode['occupancy']): string {
   if (!occupancy || occupancy.kind === 'free') return '空闲'
-  if (occupancy.kind === 'files-mount') return `文件已挂载（${occupancy.volumeId}）`
+  if (occupancy.kind === 'files-mount') return '已挂载为文件卷'
   return `虚拟机正在使用（${occupancy.vmId}）`
 }
-
-/* ─── 图标 ─── */
 
 function DiskIcon({ class: cls }: { class?: string }): preact.JSX.Element {
   return (
@@ -130,8 +146,6 @@ function nodeIcon(node: TreeNode): preact.JSX.Element {
   }
 }
 
-/* ─── 使用率条 ─── */
-
 function renderUsageBar(used: number, capacity: number): preact.JSX.Element {
   const pct = usagePercent(used, capacity)
   const fillClass =
@@ -148,33 +162,18 @@ function renderUsageBar(used: number, capacity: number): preact.JSX.Element {
   )
 }
 
-/* ─── 分区布局条 ─── */
+function InfoList({ children }: { children: preact.ComponentChildren }): preact.JSX.Element {
+  return <dl class="disk-utility__kv settings__list">{children}</dl>
+}
 
-function renderPartitionBar(node: TreeNode): preact.JSX.Element | null {
-  if (!node.imageFile || !node.children || node.children.length === 0) return null
-  const totalBytes = node.imageFile.sizeBytes || 1
-  const isFat = (typeByte: number) => [0x01, 0x04, 0x06, 0x0b, 0x0c, 0x0e].includes(typeByte)
-
+function InfoRow({ name, value, mono }: { name: string; value: string; mono?: boolean }): preact.JSX.Element {
   return (
-    <div class="disk-utility__partitions" role="img" aria-label="分区布局">
-      {node.children.map((child) => {
-        if (!child.partition) return null
-        return (
-          <div
-            key={child.id}
-            class={`disk-utility__partition-seg ${isFat(child.partition.typeByte) ? 'disk-utility__partition-seg--fat' : ''}`}
-            style={{ width: `${Math.max(6, (child.partition.sizeBytes / totalBytes) * 100).toFixed(2)}%` }}
-            title={`${child.partition.typeLabel} — ${formatStorageSize(child.partition.sizeBytes)}`}
-          >
-            {child.partition.index}
-          </div>
-        )
-      })}
+    <div class="disk-utility__kv-row">
+      <dt class="disk-utility__kv-name">{name}</dt>
+      <dd class={`disk-utility__kv-value${mono ? ' disk-utility__info-mono' : ''}`}>{value}</dd>
     </div>
   )
 }
-
-/* ─── 树节点行 ─── */
 
 function TreeNodeRow({
   node,
@@ -183,7 +182,6 @@ function TreeNodeRow({
   expandedSet,
   onToggle,
   onSelect,
-  stacked,
 }: {
   node: TreeNode
   depth: number
@@ -191,65 +189,57 @@ function TreeNodeRow({
   expandedSet: Set<string>
   onToggle: (id: string) => void
   onSelect: (node: TreeNode) => void
-  stacked: boolean
 }): preact.JSX.Element {
   const hasChildren = (node.children?.length ?? 0) > 0
   const isExpanded = expandedSet.has(node.id)
   const isSelected = node.id === selectedId
-
-  const handleClick = useCallback(() => {
-    if (hasChildren) onToggle(node.id)
-    onSelect(node)
-  }, [node.id, hasChildren, onToggle, onSelect])
-
-  // 对于 system-disk / container 节点，显示容量使用率
   const showCapacity = node.capacityBytes !== undefined && node.bytes !== undefined
-  const capacityPct = showCapacity ? usagePercent(node.bytes!, node.capacityBytes!) : undefined
-
-  const row = (
-    <button
-      type="button"
-      class={`disk-utility__tree-row${isSelected ? ' disk-utility__tree-row--selected' : ''}`}
-      style={{ paddingLeft: `${12 + depth * 20}px` }}
-      onClick={handleClick}
-    >
-      {hasChildren ? (
-        <ChevronIcon expanded={isExpanded} />
-      ) : (
-        <span class="disk-utility__chevron-placeholder" />
-      )}
-
-      {nodeIcon(node)}
-
-      <span class="disk-utility__tree-label">{node.label}</span>
-
-      {node.fat ? (
-        <span class="disk-utility__fs-badge">{node.fat.variant}</span>
-      ) : null}
-
-      {node.occupancy && node.occupancy.kind !== 'free' ? (
-        <span class="disk-utility__occupancy-badge">
-          {node.occupancy.kind === 'vm' ? `VM: ${node.occupancy.vmId}` : `挂载: ${node.occupancy.volumeId}`}
-        </span>
-      ) : null}
-
-      {showCapacity ? (
-        <span class="disk-utility__tree-size">
-          {formatBytes(node.bytes)} / {formatBytes(node.capacityBytes)}
-        </span>
-      ) : node.bytes !== undefined ? (
-        <span class="disk-utility__tree-size">{formatBytes(node.bytes)}</span>
-      ) : null}
-
-      {capacityPct !== undefined ? (
-        <span class="disk-utility__tree-pct">{capacityPct.toFixed(1)}%</span>
-      ) : null}
-    </button>
-  )
+  const capacityPct = showCapacity ? usagePercent(node.bytes ?? 0, node.capacityBytes ?? 0) : undefined
 
   return (
     <>
-      {row}
+      <div
+        role="option"
+        aria-selected={isSelected}
+        class={`disk-utility__tree-row${isSelected ? ' disk-utility__tree-row--selected' : ''}`}
+        onClick={() => onSelect(node)}
+      >
+        <div class="disk-utility__tree-main" style={{ paddingLeft: `${depth * 16}px` }}>
+          {hasChildren ? (
+            <button
+              type="button"
+              class="disk-utility__chevron-btn"
+              aria-label={isExpanded ? '折叠' : '展开'}
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggle(node.id)
+              }}
+            >
+              <ChevronIcon expanded={isExpanded} />
+            </button>
+          ) : (
+            <span class="disk-utility__chevron-placeholder" />
+          )}
+          {nodeIcon(node)}
+          <span class="disk-utility__tree-label">{node.label}</span>
+          {node.fat ? <span class="disk-utility__fs-badge">{node.fat.variant}</span> : undefined}
+          {node.occupancy && node.occupancy.kind !== 'free' ? (
+            <span class={`disk-utility__occupancy-badge${node.occupancy.kind === 'vm' ? ' disk-utility__occupancy-badge--vm' : ''}`}>
+              {node.occupancy.kind === 'vm' ? '虚拟机占用' : '已挂载'}
+            </span>
+          ) : undefined}
+        </div>
+        <span class="disk-utility__tree-size">
+          {showCapacity
+            ? `${formatBytes(node.bytes)} / ${formatBytes(node.capacityBytes)}`
+            : node.bytes !== undefined
+              ? formatBytes(node.bytes)
+              : ''}
+        </span>
+        <span class="disk-utility__tree-pct">
+          {capacityPct !== undefined ? `${capacityPct.toFixed(0)}%` : ''}
+        </span>
+      </div>
       {hasChildren && isExpanded
         ? node.children!.map((child) => (
             <TreeNodeRow
@@ -260,25 +250,36 @@ function TreeNodeRow({
               expandedSet={expandedSet}
               onToggle={onToggle}
               onSelect={onSelect}
-              stacked={stacked}
             />
           ))
-        : null}
+        : undefined}
     </>
   )
 }
 
-/* ─── 详情面板 ─── */
+type DetailActions = {
+  revealInFiles: (path: string) => void
+  openSpaceSniffer: () => void
+  eraseImage: (node: TreeNode) => void
+  partitionImage: (node: TreeNode) => void
+  erasePartition: (node: TreeNode) => void
+  unmountImage: (node: TreeNode) => void
+}
+
+function isVmOccupied(node: TreeNode): boolean {
+  return node.occupancy?.kind === 'vm'
+}
 
 function DetailPanel({
   node,
+  mapNode,
+  onSelectNode,
   actions,
 }: {
   node: TreeNode | undefined
-  actions: {
-    revealInFiles: (path: string) => void
-    openSpaceSniffer: () => void
-  }
+  mapNode: TreeNode | undefined
+  onSelectNode: (node: TreeNode) => void
+  actions: DetailActions
 }): preact.JSX.Element {
   if (!node) {
     return (
@@ -288,49 +289,67 @@ function DetailPanel({
     )
   }
 
+  const vmLocked = isVmOccupied(node)
+  const canMutateImage = (node.kind === 'image-root' || node.kind === 'partition') && Boolean(node.imageFile) && !vmLocked
+  const mapSegments = mapNode ? buildDiskMap(mapNode) : undefined
+  const showUsed = node.kind !== 'image-root' && node.kind !== 'partition' && node.bytes !== undefined
+  const showFat =
+    node.fat &&
+    (node.kind === 'partition' ||
+      (node.kind === 'image-root' && !(node.children ?? []).some((child) => child.kind === 'partition')))
+  const fat = showFat ? node.fat : undefined
+
   return (
     <section class="settings__section">
-      {/* 基础信息 */}
-      <div class="settings__list">
-        <div class="settings__row">
-          <span class="settings__row-name">标识</span>
-          <span class="settings__row-size settings__row-size--mono">{node.id}</span>
-        </div>
-        {node.pathRoot ? (
-          <div class="settings__row">
-            <span class="settings__row-name">路径根</span>
-            <span class="settings__row-size">{node.pathRoot}</span>
-          </div>
-        ) : null}
-        {node.writable !== undefined ? (
-          <div class="settings__row">
-            <span class="settings__row-name">权限</span>
-            <span class="settings__row-size">{node.writable ? '可读写' : '只读'}</span>
-          </div>
-        ) : null}
-        {node.bytes !== undefined ? (
-          <div class="settings__row">
-            <span class="settings__row-name">已使用</span>
-            <span class="settings__row-size">{formatStorageSize(node.bytes)}</span>
-          </div>
-        ) : null}
-        {node.capacityBytes !== undefined ? (
-          <div class="settings__row">
-            <span class="settings__row-name">总容量</span>
-            <span class="settings__row-size">{formatStorageSize(node.capacityBytes)}</span>
-          </div>
-        ) : null}
-        {node.occupancy ? (
-          <div class="settings__row">
-            <span class="settings__row-name">占用状态</span>
-            <span class="settings__row-size">{occupancyLabel(node.occupancy)}</span>
-          </div>
-        ) : null}
-      </div>
+      {mapNode?.imageFile && mapSegments ? (
+        <DiskMapBar
+          segments={mapSegments}
+          diskBytes={mapNode.imageFile.sizeBytes}
+          selectedId={node.id}
+          onSelect={(id) => {
+            const target = id === mapNode.id ? mapNode : mapNode.children?.find((child) => child.id === id)
+            if (target) onSelectNode(target)
+          }}
+        />
+      ) : undefined}
 
-      {/* 系统盘 / 容器：容量条 */}
+      <InfoList>
+        <InfoRow name="标识" value={node.id} mono />
+        {node.pathRoot ? <InfoRow name="路径" value={node.pathRoot} /> : undefined}
+        {node.writable !== undefined ? (
+          <InfoRow name="权限" value={node.writable ? '可读写' : '只读'} />
+        ) : undefined}
+        {showUsed ? <InfoRow name="已使用" value={formatStorageSize(node.bytes ?? 0)} /> : undefined}
+        {node.capacityBytes !== undefined ? (
+          <InfoRow name="总容量" value={formatStorageSize(node.capacityBytes)} />
+        ) : undefined}
+        {node.occupancy ? <InfoRow name="占用状态" value={occupancyLabel(node.occupancy)} /> : undefined}
+        {node.kind === 'image-root' && node.imageFile ? (
+          <>
+            <InfoRow name="源文件" value={node.imageFile.path} />
+            <InfoRow name="镜像大小" value={formatStorageSize(node.imageFile.sizeBytes)} />
+          </>
+        ) : undefined}
+        {node.kind === 'partition' && node.partition ? (
+          <>
+            <InfoRow name="分区号" value={String(node.partition.index)} />
+            <InfoRow name="类型" value={node.partition.typeLabel} />
+            <InfoRow name="起始偏移" value={formatStorageSize(node.partition.startBytes)} />
+            <InfoRow name="大小" value={formatStorageSize(node.partition.sizeBytes)} />
+            {node.partition.active ? <InfoRow name="状态" value="活动分区" /> : undefined}
+          </>
+        ) : undefined}
+        {fat ? (
+          <>
+            <InfoRow name="文件系统" value={`${fat.variant}${fat.label ? ` · ${fat.label}` : ''}`} />
+            <InfoRow name="簇大小" value={formatStorageSize(fat.clusterSizeBytes)} />
+            <InfoRow name="簇总数" value={fat.totalClusters.toLocaleString()} />
+          </>
+        ) : undefined}
+      </InfoList>
+
       {(node.kind === 'system-disk' || node.kind === 'container') && node.capacityBytes ? (
-        <>
+        <div class="disk-utility__usage-block">
           <div class="disk-utility__detail-bar-row">
             <span class="disk-utility__detail-bar-label">使用量</span>
             <span class="disk-utility__detail-bar-value">
@@ -338,82 +357,37 @@ function DetailPanel({
             </span>
           </div>
           {renderUsageBar(node.bytes ?? 0, node.capacityBytes)}
-          <div style={{ height: 8 }} />
-        </>
-      ) : null}
+        </div>
+      ) : undefined}
 
-      {/* 镜像磁盘根：分区条 + 底层信息 */}
-      {node.kind === 'image-root' && node.imageFile ? (
-        <>
-          <h2 class="settings__section-title">磁盘镜像底层信息</h2>
-          <div class="settings__list">
-            <div class="settings__row">
-              <span class="settings__row-name">源文件</span>
-              <span class="settings__row-size">{node.imageFile.path}</span>
-            </div>
-            <div class="settings__row">
-              <span class="settings__row-name">镜像大小</span>
-              <span class="settings__row-size">{formatStorageSize(node.imageFile.sizeBytes)}</span>
-            </div>
-          </div>
+      {vmLocked ? (
+        <p class="settings__section-footnote">虚拟机正在使用这块盘，无法抹掉、分区或推出。请先关机或从虚拟机里去掉它。</p>
+      ) : undefined}
 
-          {renderPartitionBar(node)}
+      <div class="disk-utility__detail-actions">
+        {node.kind === 'image-root' && canMutateImage ? (
+          <>
+            <IosButton tone="danger" size="compact" onClick={() => actions.eraseImage(node)}>
+              抹掉
+            </IosButton>
+            <IosButton tone="secondary" size="compact" onClick={() => actions.partitionImage(node)}>
+              分区
+            </IosButton>
+            {isImageLocationId(node.id) ? (
+              <IosButton tone="secondary" size="compact" onClick={() => actions.unmountImage(node)}>
+                推出
+              </IosButton>
+            ) : undefined}
+          </>
+        ) : undefined}
 
-          {node.fat ? (
-            <div class="settings__list">
-              <div class="settings__row">
-                <span class="settings__row-name">FAT 文件系统</span>
-                <span class="settings__row-size">
-                  {node.fat.variant} — {node.fat.label || '未命名'}
-                </span>
-              </div>
-              <div class="settings__row">
-                <span class="settings__row-name">簇大小</span>
-                <span class="settings__row-size">{formatStorageSize(node.fat.clusterSizeBytes)}</span>
-              </div>
-              <div class="settings__row">
-                <span class="settings__row-name">簇总数</span>
-                <span class="settings__row-size">{node.fat.totalClusters.toLocaleString()}</span>
-              </div>
-            </div>
-          ) : null}
-        </>
-      ) : null}
+        {node.kind === 'partition' && canMutateImage ? (
+          <IosButton tone="danger" size="compact" onClick={() => actions.erasePartition(node)}>
+            抹掉分区
+          </IosButton>
+        ) : undefined}
 
-      {/* 分区节点详情 */}
-      {node.kind === 'partition' && node.partition ? (
-        <>
-          <h2 class="settings__section-title">分区信息</h2>
-          <div class="settings__list">
-            <div class="settings__row">
-              <span class="settings__row-name">分区号</span>
-              <span class="settings__row-size">{node.partition.index}</span>
-            </div>
-            <div class="settings__row">
-              <span class="settings__row-name">类型</span>
-              <span class="settings__row-size">{node.partition.typeLabel}</span>
-            </div>
-            <div class="settings__row">
-              <span class="settings__row-name">起始偏移</span>
-              <span class="settings__row-size">{formatStorageSize(node.partition.startBytes)}</span>
-            </div>
-            <div class="settings__row">
-              <span class="settings__row-name">大小</span>
-              <span class="settings__row-size">{formatStorageSize(node.partition.sizeBytes)}</span>
-            </div>
-            {node.partition.active ? (
-              <div class="settings__row">
-                <span class="settings__row-name">状态</span>
-                <span class="settings__row-size">活动分区</span>
-              </div>
-            ) : null}
-          </div>
-        </>
-      ) : null}
-
-      {/* 操作按钮 */}
-      {node.locationId || node.imageFile ? (
-        <div class="disk-utility__detail-actions">
+        {node.locationId || node.imageFile ? (
           <IosButton
             tone="secondary"
             size="compact"
@@ -425,19 +399,17 @@ function DetailPanel({
           >
             在文件中显示
           </IosButton>
+        ) : undefined}
 
-          {(node.kind === 'volume' || node.kind === 'system-disk' || node.kind === 'container') ? (
-            <IosButton tone="secondary" size="compact" onClick={actions.openSpaceSniffer}>
-              空间嗅探
-            </IosButton>
-          ) : null}
-        </div>
-      ) : null}
+        {node.kind === 'volume' || node.kind === 'trash' || node.kind === 'container' ? (
+          <IosButton tone="secondary" size="compact" onClick={actions.openSpaceSniffer}>
+            空间嗅探
+          </IosButton>
+        ) : undefined}
+      </div>
     </section>
   )
 }
-
-/* ─── 浏览器存储面板 ─── */
 
 function BrowserStorageSection({
   storage,
@@ -452,54 +424,63 @@ function BrowserStorageSection({
     storage.estimateSupported && storage.usageBytes !== undefined && storage.quotaBytes !== undefined
       ? `${usagePercent(storage.usageBytes, storage.quotaBytes).toFixed(1)}%`
       : '—'
-
   const systemUsedPct = `${usagePercent(storage.localStorageUsedBytes, DEVICE_CAPACITY_BYTES).toFixed(1)}%`
   const dataUsedPct = `${usagePercent(storage.dataStorageUsedBytes, storage.systemCapacityBytes).toFixed(1)}%`
 
   return (
     <section class="settings__section">
       <h2 class="settings__section-title">浏览器存储</h2>
-      <div class="settings__list">
-        <div class="settings__row">
-          <span class="settings__row-name">storage.estimate 配额</span>
-          <span class="settings__row-size">
-            {storage.estimateSupported
+      <InfoList>
+        <InfoRow
+          name="storage.estimate"
+          value={
+            storage.estimateSupported
               ? `${formatBytes(storage.usageBytes)} / ${formatBytes(storage.quotaBytes)}（${browserUsedPct}）`
-              : '不支持'}
-          </span>
+              : '不支持'
+          }
+        />
+        <InfoRow
+          name="系统空间（localStorage）"
+          value={`${formatBytes(storage.localStorageUsedBytes)} / ${formatBytes(DEVICE_CAPACITY_BYTES)}（${systemUsedPct}）`}
+        />
+        <InfoRow
+          name="数据空间（IndexedDB）"
+          value={`${formatBytes(storage.dataStorageUsedBytes)} / ${formatBytes(storage.systemCapacityBytes)}（${dataUsedPct}）`}
+        />
+        <InfoRow
+          name="持久化状态"
+          value={storage.persisted ? '已请求持久化（数据受保护）' : '未持久化（可能被回收）'}
+        />
+      </InfoList>
+      {storage.estimateSupported && storage.usageBytes !== undefined && storage.quotaBytes !== undefined ? (
+        <div class="disk-utility__usage-block">
+          <div class="disk-utility__detail-bar-row">
+            <span class="disk-utility__detail-bar-label">浏览器配额</span>
+            <span class="disk-utility__detail-bar-value">
+              {formatBytes(storage.usageBytes)} / {formatBytes(storage.quotaBytes)}
+            </span>
+          </div>
+          {renderUsageBar(storage.usageBytes, storage.quotaBytes)}
         </div>
-        {storage.estimateSupported && storage.usageBytes !== undefined && storage.quotaBytes !== undefined ? (
-          <>
-            {renderUsageBar(storage.usageBytes, storage.quotaBytes)}
-            <div style={{ height: 6 }} />
-          </>
-        ) : null}
-
-        <div class="settings__row">
-          <span class="settings__row-name">系统空间（localStorage）</span>
-          <span class="settings__row-size">
-            {formatBytes(storage.localStorageUsedBytes)} / {formatBytes(DEVICE_CAPACITY_BYTES)}（{systemUsedPct}）
+      ) : undefined}
+      <div class="disk-utility__usage-block">
+        <div class="disk-utility__detail-bar-row">
+          <span class="disk-utility__detail-bar-label">系统空间</span>
+          <span class="disk-utility__detail-bar-value">
+            {formatBytes(storage.localStorageUsedBytes)} / {formatBytes(DEVICE_CAPACITY_BYTES)}
           </span>
         </div>
         {renderUsageBar(storage.localStorageUsedBytes, DEVICE_CAPACITY_BYTES)}
-        <div style={{ height: 6 }} />
-
-        <div class="settings__row">
-          <span class="settings__row-name">数据空间（IndexedDB）</span>
-          <span class="settings__row-size">
-            {formatBytes(storage.dataStorageUsedBytes)} / {formatBytes(storage.systemCapacityBytes)}（{dataUsedPct}）
+      </div>
+      <div class="disk-utility__usage-block">
+        <div class="disk-utility__detail-bar-row">
+          <span class="disk-utility__detail-bar-label">数据空间</span>
+          <span class="disk-utility__detail-bar-value">
+            {formatBytes(storage.dataStorageUsedBytes)} / {formatBytes(storage.systemCapacityBytes)}
           </span>
         </div>
         {renderUsageBar(storage.dataStorageUsedBytes, storage.systemCapacityBytes)}
-
-        <div class="settings__row">
-          <span class="settings__row-name">持久化状态</span>
-          <span class="settings__row-size">
-            {storage.persisted ? '已请求持久化（数据受保护）' : '未持久化（可能被回收）'}
-          </span>
-        </div>
       </div>
-
       <div class="disk-utility__detail-actions">
         <IosButton tone="secondary" size="compact" onClick={onRefresh}>
           刷新
@@ -508,21 +489,31 @@ function BrowserStorageSection({
           <IosButton tone="primary" size="compact" onClick={onRequestPersistence}>
             请求持久化
           </IosButton>
-        ) : null}
+        ) : undefined}
       </div>
     </section>
   )
 }
 
-/* ─── 主组件 ─── */
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 export function DiskUtilityApp() {
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
   const { openApp } = useOs()
+  const modal = useWindowModal()
   const [tree, setTree] = useState<TreeNode | undefined>(undefined)
   const [browserStorage, setBrowserStorage] = useState<BrowserStorageSnapshot | undefined>(undefined)
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
-  const [expandedSet, setExpandedSet] = useState<Set<string>>(() => new Set(['system-disk', 'container:builtin']))
+  const [expandedSet, setExpandedSet] = useState<Set<string>>(
+    () => new Set(['system-disk', 'container:builtin', 'container:mount', 'container:image']),
+  )
+  const [eraseState, setEraseState] = useState<EraseDialogState | undefined>(undefined)
+  const [partitionState, setPartitionState] = useState<PartitionDialogState | undefined>(undefined)
+  const [busy, setBusy] = useState(false)
+  const [dialogError, setDialogError] = useState<string | undefined>(undefined)
+  const busyRef = useRef(false)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
   const splitRef = useRef<HTMLDivElement>(null)
   const listPaneRef = useRef<HTMLDivElement>(null)
@@ -549,7 +540,6 @@ export function DiskUtilityApp() {
     setBrowserStorage(nextStorage)
     setSelectedId((current) => {
       if (!current) return current
-      // 如果当前选中的节点还在新树中，保留
       if (findNode(nextTree, current)) return current
       return nextTree.children?.[0]?.id
     })
@@ -592,14 +582,19 @@ export function DiskUtilityApp() {
     [tree, selectedId],
   )
 
+  const mapNode = useMemo(
+    () => (tree && selectedId ? findAncestorImageRoot(tree, selectedId) : undefined),
+    [tree, selectedId],
+  )
+
+  const dataSpaceNode = tree?.children?.find((child) => child.id === 'container:builtin')
+  const showBrowserStorage = selectedNode?.id === 'container:builtin'
+
   const handleToggle = useCallback((id: string) => {
     setExpandedSet((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }, [])
@@ -614,15 +609,93 @@ export function DiskUtilityApp() {
     [navigateTo, narrowLayout],
   )
 
-  const detailActions = useMemo(
+  const runMutation = useCallback(
+    async (path: string, work: () => Promise<void>) => {
+      if (busyRef.current) return
+      busyRef.current = true
+      setBusy(true)
+      setDialogError(undefined)
+      try {
+        await withExclusiveImageAccess(path, work)
+        setEraseState(undefined)
+        setPartitionState(undefined)
+        await refresh()
+      } catch (error) {
+        setDialogError(formatError(error))
+      } finally {
+        busyRef.current = false
+        setBusy(false)
+      }
+    },
+    [refresh],
+  )
+
+  const detailActions = useMemo<DetailActions>(
     () => ({
       revealInFiles: (path: string) => {
         requestFilesReveal(path)
         openApp('files', { documentId: path })
       },
       openSpaceSniffer: () => openApp('space-sniffer'),
+      eraseImage: (node) => {
+        if (!node.imageFile) return
+        setDialogError(undefined)
+        setEraseState({
+          kind: 'disk',
+          path: node.imageFile.path,
+          label: node.label,
+          sizeBytes: node.imageFile.sizeBytes,
+        })
+      },
+      partitionImage: (node) => {
+        if (!node.imageFile) return
+        setDialogError(undefined)
+        setPartitionState({
+          path: node.imageFile.path,
+          label: node.label,
+          sizeBytes: node.imageFile.sizeBytes,
+        })
+      },
+      erasePartition: (node) => {
+        if (!node.imageFile || !node.partition) return
+        setDialogError(undefined)
+        setEraseState({
+          kind: 'partition',
+          path: node.imageFile.path,
+          label: node.label,
+          sizeBytes: node.partition.sizeBytes,
+          partition: {
+            index: node.partition.index,
+            startBytes: node.partition.startBytes,
+            sizeBytes: node.partition.sizeBytes,
+          },
+        })
+      },
+      unmountImage: (node) => {
+        void (async () => {
+          if (!isImageLocationId(node.id)) return
+          const ok = await modal.confirm({
+            title: '推出磁盘镜像？',
+            message: `「${node.label}」将从侧栏移除，修改会写回镜像文件。`,
+            confirmLabel: '推出',
+            cancelLabel: '取消',
+            themeColor: DISK_UTILITY_THEME,
+          })
+          if (!ok) return
+          try {
+            await unmountDiskImage(node.id)
+            await refresh()
+          } catch (error) {
+            await modal.alert({
+              title: '无法推出',
+              message: formatError(error),
+              themeColor: DISK_UTILITY_THEME,
+            })
+          }
+        })()
+      },
     }),
-    [openApp],
+    [modal, openApp, refresh],
   )
 
   useAppMenuBar(APP_ID, [])
@@ -637,10 +710,10 @@ export function DiskUtilityApp() {
     </div>
   )
 
-  const renderListContent = (stacked: boolean) => (
-    <div class="settings__content settings__content--compact">
-      <section class="settings__section">
-        <div class="disk-utility__tree">
+  const renderListContent = () => (
+    <div class="settings__content settings__content--compact disk-utility__list-content">
+      <div class="disk-utility__sidebar">
+        <div class="disk-utility__tree" role="listbox" aria-label="存储设备">
           {tree?.children?.map((child) => (
             <TreeNodeRow
               key={child.id}
@@ -650,16 +723,15 @@ export function DiskUtilityApp() {
               expandedSet={expandedSet}
               onToggle={handleToggle}
               onSelect={handleSelectNode}
-              stacked={stacked}
             />
           ))}
         </div>
-        <p class="settings__section-footnote">
-          {tree
-            ? `系统磁盘 ${formatBytes(tree.bytes)} / ${formatBytes(tree.capacityBytes)}`
+        <p class="disk-utility__sidebar-footnote">
+          {dataSpaceNode
+            ? `数据空间 ${formatBytes(dataSpaceNode.bytes)} / ${formatBytes(dataSpaceNode.capacityBytes)}`
             : '加载中…'}
         </p>
-      </section>
+      </div>
     </div>
   )
 
@@ -678,10 +750,14 @@ export function DiskUtilityApp() {
   )
 
   const renderDetailContent = () => (
-    <div class="settings__content settings__content--compact">
-      <DetailPanel node={selectedNode} actions={detailActions} />
-
-      {browserStorage ? (
+    <div class="settings__content settings__content--compact disk-utility__detail-content">
+      <DetailPanel
+        node={selectedNode}
+        mapNode={mapNode}
+        onSelectNode={handleSelectNode}
+        actions={detailActions}
+      />
+      {showBrowserStorage && browserStorage ? (
         <BrowserStorageSection
           storage={browserStorage}
           onRefresh={() => void refresh()}
@@ -690,7 +766,7 @@ export function DiskUtilityApp() {
             await refresh()
           }}
         />
-      ) : null}
+      ) : undefined}
     </div>
   )
 
@@ -706,7 +782,7 @@ export function DiskUtilityApp() {
     return (
       <>
         {renderListNav()}
-        {renderListContent(true)}
+        {renderListContent()}
       </>
     )
   }
@@ -715,11 +791,11 @@ export function DiskUtilityApp() {
     <div ref={hostRef} class={`disk-utility${narrowLayout ? ' disk-utility--narrow' : ''}`}>
       {!narrowLayout ? (
         <div ref={splitRef} class="disk-utility__split">
-          <div ref={listPaneRef} class="disk-utility__pane disk-utility__pane--list settings settings--full">
+          <div ref={listPaneRef} class="disk-utility__pane disk-utility__pane--list settings">
             {renderListNav()}
-            {renderListContent(false)}
+            {renderListContent()}
           </div>
-          <div ref={detailPanelRef} class="disk-utility__pane disk-utility__pane--detail settings settings--full">
+          <div ref={detailPanelRef} class="disk-utility__pane disk-utility__pane--detail settings">
             {renderDetailNav(false)}
             {renderDetailContent()}
           </div>
@@ -735,11 +811,52 @@ export function DiskUtilityApp() {
           renderPage={renderScreen}
         />
       )}
+
+      <EraseDiskDialog
+        state={eraseState}
+        busy={busy}
+        error={dialogError}
+        onClose={() => {
+          if (busy) return
+          setEraseState(undefined)
+          setDialogError(undefined)
+        }}
+        onConfirm={(options: { label: string; scheme: DiskScheme; variant: FatVariant | 'auto' }) => {
+          if (!eraseState) return
+          const target = eraseState
+          void runMutation(target.path, async () => {
+            if (target.kind === 'partition' && target.partition) {
+              await formatPartitionInImageFile(target.path, target.partition, {
+                variant: options.variant,
+                label: options.label,
+              })
+              return
+            }
+            await eraseDiskImageFile(target.path, target.sizeBytes, options)
+          })
+        }}
+      />
+
+      <PartitionDiskDialog
+        state={partitionState}
+        busy={busy}
+        error={dialogError}
+        onClose={() => {
+          if (busy) return
+          setPartitionState(undefined)
+          setDialogError(undefined)
+        }}
+        onConfirm={(options) => {
+          if (!partitionState) return
+          const target = partitionState
+          void runMutation(target.path, async () => {
+            await partitionDiskImageFile(target.path, target.sizeBytes, options)
+          })
+        }}
+      />
     </div>
   )
 }
-
-/* ─── 树搜索 ─── */
 
 function findNode(node: TreeNode, id: string): TreeNode | undefined {
   if (node.id === id) return node

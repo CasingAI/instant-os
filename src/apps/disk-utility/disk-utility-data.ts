@@ -1,10 +1,9 @@
 /**
  * 磁盘工具数据层 — 树状层次结构
  *
- * 系统磁盘 → 容器（数据空间）→ 各内置卷
+ * 系统磁盘 → 容器（数据空间 IndexedDB）→ 各内置卷（含废纸篓）
  *          → 挂载卷（本机文件夹 mount:）
  *          → 磁盘镜像（image:）→ 分区表 / FAT / 占用方
- *          → 废纸篓
  *
  * 底部独立区块：浏览器存储配额 / IndexedDB / localStorage 层级信息。
  * 只读；镜像解析走 files-api 的范围读取，不整读镜像。
@@ -15,6 +14,7 @@ import {
   type DiskImageOccupant,
 } from '../files/files-disk-image-occupancy.ts'
 import { listImageMounts } from '../files/files-image-mount-store.ts'
+import { filesLocationPathRoot } from '../files/files-path.ts'
 import { isImageLocationId, type FilesLocationId } from '../files/files-types.ts'
 import { getFilesBytesByLocation } from '../files/files-storage.ts'
 import {
@@ -111,6 +111,7 @@ const BUILTIN_VOLUME_ORDER: readonly FilesLocationId[] = [
   'tmp',
   'models3d',
   'source',
+  'trash',
 ]
 
 const BUILTIN_VOLUME_LABELS: Record<string, string> = {
@@ -123,9 +124,17 @@ const BUILTIN_VOLUME_LABELS: Record<string, string> = {
   trash: '废纸篓',
 }
 
+const FAT_TYPE_BYTES = new Set([
+  0x01, 0x04, 0x06, 0x0b, 0x0c, 0x0e, 0x11, 0x14, 0x16, 0x1b, 0x1c,
+])
+
 function partitionTypeLabel(typeByte: number): string {
   const label = PARTITION_TYPE_LABELS[typeByte]
   return label ?? `未知（0x${typeByte.toString(16).padStart(2, '0')}）`
+}
+
+function isFatTypeByte(typeByte: number): boolean {
+  return FAT_TYPE_BYTES.has(typeByte)
 }
 
 /* ─── 扇区读取 ─── */
@@ -227,12 +236,8 @@ function parseFatBootSector(bootSector: Uint8Array): DiskFatInfo | undefined {
   else if (clusters < 65525) variant = 'FAT16'
   else variant = 'FAT32'
 
-  let label = ''
-  if (variant === 'FAT32') {
-    label = new TextDecoder('latin1')
-      .decode(bootSector.subarray(71, 82))
-      .trim()
-  }
+  const labelBytes = variant === 'FAT32' ? bootSector.subarray(71, 82) : bootSector.subarray(43, 54)
+  const label = new TextDecoder('latin1').decode(labelBytes).trim()
 
   return {
     variant,
@@ -266,6 +271,8 @@ async function inspectImageVolume(
     kind: 'image-root',
     label: record.label,
     bytes: sizeBytes,
+    locationId: record.id,
+    pathRoot: filesLocationPathRoot(record.id),
     imageFile: { path: record.imagePath, sizeBytes: sizeBytes },
     occupancy,
     children: [],
@@ -276,36 +283,36 @@ async function inspectImageVolume(
       const sector0 = await readSectorRange(record.imagePath, 0, 512)
       const partitions = parseMbrPartitions(sector0, sizeBytes)
 
-      // FAT 探测
-      const candidates: Array<{ offset: number }> = []
-      const firstFatPartition = partitions.find((p) => p.typeLabel.startsWith('FAT') || [0x01, 0x04, 0x06, 0x0b, 0x0c, 0x0e].includes(p.typeByte))
-      if (firstFatPartition) candidates.push({ offset: firstFatPartition.startBytes })
-      candidates.push({ offset: 0 })
-
-      let fatInfo: DiskFatInfo | undefined
-      for (const candidate of candidates) {
-        if (candidate.offset + 512 > sizeBytes) continue
-        const bootSector =
-          candidate.offset === 0 ? sector0 : await readSectorRange(record.imagePath, candidate.offset, 512)
-        const fat = parseFatBootSector(bootSector)
-        if (fat) {
-          fatInfo = fat
-          break
-        }
-      }
-
-      if (fatInfo) imageRoot.fat = fatInfo
-
-      // 为每个分区生成子节点
       if (partitions.length > 0) {
-        imageRoot.children = partitions.map((partition) => ({
-          id: `${record.id}:part${partition.index}`,
-          kind: 'partition' as const,
-          label: `分区 ${partition.index}${partition.active ? '（活动）' : ''}`,
-          bytes: partition.sizeBytes,
-          partition,
-          fat: fatInfo && partition.index === (firstFatPartition?.index ?? 1) ? fatInfo : undefined,
-        }))
+        imageRoot.children = []
+        for (const partition of partitions) {
+          let partFat: DiskFatInfo | undefined
+          if (isFatTypeByte(partition.typeByte) && partition.startBytes + 512 <= sizeBytes) {
+            try {
+              const bootSector =
+                partition.startBytes === 0
+                  ? sector0
+                  : await readSectorRange(record.imagePath, partition.startBytes, 512)
+              partFat = parseFatBootSector(bootSector)
+            } catch {
+              partFat = undefined
+            }
+          }
+          imageRoot.children.push({
+            id: `${record.id}:part${partition.index}`,
+            kind: 'partition',
+            label: partFat?.label || `分区 ${partition.index}${partition.active ? '（活动）' : ''}`,
+            bytes: partition.sizeBytes,
+            partition,
+            imageFile: imageRoot.imageFile,
+            occupancy,
+            fat: partFat,
+          })
+        }
+        imageRoot.fat = imageRoot.children.find((child) => child.fat)?.fat
+      } else {
+        const fat = parseFatBootSector(sector0)
+        if (fat) imageRoot.fat = fat
       }
     } catch {
       // 解析失败不影响基础信息
@@ -419,7 +426,7 @@ export async function loadDiskTree(): Promise<TreeNode> {
     builtinTotalBytes += bytes
     builtinChildren.push({
       id: locationId,
-      kind: 'volume',
+      kind: locationId === 'trash' ? 'trash' : 'volume',
       label: BUILTIN_VOLUME_LABELS[locationId] ?? locationId,
       bytes,
       locationId,
@@ -459,26 +466,17 @@ export async function loadDiskTree(): Promise<TreeNode> {
     imageChildren.push(node)
   }
 
-  /* ── 废纸篓 ── */
-  const trashVolume = builtinAndMountVolumes.find((v) => parseLocationFromPath(v.path) === 'trash')
-  const trashBytes = trashVolume ? (bytesByLocation.get('trash') ?? 0) : 0
+  const children: TreeNode[] = [
+    {
+      id: 'container:builtin',
+      kind: 'container',
+      label: '数据空间（IndexedDB）',
+      bytes: builtinTotalBytes,
+      capacityBytes: getDataCapacityBytes(),
+      children: builtinChildren,
+    },
+  ]
 
-  /* ── 树根 ── */
-  const systemDiskBytes = builtinTotalBytes + mountTotalBytes + imageTotalBytes + trashBytes
-
-  const children: TreeNode[] = []
-
-  // 容器（内置卷集合）
-  children.push({
-    id: 'container:builtin',
-    kind: 'container',
-    label: '数据空间（IndexedDB）',
-    bytes: builtinTotalBytes,
-    capacityBytes: getDataCapacityBytes(),
-    children: builtinChildren,
-  })
-
-  // 挂载卷容器（仅在有挂载时显示）
   if (mountChildren.length > 0) {
     children.push({
       id: 'container:mount',
@@ -489,7 +487,6 @@ export async function loadDiskTree(): Promise<TreeNode> {
     })
   }
 
-  // 磁盘镜像容器（仅在有镜像时显示）
   if (imageChildren.length > 0) {
     children.push({
       id: 'container:image',
@@ -500,22 +497,11 @@ export async function loadDiskTree(): Promise<TreeNode> {
     })
   }
 
-  // 废纸篓
-  children.push({
-    id: 'trash',
-    kind: 'trash',
-    label: '废纸篓',
-    bytes: trashBytes,
-    locationId: 'trash',
-    pathRoot: '/trash',
-  })
-
   return {
     id: 'system-disk',
     kind: 'system-disk',
     label: '系统磁盘',
-    bytes: systemDiskBytes,
-    capacityBytes: DEVICE_CAPACITY_BYTES,
+    bytes: builtinTotalBytes,
     children,
   }
 }

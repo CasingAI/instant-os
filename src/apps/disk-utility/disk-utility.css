@@ -1,10 +1,11 @@
-/* 磁盘工具 — 复用 settings.css 组件；树状层级 + 底层信息布局 */
+/* 磁盘工具 — 侧栏源列表 + 详情检查器 */
 
 .disk-utility {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .disk-utility--narrow > .keychain-stack {
@@ -12,26 +13,28 @@
   min-height: 0;
 }
 
-/* ─── 分栏 ─── */
-
 .disk-utility__split {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(220px, 36%) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 38%) minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   height: 100%;
   gap: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .disk-utility__pane {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   min-width: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 .disk-utility__pane--list {
+  background: #ececec;
   border-right: 1px solid rgba(0, 0, 0, 0.18);
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
 }
@@ -39,55 +42,84 @@
 .disk-utility__pane--detail {
   position: relative;
   z-index: 1;
-  overflow: visible;
 }
 
-/* ─── 树状列表 ─── */
+.disk-utility .settings:has(> .settings__nav) > .settings__content.disk-utility__list-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.disk-utility .settings:has(> .settings__nav) > .settings__content.disk-utility__detail-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.disk-utility__sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 
 .disk-utility__tree {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #f4f4f4;
 }
 
-/* ─── 树节点行 ─── */
-
 .disk-utility__tree-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content 40px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 3px 10px 3px 6px;
+  min-height: 28px;
+  box-sizing: border-box;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+.disk-utility__tree-main {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
-  margin: 0;
-  padding: 3px 10px;
-  min-height: 32px;
-  border: none;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: default;
-  transition: background 0.1s;
-}
-
-.disk-utility__tree-row:last-child {
-  border-bottom: none;
+  min-width: 0;
 }
 
 .disk-utility__tree-row:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(0, 0, 0, 0.05);
 }
 
-.disk-utility__tree-row--selected {
-  background: rgba(0, 122, 255, 0.12);
-}
-
+.disk-utility__tree-row--selected,
 .disk-utility__tree-row--selected:hover {
-  background: rgba(0, 122, 255, 0.16);
+  background: linear-gradient(180deg, #d6e8fb 0%, #c2dbf5 100%);
 }
 
-/* ─── Chevron ─── */
+.disk-utility__chevron-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: default;
+}
 
 .disk-utility__chevron {
   display: inline-flex;
@@ -105,12 +137,10 @@
 }
 
 .disk-utility__chevron-placeholder {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
-
-/* ─── 图标 ─── */
 
 .disk-utility__icon {
   display: inline-flex;
@@ -119,14 +149,12 @@
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  color: #8e8e93;
+  color: #6e6e73;
 }
 
 .disk-utility__icon--partition {
   color: #aeaeb2;
 }
-
-/* ─── 树标签 ─── */
 
 .disk-utility__tree-label {
   flex: 1;
@@ -134,28 +162,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
 }
 
-/* ─── 卷大小 / 百分比 ─── */
-
 .disk-utility__tree-size {
+  justify-self: end;
   flex-shrink: 0;
-  font-size: 12px;
-  color: #8e8e93;
+  font-size: 11px;
+  color: #6e6e73;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .disk-utility__tree-pct {
-  flex-shrink: 0;
-  width: 42px;
-  text-align: right;
-  font-size: 12px;
+  justify-self: end;
+  font-size: 11px;
   color: #8e8e93;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
-/* ─── 文件系统类型 badge ─── */
+.disk-utility__tree-row--selected .disk-utility__tree-size,
+.disk-utility__tree-row--selected .disk-utility__tree-pct {
+  color: #4a4a4a;
+}
 
 .disk-utility__fs-badge {
   flex-shrink: 0;
@@ -167,8 +197,6 @@
   background: rgba(20, 126, 251, 0.1);
 }
 
-/* ─── 占用方 badge ─── */
-
 .disk-utility__occupancy-badge {
   flex-shrink: 0;
   padding: 0 5px;
@@ -176,30 +204,71 @@
   font-size: 10px;
   line-height: 15px;
   color: #fff;
-  background: #ff9500;
-}
-
-/* ─── 旧 kind-badge 保留兼容（如有外部引用） ─── */
-
-.disk-utility__kind-badge {
-  flex-shrink: 0;
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 10px;
-  line-height: 14px;
-  color: #fff;
-  background: #8e8e93;
-}
-
-.disk-utility__kind-badge--image {
-  background: #5856d6;
-}
-
-.disk-utility__kind-badge--mount {
   background: #34c759;
 }
 
-/* ─── 使用率条 ─── */
+.disk-utility__occupancy-badge--vm {
+  background: #ff9500;
+}
+
+.disk-utility__sidebar-footnote {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  background: #ececec;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #666;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.disk-utility__info-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.disk-utility__kv {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.disk-utility__kv-row {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr);
+  gap: 6px 12px;
+  align-items: start;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--settings-row-border);
+}
+
+.disk-utility__kv-row:last-child {
+  border-bottom: none;
+}
+
+.disk-utility__kv-name {
+  margin: 0;
+  padding-top: 1px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #636366;
+}
+
+.disk-utility__kv-value {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #1d1d1f;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.disk-utility__usage-block {
+  margin-top: 10px;
+}
 
 .disk-utility__usage-bar {
   height: 6px;
@@ -224,36 +293,177 @@
   background: linear-gradient(#ff6961, #e03128);
 }
 
-/* ─── 分区条 ─── */
-
-.disk-utility__partitions {
-  display: flex;
-  gap: 3px;
-  width: 100%;
-  margin: 6px 0;
+.disk-utility__map {
+  margin: 0 0 14px;
 }
 
-.disk-utility__partition-seg {
-  position: relative;
-  height: 22px;
-  min-width: 14px;
-  border-radius: 4px;
-  background: rgba(20, 126, 251, 0.16);
-  border: 1px solid rgba(20, 126, 251, 0.45);
-  color: #146efb;
+.disk-utility__map-bar {
+  display: flex;
+  width: 100%;
+  height: 80px;
+  overflow: hidden;
+  border: 1px solid #6e6e73;
+  background: #cfcfcf;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.disk-utility__map--compact {
+  margin: 0 0 12px;
+}
+
+.disk-utility__map--compact .disk-utility__map-bar {
+  height: 52px;
+}
+
+.disk-utility__map-seg {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: none;
+  border-right: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 0;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: left;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+  overflow: hidden;
+  cursor: default;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.disk-utility__map-seg:last-child {
+  border-right: none;
+}
+
+.disk-utility__map-seg--interactive {
+  cursor: pointer;
+}
+
+.disk-utility__map-seg--interactive:hover {
+  filter: brightness(1.06);
+}
+
+.disk-utility__map-seg--selected {
+  box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #147efb;
+}
+
+.disk-utility__map-seg-label,
+.disk-utility__map-seg-meta {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.disk-utility__map-seg-meta {
   font-size: 10px;
-  line-height: 20px;
-  text-align: center;
+  opacity: 0.92;
+}
+
+.disk-utility__map-seg--fat {
+  background: linear-gradient(180deg, #74d680 0%, #2f9e44 100%);
+}
+
+.disk-utility__map-seg--ntfs {
+  background: linear-gradient(180deg, #6aa8e8 0%, #2b6cb0 100%);
+}
+
+.disk-utility__map-seg--linux {
+  background: linear-gradient(180deg, #f0b15a 0%, #c97820 100%);
+}
+
+.disk-utility__map-seg--unknown {
+  background: linear-gradient(180deg, #b197fc 0%, #7048e8 100%);
+}
+
+.disk-utility__map-seg--reserved {
+  background: linear-gradient(180deg, #6e6e73 0%, #3a3a3c 100%);
+}
+
+.disk-utility__map-seg--free {
+  color: #4a4a4a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+  background: repeating-linear-gradient(
+    -45deg,
+    #efefef,
+    #efefef 5px,
+    #d8d8d8 5px,
+    #d8d8d8 10px
+  );
+}
+
+.disk-utility__map-legend {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.disk-utility__map-legend-item {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  gap: 8px 10px;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.disk-utility__map-legend-item--static {
   cursor: default;
 }
 
-.disk-utility__partition-seg--fat {
-  background: rgba(52, 199, 89, 0.18);
-  border-color: rgba(52, 199, 89, 0.55);
-  color: #248a3d;
+.disk-utility__map-legend-item:disabled {
+  opacity: 1;
+  color: inherit;
 }
 
-/* ─── 详情面板行标签+值 ─── */
+.disk-utility__map-legend-item--selected {
+  background: rgba(20, 126, 251, 0.1);
+  border-color: rgba(20, 126, 251, 0.28);
+}
+
+.disk-utility__map-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  box-sizing: border-box;
+}
+
+.disk-utility__map-legend-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.disk-utility__map-legend-type,
+.disk-utility__map-legend-size {
+  color: #636366;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .disk-utility__detail-bar-row {
   display: flex;
@@ -273,54 +483,27 @@
   color: #3c3c43;
 }
 
-/* ─── 操作按钮 ─── */
-
 .disk-utility__detail-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: 14px;
 }
 
-/* ─── 旧 pick-row 兼容（移除即可，保留以防外部引用） ─── */
-
-.disk-utility__pick-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
+.disk-utility-dialog__select {
   width: 100%;
-  margin: 0;
-  padding: 4px 10px;
-  min-height: 36px;
-  border: none;
-  border-bottom: 1px solid #ececec;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
+  border: 1px solid #a8a8a8;
+  border-radius: 4px;
+  padding: 6px 8px;
   font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: default;
+  font-size: 12px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
-.disk-utility__pick-row:last-child {
-  border-bottom: none;
-}
-
-.disk-utility__pick-row-name {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.disk-utility__pick-row-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.disk-utility__occupancy-note {
-  font-size: 11px;
+@container app-window (min-width: 700px) {
+  .disk-utility__pane--detail > .settings__content--compact {
+    --settings-content-pad-x: 18px;
+    padding: 14px 18px 18px;
+  }
 }
