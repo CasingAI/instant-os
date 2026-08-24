@@ -22,6 +22,7 @@ import {
   isVmBootOrderId,
   isVmBuildModeId,
   isVmCpuModelId,
+  isVmDiskWriteModeId,
   isVmDisplayModeId,
   isVmNetworkBackendId,
   isVmNetworkId,
@@ -33,6 +34,7 @@ import {
   VM_BOOT_ORDER_CHOICES,
   VM_BUILD_MODE_CHOICES,
   VM_CPU_MODEL_CHOICES,
+  VM_DISK_WRITE_MODE_CHOICES,
   VM_DISPLAY_MODE_CHOICES,
   VM_MEMORY_MB_MAX,
   VM_MEMORY_MB_MIN,
@@ -569,6 +571,24 @@ export function VirtualMachineSettingsDialog({
         ) : null}
         {tab === 'storage' ? (
           <div class="virtual-machine-settings__pane">
+            <SettingsChoiceField
+              label="硬盘写入"
+              value={draft.diskWriteMode}
+              options={VM_DISK_WRITE_MODE_CHOICES}
+              onChange={(value) => {
+                if (isVmDiskWriteModeId(value)) {
+                  patch({ diskWriteMode: value })
+                }
+              }}
+              wideLayout
+              presentation="form"
+              disabled={busy}
+              fieldClass="virtual-machine-settings__field"
+              labelClass="virtual-machine-settings__label"
+            />
+            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+              不写入时客户机改动只留在内存，要保留就靠快照，不会改镜像文件。实时写入会在运行中把扇区写回镜像。关机时写入会在关机或断电时一次性刷入。带着快照启动时，回写会改底盘镜像，容易和快照对不上；XP 这类机建议不写入。
+            </p>
             <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
               左侧是已挂载的存储设备，右侧编辑镜像来源。v86 最多支持 2 硬盘、1 光盘、2 软驱、1 快照。
             </p>

@@ -38,6 +38,26 @@ function isRuntimeOrigin(origin: string): boolean {
   return runtimeOrigins().includes(origin)
 }
 
+/**
+ * 成功的范围读一律 206。v86 对带 Range 的请求收到 200 会当成整文件回传并 abort。
+ */
+export function diskReadReplyStatus(
+  entry: Pick<StreamEntry, 'size'> | undefined,
+  offset: number,
+  length: number,
+): number {
+  if (!entry) {
+    return 404
+  }
+  if (!Number.isFinite(offset) || offset < 0 || !Number.isFinite(length) || length < 0) {
+    return 416
+  }
+  if (offset >= entry.size) {
+    return 416
+  }
+  return 206
+}
+
 export function diskWriteReplyStatus(
   entry: Pick<StreamEntry, 'size' | 'writable'> | undefined,
   offset: number,
@@ -67,12 +87,13 @@ async function readDiskRange(
   length: number,
 ): Promise<InstantVmDiskReadResultMessage> {
   const totalSize = entry.size
-  if (offset < 0 || length < 0 || offset >= totalSize) {
+  const status = diskReadReplyStatus(entry, offset, length)
+  if (status !== 206) {
     return {
       type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
       requestId: '',
       streamId: '',
-      status: 416,
+      status,
       totalSize,
     }
   }
@@ -80,7 +101,6 @@ async function readDiskRange(
   try {
     const blob = await filesReadBlobRange(entry.path, offset, want)
     const bytes = await blob.arrayBuffer()
-    const status = offset === 0 && want === totalSize ? 200 : 206
     return {
       type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
       requestId: '',

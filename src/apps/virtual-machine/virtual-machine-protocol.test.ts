@@ -74,11 +74,16 @@ function testHasBootMedia(): void {
   )
 }
 
-function testPersistWritesOnlyHddAndFloppy(): void {
-  assert.equal(virtualMachineDiskPersistsWrites('hdd'), true)
-  assert.equal(virtualMachineDiskPersistsWrites('floppy'), true)
-  assert.equal(virtualMachineDiskPersistsWrites('cdrom'), false)
-  assert.equal(virtualMachineDiskPersistsWrites('state'), false)
+function testPersistWritesHonorsMode(): void {
+  assert.equal(virtualMachineDiskPersistsWrites('hdd'), false)
+  assert.equal(virtualMachineDiskPersistsWrites('hdd', 'none'), false)
+  assert.equal(virtualMachineDiskPersistsWrites('floppy', 'none'), false)
+  assert.equal(virtualMachineDiskPersistsWrites('hdd', 'live'), true)
+  assert.equal(virtualMachineDiskPersistsWrites('floppy', 'live'), true)
+  assert.equal(virtualMachineDiskPersistsWrites('hdd', 'poweroff'), true)
+  assert.equal(virtualMachineDiskPersistsWrites('floppy', 'poweroff'), true)
+  assert.equal(virtualMachineDiskPersistsWrites('cdrom', 'live'), false)
+  assert.equal(virtualMachineDiskPersistsWrites('state', 'live'), false)
 }
 
 function testStartMessageTransfers(): void {
@@ -251,6 +256,29 @@ function testDefaultPointerModeInStartConfig(): void {
   assert.equal(config.pointerMode, 'auto')
 }
 
+function testDiskWriteModeInStartConfig(): void {
+  const defaultCfg = settingsToStartConfig(sampleSettings())
+  assert.equal(defaultCfg.diskWriteMode, 'none')
+
+  const live = settingsToStartConfig({ ...sampleSettings(), diskWriteMode: 'live' })
+  assert.equal(live.diskWriteMode, 'live')
+  assert.equal(
+    isInstantVmStartMessage(buildStartMessage('req-dw', { ...sampleSettings(), diskWriteMode: 'live' }, {})),
+    true,
+  )
+  assert.equal(
+    isInstantVmStartMessage(buildStartMessage('req-dw-off', { ...sampleSettings(), diskWriteMode: 'poweroff' }, {})),
+    true,
+  )
+  assert.equal(
+    isInstantVmStartMessage({
+      ...buildStartMessage('req-dw-bad', sampleSettings(), {}),
+      config: { ...settingsToStartConfig(sampleSettings()), diskWriteMode: 'always' },
+    } as unknown),
+    false,
+  )
+}
+
 function testResolveEffectivePointerMode(): void {
   assert.equal(resolveEffectivePointerMode('auto', false), 'lock')
   assert.equal(resolveEffectivePointerMode('auto', true), 'follow')
@@ -421,9 +449,33 @@ function testDiskWriteMessages(): void {
   assert.equal(isInstantVmDiskWriteResultMessage({ ...result, status: 1.5 }), false)
 }
 
+function testDiskWriteFailedMessage(): void {
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.diskWriteFailed,
+      message: '回写硬盘超时',
+    }),
+    true,
+  )
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.diskWriteFailed,
+      message: '',
+    }),
+    false,
+  )
+  assert.equal(
+    isInstantVmHostToRuntimeMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.diskWriteFailed,
+      message: '回写硬盘超时',
+    }),
+    false,
+  )
+}
+
 testBootOrderMatchesV86()
 testHasBootMedia()
-testPersistWritesOnlyHddAndFloppy()
+testPersistWritesHonorsMode()
 testStartMessageTransfers()
 testStartMessageMapsMultipleHdds()
 testHighMemoryAndDiskStreamStartMessage()
@@ -432,6 +484,7 @@ testPathSummaryForRemoteUrl()
 testStatsFormatting()
 testNetworkFields()
 testDefaultPointerModeInStartConfig()
+testDiskWriteModeInStartConfig()
 testResolveEffectivePointerMode()
 testCpuModelPassedThrough()
 testOriginAllowList()
@@ -440,4 +493,5 @@ testSaveStateMessage()
 testStoppedWithoutRequestId()
 testKeyboardMessage()
 testDiskWriteMessages()
+testDiskWriteFailedMessage()
 console.log('virtual-machine-protocol.test.ts ok')

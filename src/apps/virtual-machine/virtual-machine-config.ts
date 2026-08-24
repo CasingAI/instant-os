@@ -3,6 +3,7 @@ import {
   DEFAULT_VIRTUAL_MACHINE_BOOT_ORDER,
   DEFAULT_VIRTUAL_MACHINE_BUILD_MODE,
   DEFAULT_VIRTUAL_MACHINE_CPU_MODEL,
+  DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE,
   DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -15,6 +16,7 @@ import {
   VM_BOOT_ORDER_IDS,
   VM_BUILD_MODE_IDS,
   VM_CPU_MODEL_IDS,
+  VM_DISK_WRITE_MODE_IDS,
   VM_DISPLAY_MODE_IDS,
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
@@ -31,6 +33,7 @@ import {
   type VmBootOrderId,
   type VmBuildModeId,
   type VmCpuModelId,
+  type VmDiskWriteModeId,
   type VmDisplayModeId,
   type VmMemoryMb,
   type VmNetworkBackendId,
@@ -63,6 +66,7 @@ export function defaultVirtualMachineSettings(
     keyboard: true,
     mouse: true,
     pointerMode: DEFAULT_VIRTUAL_MACHINE_POINTER_MODE,
+    diskWriteMode: DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE,
     network: DEFAULT_VIRTUAL_MACHINE_NETWORK,
     networkBackend: DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
     displayMode: DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
@@ -85,6 +89,7 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     keyboard: record.keyboard,
     mouse: record.mouse,
     pointerMode: record.pointerMode,
+    diskWriteMode: record.diskWriteMode,
     network: record.network,
     networkBackend: record.networkBackend,
     displayMode: record.displayMode,
@@ -232,6 +237,12 @@ const POINTER_MODE_LABELS: Record<VmPointerModeId, string> = {
   lock: '强制独占',
 }
 
+const DISK_WRITE_MODE_LABELS: Record<VmDiskWriteModeId, string> = {
+  none: '不写入',
+  live: '实时写入',
+  poweroff: '关机时写入',
+}
+
 const BUILD_MODE_LABELS: Record<VmBuildModeId, string> = {
   debug: 'Debug（调试版）',
   release: 'Release（正式版）',
@@ -249,6 +260,10 @@ const PC_TYPE_LABELS: Record<VmPcTypeId, string> = {
 
 export function formatVmPointerModeLabel(id: VmPointerModeId): string {
   return POINTER_MODE_LABELS[id]
+}
+
+export function formatVmDiskWriteModeLabel(id: VmDiskWriteModeId): string {
+  return DISK_WRITE_MODE_LABELS[id]
 }
 
 export function formatVmPointerModeRuntimeLabel(
@@ -395,6 +410,15 @@ export const VM_POINTER_MODE_CHOICES: readonly SettingsChoiceOption[] = VM_POINT
   }),
 )
 
+export const VM_DISK_WRITE_MODE_CHOICES: readonly SettingsChoiceOption[] =
+  VM_DISK_WRITE_MODE_IDS.map((id) => ({
+    id,
+    label:
+      id === DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE
+        ? `${formatVmDiskWriteModeLabel(id)} 默认`
+        : formatVmDiskWriteModeLabel(id),
+  }))
+
 export { VM_MEMORY_MB_MIN, VM_MEMORY_MB_MAX, VM_MEMORY_MB_STEP }
 export { VM_STORAGE_DEVICE_LIMITS }
 
@@ -458,6 +482,10 @@ export function isVmDisplayModeId(value: string): value is VmDisplayModeId {
 
 export function isVmPointerModeId(value: string): value is VmPointerModeId {
   return (VM_POINTER_MODE_IDS as readonly string[]).includes(value)
+}
+
+export function isVmDiskWriteModeId(value: string): value is VmDiskWriteModeId {
+  return (VM_DISK_WRITE_MODE_IDS as readonly string[]).includes(value)
 }
 
 export function isVmBuildModeId(value: string): value is VmBuildModeId {

@@ -20,6 +20,7 @@ export type VmRuntimeSurfaceProps = {
   onStarted: (machineId: string) => void
   onGuestPoweredOff: (machineId: string) => void
   onBootError: (machineId: string, message: string) => void
+  onDiskWriteFailed: (machineId: string, message: string) => void
   onCaptureKeyboard: () => void
   isDisplayed: boolean
 }
@@ -39,6 +40,7 @@ export function VmRuntimeSurface({
   onStarted,
   onGuestPoweredOff,
   onBootError,
+  onDiskWriteFailed,
   onCaptureKeyboard,
   isDisplayed,
 }: VmRuntimeSurfaceProps) {
@@ -57,7 +59,11 @@ export function VmRuntimeSurface({
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
-  } = useVirtualMachineRuntime(resolvedOrigin, () => onGuestPoweredOff(machineId))
+  } = useVirtualMachineRuntime(
+    resolvedOrigin,
+    () => onGuestPoweredOff(machineId),
+    (message) => onDiskWriteFailed(machineId, message),
+  )
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 
   useEffect(() => {

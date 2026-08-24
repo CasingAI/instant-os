@@ -21,6 +21,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   diskReadResult: 'instant-vm:disk-read-result',
   diskWrite: 'instant-vm:disk-write',
   diskWriteResult: 'instant-vm:disk-write-result',
+  diskWriteFailed: 'instant-vm:disk-write-failed',
   keyboard: 'instant-vm:keyboard',
 } as const
 
@@ -85,6 +86,14 @@ export const INSTANT_VM_POINTER_MODES = ['auto', 'follow', 'lock'] as const
 
 export type InstantVmPointerMode = (typeof INSTANT_VM_POINTER_MODES)[number]
 
+/**
+ * 硬盘回写时机。省略按 none（不回写镜像）。
+ * Keep in sync with instant-app `VmDiskWriteModeId`。
+ */
+export const INSTANT_VM_DISK_WRITE_MODES = ['none', 'live', 'poweroff'] as const
+
+export type InstantVmDiskWriteMode = (typeof INSTANT_VM_DISK_WRITE_MODES)[number]
+
 export type InstantVmEffectivePointerMode = 'follow' | 'lock'
 
 /** 策略落到实际捕获方式。省略字段时按跟随，以兼容旧宿主。 */
@@ -121,6 +130,8 @@ export type InstantVmStartConfig = {
   displayMode?: InstantVmDisplayMode
   /** 指针工作方式；instant-app 显式下发；省略时运行时按 follow。 */
   pointerMode?: InstantVmPointerMode
+  /** 硬盘回写时机；省略按 none。 */
+  diskWriteMode?: InstantVmDiskWriteMode
 }
 
 export type InstantVmReadyMessage = {
@@ -278,6 +289,11 @@ export type InstantVmProgressMessage = {
   message: string
 }
 
+export type InstantVmDiskWriteFailedMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.diskWriteFailed
+  message: string
+}
+
 export const INSTANT_VM_IDE_LABELS = ['none', 'hdd', 'cdrom'] as const
 
 export type InstantVmIdeLabel = (typeof INSTANT_VM_IDE_LABELS)[number]
@@ -341,6 +357,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmSaveStateResultMessage
   | InstantVmErrorMessage
   | InstantVmProgressMessage
+  | InstantVmDiskWriteFailedMessage
   | InstantVmStatsMessage
   | InstantVmDiskReadMessage
   | InstantVmDiskWriteMessage
@@ -377,6 +394,13 @@ function isNetworkBackendId(value: unknown): value is InstantVmNetworkBackendId 
 export function isPointerMode(value: unknown): value is InstantVmPointerMode {
   return (
     typeof value === 'string' && (INSTANT_VM_POINTER_MODES as readonly string[]).includes(value)
+  )
+}
+
+export function isDiskWriteMode(value: unknown): value is InstantVmDiskWriteMode {
+  return (
+    typeof value === 'string' &&
+    (INSTANT_VM_DISK_WRITE_MODES as readonly string[]).includes(value)
   )
 }
 
@@ -424,6 +448,9 @@ export function isInstantVmStartConfig(value: unknown): value is InstantVmStartC
     return false
   }
   if (value.pointerMode !== undefined && !isPointerMode(value.pointerMode)) {
+    return false
+  }
+  if (value.diskWriteMode !== undefined && !isDiskWriteMode(value.diskWriteMode)) {
     return false
   }
   return true
@@ -785,6 +812,9 @@ export function isInstantVmRuntimeToHostMessage(
     return value.requestId === undefined || isRequestId(value.requestId)
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.progress) {
+    return typeof value.message === 'string' && value.message.trim().length > 0
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.diskWriteFailed) {
     return typeof value.message === 'string' && value.message.trim().length > 0
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.stats) {

@@ -20,6 +20,7 @@ import { virtualMachineHasBootMedia } from './virtual-machine-disks.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
 import { saveVirtualMachineSnapshot } from './virtual-machine-save-snapshot.ts'
+import { postVirtualMachineDiskWriteFailedNotification } from './virtual-machine-disk-write-notification.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
   type InstantVmKeyboardMessage,
@@ -430,6 +431,18 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [pool, showVmError],
   )
 
+  const handleDiskWriteFailed = useCallback(
+    (machineId: string, detail: string) => {
+      const machine = machines.find((item) => item.id === machineId)
+      postVirtualMachineDiskWriteFailedNotification({
+        machineId,
+        machineName: machine?.name ?? 'Virtual Machine',
+        detail,
+      })
+    },
+    [machines],
+  )
+
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
@@ -713,6 +726,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     onStarted={pool.onStarted}
                     onGuestPoweredOff={pool.onGuestPoweredOff}
                     onBootError={handleBootError}
+                    onDiskWriteFailed={handleDiskWriteFailed}
                     onCaptureKeyboard={captureGuestKeyboard}
                     isDisplayed={isDisplayed}
                   />

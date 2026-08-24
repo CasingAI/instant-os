@@ -132,11 +132,14 @@ export type VmRuntimeSnapshot = {
 export function useVirtualMachineRuntime(
   origin: string | undefined,
   onGuestPoweredOff?: () => void,
+  onDiskWriteFailed?: (message: string) => void,
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
   const onGuestPoweredOffRef = useRef(onGuestPoweredOff)
   onGuestPoweredOffRef.current = onGuestPoweredOff
+  const onDiskWriteFailedRef = useRef(onDiskWriteFailed)
+  onDiskWriteFailedRef.current = onDiskWriteFailed
   const [ready, setReady] = useState(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
   const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
@@ -185,6 +188,11 @@ export function useVirtualMachineRuntime(
 
       if (message.type === INSTANT_VM_MESSAGE_TYPE.progress) {
         setBootProgress(message.message)
+        return
+      }
+
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.diskWriteFailed) {
+        onDiskWriteFailedRef.current?.(message.message)
         return
       }
 

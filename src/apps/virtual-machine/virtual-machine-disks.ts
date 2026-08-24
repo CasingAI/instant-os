@@ -115,6 +115,7 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     networkBackend: settings.networkBackend,
     displayMode: settings.displayMode,
     pointerMode: settings.pointerMode,
+    diskWriteMode: settings.diskWriteMode,
     ...(cpuidLevel !== undefined ? { cpuidLevel } : {}),
   }
 }
@@ -166,7 +167,13 @@ function assignDevicesToSlots(devices: readonly VmStorageDevice[]): SlotAssignme
   return assignments
 }
 
-export function virtualMachineDiskPersistsWrites(type: VmStorageDeviceType): boolean {
+export function virtualMachineDiskPersistsWrites(
+  type: VmStorageDeviceType,
+  diskWriteMode: VirtualMachineSettings['diskWriteMode'] = 'none',
+): boolean {
+  if (diskWriteMode === 'none') {
+    return false
+  }
   return type === 'hdd' || type === 'floppy'
 }
 
@@ -213,14 +220,17 @@ async function loadDisk(
 }
 
 export async function loadVirtualMachineDisks(
-  settings: Pick<VirtualMachineSettings, 'devices'>,
+  settings: Pick<VirtualMachineSettings, 'devices' | 'diskWriteMode'>,
 ): Promise<Partial<Pick<InstantVmStartMessage, SlotName | `${SlotName}Blob` | `${SlotName}Url` | `${SlotName}Stream`>>> {
   const assignments = assignDevicesToSlots(settings.devices)
   const loaded = await Promise.all(
     assignments.map(async (assignment) => ({
       slot: assignment.slot,
       ...await loadDisk(assignment.device.path, assignment.label, {
-        persist: virtualMachineDiskPersistsWrites(assignment.device.type),
+        persist: virtualMachineDiskPersistsWrites(
+          assignment.device.type,
+          settings.diskWriteMode,
+        ),
         stream: assignment.device.type !== 'state',
       }),
     })),

@@ -85,6 +85,18 @@ export type VmPointerModeId = (typeof VM_POINTER_MODE_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'auto'
 
+/**
+ * 硬盘回写时机。
+ * - `none`：客户机改动只留在内存，要保留就靠快照，不改镜像。
+ * - `live`：运行中把扇区写回镜像。
+ * - `poweroff`：运行中只攒脏块，关机/断电时一次性刷入镜像。
+ */
+export const VM_DISK_WRITE_MODE_IDS = ['none', 'live', 'poweroff'] as const
+
+export type VmDiskWriteModeId = (typeof VM_DISK_WRITE_MODE_IDS)[number]
+
+export const DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE: VmDiskWriteModeId = 'none'
+
 /** V86 构建模式：`debug`（未压缩，可单步调试）；`release`（压缩混淆，性能更好）。 */
 export const VM_BUILD_MODE_IDS = ['debug', 'release'] as const
 
@@ -128,6 +140,7 @@ export type VirtualMachineSettings = {
   keyboard: boolean
   mouse: boolean
   pointerMode: VmPointerModeId
+  diskWriteMode: VmDiskWriteModeId
   network: VmNetworkId
   networkBackend: VmNetworkBackendId
   displayMode: VmDisplayModeId

@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { INSTANT_VM_DISK_RANGE_MAX_BYTES } from './virtual-machine-protocol.ts'
-import { diskWriteReplyStatus } from './virtual-machine-disk-stream-host.ts'
+import { diskReadReplyStatus, diskWriteReplyStatus } from './virtual-machine-disk-stream-host.ts'
 
 function testMissingStreamIs404(): void {
   assert.equal(diskWriteReplyStatus(undefined, 0, 512), 404)
@@ -38,9 +38,18 @@ function testWritableInRangeIs200(): void {
   assert.equal(diskWriteReplyStatus({ size: 4096, writable: true }, 0, 4096), 200)
 }
 
+function testDiskReadFullFileIsStillPartial(): void {
+  assert.equal(diskReadReplyStatus(undefined, 0, 512), 404)
+  assert.equal(diskReadReplyStatus({ size: 4096 }, -1, 8), 416)
+  assert.equal(diskReadReplyStatus({ size: 4096 }, 4096, 1), 416)
+  assert.equal(diskReadReplyStatus({ size: 4096 }, 0, 512), 206)
+  assert.equal(diskReadReplyStatus({ size: 4096 }, 0, 4096), 206)
+}
+
 testMissingStreamIs404()
 testReadonlyStreamIs403()
 testOutOfRangeIs416()
 testTooLargeIs413()
 testWritableInRangeIs200()
+testDiskReadFullFileIsStillPartial()
 console.log('virtual-machine-disk-stream-host.test.ts ok')

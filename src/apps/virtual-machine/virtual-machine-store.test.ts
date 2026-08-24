@@ -24,6 +24,7 @@ import {
 import {
   DEFAULT_VIRTUAL_MACHINE_BUILD_MODE,
   DEFAULT_VIRTUAL_MACHINE_CPU_MODEL,
+  DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE,
   DEFAULT_VIRTUAL_MACHINE_ID,
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -51,6 +52,7 @@ function testNormalizeMissingSeedsDefault(): void {
   assert.equal(machines[0]?.speaker, true)
   assert.equal(machines[0]?.acpi, false)
   assert.equal(machines[0]?.buildMode, DEFAULT_VIRTUAL_MACHINE_BUILD_MODE)
+  assert.equal(machines[0]?.diskWriteMode, DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE)
 }
 
 function testNormalizeBuildModeFallback(): void {
@@ -62,6 +64,20 @@ function testNormalizeBuildModeFallback(): void {
 
   const debugMode = normalizeVirtualMachineSettings({ name: 'test', buildMode: 'debug' })
   assert.equal(debugMode?.buildMode, 'debug')
+}
+
+function testNormalizeDiskWriteModeFallback(): void {
+  const missing = normalizeVirtualMachineSettings({ name: 'test' })
+  assert.equal(missing?.diskWriteMode, 'none')
+
+  const bad = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'always' })
+  assert.equal(bad?.diskWriteMode, 'none')
+
+  const live = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'live' })
+  assert.equal(live?.diskWriteMode, 'live')
+
+  const poweroff = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'poweroff' })
+  assert.equal(poweroff?.diskWriteMode, 'poweroff')
 }
 
 function testNormalizeEmptyArrayStaysEmpty(): void {
@@ -286,6 +302,7 @@ testNormalizeDevicesArray()
 testNormalizeDropsHttpUrls()
 testNormalizeRecordRejectsInvalid()
 testNormalizeBuildModeFallback()
+testNormalizeDiskWriteModeFallback()
 testNormalizeMemoryMbRange()
 testNormalizeCpuModelFallback()
 testNextMachineName()
