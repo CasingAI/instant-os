@@ -6,11 +6,12 @@ import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
 import { createFat12Image } from './files-image-fat12-fixture.ts'
 import { FatImageVolume, type ImageDiskIo } from './files-image-fat-volume.ts'
-import { mountDiskImage, unmountDiskImage } from './files-image-actions.ts'
+import { mountDiskImage, unmountDiskImage, restorePersistedImageMounts, resetImageMountRestoreForTests } from './files-image-actions.ts'
 import {
   openImageMount,
   closeImageMount,
   getImageMountReadError,
+  listImageMounts,
   resetImageMountsForTests,
 } from './files-image-mount-store.ts'
 import {
@@ -19,6 +20,7 @@ import {
   releaseDiskImagePath,
   resetDiskImageOccupancyForTests,
 } from './files-disk-image-occupancy.ts'
+import { resetPersistedImageMountsForTests } from './files-image-mount-persist.ts'
 import { resetFilesDbForTests } from './files-storage.ts'
 import { invalidateFilesVfsPathCaches, listFilesLocations } from './files-vfs.ts'
 import { isImageLocationId } from './files-types.ts'
@@ -33,6 +35,36 @@ import {
   filesRename,
   filesWriteText,
 } from './files-api.ts'
+
+class MemoryStorage implements Storage {
+  private readonly map = new Map<string, string>()
+
+  get length(): number {
+    return this.map.size
+  }
+
+  clear(): void {
+    this.map.clear()
+  }
+
+  getItem(key: string): string | null {
+    return this.map.get(key) ?? null
+  }
+
+  key(index: number): string | null {
+    return [...this.map.keys()][index] ?? null
+  }
+
+  removeItem(key: string): void {
+    this.map.delete(key)
+  }
+
+  setItem(key: string, value: string): void {
+    this.map.set(key, value)
+  }
+}
+
+;(globalThis as { localStorage?: Storage }).localStorage ??= new MemoryStorage()
 
 function memoryDisk(bytes: Uint8Array): ImageDiskIo {
   return {
@@ -70,7 +102,16 @@ async function testInMemoryFatVolume(): Promise<void> {
 async function resetFiles(): Promise<void> {
   resetImageMountsForTests()
   resetDiskImageOccupancyForTests()
+  resetPersistedImageMountsForTests()
+  resetImageMountRestoreForTests()
   await resetFilesDbForTests()
+  invalidateFilesVfsPathCaches()
+}
+
+async function simulateRestart(): Promise<void> {
+  resetImageMountsForTests()
+  resetDiskImageOccupancyForTests()
+  resetImageMountRestoreForTests()
   invalidateFilesVfsPathCaches()
 }
 
@@ -163,8 +204,50 @@ async function testUnreadableImageDegradesGracefully(): Promise<void> {
   releaseDiskImagePath('/user/blank.img', vm)
 }
 
+async function testRemembersMountAcrossRestart(): Promise<void> {
+  await resetFiles()
+  const image = createFat12Image()
+  await filesCreateBinary(
+    '/user/disk.img',
+    image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength),
+  )
+  const mounted = await mountDiskImage('/user/disk.img')
+  const root = filesLocationPathRoot(mounted.id)
+  await filesCreateText(`${root}/keep.txt`, 'stays')
+
+  await simulateRestart()
+  assert.equal(listImageMounts().length, 0)
+
+  await restorePersistedImageMounts()
+  const remounted = listImageMounts()
+  assert.equal(remounted.length, 1)
+  assert.equal(remounted[0]?.id, mounted.id)
+  assert.equal(remounted[0]?.imagePath, '/user/disk.img')
+  const text = await filesReadText(`${root}/keep.txt`)
+  assert.equal(text, 'stays')
+}
+
+async function testManualUnmountDoesNotRestore(): Promise<void> {
+  await resetFiles()
+  const image = createFat12Image()
+  await filesCreateBinary(
+    '/user/disk.img',
+    image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength),
+  )
+  const mounted = await mountDiskImage('/user/disk.img')
+  await unmountDiskImage(mounted.id)
+
+  await simulateRestart()
+  await restorePersistedImageMounts()
+  assert.equal(listImageMounts().length, 0)
+  const locations = await listFilesLocations()
+  assert.equal(locations.some((item) => item.id === mounted.id), false)
+}
+
 await testInMemoryFatVolume()
 await testMountWriteUnmountRemount()
 await testVmOccupancyBlocksMount()
 await testUnreadableImageDegradesGracefully()
+await testRemembersMountAcrossRestart()
+await testManualUnmountDoesNotRestore()
 console.log('files-image-mount.test.ts ok')

@@ -5,6 +5,7 @@ import {
 } from './files-disk-image-occupancy.ts'
 import { diskImageLabelFromFileName } from './files-disk-image-name.ts'
 import { FatImageVolume, type ImageDiskIo } from './files-image-fat-volume.ts'
+import { listPersistedImageMounts } from './files-image-mount-persist.ts'
 import {
   isImageLocationId,
   makeImageLocationId,
@@ -79,9 +80,16 @@ export async function openImageMount(params: {
   const existing = getImageMountByPath(imagePath)
   if (existing) return existing
 
+  const persisted = listPersistedImageMounts()
   const taken = new Set<string>([...sessions.keys()])
-  const key = newImageLocationKey(params.fileName, taken)
-  const id = makeImageLocationId(key)
+  for (const item of persisted) {
+    if (item.imagePath !== imagePath) taken.add(item.id)
+  }
+  const remembered = persisted.find((item) => item.imagePath === imagePath)
+  const id =
+    remembered && !taken.has(remembered.id)
+      ? remembered.id
+      : makeImageLocationId(newImageLocationKey(params.fileName, taken))
   const occupant = { kind: 'files-mount' as const, id }
   claimDiskImagePath(imagePath, occupant)
   const volume = new FatImageVolume(params.io)

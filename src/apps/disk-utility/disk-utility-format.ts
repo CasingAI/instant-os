@@ -8,8 +8,8 @@ import {
   getDiskImageOccupant,
   normalizeDiskImagePath,
 } from '../files/files-disk-image-occupancy.ts'
-import { mountDiskImage, unmountDiskImage } from '../files/files-image-actions.ts'
-import { getImageMountByPath } from '../files/files-image-mount-store.ts'
+import { mountDiskImage } from '../files/files-image-actions.ts'
+import { closeImageMount, getImageMountByPath } from '../files/files-image-mount-store.ts'
 
 export type FatVariant = 'FAT12' | 'FAT16' | 'FAT32'
 export type DiskScheme = 'mbr' | 'superfloppy'
@@ -285,7 +285,7 @@ export async function withExclusiveImageAccess<T>(
   }
   const mounted = occupant?.kind === 'files-mount' ? getImageMountByPath(path) : undefined
   if (mounted) {
-    await unmountDiskImage(mounted.id)
+    await closeImageMount(mounted.id)
   }
   let workError: unknown
   let result: T | undefined

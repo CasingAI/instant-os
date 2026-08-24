@@ -2,6 +2,11 @@ import { filesReadBlobRange, filesStat, filesWriteBytesRange } from './files-api
 import { isDiskImageFileName } from './files-disk-image-name.ts'
 import { normalizeDiskImagePath } from './files-disk-image-occupancy.ts'
 import {
+  forgetImageMount,
+  listPersistedImageMounts,
+  rememberImageMount,
+} from './files-image-mount-persist.ts'
+import {
   closeImageMount,
   getImageMountByPath,
   openImageMount,
@@ -29,11 +34,44 @@ function fileNameFromPath(path: string): string {
   return slash >= 0 ? path.slice(slash + 1) : path
 }
 
+let restorePromise: Promise<void> | undefined
+let restoring = false
+
+export function restorePersistedImageMounts(): Promise<void> {
+  if (restorePromise) return restorePromise
+  restorePromise = (async () => {
+    restoring = true
+    try {
+      const remembered = listPersistedImageMounts()
+      for (const item of remembered) {
+        if (getImageMountByPath(item.imagePath)) continue
+        try {
+          await mountDiskImage(item.imagePath)
+        } catch {
+          // 文件暂时不可读或被虚拟机占用时保留记录，下次启动再试
+        }
+      }
+    } finally {
+      restoring = false
+    }
+  })()
+  return restorePromise
+}
+
+export function resetImageMountRestoreForTests(): void {
+  restorePromise = undefined
+  restoring = false
+}
+
 export async function mountDiskImage(imagePath: string): Promise<ImageMountRecord> {
+  if (!restoring) await restorePersistedImageMounts()
   const path = normalizeDiskImagePath(imagePath)
   assertInternalImagePath(path)
   const existing = getImageMountByPath(path)
-  if (existing) return existing
+  if (existing) {
+    rememberImageMount({ id: existing.id, imagePath: existing.imagePath })
+    return existing
+  }
   const stat = await filesStat(path)
   if (!stat || stat.kind !== 'file') {
     throw new Error('镜像文件不存在')
@@ -44,7 +82,7 @@ export async function mountDiskImage(imagePath: string): Promise<ImageMountRecor
   if (stat.byteSize < 512) {
     throw new Error('镜像太小，不像有效的磁盘映像')
   }
-  return openImageMount({
+  const record = await openImageMount({
     imagePath: path,
     fileName: stat.name || fileNameFromPath(path),
     io: {
@@ -66,6 +104,8 @@ export async function mountDiskImage(imagePath: string): Promise<ImageMountRecor
       },
     },
   })
+  rememberImageMount({ id: record.id, imagePath: record.imagePath })
+  return record
 }
 
 export async function unmountDiskImage(locationId: ImageFilesLocationId): Promise<void> {
@@ -73,4 +113,5 @@ export async function unmountDiskImage(locationId: ImageFilesLocationId): Promis
     throw new Error('不是磁盘镜像卷')
   }
   await closeImageMount(locationId)
+  forgetImageMount(locationId)
 }

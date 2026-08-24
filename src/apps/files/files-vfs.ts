@@ -305,6 +305,8 @@ function recordFilesIoWrite(
 }
 
 export async function listFilesLocations(): Promise<readonly FilesLocation[]> {
+  const { restorePersistedImageMounts } = await import('./files-image-actions.ts')
+  await restorePersistedImageMounts()
   const mounts = await listMounts()
   const images = listImageMounts()
   return [
