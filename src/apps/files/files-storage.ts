@@ -1555,12 +1555,18 @@ async function spillIdbRangeWriteToOpfs(params: {
     0,
     DEFAULT_STREAM_CHUNK_SIZE,
   )
-  const full = new Uint8Array(params.newByteSize)
-  for (const chunk of newChunks) {
-    full.set(chunk.bytes, chunk.offset)
-  }
   const targetBlobId = params.shared ? newFilesBlobId() : params.blobId
-  await writeOpfsBlobBytes(targetBlobId, full)
+  const writer = await openOpfsBlobWriter(targetBlobId)
+  try {
+    for (const chunk of newChunks) {
+      await writer.writeAt(chunk.offset, chunk.bytes)
+    }
+    await writer.close()
+  } catch (error) {
+    await writer.abort()
+    await deleteOpfsBlobs([targetBlobId])
+    throw error
+  }
 
   const db = await openFilesDb()
   const writeTx = beginIdbTransaction(

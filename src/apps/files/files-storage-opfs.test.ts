@@ -45,6 +45,10 @@ import {
   writeOpfsBlobBytes,
   writeOpfsBlobRange,
 } from './files-opfs-blobs.ts'
+import {
+  writeThroughOpfsSyncAccess,
+  type OpfsSyncRangeAccess,
+} from './files-opfs-sync-range.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import type { FilesNode } from './files-types.ts'
 
@@ -94,6 +98,48 @@ async function resetState(): Promise<void> {
   invalidateFilesVfsPathCaches()
   await resolveNodeByAbsolutePath('/user/.warmup-probe')
   invalidateFilesVfsPathCaches()
+}
+
+function fakeSyncAccess(initial: Uint8Array): OpfsSyncRangeAccess & { snapshot: () => Uint8Array } {
+  let bytes = new Uint8Array(initial)
+  return {
+    getSize: () => bytes.byteLength,
+    truncate: (size) => {
+      const next = new Uint8Array(size)
+      next.set(bytes.subarray(0, Math.min(bytes.byteLength, size)))
+      bytes = next
+    },
+    write: (buffer, options) => {
+      bytes.set(new Uint8Array(buffer), options?.at ?? 0)
+      return buffer.byteLength
+    },
+    flush: () => undefined,
+    snapshot: () => bytes,
+  }
+}
+
+async function testSyncAccessWritesInPlaceWithoutAssembling(): Promise<void> {
+  const access = fakeSyncAccess(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))
+  const size = await writeThroughOpfsSyncAccess(access, 2, new Uint8Array([9, 9]))
+  assert.equal(size, 8)
+  assert.deepEqual([...access.snapshot()], [1, 2, 9, 9, 5, 6, 7, 8])
+
+  const grown = fakeSyncAccess(new Uint8Array([1, 2, 3]))
+  const grownSize = await writeThroughOpfsSyncAccess(grown, 3, new Uint8Array([4, 5]))
+  assert.equal(grownSize, 5)
+  assert.deepEqual([...grown.snapshot()], [1, 2, 3, 4, 5])
+
+  await assert.rejects(
+    () => writeThroughOpfsSyncAccess(fakeSyncAccess(new Uint8Array(4)), -1, new Uint8Array([1])),
+    /offset/,
+  )
+  const incomplete = fakeSyncAccess(new Uint8Array(8))
+  incomplete.write = () => 1
+  await assert.rejects(
+    () => writeThroughOpfsSyncAccess(incomplete, 0, new Uint8Array([1, 2, 3])),
+    /不完整/,
+  )
+  console.log('ok: sync access range write stays in-place')
 }
 
 async function testOpfsModuleRoundTrip(): Promise<void> {
@@ -349,6 +395,7 @@ async function testWholeWriteOverThreshold(): Promise<void> {
 }
 
 async function run(): Promise<void> {
+  await testSyncAccessWritesInPlaceWithoutAssembling()
   await testOpfsModuleRoundTrip()
   await testSmallFileStaysInIdb()
   await testCreateOverThresholdGoesToOpfs()

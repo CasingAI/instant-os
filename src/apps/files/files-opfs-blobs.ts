@@ -136,31 +136,18 @@ export async function writeOpfsBlobRange(
   offset: number,
   data: Uint8Array,
 ): Promise<number> {
-  const bytes = copyArrayBuffer(data)
-  const end = offset + bytes.byteLength
   if (memoryFiles !== undefined) {
     const file = memoryFile(blobId, true)
     if (!file) throw new Error('无法打开 OPFS 正文文件')
-    writeMemoryAt(file, offset, new Uint8Array(bytes))
+    writeMemoryAt(file, offset, data)
     return file.bytes.byteLength
   }
   const handle = await getNativeFileHandle(blobId, true)
   if (!handle) throw new Error('无法打开 OPFS 正文文件')
-  const before = await handle.getFile().catch(() => undefined)
-  const writable = await handle.createWritable({ keepExistingData: true })
-  try {
-    if (offset > 0) await writable.seek(offset)
-    if (bytes.byteLength > 0) await writable.write(bytes)
-    await writable.close()
-  } catch (error) {
-    try {
-      await writable.abort()
-    } catch {
-      // 已关闭
-    }
-    throw error
-  }
-  return Math.max(before?.size ?? 0, end)
+  // 不能走 createWritable({ keepExistingData: true })：浏览器会先把整份正文
+  // 拷进临时文件，GB 级镜像会 Array buffer allocation failed。
+  const { writeOpfsRangeViaAccessWorker } = await import('./files-opfs-access-client.ts')
+  return writeOpfsRangeViaAccessWorker(handle, offset, data)
 }
 
 export async function readOpfsBlobBytes(blobId: string): Promise<ArrayBuffer | undefined> {

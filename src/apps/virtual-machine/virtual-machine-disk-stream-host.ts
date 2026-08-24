@@ -16,7 +16,21 @@ type StreamEntry = {
 }
 
 const streams = new Map<string, StreamEntry>()
+const streamWorkTails = new Map<string, Promise<void>>()
 let listenerInstalled = false
+
+function enqueueStreamWork<T>(streamId: string, work: () => Promise<T>): Promise<T> {
+  const previous = streamWorkTails.get(streamId) ?? Promise.resolve()
+  const current = previous.then(work, work)
+  streamWorkTails.set(
+    streamId,
+    current.then(
+      () => undefined,
+      () => undefined,
+    ),
+  )
+  return current
+}
 
 function runtimeOrigins(): string[] {
   const configured = getVmRuntimeOrigin()
@@ -181,7 +195,7 @@ function onDiskStreamMessage(event: MessageEvent): void {
     ) => void
   }
 
-  void (async () => {
+  void enqueueStreamWork(event.data.streamId, async () => {
     try {
       if (isInstantVmDiskWriteMessage(event.data)) {
         const write = event.data
@@ -248,7 +262,7 @@ function onDiskStreamMessage(event: MessageEvent): void {
         event.origin,
       )
     }
-  })()
+  })
 }
 
 function ensureListener(): void {
@@ -283,6 +297,15 @@ export function releaseVirtualMachineDiskStream(streamId: string | undefined): v
     return
   }
   streams.delete(streamId)
+  const tail = streamWorkTails.get(streamId)
+  if (!tail) {
+    return
+  }
+  void tail.finally(() => {
+    if (streamWorkTails.get(streamId) === tail) {
+      streamWorkTails.delete(streamId)
+    }
+  })
 }
 
 export function releaseVirtualMachineDiskStreams(
