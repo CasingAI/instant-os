@@ -1,5 +1,15 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
+import {
+  formatFilesIoBytesPerSec,
+  formatFilesIoDurationMs,
+  formatFilesIoOpsPerSec,
+} from '../../os/files-io-metrics.ts'
 import type { InstantVmDiskStats, InstantVmStatsSnapshot } from './virtual-machine-protocol.ts'
+import {
+  emptyVmDiskStreamIoSnapshot,
+  getVmDiskStreamIoSnapshot,
+  type VmDiskStreamIoSnapshot,
+} from './virtual-machine-disk-stream-metrics.ts'
 import {
   diskActivityTitle,
   formatVmIdeLabel,
@@ -11,6 +21,8 @@ import {
 } from './virtual-machine-stats-format.ts'
 
 type LedKind = 'hdd1' | 'hdd2' | 'cdrom' | 'fd1' | 'fd2' | 'cpu'
+
+const DISK_IO_POLL_MS = 500
 
 function ledState(disk: InstantVmDiskStats | undefined, running: boolean): 'off' | 'idle' | 'busy' {
   if (!disk?.present) {
@@ -63,14 +75,54 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+function formatHostDiskLatency(ms: number | undefined, hasStream: boolean): string {
+  if (!hasStream) {
+    return '—'
+  }
+  return formatFilesIoDurationMs(ms)
+}
+
+function formatHostDiskOps(opsPerSec: number, hasStream: boolean): string {
+  if (!hasStream) {
+    return '—'
+  }
+  return formatFilesIoOpsPerSec(opsPerSec)
+}
+
+function formatHostDiskSpeed(bytesPerSec: number, hasStream: boolean): string {
+  if (!hasStream) {
+    return '—'
+  }
+  return formatFilesIoBytesPerSec(bytesPerSec)
+}
+
 export function VirtualMachineActivity({
   stats,
   running,
+  diskStreamIds = [],
 }: {
   stats: InstantVmStatsSnapshot | undefined
   running: boolean
+  diskStreamIds?: readonly string[]
 }) {
   const [open, setOpen] = useState(false)
+  const [diskIo, setDiskIo] = useState<VmDiskStreamIoSnapshot>(() => emptyVmDiskStreamIoSnapshot())
+  const hasStream = diskStreamIds.length > 0
+  const streamKey = diskStreamIds.join('\0')
+
+  useEffect(() => {
+    if (!open || !running || !hasStream) {
+      setDiskIo(emptyVmDiskStreamIoSnapshot())
+      return
+    }
+    const ids = streamKey ? streamKey.split('\0') : []
+    const tick = () => {
+      setDiskIo(getVmDiskStreamIoSnapshot(ids))
+    }
+    tick()
+    const timer = window.setInterval(tick, DISK_IO_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [hasStream, open, running, streamKey])
 
   const hda = stats?.hda
   const hdb = stats?.hdb
@@ -152,6 +204,34 @@ export function VirtualMachineActivity({
               <DetailRow label="Bytes read" value={String(ide?.bytesRead ?? 0)} />
               <DetailRow label="Sectors written" value={String(ide?.sectorsWritten ?? 0)} />
               <DetailRow label="Bytes written" value={String(ide?.bytesWritten ?? 0)} />
+              <DetailRow
+                label="Read latency"
+                value={formatHostDiskLatency(diskIo.avgReadDurationMs, hasStream)}
+              />
+              <DetailRow
+                label="Write latency"
+                value={formatHostDiskLatency(diskIo.avgWriteDurationMs, hasStream)}
+              />
+              <DetailRow
+                label="Requests/s"
+                value={formatHostDiskOps(diskIo.opsPerSec, hasStream)}
+              />
+              <DetailRow
+                label="Reads/s"
+                value={formatHostDiskOps(diskIo.readOpsPerSec, hasStream)}
+              />
+              <DetailRow
+                label="Writes/s"
+                value={formatHostDiskOps(diskIo.writeOpsPerSec, hasStream)}
+              />
+              <DetailRow
+                label="Read speed"
+                value={formatHostDiskSpeed(diskIo.readBytesPerSec, hasStream)}
+              />
+              <DetailRow
+                label="Write speed"
+                value={formatHostDiskSpeed(diskIo.writeBytesPerSec, hasStream)}
+              />
               <DetailRow label="Status" value={formatVmIdeStatus(stats)} />
               <DetailRow label="VGA" value={formatVmVgaMode(stats)} />
               <DetailRow label="Resolution" value={formatVmVgaResolution(stats)} />

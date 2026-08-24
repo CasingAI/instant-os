@@ -1,5 +1,9 @@
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
 import {
+  recordVmDiskStreamIo,
+  releaseVmDiskStreamMetrics,
+} from './virtual-machine-disk-stream-metrics.ts'
+import {
   INSTANT_VM_DISK_RANGE_MAX_BYTES,
   INSTANT_VM_MESSAGE_TYPE,
   isInstantVmDiskReadMessage,
@@ -183,7 +187,8 @@ function onDiskStreamMessage(event: MessageEvent): void {
     console.warn('[vm-disk-host] 忽略来自非运行时源的磁盘消息', event.origin)
     return
   }
-  const entry = streams.get(event.data.streamId)
+  const streamId = event.data.streamId
+  const entry = streams.get(streamId)
   const source = event.source
   if (!source || typeof source !== 'object' || !('postMessage' in source)) {
     return
@@ -194,8 +199,9 @@ function onDiskStreamMessage(event: MessageEvent): void {
       options: { targetOrigin: string; transfer?: Transferable[] },
     ) => void
   }
+  const receivedAt = performance.now()
 
-  void enqueueStreamWork(event.data.streamId, async () => {
+  void enqueueStreamWork(streamId, async () => {
     try {
       if (isInstantVmDiskWriteMessage(event.data)) {
         const write = event.data
@@ -213,7 +219,16 @@ function onDiskStreamMessage(event: MessageEvent): void {
           )
           return
         }
+        const writeBytes = write.bytes.byteLength
         const result = await writeDiskRange(entry, write.offset, write.bytes)
+        if (result.status === 200) {
+          recordVmDiskStreamIo({
+            streamId,
+            direction: 'write',
+            bytes: writeBytes,
+            durationMs: performance.now() - receivedAt,
+          })
+        }
         postSource(
           target,
           {
@@ -242,6 +257,14 @@ function onDiskStreamMessage(event: MessageEvent): void {
         return
       }
       const result = await readDiskRange(entry, read.offset, read.length)
+      if (result.status === 206) {
+        recordVmDiskStreamIo({
+          streamId,
+          direction: 'read',
+          bytes: result.bytes?.byteLength ?? 0,
+          durationMs: performance.now() - receivedAt,
+        })
+      }
       const reply: InstantVmDiskReadResultMessage = {
         ...result,
         requestId: read.requestId,
@@ -297,6 +320,7 @@ export function releaseVirtualMachineDiskStream(streamId: string | undefined): v
     return
   }
   streams.delete(streamId)
+  releaseVmDiskStreamMetrics(streamId)
   const tail = streamWorkTails.get(streamId)
   if (!tail) {
     return

@@ -17,6 +17,7 @@ import {
   settingsFromRecord,
 } from './virtual-machine-config.ts'
 import { virtualMachineHasBootMedia } from './virtual-machine-disks.ts'
+import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
 import { saveVirtualMachineSnapshot } from './virtual-machine-save-snapshot.ts'
@@ -192,6 +193,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
 
   const displayedId = pickDisplayedMachineId(selected?.id, pool.runningIds)
   const selectedSnapshot = pool.snapshots.get(selectedId ?? '')
+  const selectedDiskStreamIds = listVmDiskStreamIds(
+    selectedId ? pool.startMessages.get(selectedId) : undefined,
+  )
   const displayedBusy = Boolean(
     displayedId !== undefined && selectedSnapshot && !selectedSnapshot.ready,
   )
@@ -748,6 +752,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             <VirtualMachineActivity
               stats={selectedSnapshot?.stats}
               running={selectedRunning && !displayedBusy}
+              diskStreamIds={selectedDiskStreamIds}
             />
           </div>
           {inspectorOpen && selected ? (
