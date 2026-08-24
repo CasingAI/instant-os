@@ -10,8 +10,10 @@ import {
 import {
   buildStartMessage,
   settingsToStartConfig,
+  assertVirtualMachineDiskCanPersistWrites,
   virtualMachineDiskPersistsWrites,
   virtualMachineHasBootMedia,
+  virtualMachineMountWriteBackError,
 } from './virtual-machine-disks.ts'
 import {
   formatVmMips,
@@ -84,6 +86,22 @@ function testPersistWritesHonorsMode(): void {
   assert.equal(virtualMachineDiskPersistsWrites('floppy', 'poweroff'), true)
   assert.equal(virtualMachineDiskPersistsWrites('cdrom', 'live'), false)
   assert.equal(virtualMachineDiskPersistsWrites('state', 'live'), false)
+}
+
+function testRefuseMountWriteBack(): void {
+  assert.doesNotThrow(() =>
+    assertVirtualMachineDiskCanPersistWrites('/user/Disks/xp.img', '硬盘'),
+  )
+  assert.throws(
+    () => assertVirtualMachineDiskCanPersistWrites('/mount/otter/xp.img', '硬盘'),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.equal(error.message, virtualMachineMountWriteBackError('硬盘', '/mount/otter/xp.img'))
+      assert.match(error.message, /挂载目录/)
+      assert.match(error.message, /不写入/)
+      return true
+    },
+  )
 }
 
 function testStartMessageTransfers(): void {
@@ -476,6 +494,7 @@ function testDiskWriteFailedMessage(): void {
 testBootOrderMatchesV86()
 testHasBootMedia()
 testPersistWritesHonorsMode()
+testRefuseMountWriteBack()
 testStartMessageTransfers()
 testStartMessageMapsMultipleHdds()
 testHighMemoryAndDiskStreamStartMessage()

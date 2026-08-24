@@ -1581,26 +1581,17 @@ async function spillIdbRangeWriteToOpfs(params: {
   blobId: string
   offset: number
   bytes: Uint8Array
-  oldByteSize: number
   shared: boolean
   newByteSize: number
   capacityDelta: number
   total: number
 }): Promise<FilesNode> {
-  const oldChunks = params.blob ? await readBlobAsChunks(params.blobId, params.blob) : []
-  const newChunks = buildRangeWriteChunks(
-    oldChunks,
-    params.oldByteSize,
-    params.offset,
-    params.bytes,
-    0,
-    DEFAULT_STREAM_CHUNK_SIZE,
-  )
   const targetBlobId = params.shared ? newFilesBlobId() : params.blobId
   const writer = await openOpfsBlobWriter(targetBlobId)
   try {
-    for (const chunk of newChunks) {
-      await writer.writeAt(chunk.offset, chunk.bytes)
+    await copyIdbBlobToOpfsWriter(params.blobId, params.blob, writer)
+    if (params.bytes.byteLength > 0) {
+      await writer.writeAt(params.offset, params.bytes)
     }
     await writer.close()
   } catch (error) {
@@ -1722,7 +1713,6 @@ export async function writeBlobBytesRange(params: {
       blobId,
       offset,
       bytes,
-      oldByteSize,
       shared,
       newByteSize,
       capacityDelta,
@@ -1928,6 +1918,76 @@ export async function writeBlobBytesRange(params: {
   await waitForTransaction(writeTx)
   emitFilesDataStorageChanged()
   return recordToNode(updated)
+}
+
+async function readIdbChunkBytes(
+  blobId: string,
+  chunkIndex: number,
+): Promise<Uint8Array | undefined> {
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, FILES_CHUNKS_STORE, 'readonly')
+  const record = await requestToPromise(
+    tx.objectStore(FILES_CHUNKS_STORE).get([blobId, chunkIndex]) as IDBRequest<
+      FilesChunkRecord | undefined
+    >,
+  )
+  await waitForTransaction(tx)
+  if (!record) return undefined
+  return new Uint8Array(record.bytes)
+}
+
+async function listIdbChunkIndexes(blobId: string): Promise<number[]> {
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, FILES_CHUNKS_STORE, 'readonly')
+  const store = tx.objectStore(FILES_CHUNKS_STORE)
+  const range = IDBKeyRange.bound([blobId, 0], [blobId, Number.MAX_SAFE_INTEGER])
+  const keys = await requestToPromise(store.getAllKeys(range) as IDBRequest<IDBValidKey[]>)
+  await waitForTransaction(tx)
+  const indexes: number[] = []
+  for (const key of keys ?? []) {
+    if (Array.isArray(key) && typeof key[1] === 'number') {
+      indexes.push(key[1])
+    }
+  }
+  indexes.sort((a, b) => a - b)
+  return indexes
+}
+
+/** 把库内正文逐块搬到 OPFS，峰值约一块，不拼整份。 */
+async function copyIdbBlobToOpfsWriter(
+  blobId: string,
+  blob: FilesBlobRecord | undefined,
+  writer: OpfsBlobWriter,
+): Promise<void> {
+  if (!blob) return
+  if (blob.chunked === true) {
+    const offsets = resolveChunkOffsets(blob)
+    if (offsets !== undefined) {
+      for (let i = 0; i < offsets.length; i++) {
+        const bytes = await readIdbChunkBytes(blobId, i)
+        if (!bytes || bytes.byteLength === 0) continue
+        await writer.writeAt(offsets[i]!, bytes)
+      }
+      return
+    }
+    let offset = 0
+    for (const index of await listIdbChunkIndexes(blobId)) {
+      const bytes = await readIdbChunkBytes(blobId, index)
+      if (!bytes || bytes.byteLength === 0) continue
+      await writer.writeAt(offset, bytes)
+      offset += bytes.byteLength
+    }
+    return
+  }
+  let source: Uint8Array | undefined
+  if (blob.bytes !== undefined) {
+    source = new Uint8Array(blob.bytes)
+  } else if (blob.text !== undefined) {
+    source = new Uint8Array(encodeTextToArrayBuffer(blob.text))
+  }
+  if (source && source.byteLength > 0) {
+    await writer.writeAt(0, source)
+  }
 }
 
 /** 将旧 blob 内容读取为按偏移排序的 chunk 列表（整块 blob 视为单一段） */
@@ -2450,13 +2510,12 @@ async function spillStreamToOpfs(state: FilesStreamWriteState): Promise<void> {
   const writer = await openOpfsBlobWriter(state.blobId)
   let offset = 0
   try {
-    if (state.chunkIndex > 0) {
-      const assembled = await readChunkedBlobBytes(state.blobId)
-      if (assembled !== undefined && assembled.byteLength > 0) {
-        const view = new Uint8Array(assembled)
-        await writer.writeAt(0, view)
-        offset = view.byteLength
-      }
+    for (let i = 0; i < state.chunkIndex; i++) {
+      const bytes = await readIdbChunkBytes(state.blobId, i)
+      if (!bytes || bytes.byteLength === 0) continue
+      const at = state.chunkOffsets[i] ?? offset
+      await writer.writeAt(at, bytes)
+      offset = at + bytes.byteLength
     }
     if (state.pending.byteLength > 0) {
       await writer.writeAt(offset, state.pending)

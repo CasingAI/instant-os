@@ -1,8 +1,11 @@
 import OpfsAccessWorkerCtor from './files-opfs-access-worker.ts?worker'
 import type {
+  OpfsAccessAbortRequest,
+  OpfsAccessCloseRequest,
+  OpfsAccessOpenRequest,
   OpfsAccessRequest,
   OpfsAccessResponse,
-  OpfsAccessWriteRangeRequest,
+  OpfsAccessWriteRequest,
 } from './files-opfs-access-worker.ts'
 import { toExactArrayBuffer } from '../../archive/archive-codec.ts'
 
@@ -18,7 +21,7 @@ let workerFailed = false
 let nextId = 1
 
 type Pending = {
-  resolve: (size: number) => void
+  resolve: (response: OpfsAccessResponse) => void
   reject: (error: Error) => void
 }
 
@@ -39,7 +42,7 @@ function getWorker(): Worker {
       entry.reject(new Error(response.message))
       return
     }
-    entry.resolve(response.size)
+    entry.resolve(response)
   }
   worker.onerror = (event) => {
     workerFailed = true
@@ -54,29 +57,97 @@ function getWorker(): Worker {
   return worker
 }
 
+function callWorker(
+  message: OpfsAccessRequest,
+  transfer?: Transferable[],
+): Promise<OpfsAccessResponse> {
+  return new Promise<OpfsAccessResponse>((resolve, reject) => {
+    pending.set(message.id, { resolve, reject })
+    try {
+      if (transfer && transfer.length > 0) {
+        getWorker().postMessage(message, transfer)
+      } else {
+        getWorker().postMessage(message)
+      }
+    } catch (error) {
+      pending.delete(message.id)
+      reject(error instanceof Error ? error : new Error(String(error)))
+    }
+  })
+}
+
+export type OpfsAccessSession = {
+  writeAt(offset: number, data: Uint8Array): Promise<number>
+  close(): Promise<void>
+  abort(): Promise<void>
+}
+
 /**
- * 在 Worker 里按偏移原地写入 OPFS 正文。bytes 会先复制再转移，调用方视图不受影响。
+ * 打开 Worker 内的 SyncAccessHandle 会话，多次按偏移写同一份正文。
  */
-export function writeOpfsRangeViaAccessWorker(
+export async function openOpfsAccessSession(
+  handle: FileSystemFileHandle,
+): Promise<OpfsAccessSession> {
+  const openRequest: OpfsAccessOpenRequest = {
+    type: 'open',
+    id: nextId++,
+    handle,
+  }
+  const opened = await callWorker(openRequest)
+  if (opened.type !== 'opened') {
+    throw new Error('OPFS 写入会话未能打开')
+  }
+  const sessionId = opened.sessionId
+  let closed = false
+
+  async function finish(kind: 'close' | 'abort'): Promise<void> {
+    if (closed) return
+    closed = true
+    const request: OpfsAccessCloseRequest | OpfsAccessAbortRequest = {
+      type: kind,
+      id: nextId++,
+      sessionId,
+    }
+    await callWorker(request)
+  }
+
+  return {
+    async writeAt(offset, data) {
+      if (closed) throw new Error('OPFS 写入已结束')
+      const bytes = toExactArrayBuffer(data.slice())
+      const request: OpfsAccessWriteRequest = {
+        type: 'write',
+        id: nextId++,
+        sessionId,
+        offset,
+        bytes,
+      }
+      const response = await callWorker(request, [bytes])
+      if (response.type !== 'write-done') {
+        throw new Error('OPFS 原地写入失败')
+      }
+      return response.size
+    },
+    close: () => finish('close'),
+    abort: () => finish('abort'),
+  }
+}
+
+/**
+ * 短会话：打开、写一次、关闭。bytes 会先复制再转移，调用方视图不受影响。
+ */
+export async function writeOpfsRangeViaAccessWorker(
   handle: FileSystemFileHandle,
   offset: number,
   data: Uint8Array,
 ): Promise<number> {
-  const request: OpfsAccessWriteRangeRequest = {
-    type: 'write-range',
-    id: nextId++,
-    handle,
-    offset,
-    bytes: toExactArrayBuffer(data.slice()),
+  const session = await openOpfsAccessSession(handle)
+  try {
+    const size = await session.writeAt(offset, data)
+    await session.close()
+    return size
+  } catch (error) {
+    await session.abort().catch(() => undefined)
+    throw error
   }
-  return new Promise<number>((resolve, reject) => {
-    pending.set(request.id, { resolve, reject })
-    try {
-      const message: OpfsAccessRequest = request
-      getWorker().postMessage(message, [request.bytes])
-    } catch (error) {
-      pending.delete(request.id)
-      reject(error instanceof Error ? error : new Error(String(error)))
-    }
-  })
 }

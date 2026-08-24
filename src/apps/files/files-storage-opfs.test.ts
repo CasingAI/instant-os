@@ -37,6 +37,7 @@ import {
 } from './files-vfs.ts'
 import {
   deleteOpfsBlob,
+  openOpfsBlobWriter,
   opfsBlobExists,
   OPFS_SPILL_THRESHOLD,
   readOpfsBlobBytes,
@@ -140,6 +141,52 @@ async function testSyncAccessWritesInPlaceWithoutAssembling(): Promise<void> {
     /不完整/,
   )
   console.log('ok: sync access range write stays in-place')
+}
+
+async function testOpfsWriterSessionPreservesExisting(): Promise<void> {
+  resetOpfsBlobsForTests()
+  const id = 'blob:session-resume'
+  const data = patternedBytes(64)
+  await writeOpfsBlobBytes(id, data)
+  const first = await openOpfsBlobWriter(id)
+  await first.writeAt(0, new Uint8Array([9, 8, 7]))
+  await first.close()
+  const second = await openOpfsBlobWriter(id)
+  await second.writeAt(20, new Uint8Array([1, 1, 1, 1]))
+  await second.close()
+  const got = new Uint8Array((await readOpfsBlobBytes(id))!)
+  assert.deepEqual([...got.subarray(0, 3)], [9, 8, 7])
+  assert.deepEqual([...got.subarray(3, 10)], [...data.subarray(3, 10)])
+  assert.deepEqual([...got.subarray(20, 24)], [1, 1, 1, 1])
+  assert.deepEqual([...got.subarray(24, 30)], [...data.subarray(24, 30)])
+  await deleteOpfsBlob(id)
+  console.log('ok: OPFS writer session reopens without wiping prefix')
+}
+
+async function testSpillRangeWriteCopiesThenPatches(): Promise<void> {
+  await resetState()
+  const start = OPFS_SPILL_THRESHOLD - (1 << 20)
+  const original = patternedBytes(start)
+  await filesCreateBinary('/user/spill-mid.bin', original.buffer)
+  const before = await getFileBlobRefForTests(
+    (await resolveNodeByAbsolutePath('/user/spill-mid.bin'))!.id,
+  )
+  assert.ok(before)
+  assert.equal(before.backend, undefined)
+  const patchOffset = start - 100
+  const patch = patternedBytes((2 << 20) + 100)
+  await filesWriteBytesRange('/user/spill-mid.bin', patchOffset, patch.buffer)
+  const grown = await resolveNodeByAbsolutePath('/user/spill-mid.bin')
+  assert.ok(grown)
+  const ref = await getFileBlobRefForTests(grown.id)
+  assert.ok(ref)
+  assert.equal(ref.backend, 'opfs')
+  assert.equal(grown.byteSize, patchOffset + patch.byteLength)
+  const head = new Uint8Array((await readBlobBytesRange(grown.id, 0, 32))!)
+  assert.deepEqual([...head], [...original.subarray(0, 32)])
+  const mid = new Uint8Array((await readBlobBytesRange(grown.id, patchOffset, 32))!)
+  assert.deepEqual([...mid], [...patch.subarray(0, 32)])
+  console.log('ok: IDB spill copies chunks then overlays the patch')
 }
 
 async function testOpfsModuleRoundTrip(): Promise<void> {
@@ -396,12 +443,14 @@ async function testWholeWriteOverThreshold(): Promise<void> {
 
 async function run(): Promise<void> {
   await testSyncAccessWritesInPlaceWithoutAssembling()
+  await testOpfsWriterSessionPreservesExisting()
   await testOpfsModuleRoundTrip()
   await testSmallFileStaysInIdb()
   await testCreateOverThresholdGoesToOpfs()
   await testQuotaDoesNotScanOpfs()
   await testStreamExpectedSizeGoesDirectToOpfs()
   await testStreamSpillWhenCrossingThreshold()
+  await testSpillRangeWriteCopiesThenPatches()
   await testCloneSharesOpfsAndCowForks()
   await testRangeWriteGrowsPastThreshold()
   await testOpfsStaysAfterShrink()

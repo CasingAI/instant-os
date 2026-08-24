@@ -246,28 +246,25 @@ export async function openOpfsBlobWriter(blobId: string): Promise<OpfsBlobWriter
   }
   const handle = await getNativeFileHandle(blobId, true)
   if (!handle) throw new Error('无法打开 OPFS 正文文件')
-  const writable = await handle.createWritable({ keepExistingData: true })
+  // 不能走 createWritable({ keepExistingData: true })：浏览器会先把整份正文
+  // 拷进临时文件，已有 GB 级镜像再开会话会 Array buffer allocation failed。
+  const { openOpfsAccessSession } = await import('./files-opfs-access-client.ts')
+  const session = await openOpfsAccessSession(handle)
   let closed = false
   return {
     async writeAt(offset, data) {
       if (closed) throw new Error('OPFS 写入已结束')
-      const bytes = copyArrayBuffer(data)
-      if (offset > 0) await writable.seek(offset)
-      if (bytes.byteLength > 0) await writable.write(bytes)
+      await session.writeAt(offset, data)
     },
     async close() {
       if (closed) return
       closed = true
-      await writable.close()
+      await session.close()
     },
     async abort() {
       if (closed) return
       closed = true
-      try {
-        await writable.abort()
-      } catch {
-        // 已关闭
-      }
+      await session.abort()
     },
   }
 }

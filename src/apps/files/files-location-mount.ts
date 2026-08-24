@@ -1,6 +1,11 @@
 import { osNowMs } from '../../os/os-clock.ts'
 import { ensureMountPermission } from './files-mount-permission-gate.ts'
 import { getMount } from './files-mount-store.ts'
+import {
+  copyStreamToSink,
+  rewriteRangeThroughSink,
+} from './files-mount-stream-rewrite.ts'
+import { OPFS_SPILL_THRESHOLD } from './files-opfs-blobs.ts'
 import type { FilesStreamWriter } from './files-storage.ts'
 import {
   FILES_TEXT_MIME,
@@ -10,6 +15,27 @@ import {
 } from './files-types.ts'
 
 const WRITABLE_ATTRIBUTES = { readable: true, writable: true } as const
+
+let rangeRewriteMinBytes = OPFS_SPILL_THRESHOLD
+
+/** 测试用：降低大文件流式改写分界，避免造 25MB 夹具。 */
+export function setMountRangeRewriteMinBytesForTests(bytes: number | undefined): void {
+  rangeRewriteMinBytes = bytes ?? OPFS_SPILL_THRESHOLD
+}
+
+async function writeCopiedChunk(
+  writable: FileSystemWritableFileStream,
+  chunk: Uint8Array,
+): Promise<void> {
+  if (chunk.byteLength === 0) return
+  const copy = new Uint8Array(chunk.byteLength)
+  copy.set(chunk)
+  await writable.write(copy)
+}
+
+function mountRangeTempName(name: string): string {
+  return `${name}.__instant-rw__${Math.random().toString(36).slice(2, 10)}`
+}
 
 /** 中间 DirectoryHandle 缓存上限 */
 const DIR_HANDLE_CACHE_MAX = 256
@@ -424,8 +450,96 @@ export async function writeMountBlob(id: string, bytes: ArrayBuffer): Promise<Fi
   return makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified)
 }
 
+async function replaceMountFileWithTemp(params: {
+  parent: FileSystemDirectoryHandle
+  original: FileSystemFileHandle
+  name: string
+  temp: FileSystemFileHandle
+  tempName: string
+}): Promise<void> {
+  if (typeof params.temp.move === 'function') {
+    try {
+      await params.parent.removeEntry(params.name)
+    } catch {
+      // 原文件可能已被外部删掉
+    }
+    await params.temp.move(params.name)
+    return
+  }
+  const dest = await params.original.createWritable()
+  try {
+    const file = await params.temp.getFile()
+    await copyStreamToSink(file.stream(), (chunk) => writeCopiedChunk(dest, chunk))
+    await dest.close()
+  } catch (error) {
+    try {
+      await dest.abort()
+    } catch {
+      // ignore
+    }
+    throw error
+  }
+  try {
+    await params.parent.removeEntry(params.tempName)
+  } catch {
+    // 临时文件清不掉也不挡主路径
+  }
+}
+
+async function rewriteMountBytesRangeToTemp(
+  parent: FileSystemDirectoryHandle,
+  handle: FileSystemFileHandle,
+  name: string,
+  offset: number,
+  data: Uint8Array,
+): Promise<void> {
+  const before = await handle.getFile().catch(() => new File([], name))
+  const tempName = mountRangeTempName(name)
+  const temp = await parent.getFileHandle(tempName, { create: true })
+  const writable = await temp.createWritable()
+  try {
+    await rewriteRangeThroughSink({
+      fileSize: before.size,
+      source: before.stream(),
+      offset,
+      patch: data,
+      write: (chunk) => writeCopiedChunk(writable, chunk),
+    })
+    await writable.close()
+  } catch (error) {
+    try {
+      await writable.abort()
+    } catch {
+      // ignore
+    }
+    try {
+      await parent.removeEntry(tempName)
+    } catch {
+      // ignore
+    }
+    throw error
+  }
+  try {
+    await replaceMountFileWithTemp({
+      parent,
+      original: handle,
+      name,
+      temp,
+      tempName,
+    })
+  } catch (error) {
+    try {
+      await parent.removeEntry(tempName)
+    } catch {
+      // ignore
+    }
+    throw error
+  }
+}
+
 /**
- * 挂载卷按偏移随机写：open + seek + write。
+ * 挂载卷按偏移随机写。小文件走 keepExistingData；大文件流式改写到临时文件再替换，
+ * 避免浏览器先把整份拷进内存。
  * 若 offset 超过当前文件大小，中间空洞用 0 填充。
  */
 export async function writeMountBytesRange(
@@ -445,29 +559,32 @@ export async function writeMountBytesRange(
   const handle = await parent.getFileHandle(name)
 
   const before = await handle.getFile().catch(() => new File([], name))
-  const writable = await handle.createWritable({ keepExistingData: true })
-  try {
-    if (offset > before.size) {
-      // offset 超出原文件大小：先补零扩展，避免 seek 越界行为不一致
-      const pad = new Uint8Array(offset - before.size)
-      await writable.seek(before.size)
-      await writable.write(pad)
-    }
-    if (offset > 0) {
-      await writable.seek(offset)
-    }
-    await writable.write(data instanceof Uint8Array ? data.slice() : data)
-    await writable.close()
-  } catch (error) {
+  if (before.size > rangeRewriteMinBytes) {
+    await rewriteMountBytesRangeToTemp(parent, handle, name, offset, data)
+  } else {
+    const writable = await handle.createWritable({ keepExistingData: true })
     try {
-      await writable.abort()
-    } catch {
-      // ignore
+      if (offset > before.size) {
+        const pad = new Uint8Array(offset - before.size)
+        await writable.seek(before.size)
+        await writable.write(pad)
+      }
+      if (offset > 0) {
+        await writable.seek(offset)
+      }
+      await writable.write(data instanceof Uint8Array ? data.slice() : data)
+      await writable.close()
+    } catch (error) {
+      try {
+        await writable.abort()
+      } catch {
+        // ignore
+      }
+      throw error
     }
-    throw error
   }
 
-  const blob = await handle.getFile()
+  const blob = await (await parent.getFileHandle(name)).getFile()
   invalidateMountDirHandleCache(parsed.locationId, parentDirPath(parsed.path) ?? '')
   return makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified)
 }
@@ -615,11 +732,24 @@ export async function renameMountNode(id: string, nextName: string): Promise<Fil
     await handle.move(nextName)
   } else {
     const blob = await handle.getFile()
-    const buffer = await blob.arrayBuffer()
     const next = await parent.getFileHandle(nextName, { create: true })
     const writable = await next.createWritable()
-    await writable.write(buffer)
-    await writable.close()
+    try {
+      await copyStreamToSink(blob.stream(), (chunk) => writeCopiedChunk(writable, chunk))
+      await writable.close()
+    } catch (error) {
+      try {
+        await writable.abort()
+      } catch {
+        // ignore
+      }
+      try {
+        await parent.removeEntry(nextName)
+      } catch {
+        // ignore
+      }
+      throw error
+    }
     await parent.removeEntry(name)
   }
 

@@ -127,6 +127,16 @@ function isMountPath(path: string): boolean {
   return path.startsWith('/mount/')
 }
 
+export function virtualMachineMountWriteBackError(label: string, path: string): string {
+  return `无法回写${label} ${path}：镜像在挂载目录上。挂载卷按偏移写会重写整份文件，不能用于实时或关机回写。请把镜像放到内部卷，或将硬盘写入设为不写入。`
+}
+
+export function assertVirtualMachineDiskCanPersistWrites(path: string, label: string): void {
+  if (isMountPath(path.trim())) {
+    throw new Error(virtualMachineMountWriteBackError(label, path.trim()))
+  }
+}
+
 type LoadedDisk = {
   buffer?: ArrayBuffer
   blob?: Blob
@@ -197,6 +207,7 @@ async function loadDisk(
 
   const persist = options.persist === true
   if (persist) {
+    assertVirtualMachineDiskCanPersistWrites(trimmed, label)
     const id = await registerVirtualMachineDiskStream(trimmed, { writable: true })
     return { stream: { id, size: stat.byteSize } }
   }
