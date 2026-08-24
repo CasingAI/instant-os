@@ -25,7 +25,7 @@ export type FilesArchiveOpsContext = {
   destRoot: string
   canCreateHere: boolean
   setOpProgressUi: (state: FilesOpProgressUiState | undefined) => void
-  refresh: () => Promise<void>
+  refresh: (options?: { quiet?: boolean }) => Promise<void>
   showToast: (message: string) => void
   alertError: (title: string, error: unknown) => Promise<void>
 }
@@ -66,7 +66,7 @@ export async function compressNodesToArchiveOp(
       mimeType: format === 'zip' ? 'application/zip' : 'application/gzip',
     })
     context.showToast(`已压缩 ${result.entryCount} 个文件`)
-    await context.refresh()
+    await context.refresh({ quiet: true })
   } catch (error) {
     await context.alertError('无法压缩', error)
   }

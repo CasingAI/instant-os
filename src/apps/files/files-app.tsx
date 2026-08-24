@@ -1999,6 +1999,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         entry.entries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
       )
       const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+      const cutSourceIds =
+        entry.mode === 'cut' ? new Set(entry.entries.map((item) => item.nodeId)) : undefined
+      const createdNodes: FilesNode[] = []
       await runFilesOpWithProgress({
         kind: 'paste',
         totalWork: totalUnits,
@@ -2009,7 +2012,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           for (let index = 0; index < entry.entries.length; index += 1) {
             const item = entry.entries[index]!
             const itemWorkload = workloads[index]?.totalUnits ?? 1
-            await copyNodeTo({
+            const copied = await copyNodeTo({
               sourceId: item.nodeId,
               destLocationId: locationId,
               destParentId: folderId,
@@ -2020,6 +2023,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 })
               },
             })
+            createdNodes.push(copied)
             done += itemWorkload
             if (entry.mode === 'cut') {
               // 剪切语义：粘贴成功后删除源；源已不存在（重复粘贴）时跳过
@@ -2028,11 +2032,19 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           }
         },
       })
-      await refresh()
+      setItems((prev) => {
+        let next = prev
+        if (cutSourceIds) {
+          next = applyLocalItemsChange(next, { kind: 'remove', ids: cutSourceIds }, sort)
+        }
+        next = applyLocalItemsChange(next, { kind: 'add', nodes: createdNodes }, sort)
+        return next
+      })
+      refresh({ quiet: true })
     } catch (err) {
       await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
     }
-  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh])
+  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, setItems, sort])
 
   /** 删除选中项：默认移入废纸篓；permanent（按住 ⌥）时永久删除 */
   const handleTrash = useCallback(
