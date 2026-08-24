@@ -226,15 +226,19 @@ export class FatImageVolume {
   private resolveFileSystem(disk: FatDisk): FatFileSystem {
     const direct = disk.getFileSystem()
     if (direct) return direct
-    const fatPartition = disk.getPartitions().find((item) => isFatPartition(item))
+    const partitions = disk.getPartitions()
+    if (partitions.length === 0) {
+      throw new Error('无法识别此镜像的文件系统：可能是空白盘或不受支持的格式')
+    }
+    const fatPartition = partitions.find((item) => isFatPartition(item))
     if (!fatPartition) {
-      throw new Error('无法识别 FAT 文件系统。空白盘需要先格式化。')
+      throw new Error('分区的文件系统不受支持（仅支持 FAT12/16/32）')
     }
     this.partition = fatPartition
     const partitioned = mount(this.driver, { partition: fatPartition })
     const fileSystem = partitioned.getFileSystem()
     if (!fileSystem) {
-      throw new Error('无法识别 FAT 文件系统。空白盘需要先格式化。')
+      throw new Error('FAT 文件系统无法解析，镜像可能已损坏')
     }
     return fileSystem
   }

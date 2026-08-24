@@ -318,6 +318,7 @@ export async function listFilesLocations(): Promise<readonly FilesLocation[]> {
       id: item.id,
       label: item.label,
       writable: true as const,
+      unreadableReason: item.unreadableReason,
     })),
   ]
 }

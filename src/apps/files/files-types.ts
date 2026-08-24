@@ -79,6 +79,7 @@ export type FilesLocation = {
    * 投影只读卷会把其下节点属性标为不可写。
    */
   writable: boolean
+  unreadableReason?: string
 }
 
 export const FILES_LOCATIONS: readonly FilesLocation[] = [

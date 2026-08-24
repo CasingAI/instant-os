@@ -43,6 +43,7 @@ import {
 } from './files-mount-store.ts'
 import {
   FILES_IMAGE_MOUNTS_CHANGED_EVENT,
+  getImageMountReadError,
 } from './files-image-mount-store.ts'
 import {
   isDiskImageFileName,
@@ -849,6 +850,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const locationWritable = isFilesLocationWritable(locationId)
   /** 整卷只读（如 3D 模型、系统）；与单个文件夹只读不同 */
   const isProtectedVolume = !locationWritable
+  const imageUnreadableReason = isImageLocationId(locationId)
+    ? getImageMountReadError(locationId)
+    : undefined
   const currentFolder = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1] : undefined
   const pathBarAbsolutePath = useMemo(() => {
     const root = filesLocationPathRoot(locationId)
@@ -1051,6 +1055,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     }
     setError(undefined)
     try {
+      if (isImageLocationId(locationId) && getImageMountReadError(locationId)) {
+        // 不可读镜像：顶部横幅已说明原因，跳过列目录避免重复报错
+        setItems([])
+        setPathNodes([])
+        armScrollRestore()
+        return
+      }
       if (locationId === 'dev') {
         await reconcileGithubRepoAttributes().catch(() => undefined)
       }
@@ -3360,7 +3371,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                     <LocationGlyph id={location.id} />
                   </span>
                   <span class="files__sidebar-copy">
-                    <span class="files__sidebar-label">{location.label}</span>
+                    <span class="files__sidebar-label" title={location.unreadableReason}>{location.label}</span>
                     {locationBytesForId !== undefined ? (
                       <span class="files__sidebar-size">
                         已用 {formatStorageSize(locationBytesForId)}
@@ -3525,11 +3536,21 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             对此容器的修改会立刻同步到本机真实文件夹
           </div>
         ) : undefined}
-        {!isProtectedVolume && isImageLocationId(locationId) ? (
-          <div class="files__protected-banner files__protected-banner--mount" role="status">
-            对此容器的修改会写回磁盘镜像文件
-          </div>
-        ) : undefined}
+        {!isProtectedVolume && isImageLocationId(locationId) ? (() => {
+          const imageLocation = locations.find((loc) => loc.id === locationId)
+          if (imageLocation?.unreadableReason) {
+            return (
+              <div class="files__protected-banner files__protected-banner--error" role="alert">
+                {imageLocation.unreadableReason}
+              </div>
+            )
+          }
+          return (
+            <div class="files__protected-banner files__protected-banner--mount" role="status">
+              对此容器的修改会写回磁盘镜像文件
+            </div>
+          )
+        })() : undefined}
 
         <div
           ref={browserRef}
@@ -3587,9 +3608,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             setBackgroundContextMenu({ x: event.clientX, y: event.clientY })
           }}
         >
-          {error ? <div class="files__banner files__banner--error">{error}</div> : undefined}
+          {error && !imageUnreadableReason ? <div class="files__banner files__banner--error">{error}</div> : undefined}
           {showLoadingCard ? (
             <div class="files__empty">正在加载…</div>
+          ) : imageUnreadableReason ? (
+            <div class="files__empty">
+              <p class="files__empty-title">无法显示内容</p>
+            </div>
           ) : items.length === 0 ? (
             <div class="files__empty">
               <p class="files__empty-title">

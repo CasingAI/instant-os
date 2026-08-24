@@ -7,7 +7,12 @@ import assert from 'node:assert/strict'
 import { createFat12Image } from './files-image-fat12-fixture.ts'
 import { FatImageVolume, type ImageDiskIo } from './files-image-fat-volume.ts'
 import { mountDiskImage, unmountDiskImage } from './files-image-actions.ts'
-import { resetImageMountsForTests } from './files-image-mount-store.ts'
+import {
+  openImageMount,
+  closeImageMount,
+  getImageMountReadError,
+  resetImageMountsForTests,
+} from './files-image-mount-store.ts'
 import {
   claimDiskImagePath,
   getDiskImageOccupant,
@@ -118,7 +123,48 @@ async function testVmOccupancyBlocksMount(): Promise<void> {
   await unmountDiskImage(mounted.id)
 }
 
+async function testUnreadableImageDegradesGracefully(): Promise<void> {
+  await resetFiles()
+  const blankImage = new Uint8Array(64 * 1024)
+  await filesCreateBinary(
+    '/user/blank.img',
+    blankImage.buffer.slice(blankImage.byteOffset, blankImage.byteOffset + blankImage.byteLength),
+  )
+
+  const mounted = await mountDiskImage('/user/blank.img')
+  assert.equal(isImageLocationId(mounted.id), true)
+  assert.equal(typeof mounted.unreadableReason === 'string' && mounted.unreadableReason.length > 0, true)
+
+  // 占用保持，VM 被拒
+  assert.equal(getDiskImageOccupant('/user/blank.img')?.kind, 'files-mount')
+  assert.throws(() => claimDiskImagePath('/user/blank.img', { kind: 'vm', id: 'vm-1' }))
+
+  // getImageMountReadError 返回原因
+  assert.equal(typeof getImageMountReadError(mounted.id) === 'string', true)
+
+  // 列目录失败，错误信息含原因
+  const root = filesLocationPathRoot(mounted.id)
+  await assert.rejects(() => filesList(`${root}/`), (err: Error) => {
+    assert.equal(typeof getImageMountReadError(mounted.id) === 'string', true)
+    return true
+  })
+
+  // 卸载后占用释放
+  await unmountDiskImage(mounted.id)
+  assert.equal(getDiskImageOccupant('/user/blank.img'), undefined)
+
+  // 位置列表中不再包含该 id
+  const locationsAfter = await listFilesLocations()
+  assert.equal(locationsAfter.some((item) => item.id === mounted.id), false)
+
+  // VM 现在可以正常 claim
+  const vm = { kind: 'vm' as const, id: 'vm-1' }
+  claimDiskImagePath('/user/blank.img', vm)
+  releaseDiskImagePath('/user/blank.img', vm)
+}
+
 await testInMemoryFatVolume()
 await testMountWriteUnmountRemount()
 await testVmOccupancyBlocksMount()
+await testUnreadableImageDegradesGracefully()
 console.log('files-image-mount.test.ts ok')

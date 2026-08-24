@@ -16,6 +16,7 @@ export type ImageMountRecord = {
   id: ImageFilesLocationId
   label: string
   imagePath: string
+  unreadableReason?: string
 }
 
 export const FILES_IMAGE_MOUNTS_CHANGED_EVENT = 'instant-os-files-image-mounts-changed'
@@ -32,24 +33,33 @@ function notifyImageMountsChanged(): void {
 }
 
 export function listImageMounts(): ImageMountRecord[] {
-  return [...sessions.values()].map(({ id, label, imagePath }) => ({ id, label, imagePath }))
+  return [...sessions.values()].map(({ id, label, imagePath, unreadableReason }) => ({
+    id,
+    label,
+    imagePath,
+    unreadableReason,
+  }))
 }
 
 export function getCachedImageMount(id: string): ImageMountRecord | undefined {
   if (!isImageLocationId(id)) return undefined
   const session = sessions.get(id)
   if (!session) return undefined
-  return { id: session.id, label: session.label, imagePath: session.imagePath }
+  return { id: session.id, label: session.label, imagePath: session.imagePath, unreadableReason: session.unreadableReason }
 }
 
 export function getImageMountByPath(imagePath: string): ImageMountRecord | undefined {
   const normalized = normalizeDiskImagePath(imagePath)
   for (const session of sessions.values()) {
     if (session.imagePath === normalized) {
-      return { id: session.id, label: session.label, imagePath: session.imagePath }
+      return { id: session.id, label: session.label, imagePath: session.imagePath, unreadableReason: session.unreadableReason }
     }
   }
   return undefined
+}
+
+export function getImageMountReadError(id: ImageFilesLocationId): string | undefined {
+  return sessions.get(id)?.unreadableReason
 }
 
 export function getImageVolume(id: ImageFilesLocationId): FatImageVolume {
@@ -75,21 +85,22 @@ export async function openImageMount(params: {
   const occupant = { kind: 'files-mount' as const, id }
   claimDiskImagePath(imagePath, occupant)
   const volume = new FatImageVolume(params.io)
+  let unreadableReason: string | undefined
   try {
     await volume.prepare()
   } catch (error) {
-    releaseDiskImagePath(imagePath, occupant)
-    throw error
+    unreadableReason = error instanceof Error ? error.message : String(error)
   }
   const record: ImageMountSession = {
     id,
     label: diskImageLabelFromFileName(params.fileName),
     imagePath,
     volume,
+    unreadableReason,
   }
   sessions.set(id, record)
   notifyImageMountsChanged()
-  return { id: record.id, label: record.label, imagePath: record.imagePath }
+  return { id: record.id, label: record.label, imagePath: record.imagePath, unreadableReason }
 }
 
 export async function closeImageMount(id: ImageFilesLocationId): Promise<void> {

@@ -565,6 +565,23 @@
   color: #6a5a38;
 }
 
+.files__protected-banner--error {
+  background: linear-gradient(
+    180deg,
+    #f9eaea 0%,
+    #f0d6d6 48%,
+    #e6c4c4 100%
+  );
+  border-bottom-color: #cc9999;
+  color: #8a3333;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  line-height: 1.4;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 @keyframes files-banner-in {
   from {
     opacity: 0;
