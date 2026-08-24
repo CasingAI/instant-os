@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useMemo, useState } from 'preact/hooks'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { recommendFatVariant, type DiskScheme, type FatVariant } from './disk-utility-format.ts'
 import { buildPlannedDiskMap } from './disk-utility-disk-map.ts'
 import { DiskMapBar } from './disk-utility-disk-map-bar.tsx'
-import { formatIops, formatSpeed, type BenchmarkPhase, type BenchmarkProgress, type BenchmarkResult } from './disk-utility-benchmark.ts'
+import {
+  BENCHMARK_ITEMS,
+  benchmarkResultText,
+  initialBenchmarkItems,
+  type BenchmarkItemId,
+  type BenchmarkItemState,
+} from './disk-utility-benchmark.ts'
 
 export const DISK_UTILITY_THEME = '#2f3640'
 
@@ -285,35 +291,42 @@ export function PartitionDiskDialog({
   )
 }
 
-const BENCHMARK_PHASE_LABELS: Record<BenchmarkPhase, string> = {
-  write: '写入',
-  read: '读取',
-  'random-read': '随机读取',
-}
-
 export type BenchmarkDialogState = {
   rootPath: string
   label: string
 }
 
+function benchmarkRowClass(state: BenchmarkItemState): string {
+  if (state.status === 'running') return 'disk-utility-benchmark__row--running'
+  if (state.status === 'done') return 'disk-utility-benchmark__row--done'
+  if (state.status === 'failed') return 'disk-utility-benchmark__row--failed'
+  return 'disk-utility-benchmark__row--pending'
+}
+
+function benchmarkRowValue(state: BenchmarkItemState): string {
+  if (state.status === 'pending') return '待测速'
+  if (state.status === 'running') return state.note
+  if (state.status === 'done') return state.value
+  return `失败：${state.message}`
+}
+
 export function BenchmarkDialog({
   state,
   busy,
-  progress,
-  result,
+  items,
   error,
   onClose,
   onRun,
 }: {
   state: BenchmarkDialogState | undefined
   busy: boolean
-  progress: BenchmarkProgress | undefined
-  result: BenchmarkResult | undefined
+  items: Record<BenchmarkItemId, BenchmarkItemState> | undefined
   error: string | undefined
   onClose: () => void
   onRun: (signal: AbortSignal) => void
 }): preact.JSX.Element | undefined {
   const [controller, setController] = useState<AbortController | undefined>(undefined)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!state) {
@@ -328,21 +341,42 @@ export function BenchmarkDialog({
     }
   }, [state])
 
+  const rowStates = items ?? initialBenchmarkItems()
+  const resultText = useMemo(() => benchmarkResultText(rowStates), [rowStates])
+  const hasResult = useMemo(
+    () => BENCHMARK_ITEMS.some((item) => rowStates[item.id].status === 'done' || rowStates[item.id].status === 'failed'),
+    [rowStates],
+  )
+
   if (!state) return undefined
 
-  const phaseLabel = progress ? `${BENCHMARK_PHASE_LABELS[progress.phase]}中…` : undefined
-  const progressValue = progress
-    ? progress.bytesTotal > 0
-      ? Math.min(100, Math.round((progress.bytesDone / progress.bytesTotal) * 100))
-      : 0
-    : undefined
+  const handleCopy = async () => {
+    if (!navigator.clipboard?.writeText) return
+    await navigator.clipboard.writeText(`${state.label} 磁盘测速结果\n${resultText}`)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1500)
+  }
 
   return (
     <WindowModal
       open
       title={`测速 · ${state.label}`}
       themeColor={DISK_UTILITY_THEME}
+      scrollBody
+      panelClass="disk-utility-benchmark-modal"
       onClose={busy ? undefined : onClose}
+      footer={
+        <div class="disk-utility-benchmark__footer">
+          <button
+            type="button"
+            class="disk-utility-benchmark__copy-btn"
+            disabled={busy || !hasResult}
+            onClick={() => void handleCopy()}
+          >
+            {copied ? '已复制' : '复制结果'}
+          </button>
+        </div>
+      }
       actions={[
         {
           key: 'cancel',
@@ -362,7 +396,6 @@ export function BenchmarkDialog({
           label: '开始测速',
           tone: 'primary',
           disabled: busy,
-          busy,
           onClick: () => {
             if (!controller) return
             onRun(controller.signal)
@@ -371,51 +404,28 @@ export function BenchmarkDialog({
       ]}
     >
       <p class="window-modal__message">
-        将在「{state.label}」创建临时文件并测试写入、读取和随机读取速度，测试结束后自动删除。
+        将在「{state.label}」创建临时文件并分项测试不同存储路径的速度，测试结束后自动删除。
       </p>
 
-      {busy && phaseLabel ? (
-        <div class="disk-utility-benchmark__progress">
-          <div class="disk-utility-benchmark__progress-label">{phaseLabel}</div>
-          {progressValue !== undefined ? (
-            <div class="disk-utility-benchmark__progress-bar">
-              <div
-                class="disk-utility-benchmark__progress-fill"
-                style={{ width: `${progressValue}%` }}
-                role="progressbar"
-                aria-valuenow={progressValue}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              />
-            </div>
-          ) : undefined}
-        </div>
-      ) : undefined}
-
-      {result ? (
-        <div class="disk-utility-benchmark__results">
-          <div class="disk-utility-benchmark__result-row">
-            <span class="disk-utility-benchmark__result-name">顺序写入</span>
-            <span class="disk-utility-benchmark__result-value">{formatSpeed(result.writeBytesPerSecond)}</span>
-          </div>
-          <div class="disk-utility-benchmark__result-row">
-            <span class="disk-utility-benchmark__result-name">顺序读取</span>
-            <span class="disk-utility-benchmark__result-value">{formatSpeed(result.readBytesPerSecond)}</span>
-          </div>
-          <div class="disk-utility-benchmark__result-row">
-            <span class="disk-utility-benchmark__result-name">随机读取</span>
-            <span class="disk-utility-benchmark__result-value">{formatSpeed(result.randomReadBytesPerSecond)}</span>
-          </div>
-          <div class="disk-utility-benchmark__result-row">
-            <span class="disk-utility-benchmark__result-name">随机读取 IOPS</span>
-            <span class="disk-utility-benchmark__result-value">{formatIops(result.randomReadIops)}</span>
-          </div>
-          <div class="disk-utility-benchmark__result-row disk-utility-benchmark__result-row--meta">
-            <span class="disk-utility-benchmark__result-name">测试文件</span>
-            <span class="disk-utility-benchmark__result-value">{formatStorageSize(result.testFileSizeBytes)}</span>
-          </div>
-        </div>
-      ) : undefined}
+      <table class="disk-utility-benchmark__table">
+        <thead>
+          <tr>
+            <th class="disk-utility-benchmark__col-name">测试项</th>
+            <th class="disk-utility-benchmark__col-result">结果</th>
+          </tr>
+        </thead>
+        <tbody>
+          {BENCHMARK_ITEMS.map((item) => {
+            const rowState = rowStates[item.id]
+            return (
+              <tr key={item.id} class={`disk-utility-benchmark__row ${benchmarkRowClass(rowState)}`}>
+                <td class="disk-utility-benchmark__col-name">{item.label}</td>
+                <td class="disk-utility-benchmark__col-result">{benchmarkRowValue(rowState)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
 
       {error ? <p class="window-modal__error">{error}</p> : undefined}
     </WindowModal>

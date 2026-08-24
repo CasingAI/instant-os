@@ -22,9 +22,10 @@ import {
   type BrowserStorageSnapshot,
 } from './disk-utility-data.ts'
 import {
-  runDiskBenchmark,
-  type BenchmarkProgress,
-  type BenchmarkResult,
+  initialBenchmarkItems,
+  runDiskBenchmarkSuite,
+  type BenchmarkItemId,
+  type BenchmarkItemState,
 } from './disk-utility-benchmark.ts'
 import { buildDiskMap, findAncestorImageRoot } from './disk-utility-disk-map.ts'
 import { DiskMapBar } from './disk-utility-disk-map-bar.tsx'
@@ -526,8 +527,9 @@ export function DiskUtilityApp() {
   const [eraseState, setEraseState] = useState<EraseDialogState | undefined>(undefined)
   const [partitionState, setPartitionState] = useState<PartitionDialogState | undefined>(undefined)
   const [benchmarkState, setBenchmarkState] = useState<BenchmarkDialogState | undefined>(undefined)
-  const [benchmarkProgress, setBenchmarkProgress] = useState<BenchmarkProgress | undefined>(undefined)
-  const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResult | undefined>(undefined)
+  const [benchmarkItems, setBenchmarkItems] = useState<Record<BenchmarkItemId, BenchmarkItemState>>(
+    initialBenchmarkItems,
+  )
   const [busy, setBusy] = useState(false)
   const [dialogError, setDialogError] = useState<string | undefined>(undefined)
   const busyRef = useRef(false)
@@ -653,17 +655,21 @@ export function DiskUtilityApp() {
       busyRef.current = true
       setBusy(true)
       setDialogError(undefined)
-      setBenchmarkProgress(undefined)
-      setBenchmarkResult(undefined)
+      setBenchmarkItems(initialBenchmarkItems())
       try {
-        const result = await runDiskBenchmark({
+        await runDiskBenchmarkSuite({
           rootPath,
-          onProgress: (progress) => setBenchmarkProgress(progress),
           signal,
+          onItemUpdate: (id, state) => {
+            setBenchmarkItems((prev) => ({ ...prev, [id]: state }))
+          },
         })
-        setBenchmarkResult(result)
       } catch (error) {
-        setDialogError(formatError(error))
+        if (error instanceof Error && error.message === 'aborted') {
+          // 用户主动停止，保留已完成项的值
+        } else {
+          setDialogError(formatError(error))
+        }
       } finally {
         busyRef.current = false
         setBusy(false)
@@ -738,8 +744,7 @@ export function DiskUtilityApp() {
       },
       runBenchmark: (node) => {
         if (!node.pathRoot) return
-        setBenchmarkProgress(undefined)
-        setBenchmarkResult(undefined)
+        setBenchmarkItems(initialBenchmarkItems())
         setDialogError(undefined)
         setBenchmarkState({
           rootPath: node.pathRoot,
@@ -910,14 +915,12 @@ export function DiskUtilityApp() {
       <BenchmarkDialog
         state={benchmarkState}
         busy={busy}
-        progress={benchmarkProgress}
-        result={benchmarkResult}
+        items={benchmarkItems}
         error={dialogError}
         onClose={() => {
           if (busy) return
           setBenchmarkState(undefined)
-          setBenchmarkProgress(undefined)
-          setBenchmarkResult(undefined)
+          setBenchmarkItems(initialBenchmarkItems())
           setDialogError(undefined)
         }}
         onRun={(signal: AbortSignal) => {
