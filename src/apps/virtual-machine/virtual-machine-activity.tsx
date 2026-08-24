@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   formatFilesIoBytesPerSec,
   formatFilesIoDurationMs,
@@ -66,6 +66,15 @@ function ActivityLed({
   )
 }
 
+function DetailSection({ title, children }: { title: string; children: preact.ComponentChildren }) {
+  return (
+    <section class="virtual-machine__stats-section">
+      <h4 class="virtual-machine__stats-section-title">{title}</h4>
+      <dl class="virtual-machine__stats-section-body">{children}</dl>
+    </section>
+  )
+}
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div class="virtual-machine__stats-row">
@@ -105,6 +114,7 @@ export function VirtualMachineActivity({
   running: boolean
   diskStreamIds?: readonly string[]
 }) {
+  const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [diskIo, setDiskIo] = useState<VmDiskStreamIoSnapshot>(() => emptyVmDiskStreamIoSnapshot())
   const hasStream = diskStreamIds.length > 0
@@ -124,6 +134,35 @@ export function VirtualMachineActivity({
     return () => window.clearInterval(timer)
   }, [hasStream, open, running, streamKey])
 
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      if (rootRef.current?.contains(target)) {
+        return
+      }
+      setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+      event.preventDefault()
+      setOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
   const hda = stats?.hda
   const hdb = stats?.hdb
   const cdrom = stats?.cdrom
@@ -138,39 +177,49 @@ export function VirtualMachineActivity({
     : undefined
 
   return (
-    <div class="virtual-machine__activity">
+    <div class="virtual-machine__activity" ref={rootRef}>
       <div class="virtual-machine__bezel">
         <div class="virtual-machine__leds" role="group" aria-label="设备指示灯">
-          <ActivityLed
-            kind="hdd1"
-            label="HD1"
-            state={ledState(hda, running)}
-            title={hda ? diskActivityTitle('硬盘 1', hda) : '硬盘 1 未挂载'}
-          />
-          <ActivityLed
-            kind="hdd2"
-            label="HD2"
-            state={ledState(hdb, running)}
-            title={hdb ? diskActivityTitle('硬盘 2', hdb) : '硬盘 2 未挂载'}
-          />
-          <ActivityLed
-            kind="cdrom"
-            label="CD"
-            state={ledState(cdrom, running)}
-            title={cdrom ? diskActivityTitle('光盘', cdrom) : '光盘未挂载'}
-          />
-          <ActivityLed
-            kind="fd1"
-            label="FD1"
-            state={ledState(fda, running)}
-            title={fda ? diskActivityTitle('软盘 1', fda) : '软盘 1 未挂载'}
-          />
-          <ActivityLed
-            kind="fd2"
-            label="FD2"
-            state={ledState(fdb, running)}
-            title={fdb ? diskActivityTitle('软盘 2', fdb) : '软盘 2 未挂载'}
-          />
+          {hda?.present ? (
+            <ActivityLed
+              kind="hdd1"
+              label="硬盘 1"
+              state={ledState(hda, running)}
+              title={diskActivityTitle('硬盘 1', hda)}
+            />
+          ) : undefined}
+          {hdb?.present ? (
+            <ActivityLed
+              kind="hdd2"
+              label="硬盘 2"
+              state={ledState(hdb, running)}
+              title={diskActivityTitle('硬盘 2', hdb)}
+            />
+          ) : undefined}
+          {cdrom?.present ? (
+            <ActivityLed
+              kind="cdrom"
+              label="光盘"
+              state={ledState(cdrom, running)}
+              title={diskActivityTitle('光盘', cdrom)}
+            />
+          ) : undefined}
+          {fda?.present ? (
+            <ActivityLed
+              kind="fd1"
+              label="软盘 1"
+              state={ledState(fda, running)}
+              title={diskActivityTitle('软盘 1', fda)}
+            />
+          ) : undefined}
+          {fdb?.present ? (
+            <ActivityLed
+              kind="fd2"
+              label="软盘 2"
+              state={ledState(fdb, running)}
+              title={diskActivityTitle('软盘 2', fdb)}
+            />
+          ) : undefined}
           <ActivityLed
             kind="cpu"
             label="CPU"
@@ -186,6 +235,7 @@ export function VirtualMachineActivity({
           type="button"
           class="virtual-machine__stats-toggle"
           aria-expanded={open}
+          aria-haspopup="dialog"
           disabled={!running && !stats}
           onClick={() => setOpen((current) => !current)}
         >
@@ -193,56 +243,64 @@ export function VirtualMachineActivity({
         </button>
       </div>
       {open ? (
-        <dl class="virtual-machine__stats-panel">
+        <div class="virtual-machine__stats-panel" role="dialog" aria-label="运行详情">
           {stats && running ? (
             <>
-              <DetailRow label="Running" value={formatVmRunningDuration(stats.runningMs)} />
-              <DetailRow label="Speed" value={formatVmMips(stats.speedMips)} />
-              <DetailRow label="Avg speed" value={formatVmMips(stats.avgSpeedMips)} />
-              <DetailRow label="IDE device" value={formatVmIdeLabel(stats.ideLabel)} />
-              <DetailRow label="Sectors read" value={String(ide?.sectorsRead ?? 0)} />
-              <DetailRow label="Bytes read" value={String(ide?.bytesRead ?? 0)} />
-              <DetailRow label="Sectors written" value={String(ide?.sectorsWritten ?? 0)} />
-              <DetailRow label="Bytes written" value={String(ide?.bytesWritten ?? 0)} />
-              <DetailRow
-                label="Read latency"
-                value={formatHostDiskLatency(diskIo.avgReadDurationMs, hasStream)}
-              />
-              <DetailRow
-                label="Write latency"
-                value={formatHostDiskLatency(diskIo.avgWriteDurationMs, hasStream)}
-              />
-              <DetailRow
-                label="Requests/s"
-                value={formatHostDiskOps(diskIo.opsPerSec, hasStream)}
-              />
-              <DetailRow
-                label="Reads/s"
-                value={formatHostDiskOps(diskIo.readOpsPerSec, hasStream)}
-              />
-              <DetailRow
-                label="Writes/s"
-                value={formatHostDiskOps(diskIo.writeOpsPerSec, hasStream)}
-              />
-              <DetailRow
-                label="Read speed"
-                value={formatHostDiskSpeed(diskIo.readBytesPerSec, hasStream)}
-              />
-              <DetailRow
-                label="Write speed"
-                value={formatHostDiskSpeed(diskIo.writeBytesPerSec, hasStream)}
-              />
-              <DetailRow label="Status" value={formatVmIdeStatus(stats)} />
-              <DetailRow label="VGA" value={formatVmVgaMode(stats)} />
-              <DetailRow label="Resolution" value={formatVmVgaResolution(stats)} />
-              <DetailRow label="Mouse" value={stats.mouse ? 'Yes' : 'No'} />
-              <DetailRow label="Absolute mouse" value={stats.absoluteMouse ? 'Yes' : 'No'} />
+              <DetailSection title="CPU">
+                <DetailRow label="已运行" value={formatVmRunningDuration(stats.runningMs)} />
+                <DetailRow label="速度" value={formatVmMips(stats.speedMips)} />
+                <DetailRow label="平均速度" value={formatVmMips(stats.avgSpeedMips)} />
+              </DetailSection>
+              <DetailSection title="客户机磁盘">
+                <DetailRow label="IDE 设备" value={formatVmIdeLabel(stats.ideLabel)} />
+                <DetailRow label="状态" value={formatVmIdeStatus(stats)} />
+                <DetailRow label="已读扇区" value={String(ide?.sectorsRead ?? 0)} />
+                <DetailRow label="已读字节" value={String(ide?.bytesRead ?? 0)} />
+                <DetailRow label="已写扇区" value={String(ide?.sectorsWritten ?? 0)} />
+                <DetailRow label="已写字节" value={String(ide?.bytesWritten ?? 0)} />
+              </DetailSection>
+              <DetailSection title="宿主磁盘">
+                <DetailRow
+                  label="读取延迟"
+                  value={formatHostDiskLatency(diskIo.avgReadDurationMs, hasStream)}
+                />
+                <DetailRow
+                  label="写入延迟"
+                  value={formatHostDiskLatency(diskIo.avgWriteDurationMs, hasStream)}
+                />
+                <DetailRow
+                  label="请求/秒"
+                  value={formatHostDiskOps(diskIo.opsPerSec, hasStream)}
+                />
+                <DetailRow
+                  label="读取/秒"
+                  value={formatHostDiskOps(diskIo.readOpsPerSec, hasStream)}
+                />
+                <DetailRow
+                  label="写入/秒"
+                  value={formatHostDiskOps(diskIo.writeOpsPerSec, hasStream)}
+                />
+                <DetailRow
+                  label="读取速度"
+                  value={formatHostDiskSpeed(diskIo.readBytesPerSec, hasStream)}
+                />
+                <DetailRow
+                  label="写入速度"
+                  value={formatHostDiskSpeed(diskIo.writeBytesPerSec, hasStream)}
+                />
+              </DetailSection>
+              <DetailSection title="显示">
+                <DetailRow label="VGA" value={formatVmVgaMode(stats)} />
+                <DetailRow label="分辨率" value={formatVmVgaResolution(stats)} />
+                <DetailRow label="鼠标" value={stats.mouse ? '是' : '否'} />
+                <DetailRow label="绝对鼠标" value={stats.absoluteMouse ? '是' : '否'} />
+              </DetailSection>
             </>
           ) : (
             <p class="virtual-machine__stats-empty">开机后显示速度、磁盘读写和显示模式。</p>
           )}
-        </dl>
-      ) : null}
+        </div>
+      ) : undefined}
     </div>
   )
 }
