@@ -71,6 +71,8 @@ import {
 export type { FilesWatchChange, FilesWatchListener, FilesWatchOptions }
 import type { ArchiveCodecFormat } from '../../archive/archive-codec.ts'
 import type { ArchiveMaterializeProgress } from '../../archive/archive-materialize.ts'
+import type { ArchiveJobPhase } from '../../archive/archive-progress.ts'
+import { throwIfArchiveAborted } from '../../archive/archive-worker-job.ts'
 
 export type FilesApiEntry = {
   path: string
@@ -783,13 +785,66 @@ export async function filesEmptyTrash(): Promise<void> {
 
 export type FilesArchiveFormat = 'auto' | ArchiveCodecFormat
 
-export type FilesExtractArchiveProgress = ArchiveMaterializeProgress
+export type FilesExtractArchiveProgress = ArchiveMaterializeProgress & {
+  phase?: ArchiveJobPhase
+  bytesDone?: number
+  bytesTotal?: number
+}
 
 export type FilesCreateArchiveProgress = {
-  /** 已读取的文件数（主线程读 VFS 阶段） */
+  phase: ArchiveJobPhase
   readCount: number
   totalCount: number
+  bytesDone: number
+  bytesTotal: number
   currentPath?: string
+}
+
+const ARCHIVE_READ_CHUNK_BYTES = 4 * 1024 * 1024
+
+/** 按块读取文件字节，块与块之间可响应 AbortSignal。 */
+export async function filesReadBytesAbortable(
+  path: string,
+  options?: {
+    signal?: AbortSignal
+    expectedByteSize?: number
+    onChunk?: (bytesRead: number, bytesTotal: number) => void
+  },
+): Promise<Uint8Array> {
+  const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能读取命名空间根')
+  }
+  throwIfArchiveAborted(options?.signal)
+
+  let total = options?.expectedByteSize
+  if (total === undefined) {
+    const stat = await filesStat(absolutePath)
+    total = stat?.kind === 'file' ? stat.byteSize : 0
+  }
+
+  if (total <= 0) {
+    const blob = await filesReadBlob(absolutePath)
+    throwIfArchiveAborted(options?.signal)
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    options?.onChunk?.(bytes.byteLength, Math.max(bytes.byteLength, 0))
+    return bytes
+  }
+
+  const out = new Uint8Array(total)
+  let offset = 0
+  while (offset < total) {
+    throwIfArchiveAborted(options?.signal)
+    const length = Math.min(ARCHIVE_READ_CHUNK_BYTES, total - offset)
+    const blob = await filesReadBlobRange(absolutePath, offset, length)
+    const chunk = new Uint8Array(await blob.arrayBuffer())
+    if (chunk.byteLength === 0) break
+    const copy = Math.min(chunk.byteLength, total - offset)
+    out.set(chunk.subarray(0, copy), offset)
+    offset += copy
+    options?.onChunk?.(offset, total)
+  }
+  return offset === total ? out : out.subarray(0, offset)
 }
 
 function parentAbsolutePathOf(path: string): string {
@@ -800,7 +855,9 @@ function parentAbsolutePathOf(path: string): string {
 
 /** 把 Worker 侧的解码错误映射为与解压工具一致的友好文案；abort 原样透传。 */
 function toFriendlyArchiveError(format: FilesArchiveFormat, error: unknown): Error {
-  if (error instanceof Error && error.message === 'aborted') return error
+  if (error instanceof Error && (error.message === 'aborted' || error.name === 'AbortError')) {
+    return error instanceof Error && error.message === 'aborted' ? error : new Error('aborted')
+  }
   switch (format) {
     case 'zip':
       return new Error('无法解析 ZIP（文件可能已损坏）')
@@ -876,10 +933,32 @@ export async function filesExtractArchive(params: {
   }
 
   const format = params.format ?? 'auto'
-  const { blob } = await readFileBlob(absolutePath)
-  const bytes = new Uint8Array(await blob.arrayBuffer())
-  params.signal?.throwIfAborted?.()
-  if (params.signal?.aborted) throw new Error('aborted')
+  const bytes = await filesReadBytesAbortable(absolutePath, {
+    signal: params.signal,
+    expectedByteSize: node.byteSize,
+    onChunk: (bytesRead, bytesTotal) => {
+      params.onProgress?.({
+        done: 0,
+        total: 0,
+        bytesWritten: 0,
+        phase: 'read',
+        bytesDone: bytesRead,
+        bytesTotal,
+        currentPath: node.name,
+      })
+    },
+  })
+  throwIfArchiveAborted(params.signal)
+
+  params.onProgress?.({
+    done: 0,
+    total: 0,
+    bytesWritten: 0,
+    phase: 'decode',
+    bytesDone: bytes.byteLength,
+    bytesTotal: bytes.byteLength,
+    currentPath: node.name,
+  })
 
   let entries: Map<string, Uint8Array>
   try {
@@ -900,6 +979,7 @@ export async function filesExtractArchive(params: {
   }
 
   if (params.transformEntries) {
+    throwIfArchiveAborted(params.signal)
     entries = await params.transformEntries(entries)
   }
 
@@ -912,7 +992,13 @@ export async function filesExtractArchive(params: {
       bytes,
     })),
     signal: params.signal,
-    onProgress: params.onProgress,
+    onProgress: (progress) => {
+      params.onProgress?.({
+        ...progress,
+        phase: 'write',
+        bytesDone: progress.bytesWritten,
+      })
+    },
   })
 }
 
@@ -949,17 +1035,51 @@ export async function filesCreateArchive(params: {
   }
 
   const subtree = await listSubtreeFiles(sourceAbs)
+  const totalCount = subtree.length
+  const bytesTotal = subtree.reduce((sum, file) => sum + Math.max(0, file.byteSize), 0)
   const entries: { path: string; bytes: ArrayBuffer }[] = []
   let readCount = 0
+  let bytesDone = 0
   for (const file of subtree) {
-    params.signal?.throwIfAborted?.()
-    if (params.signal?.aborted) throw new Error('aborted')
-    const { blob } = await readFileBlob(file.absolutePath)
-    entries.push({ path: file.path, bytes: await blob.arrayBuffer() })
+    throwIfArchiveAborted(params.signal)
+    const fileSize = Math.max(0, file.byteSize)
+    const bytes = await filesReadBytesAbortable(file.absolutePath, {
+      signal: params.signal,
+      expectedByteSize: fileSize,
+      onChunk: (fileRead) => {
+        params.onProgress?.({
+          phase: 'read',
+          readCount,
+          totalCount,
+          bytesDone: bytesDone + fileRead,
+          bytesTotal,
+          currentPath: file.path,
+        })
+      },
+    })
+    entries.push({
+      path: file.path,
+      bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    })
     readCount += 1
-    params.onProgress?.({ readCount, totalCount: subtree.length, currentPath: file.path })
+    bytesDone += bytes.byteLength
+    params.onProgress?.({
+      phase: 'read',
+      readCount,
+      totalCount,
+      bytesDone,
+      bytesTotal,
+      currentPath: file.path,
+    })
   }
 
+  params.onProgress?.({
+    phase: 'encode',
+    readCount,
+    totalCount,
+    bytesDone,
+    bytesTotal,
+  })
   const { encodeArchiveInWorker } = await import('../../archive/archive-worker-client.ts')
   const outBytes = await encodeArchiveInWorker({
     entries,
@@ -970,9 +1090,18 @@ export async function filesCreateArchive(params: {
   // 流式写，避免单次 IndexedDB 事务过大
   const writer = await filesOpenStreamWrite(archiveAbs)
   const CHUNK_BYTES = 256 * 1024
+  const writeTotal = outBytes.byteLength
   try {
     for (let offset = 0; offset < outBytes.byteLength; offset += CHUNK_BYTES) {
+      throwIfArchiveAborted(params.signal)
       await writer.write(outBytes.subarray(offset, offset + CHUNK_BYTES))
+      params.onProgress?.({
+        phase: 'write',
+        readCount,
+        totalCount,
+        bytesDone: Math.min(writeTotal, offset + CHUNK_BYTES),
+        bytesTotal: writeTotal,
+      })
     }
     await writer.close()
   } catch (error) {

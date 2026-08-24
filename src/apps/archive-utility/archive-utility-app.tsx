@@ -21,6 +21,7 @@ import {
   filesExtractArchive,
   filesList,
   filesReadBlob,
+  filesReadBytesAbortable,
   filesRemoveBatch,
   filesStat,
 } from '../files/files-api.ts'
@@ -41,7 +42,9 @@ import {
   type ArchiveSession,
   type ArchiveLevelItem,
 } from './archive-utility-tree.ts'
+import { archiveJobProgressFraction, type ArchiveJobPhase } from '../../archive/archive-progress.ts'
 import { applyArchiveRewrite } from './archive-utility-rewrite.ts'
+import { estimateRemainingMs, formatFilesOpRemainingLabel } from '../files/files-op-progress-policy.ts'
 import './archive-utility.css'
 
 const APP_ID = 'archive-utility' as const
@@ -58,26 +61,40 @@ type BusyState =
   | {
       kind: 'extract'
       label: string
+      phase: 'read' | 'decode' | 'write'
       done: number
       total: number
       bytesWritten: number
+      bytesDone: number
+      bytesTotal: number
       currentPath?: string
+      startedAt: number
     }
   | {
       kind: 'create'
       label: string
+      phase: 'read' | 'encode' | 'write'
       readCount: number
       totalCount: number
+      bytesDone: number
+      bytesTotal: number
       currentPath?: string
+      startedAt: number
     }
   | {
       kind: 'rewrite'
       label: string
+      startedAt: number
     }
 
 function fileBaseName(absolutePath: string): string {
   const parts = absolutePath.split('/').filter(Boolean)
   return parts[parts.length - 1] ?? absolutePath
+}
+
+function isBusyAbortError(error: unknown, signal: AbortSignal): boolean {
+  if (signal.aborted) return true
+  return error instanceof Error && (error.message === 'aborted' || error.name === 'AbortError')
 }
 
 function formatError(error: unknown): string {
@@ -126,6 +143,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
   const [currentDir, setCurrentDir] = useState<string[]>([])
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set())
   const [busy, setBusy] = useState<BusyState | undefined>(undefined)
+  const [progressNowMs, setProgressNowMs] = useState(() => Date.now())
   const [contextMenu, setContextMenu] = useState<
     { item: ArchiveLevelItem; x: number; y: number } | undefined
   >(undefined)
@@ -147,6 +165,13 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
   selectionRef.current = selection
   currentDirRef.current = currentDir
   documentIdRef.current = documentId
+
+  useEffect(() => {
+    if (!busy) return
+    setProgressNowMs(Date.now())
+    const timer = window.setInterval(() => setProgressNowMs(Date.now()), 250)
+    return () => window.clearInterval(timer)
+  }, [busy?.kind, busy?.startedAt])
 
   useEffect(() => {
     mountedRef.current = true
@@ -177,8 +202,10 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           throw new Error('找不到压缩包')
         }
         signal.throwIfAborted()
-        const blob = await filesReadBlob(archivePath)
-        const bytes = new Uint8Array(await blob.arrayBuffer())
+        const bytes = await filesReadBytesAbortable(archivePath, {
+          signal,
+          expectedByteSize: stat.byteSize,
+        })
         const listing = await listArchiveInWorker({ bytes, format: 'auto', signal })
         if (!mountedRef.current || documentIdRef.current !== archivePath) return
         let entries = listing.entries
@@ -195,7 +222,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           entries,
         })
       } catch (error) {
-        if (signal.aborted || !mountedRef.current || documentIdRef.current !== archivePath) return
+        if (isBusyAbortError(error, signal) || !mountedRef.current || documentIdRef.current !== archivePath) return
         setSession(undefined)
         setLoadError(formatError(error))
       } finally {
@@ -272,24 +299,75 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
 
       const abort = new AbortController()
       busyAbortRef.current = abort
-      setBusy({ kind: 'extract', label: '正在解压…', done: 0, total: 0, bytesWritten: 0 })
+      const startedAt = Date.now()
+      setBusy({
+        kind: 'extract',
+        label: '正在解压…',
+        phase: 'read',
+        done: 0,
+        total: 0,
+        bytesWritten: 0,
+        bytesDone: 0,
+        bytesTotal: 0,
+        startedAt,
+      })
 
-      const report = (progress: { done: number; total: number; bytesWritten: number; currentPath?: string }) => {
+      const report = (progress: {
+        done: number
+        total: number
+        bytesWritten: number
+        currentPath?: string
+        phase?: ArchiveJobPhase
+        bytesDone?: number
+        bytesTotal?: number
+      }) => {
+        const phase =
+          progress.phase === 'read' || progress.phase === 'decode' ? progress.phase : 'write'
         setBusy({
           kind: 'extract',
-          label: `正在解压到「${fileBaseName(destPath)}」…`,
+          label:
+            phase === 'read'
+              ? '正在读取压缩包…'
+              : phase === 'decode'
+                ? '正在解压…'
+                : `正在解压到「${fileBaseName(destPath)}」…`,
+          phase,
           done: progress.done,
           total: progress.total,
           bytesWritten: progress.bytesWritten,
+          bytesDone: progress.bytesDone ?? progress.bytesWritten,
+          bytesTotal: progress.bytesTotal ?? 0,
           currentPath: progress.currentPath,
+          startedAt,
         })
       }
 
       try {
         let fileCount = 0
         if (current.format === 'gzip-file') {
-          const blob = await filesReadBlob(current.archivePath)
-          const bytes = new Uint8Array(await blob.arrayBuffer())
+          const bytes = await filesReadBytesAbortable(current.archivePath, {
+            signal: abort.signal,
+            onChunk: (bytesRead, bytesTotal) => {
+              report({
+                done: 0,
+                total: 0,
+                bytesWritten: 0,
+                phase: 'read',
+                bytesDone: bytesRead,
+                bytesTotal,
+                currentPath: current.fileName,
+              })
+            },
+          })
+          report({
+            done: 0,
+            total: 0,
+            bytesWritten: 0,
+            phase: 'decode',
+            bytesDone: bytes.byteLength,
+            bytesTotal: bytes.byteLength,
+            currentPath: current.fileName,
+          })
           const decoded = await filesDecodeArchive({
             bytes,
             format: 'gzip-file',
@@ -337,7 +415,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           themeColor: THEME,
         })
       } catch (error) {
-        if (abort.signal.aborted) return
+        if (isBusyAbortError(error, abort.signal)) return
         await modal.alert({ title: '无法解压', message: formatError(error), themeColor: THEME })
       } finally {
         busyAbortRef.current = undefined
@@ -396,7 +474,17 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
 
       const abort = new AbortController()
       busyAbortRef.current = abort
-      setBusy({ kind: 'create', label: '正在压缩…', readCount: 0, totalCount: 0 })
+      const startedAt = Date.now()
+      setBusy({
+        kind: 'create',
+        label: '正在压缩…',
+        phase: 'read',
+        readCount: 0,
+        totalCount: 0,
+        bytesDone: 0,
+        bytesTotal: 0,
+        startedAt,
+      })
       try {
         await filesCreateArchive({
           sourceDirPath: sourcePath,
@@ -404,12 +492,23 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           format,
           signal: abort.signal,
           onProgress: (progress) => {
+            const label =
+              progress.phase === 'encode'
+                ? `正在压缩「${fileBaseName(sourcePath)}」…`
+                : progress.phase === 'write'
+                  ? `正在写入「${finalName}」…`
+                  : `正在读取「${fileBaseName(sourcePath)}」…`
             setBusy({
               kind: 'create',
-              label: `正在压缩「${fileBaseName(sourcePath)}」…`,
+              label,
+              phase:
+                progress.phase === 'write' || progress.phase === 'read' ? progress.phase : 'encode',
               readCount: progress.readCount,
               totalCount: progress.totalCount,
+              bytesDone: progress.bytesDone,
+              bytesTotal: progress.bytesTotal,
               currentPath: progress.currentPath,
+              startedAt,
             })
           },
         })
@@ -420,7 +519,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           themeColor: THEME,
         })
       } catch (error) {
-        if (abort.signal.aborted) return
+        if (isBusyAbortError(error, abort.signal)) return
         await modal.alert({ title: '无法新建归档', message: formatError(error), themeColor: THEME })
       } finally {
         busyAbortRef.current = undefined
@@ -431,7 +530,10 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
   )
 
   const cancelBusy = useCallback(() => {
-    busyAbortRef.current?.abort()
+    const controller = busyAbortRef.current
+    if (!controller) return
+    controller.abort()
+    if (mountedRef.current) setBusy(undefined)
   }, [])
 
   const runRewrite = useCallback(
@@ -446,7 +548,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       if (!current || current.format === 'gzip-file') return false
       const abort = new AbortController()
       busyAbortRef.current = abort
-      setBusy({ kind: 'rewrite', label: params.label })
+      setBusy({ kind: 'rewrite', label: params.label, startedAt: Date.now() })
       try {
         const result = await applyArchiveRewrite({
           archivePath: current.archivePath,
@@ -464,7 +566,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
         })
         return true
       } catch (error) {
-        if (abort.signal.aborted) return false
+        if (isBusyAbortError(error, abort.signal)) return false
         await modal.alert({ title: '无法修改归档', message: formatError(error), themeColor: THEME })
         return false
       } finally {
@@ -590,7 +692,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       if (!current) return
       const abort = new AbortController()
       busyAbortRef.current = abort
-      setBusy({ kind: 'rewrite', label: '正在提取文件…' })
+      setBusy({ kind: 'rewrite', label: '正在提取文件…', startedAt: Date.now() })
       try {
         const blob = await filesReadBlob(current.archivePath)
         const bytes = new Uint8Array(await blob.arrayBuffer())
@@ -625,7 +727,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           })
         }
       } catch (error) {
-        if (abort.signal.aborted) return
+        if (isBusyAbortError(error, abort.signal)) return
         await modal.alert({ title: '无法打开文件', message: formatError(error), themeColor: THEME })
       } finally {
         busyAbortRef.current = undefined
@@ -1090,36 +1192,86 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     if (!busy) return null
     const currentPath =
       busy.kind === 'extract' || busy.kind === 'create' ? busy.currentPath : undefined
+    const phase =
+      busy.kind === 'extract' || busy.kind === 'create' ? busy.phase : undefined
+    const bytesDone =
+      busy.kind === 'extract' || busy.kind === 'create' ? busy.bytesDone : 0
+    const bytesTotal =
+      busy.kind === 'extract' || busy.kind === 'create' ? busy.bytesTotal : 0
     const fraction =
-      busy.kind === 'extract'
-        ? busy.total > 0
-          ? Math.min(1, busy.done / busy.total)
+      phase !== undefined
+        ? archiveJobProgressFraction({
+            phase,
+            bytesDone: phase === 'write' && busy.kind === 'extract' && busy.total > 0
+              ? busy.done
+              : bytesDone,
+            bytesTotal: phase === 'write' && busy.kind === 'extract' && busy.total > 0
+              ? busy.total
+              : bytesTotal,
+          })
+        : undefined
+
+    const percent = fraction !== undefined ? Math.round(fraction * 100) : undefined
+    const elapsedMs = Math.max(0, progressNowMs - busy.startedAt)
+    const remainingWorkDone =
+      phase === 'write' && busy.kind === 'extract' && busy.total > 0 ? busy.done : bytesDone
+    const remainingWorkTotal =
+      phase === 'write' && busy.kind === 'extract' && busy.total > 0 ? busy.total : bytesTotal
+    const remainingLabel =
+      phase === 'encode' || phase === 'decode' || busy.kind === 'rewrite'
+        ? formatFilesOpRemainingLabel(Number.POSITIVE_INFINITY)
+        : remainingWorkTotal > 0
+          ? formatFilesOpRemainingLabel(
+              estimateRemainingMs({
+                done: remainingWorkDone,
+                total: remainingWorkTotal,
+                elapsedMs,
+              }),
+            )
           : undefined
-        : busy.kind === 'create'
-          ? busy.totalCount > 0
-            ? Math.min(1, busy.readCount / busy.totalCount)
-            : undefined
-          : undefined
+
+    const metaText = (() => {
+      if (busy.kind === 'extract') {
+        if (busy.phase === 'read') {
+          return busy.bytesTotal > 0
+            ? `${formatArchiveBytes(busy.bytesDone)} / ${formatArchiveBytes(busy.bytesTotal)}`
+            : '正在读取压缩包…'
+        }
+        if (busy.phase === 'decode') return '正在解压…'
+        if (busy.total > 0) {
+          return `${busy.done}/${busy.total} · ${formatArchiveBytes(busy.bytesWritten)}`
+        }
+        return '准备中…'
+      }
+      if (busy.kind === 'create') {
+        if (busy.phase === 'encode') return '正在压缩…'
+        if (busy.phase === 'write') {
+          return busy.bytesTotal > 0
+            ? `${formatArchiveBytes(busy.bytesDone)} / ${formatArchiveBytes(busy.bytesTotal)}`
+            : '正在写入…'
+        }
+        if (busy.totalCount > 0) {
+          return `${busy.readCount}/${busy.totalCount} · ${formatArchiveBytes(busy.bytesDone)} / ${formatArchiveBytes(busy.bytesTotal)}`
+        }
+        return '正在读取文件…'
+      }
+      return '正在处理…'
+    })()
+
     return (
       <div class="archive-utility-app__busy" role="dialog" aria-label="操作进度">
         <div class="archive-utility-app__busy-card">
           <p class="archive-utility-app__busy-title">{busy.label}</p>
-          <div class="archive-utility-app__busy-track" role="progressbar" aria-valuenow={fraction !== undefined ? Math.round(fraction * 100) : undefined}>
+          <div class="archive-utility-app__busy-track" role="progressbar" aria-valuenow={percent}>
             <div
-              class="archive-utility-app__busy-fill archive-utility-app__busy-fill--indeterminate"
-              style={fraction !== undefined ? { width: `${Math.round(fraction * 100)}%` } : undefined}
+              class={`archive-utility-app__busy-fill${fraction === undefined ? ' archive-utility-app__busy-fill--indeterminate' : ''}`}
+              style={fraction !== undefined ? { width: `${percent}%` } : undefined}
             />
           </div>
           <p class="archive-utility-app__busy-meta">
-            {busy.kind === 'extract'
-              ? busy.total > 0
-                ? `${busy.done}/${busy.total} · ${formatArchiveBytes(busy.bytesWritten)}`
-                : '准备中…'
-              : busy.kind === 'create'
-                ? busy.totalCount > 0
-                  ? `${busy.readCount}/${busy.totalCount}`
-                  : '正在读取文件…'
-                : '正在处理…'}
+            {metaText}
+            {percent !== undefined ? ` · ${percent}%` : ''}
+            {remainingLabel ? ` · ${remainingLabel}` : ''}
             {currentPath ? <span class="archive-utility-app__busy-path"> · {currentPath}</span> : undefined}
           </p>
           <div class="archive-utility-app__busy-actions">
