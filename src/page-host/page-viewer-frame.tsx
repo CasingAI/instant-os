@@ -143,7 +143,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     const bridgeRef = useRef<ChromoBridge | null>(null)
     const initialUrlRef = useRef(initialUrl)
     const disableNetworkCacheRef = useRef(disableNetworkCache)
-    const [viewerUrl, setViewerUrl] = useState(() => getPageViewerUrl())
+    const [viewerUrl, setViewerUrl] = useState(() => getPageViewerUrl(devtoolsId))
     const [viewerEpoch, setViewerEpoch] = useState(0)
 
     disableNetworkCacheRef.current = disableNetworkCache
@@ -157,10 +157,10 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
           return
         }
         lastOrigin = nextOrigin
-        setViewerUrl(getPageViewerUrl())
+        setViewerUrl(getPageViewerUrl(devtoolsId))
         setViewerEpoch((epoch) => epoch + 1)
       })
-    }, [])
+    }, [devtoolsId])
 
     const onReadyRef = useRef(onReady)
     const onNavigatedRef = useRef(onNavigated)
@@ -265,12 +265,13 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
             return
           }
           const iframe = iframeRef.current
-          const url = getPageViewerUrl()
+          const url = getPageViewerUrl(devtoolsId)
           if (!iframe || !url) {
             return
           }
-          const sep = url.includes('?') ? '&' : '?'
-          iframe.src = `${url}${sep}_r=${Date.now()}`
+          const next = new URL(url)
+          next.searchParams.set('_r', String(Date.now()))
+          iframe.src = next.href
         },
         stop() {
           bridgeRef.current?.stop()
@@ -498,12 +499,14 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       <iframe
         key={viewerEpoch}
         ref={iframeRef}
+        name={`vc-shell-${devtoolsId}`}
         class={['chromo__viewer', active ? '' : 'chromo__viewer--hidden', zoomed ? 'chromo__viewer--zoomed' : '']
           .filter(Boolean)
           .join(' ')}
         src={viewerUrl}
         title="Chromo WebView"
         sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+        inert={!active || undefined}
         style={zoomStyle}
       />
     )

@@ -89,6 +89,12 @@
 .webview__viewport .chromo__viewer--hidden {
   visibility: hidden;
   pointer-events: none;
+  z-index: 0;
+}
+
+.webview__viewport-slot .chromo__viewer:not(.chromo__viewer--hidden),
+.webview__viewport .chromo__viewer:not(.chromo__viewer--hidden) {
+  z-index: 1;
 }
 
 .webview-offscreen-pool {

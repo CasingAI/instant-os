@@ -621,6 +621,17 @@
   height: 100%;
   border: 0;
   background: #fff;
+  z-index: 0;
+}
+
+.chromo__viewer--hidden {
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.chromo__viewer:not(.chromo__viewer--hidden) {
+  z-index: 1;
 }
 
 .chromo__viewer--zoomed {

@@ -15,10 +15,20 @@ export function isPageWorkerConfigured(): boolean {
   return getPageWorkerOrigin() !== undefined
 }
 
-/** 单用户全局 viewer 入口；未配置代理时返回 undefined。 */
-export function getPageViewerUrl(): string | undefined {
+/**
+ * Viewer 入口。未配置代理时返回 undefined。
+ * 传入 clientId 时带查询参数，让每个标签的外壳文档身份不同，避免同 src 串台。
+ */
+export function getPageViewerUrl(clientId?: string): string | undefined {
   const origin = getPageWorkerOrigin()
-  return origin ? `${origin}/viewer` : undefined
+  if (!origin) {
+    return undefined
+  }
+  const url = new URL('/viewer', `${origin}/`)
+  if (clientId) {
+    url.searchParams.set('vcid', clientId)
+  }
+  return url.href
 }
 
 /** @deprecated Prefer getPageWorkerOrigin() */
