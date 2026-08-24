@@ -10,7 +10,10 @@ export type BuiltinFilesLocationId =
 /** 动态挂载卷：`mount:{文件夹名键}`，键由本机文件夹名派生，便于稳定路径 */
 export type MountFilesLocationId = `mount:${string}`
 
-export type FilesLocationId = BuiltinFilesLocationId | MountFilesLocationId
+/** 磁盘镜像挂载卷：`image:{镜像名键}` */
+export type ImageFilesLocationId = `image:${string}`
+
+export type FilesLocationId = BuiltinFilesLocationId | MountFilesLocationId | ImageFilesLocationId
 
 export type FilesNodeKind = 'folder' | 'file' | 'symlink'
 
@@ -113,6 +116,42 @@ export function makeMountLocationId(key: string): MountFilesLocationId {
   return `mount:${key}`
 }
 
+export function isImageLocationId(id: string): id is ImageFilesLocationId {
+  return /^image:[^:]+$/.test(id)
+}
+
+export function isImageNodeId(id: string): boolean {
+  return /^image:[^:]+:[df]:/.test(id)
+}
+
+export function parseImageLocationKey(locationId: FilesLocationId): string | undefined {
+  if (!isImageLocationId(locationId)) return undefined
+  return locationId.slice('image:'.length)
+}
+
+export function makeImageLocationId(key: string): ImageFilesLocationId {
+  return `image:${key}`
+}
+
+export function newImageLocationKey(
+  fileName: string,
+  existingIds?: ReadonlySet<string>,
+): string {
+  const taken = existingIds ?? new Set<string>()
+  const base = mountKeyFromFolderName(fileName.replace(/\.(img|raw|ima|dsk)$/i, '') || fileName)
+  let key = base
+  let suffix = 2
+  while (taken.has(makeImageLocationId(key))) {
+    const candidate = `${base}-${suffix}`
+    key =
+      candidate.length <= MAX_MOUNT_KEY_LENGTH
+        ? candidate
+        : `${base.slice(0, Math.max(1, MAX_MOUNT_KEY_LENGTH - `-${suffix}`.length))}-${suffix}`
+    suffix += 1
+  }
+  return key
+}
+
 const MOUNT_KEY_FORBIDDEN = /[/\\:\u0000-\u001f\u007f]/
 const MAX_MOUNT_KEY_LENGTH = 64
 
@@ -155,7 +194,7 @@ export function newMountLocationKey(
 }
 
 export function isFilesLocationWritable(locationId: FilesLocationId): boolean {
-  if (isMountLocationId(locationId)) return true
+  if (isMountLocationId(locationId) || isImageLocationId(locationId)) return true
   return FILES_LOCATIONS.find((item) => item.id === locationId)?.writable === true
 }
 

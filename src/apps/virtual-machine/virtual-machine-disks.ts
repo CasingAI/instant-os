@@ -1,4 +1,10 @@
 import { filesMkdir, filesOpenStreamWrite, filesReadBlob, filesStat } from '../files/files-api.ts'
+import { isDiskImageFileName } from '../files/files-disk-image-name.ts'
+import {
+  claimDiskImagePath,
+  releaseDiskImagePath,
+  releaseDiskImagePathsForOccupant,
+} from '../files/files-disk-image-occupancy.ts'
 import {
   cpuidLevelForCpuModel,
   deviceTypeLabel,
@@ -220,6 +226,38 @@ export function virtualMachineDiskPersistsWrites(
     return false
   }
   return type === 'hdd' || type === 'floppy'
+}
+
+function fileNameOfPath(path: string): string {
+  const slash = path.lastIndexOf('/')
+  return slash >= 0 ? path.slice(slash + 1) : path
+}
+
+export function claimVirtualMachineDiskImageOccupancy(
+  machineId: string,
+  devices: readonly VmStorageDevice[],
+): void {
+  const occupant = { kind: 'vm' as const, id: machineId }
+  const claimed: string[] = []
+  try {
+    for (const device of devices) {
+      if (device.type === 'state') continue
+      const path = device.path.trim()
+      if (!path || isHttpDiskUrl(path)) continue
+      if (!isDiskImageFileName(fileNameOfPath(path))) continue
+      claimDiskImagePath(path, occupant)
+      claimed.push(path)
+    }
+  } catch (error) {
+    for (const path of claimed) {
+      releaseDiskImagePath(path, occupant)
+    }
+    throw error
+  }
+}
+
+export function releaseVirtualMachineDiskImageOccupancy(machineId: string): void {
+  releaseDiskImagePathsForOccupant({ kind: 'vm', id: machineId })
 }
 
 async function loadDisk(

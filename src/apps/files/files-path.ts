@@ -1,6 +1,9 @@
 import { getCachedMount } from './files-mount-store.ts'
+import { getCachedImageMount } from './files-image-mount-store.ts'
 import {
+  isImageLocationId,
   isMountLocationId,
+  makeImageLocationId,
   makeMountLocationId,
   type FilesLocationId,
 } from './files-types.ts'
@@ -32,6 +35,7 @@ export type ParsedFilesAbsolutePath = {
  * - 系统文件 `/system`
  * - 废纸篓 `/trash`
  * - 外部挂载 `/mount/{文件夹名}`
+ * - 磁盘镜像 `/media/{镜像名}`
  *
  * 另有命名空间根 `/`（见 `isFilesNamespaceRoot`）：不对应任何 location，仅用于列举各卷。
  */
@@ -39,6 +43,10 @@ export function filesLocationPathRoot(locationId: FilesLocationId): string {
   if (isMountLocationId(locationId)) {
     const key = locationId.slice('mount:'.length)
     return key ? `/mount/${key}` : '/mount'
+  }
+  if (isImageLocationId(locationId)) {
+    const key = locationId.slice('image:'.length)
+    return key ? `/media/${key}` : '/media'
   }
   return FILES_PATH_ROOT[locationId]
 }
@@ -141,6 +149,22 @@ export function parseFilesAbsolutePath(absolutePath: string): ParsedFilesAbsolut
     return { locationId, segments: after.slice(1) }
   }
 
+  if (normalized === '/media' || normalized.startsWith('/media/')) {
+    const after =
+      normalized === '/media'
+        ? []
+        : normalized
+            .slice('/media/'.length)
+            .split('/')
+            .filter(Boolean)
+            .map((segment) => sanitizeFilesPathSegment(segment))
+    const key = after[0]
+    if (!key) return undefined
+    const locationId = makeImageLocationId(key)
+    if (!isImageLocationId(locationId)) return undefined
+    return { locationId, segments: after.slice(1) }
+  }
+
   return undefined
 }
 
@@ -148,6 +172,9 @@ export function parseFilesAbsolutePath(absolutePath: string): ParsedFilesAbsolut
 export function filesLocationDisplayName(locationId: FilesLocationId): string {
   if (isMountLocationId(locationId)) {
     return getCachedMount(locationId)?.label ?? locationId
+  }
+  if (isImageLocationId(locationId)) {
+    return getCachedImageMount(locationId)?.label ?? locationId
   }
   if (locationId === 'local') return '用户文件'
   if (locationId === 'applications') return '应用程序'

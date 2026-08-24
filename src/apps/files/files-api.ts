@@ -4,7 +4,7 @@
  *
  * 路径约定：
  * - `/` — 命名空间根（虚拟）：下列出各卷，不可写入
- * - `/user` · `/dev` · `/tmp` · `/models` · `/system` · `/mount/{文件夹名}` — 各卷根
+ * - `/user` · `/dev` · `/tmp` · `/models` · `/system` · `/mount/{文件夹名}` · `/media/{镜像名}` — 各卷根
  */
 import { osNowMs } from '../../os/os-clock.ts'
 import {

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { buildStartMessage, loadVirtualMachineDisks } from './virtual-machine-disks.ts'
+import {
+  buildStartMessage,
+  claimVirtualMachineDiskImageOccupancy,
+  loadVirtualMachineDisks,
+  releaseVirtualMachineDiskImageOccupancy,
+} from './virtual-machine-disks.ts'
 import { releaseVirtualMachineDiskStreams } from './virtual-machine-disk-stream-host.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
@@ -467,6 +472,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
 
   const removeRunningId = useCallback((id: string) => {
     watchdogRef.current?.cancel(id)
+    releaseVirtualMachineDiskImageOccupancy(id)
     runningIdsRef.current.delete(id)
     setRunningIds([...runningIdsRef.current])
     setStartMessages((current) => {
@@ -551,6 +557,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
       setHints((current) => new Map(current).set(id, '正在读取镜像…'))
       console.log('[vm-boot] loading disks', id)
       try {
+        claimVirtualMachineDiskImageOccupancy(id, machine.devices)
         const disks = await withTimeout(
           loadVirtualMachineDisks(machine),
           DISK_LOAD_TIMEOUT_MS,
@@ -559,6 +566,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
         console.log('[vm-boot] disks loaded', id, diskPresence(disks))
         if (!runningIdsRef.current.has(id)) {
           console.log('[vm-boot] machine stopped before start message built', id)
+          releaseVirtualMachineDiskImageOccupancy(id)
           return
         }
         setHints((current) => new Map(current).set(id, '正在启动模拟器…'))

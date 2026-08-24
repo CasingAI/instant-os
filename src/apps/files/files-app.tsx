@@ -42,18 +42,28 @@ import {
   removeMount,
 } from './files-mount-store.ts'
 import {
+  FILES_IMAGE_MOUNTS_CHANGED_EVENT,
+} from './files-image-mount-store.ts'
+import {
+  isDiskImageFileName,
+  mountDiskImage,
+  unmountDiskImage,
+} from './files-image-actions.ts'
+import {
   subscribeFilesRevealRequests,
   takeFilesRevealRequest,
 } from './files-reveal-request.ts'
 import {
   isFilesLocationWritable,
   isFilesNodeWritable,
+  isImageLocationId,
   isMountLocationId,
   isMountNodeId,
   isTrashLocationId,
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
+  type ImageFilesLocationId,
   type MountFilesLocationId,
 } from './files-types.ts'
 import { isUserSpecialFolderNode } from './files-user-special.ts'
@@ -310,7 +320,7 @@ type BackgroundContextMenuState = {
 type LocationContextMenuState = {
   x: number
   y: number
-  locationId: MountFilesLocationId
+  locationId: MountFilesLocationId | ImageFilesLocationId
   label: string
 }
 
@@ -561,9 +571,26 @@ function TrashGlyph() {
   )
 }
 
+function ImageGlyph() {
+  return (
+    <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <ellipse cx="12" cy="8" rx="7.5" ry="3.2" fill="#d4b888" stroke="#8a6a38" stroke-width="1" />
+      <path
+        d="M4.5 8v8.2c0 1.8 3.4 3.2 7.5 3.2s7.5-1.4 7.5-3.2V8"
+        fill="#c9a66a"
+        stroke="#8a6a38"
+        stroke-width="1"
+      />
+      <ellipse cx="12" cy="16.2" rx="7.5" ry="3.2" fill="#a67c42" opacity="0.85" />
+      <ellipse cx="12" cy="8" rx="2.2" ry="1" fill="#5a4328" opacity="0.55" />
+    </svg>
+  )
+}
+
 function LocationGlyph({ id }: { id: FilesLocationId }) {
   if (isTrashLocationId(id)) return <TrashGlyph />
   if (isMountLocationId(id)) return <MountGlyph />
+  if (isImageLocationId(id)) return <ImageGlyph />
   if (id === 'applications') return <ApplicationsGlyph />
   if (id === 'models3d') return <ModelsGlyph />
   if (id === 'source') return <SourceGlyph />
@@ -1097,7 +1124,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       void refreshLocations()
     }
     window.addEventListener(FILES_MOUNTS_CHANGED_EVENT, onMountsChanged)
-    return () => window.removeEventListener(FILES_MOUNTS_CHANGED_EVENT, onMountsChanged)
+    window.addEventListener(FILES_IMAGE_MOUNTS_CHANGED_EVENT, onMountsChanged)
+    return () => {
+      window.removeEventListener(FILES_MOUNTS_CHANGED_EVENT, onMountsChanged)
+      window.removeEventListener(FILES_IMAGE_MOUNTS_CHANGED_EVENT, onMountsChanged)
+    }
   }, [refreshLocations])
 
   useEffect(() => {
@@ -1568,29 +1599,55 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [closeTransientMenus, modal, refreshLocations, selectLocation])
 
   const handleUnmount = useCallback(
-    async (mountId: MountFilesLocationId, label: string) => {
+    async (locationToRemove: MountFilesLocationId | ImageFilesLocationId, label: string) => {
       setLocationContextMenu(undefined)
       setActionSheet(undefined)
+      const isImage = isImageLocationId(locationToRemove)
       const ok = await modal.confirm({
-        title: '卸载文件夹？',
-        message: `「${label}」将从侧栏移除，不会删除磁盘上的文件。`,
-        confirmLabel: '卸载',
+        title: isImage ? '推出磁盘镜像？' : '卸载文件夹？',
+        message: isImage
+          ? `「${label}」将从侧栏移除，修改会写回镜像文件。`
+          : `「${label}」将从侧栏移除，不会删除磁盘上的文件。`,
+        confirmLabel: isImage ? '推出' : '卸载',
         cancelLabel: '取消',
         themeColor: THEME,
       })
       if (!ok) return
       try {
-        await removeMount(mountId)
-        if (locationId === mountId) {
+        if (isImage) {
+          await unmountDiskImage(locationToRemove)
+        } else {
+          await removeMount(locationToRemove)
+        }
+        if (locationId === locationToRemove) {
           setLocationId('local')
           setFolderId(undefined)
         }
         await refreshLocations()
       } catch (err) {
-        await modal.alert({ title: '无法卸载', message: formatError(err), themeColor: THEME })
+        await modal.alert({
+          title: isImage ? '无法推出' : '无法卸载',
+          message: formatError(err),
+          themeColor: THEME,
+        })
       }
     },
     [locationId, modal, refreshLocations],
+  )
+
+  const handleMountDiskImage = useCallback(
+    async (node: FilesNode) => {
+      closeTransientMenus()
+      try {
+        const path = await resolveFilesAbsolutePath(node)
+        const mounted = await mountDiskImage(path)
+        await refreshLocations()
+        selectLocation(mounted.id)
+      } catch (err) {
+        await modal.alert({ title: '无法挂载', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [closeTransientMenus, modal, refreshLocations, selectLocation],
   )
 
   const enterFolder = useCallback(
@@ -2955,6 +3012,16 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           label: '打开方式…',
           onClick: () => void showOpenWithChooser(node),
         })
+        if (
+          isDiskImageFileName(node.name) &&
+          (locationId === 'local' || locationId === 'dev' || locationId === 'tmp')
+        ) {
+          items.push({
+            type: 'action',
+            label: '挂载磁盘镜像',
+            onClick: () => void handleMountDiskImage(node),
+          })
+        }
       }
       items.push({
         type: 'action',
@@ -3019,6 +3086,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       filesArchiveOps,
       handleCopy,
       handleCut,
+      handleMountDiskImage,
       handlePaste,
       handleRename,
       handleRestore,
@@ -3279,9 +3347,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           <ul class="files__sidebar-list">
             {locations.map((location) => {
               const active = location.id === locationId
-              const mountId = isMountLocationId(location.id) ? location.id : undefined
+              const removableId =
+                isMountLocationId(location.id) || isImageLocationId(location.id)
+                  ? location.id
+                  : undefined
               const isDropTarget = dropTarget?.kind === 'location' && dropTarget.id === location.id
-              const itemClass = `files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${mountId ? ' files__sidebar-item--mount' : ''}${isDropTarget ? ' files__sidebar-item--drop-target' : ''}`
+              const itemClass = `files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${removableId ? ' files__sidebar-item--mount' : ''}${isDropTarget ? ' files__sidebar-item--drop-target' : ''}`
               const locationBytesForId = locationBytes[location.id]
               const locationContent = (
                 <>
@@ -3304,20 +3375,20 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 onDrop: (event: DragEvent) => handleLocationDrop(event, location),
               }
               const handleLocationContextMenu = (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
-                if (!mountId) return
+                if (!removableId) return
                 event.preventDefault()
                 setContextMenu(undefined)
                 setNewFileMenu(undefined)
                 setLocationContextMenu({
                   x: event.clientX,
                   y: event.clientY,
-                  locationId: mountId,
+                  locationId: removableId,
                   label: location.label,
                 })
               }
               return (
                 <li key={location.id}>
-                  {mountId ? (
+                  {removableId ? (
                     <div class={itemClass}>
                       <button
                         type="button"
@@ -3335,7 +3406,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                         title="推出"
                         onClick={(event) => {
                           event.stopPropagation()
-                          void handleUnmount(mountId, location.label)
+                          void handleUnmount(removableId, location.label)
                         }}
                       >
                         <span aria-hidden="true">⏏</span>
@@ -3452,6 +3523,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         {!isProtectedVolume && isMountLocationId(locationId) ? (
           <div class="files__protected-banner files__protected-banner--mount" role="status">
             对此容器的修改会立刻同步到本机真实文件夹
+          </div>
+        ) : undefined}
+        {!isProtectedVolume && isImageLocationId(locationId) ? (
+          <div class="files__protected-banner files__protected-banner--mount" role="status">
+            对此容器的修改会写回磁盘镜像文件
           </div>
         ) : undefined}
 

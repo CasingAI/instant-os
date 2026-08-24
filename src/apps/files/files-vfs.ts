@@ -58,6 +58,29 @@ import {
   writeMountText,
 } from './files-location-mount.ts'
 import {
+  createImageBinaryFile,
+  createImageTextFile,
+  getImageNode,
+  listImageDirectory,
+  mkdirImage,
+  openImageStreamWrite,
+  readImageBlob,
+  readImageText,
+  readImageTextIfSmall,
+  removeImageNode,
+  renameImageNode,
+  resolveImagePath,
+  resolveImageRelativePath,
+  writeImageBlob,
+  writeImageBytesRange,
+  writeImageText,
+} from './files-location-image.ts'
+import {
+  getCachedImageMount,
+  listImageMounts,
+  FILES_IMAGE_MOUNTS_CHANGED_EVENT,
+} from './files-image-mount-store.ts'
+import {
   getModels3dNode,
   listModels3dDirectory,
   readModels3dBlob,
@@ -94,12 +117,15 @@ import {
   canCreateSymlinkOnLocation,
   isFilesLocationWritable,
   isFilesNodeWritable,
+  isImageLocationId,
+  isImageNodeId,
   isMountLocationId,
   isMountNodeId,
   isTrashLocationId,
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
+  type ImageFilesLocationId,
   type MountFilesLocationId,
 } from './files-types.ts'
 import { filesWorkloadUnits } from './files-op-progress-policy.ts'
@@ -146,6 +172,9 @@ export function invalidateFilesVfsPathCaches(): void {
 // worker / Node 环境无 window，事件不会派发，跳过订阅（这些环境也不发生挂载变更）。
 if (typeof window !== 'undefined') {
   window.addEventListener(FILES_MOUNTS_CHANGED_EVENT, () => {
+    invalidateFilesVfsPathCaches()
+  })
+  window.addEventListener(FILES_IMAGE_MOUNTS_CHANGED_EVENT, () => {
     invalidateFilesVfsPathCaches()
   })
 }
@@ -277,9 +306,15 @@ function recordFilesIoWrite(
 
 export async function listFilesLocations(): Promise<readonly FilesLocation[]> {
   const mounts = await listMounts()
+  const images = listImageMounts()
   return [
     ...FILES_LOCATIONS,
     ...mounts.map((item) => ({
+      id: item.id,
+      label: item.label,
+      writable: true as const,
+    })),
+    ...images.map((item) => ({
       id: item.id,
       label: item.label,
       writable: true as const,
@@ -291,7 +326,9 @@ export function getFilesLocationLabel(locationId: FilesLocationId): string {
   const builtin = FILES_LOCATIONS.find((item) => item.id === locationId)
   if (builtin) return builtin.label
   const mount = getCachedMount(locationId)
-  return mount?.label ?? locationId
+  if (mount) return mount.label
+  const image = listImageMounts().find((item) => item.id === locationId)
+  return image?.label ?? locationId
 }
 
 function assertLocationAllowsCreate(locationId: FilesLocationId): void {
@@ -377,6 +414,8 @@ export async function listDirectory(
   let listed: FilesNode[]
   if (isMountLocationId(locationId)) {
     listed = await listMountDirectory(locationId, folderId)
+  } else if (isImageLocationId(locationId)) {
+    listed = await listImageDirectory(locationId, folderId)
   } else if (locationId === 'models3d') {
     listed = await listModels3dDirectory(folderId)
   } else if (locationId === 'source') {
@@ -397,6 +436,9 @@ export async function resolvePathNodes(
 ): Promise<FilesNode[]> {
   if (isMountLocationId(locationId)) {
     return resolveMountPath(locationId, folderId)
+  }
+  if (isImageLocationId(locationId)) {
+    return resolveImagePath(locationId, folderId)
   }
   if (locationId === 'models3d') {
     return resolveModels3dPath(folderId)
@@ -437,6 +479,18 @@ export async function mkdir(params: {
     const names = await siblingNames(params.locationId, params.parentId)
     const name = uniqueNameAmong(names, trimmed)
     const created = await mkdirMount({
+      locationId: params.locationId,
+      parentId: params.parentId,
+      name,
+    })
+    await emitNodeCreated(created)
+    return created
+  }
+
+  if (isImageLocationId(params.locationId)) {
+    const names = await siblingNames(params.locationId, params.parentId)
+    const name = uniqueNameAmong(names, trimmed)
+    const created = await mkdirImage({
       locationId: params.locationId,
       parentId: params.parentId,
       name,
@@ -500,6 +554,25 @@ export async function createTextFile(params: {
     return created
   }
 
+  if (isImageLocationId(params.locationId)) {
+    const names = await siblingNames(params.locationId, params.parentId)
+    const name = uniqueNameAmong(names, desired)
+    const created = await createImageTextFile({
+      locationId: params.locationId,
+      parentId: params.parentId,
+      name,
+      text,
+    })
+    await emitNodeCreated(created)
+    recordFilesIoWrite(
+      created,
+      estimateTextBytes(text),
+      'createText',
+      performance.now() - startedAt,
+    )
+    return created
+  }
+
   const now = osNowMs()
   const node: FilesNode = {
     id: newFilesNodeId(),
@@ -547,6 +620,25 @@ export async function createBinaryFile(params: {
     const names = await siblingNames(params.locationId, params.parentId)
     const name = uniqueNameAmong(names, desired)
     const created = await createMountBinaryFile({
+      locationId: params.locationId,
+      parentId: params.parentId,
+      name,
+      bytes: params.bytes,
+    })
+    await emitNodeCreated(created)
+    recordFilesIoWrite(
+      created,
+      params.bytes.byteLength,
+      'createBinary',
+      performance.now() - startedAt,
+    )
+    return created
+  }
+
+  if (isImageLocationId(params.locationId)) {
+    const names = await siblingNames(params.locationId, params.parentId)
+    const name = uniqueNameAmong(names, desired)
+    const created = await createImageBinaryFile({
       locationId: params.locationId,
       parentId: params.parentId,
       name,
@@ -686,6 +778,9 @@ async function resolveNodeByAbsolutePathInner(
   if (isMountLocationId(parsed.locationId)) {
     return resolveMountRelativePath(parsed.locationId, parsed.segments.join('/'))
   }
+  if (isImageLocationId(parsed.locationId)) {
+    return resolveImageRelativePath(parsed.locationId, parsed.segments.join('/'))
+  }
 
   let cursorPath = filesLocationPathRoot(parsed.locationId)
   let parentId: string | undefined
@@ -816,7 +911,7 @@ export async function listSubtreeFiles(
   if (!parsed) {
     throw new Error('路径无效')
   }
-  if (isMountLocationId(parsed.locationId)) {
+  if (isMountLocationId(parsed.locationId) || isImageLocationId(parsed.locationId)) {
     throw new Error('挂载卷不支持子树枚举')
   }
   if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {
@@ -873,7 +968,7 @@ export async function backfillSubtreeContentRevisionIds(
   if (!parsed) {
     throw new Error('路径无效')
   }
-  if (isMountLocationId(parsed.locationId)) {
+  if (isMountLocationId(parsed.locationId) || isImageLocationId(parsed.locationId)) {
     throw new Error('挂载卷不支持 revision 补齐')
   }
   if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {
@@ -929,6 +1024,9 @@ async function readTextFileByNodeIdUnmetered(
   if (isMountNodeId(id)) {
     return readMountText(id)
   }
+  if (isImageNodeId(id)) {
+    return readImageText(id)
+  }
   if (id.startsWith('models3d:')) {
     return readModels3dText(id)
   }
@@ -970,6 +1068,9 @@ export async function readTextFileIfSmall(
   if (isMountNodeId(node.id)) {
     return readMountTextIfSmall(node.id, maxBytes)
   }
+  if (isImageNodeId(node.id)) {
+    return readImageTextIfSmall(node.id, maxBytes)
+  }
   if (
     node.id.startsWith('models3d:') ||
     node.id.startsWith('source:') ||
@@ -1008,6 +1109,9 @@ async function readFileBlobByNodeIdUnmetered(
 ): Promise<{ node: FilesNode; blob: Blob }> {
   if (isMountNodeId(id)) {
     return readMountBlob(id)
+  }
+  if (isImageNodeId(id)) {
+    return readImageBlob(id)
   }
   if (id.startsWith('models3d:')) {
     return readModels3dBlob(id)
@@ -1068,7 +1172,13 @@ async function readFileBlobRangeByNodeIdUnmetered(
 ): Promise<{ node: FilesNode; blob: Blob }> {
   const start = Math.max(0, offset)
   const want = Math.max(0, length)
-  if (isMountNodeId(id) || id.startsWith('models3d:') || id.startsWith('source:') || id.startsWith('applications:')) {
+  if (
+    isMountNodeId(id) ||
+    isImageNodeId(id) ||
+    id.startsWith('models3d:') ||
+    id.startsWith('source:') ||
+    id.startsWith('applications:')
+  ) {
     const { node, blob } = await readFileBlobByNodeIdUnmetered(id)
     return { node, blob: blob.slice(start, start + want) }
   }
@@ -1094,6 +1204,17 @@ export async function writeTextFile(ref: string, text: string): Promise<FilesNod
 
   if (isMountNodeId(target.id)) {
     const written = await writeMountText(target.id, text)
+    await emitNodeModified(written)
+    recordFilesIoWrite(
+      written,
+      estimateTextBytes(text),
+      'writeText',
+      performance.now() - startedAt,
+    )
+    return written
+  }
+  if (isImageNodeId(target.id)) {
+    const written = await writeImageText(target.id, text)
     await emitNodeModified(written)
     recordFilesIoWrite(
       written,
@@ -1133,6 +1254,12 @@ export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<
     recordFilesIoWrite(written, bytes.byteLength, 'writeBinary', performance.now() - startedAt)
     return written
   }
+  if (isImageNodeId(target.id)) {
+    const written = await writeImageBlob(target.id, bytes)
+    await emitNodeModified(written)
+    recordFilesIoWrite(written, bytes.byteLength, 'writeBinary', performance.now() - startedAt)
+    return written
+  }
   const written = await writeBlobBytes({
     id: target.id,
     bytes,
@@ -1163,6 +1290,12 @@ export async function writeFileBytesRange(
   const startedAt = performance.now()
   if (isMountNodeId(target.id)) {
     const written = await writeMountBytesRange(target.id, offset, bytes)
+    await emitNodeModified(written)
+    recordFilesIoWrite(written, bytes.byteLength, 'writeBytesRange', performance.now() - startedAt)
+    return written
+  }
+  if (isImageNodeId(target.id)) {
+    const written = await writeImageBytesRange(target.id, offset, bytes)
     await emitNodeModified(written)
     recordFilesIoWrite(written, bytes.byteLength, 'writeBytesRange', performance.now() - startedAt)
     return written
@@ -1199,6 +1332,13 @@ export async function openStreamWrite(params: {
   if (isMountLocationId(node.locationId)) {
     writer = await openMountStreamWrite({
       locationId: node.locationId as MountFilesLocationId,
+      parentId: node.parentId,
+      name: node.name,
+      isNew,
+    })
+  } else if (isImageLocationId(node.locationId)) {
+    writer = await openImageStreamWrite({
+      locationId: node.locationId as ImageFilesLocationId,
       parentId: node.parentId,
       name: node.name,
       isNew,
@@ -1265,6 +1405,15 @@ export async function renameNode(id: string, nextName: string): Promise<FilesNod
     const names = await siblingNames(node.locationId, node.parentId, node.id)
     const name = uniqueNameAmong(names, trimmed)
     const renamed = await renameMountNode(id, name)
+    const path = await resolveFilesAbsolutePath(renamed)
+    emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
+    return renamed
+  }
+
+  if (isImageNodeId(id)) {
+    const names = await siblingNames(node.locationId, node.parentId, node.id)
+    const name = uniqueNameAmong(names, trimmed)
+    const renamed = await renameImageNode(id, name)
     const path = await resolveFilesAbsolutePath(renamed)
     emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
     return renamed
@@ -1337,7 +1486,7 @@ async function estimateCopyWorkloadForNode(
 }
 
 export async function estimateDeleteWorkload(nodeId: string): Promise<FilesDeleteWorkload> {
-  if (isMountNodeId(nodeId)) {
+  if (isMountNodeId(nodeId) || isImageNodeId(nodeId)) {
     return { nodeCount: 1, byteSize: 0, totalUnits: 1 }
   }
   const subtree = await collectSubtreeIds(nodeId)
@@ -1413,8 +1562,8 @@ export async function removeNodeForced(
  * 元数据级移动是否可行：源与目标均为 IndexedDB 本地卷（不涉及挂载）。
  */
 function canMoveNodeMetadataOnly(source: FilesNode, destLocationId: FilesLocationId): boolean {
-  if (isMountNodeId(source.id)) return false
-  if (isMountLocationId(destLocationId)) return false
+  if (isMountNodeId(source.id) || isImageNodeId(source.id)) return false
+  if (isMountLocationId(destLocationId) || isImageLocationId(destLocationId)) return false
   return source.locationId === destLocationId
 }
 
@@ -1536,6 +1685,42 @@ export async function trashNode(
     return withOrigin
   }
 
+  if (isImageNodeId(id)) {
+    const previousPath = await resolveFilesAbsolutePath(node)
+    const needed = await estimateCopyBytesForNode(node, 'trash')
+    await assertAdditionalBytesAvailable(needed)
+    const workload = await estimateCopyWorkloadForNode(node)
+    const total = filesWorkloadUnits(workload.nodeCount, workload.byteSize)
+    const progressState = { done: 0 }
+    options?.onProgress?.({ done: 0, total })
+    let copied: FilesNode
+    try {
+      copied = await copyNodeTree(node, 'trash', undefined, (copyNode) => {
+        progressState.done = Math.min(total, progressState.done + nodeWorkloadUnits(copyNode))
+        options?.onProgress?.({ done: progressState.done, total })
+      })
+    } catch (err) {
+      if (err instanceof FilesStorageFullError) {
+        throw new Error('数据空间不足，无法移入废纸篓。按住 ⌥ 键删除可直接永久删除')
+      }
+      throw err
+    }
+    const withOrigin = await moveNodeRecord({
+      id: copied.id,
+      locationId: 'trash',
+      parentId: undefined,
+      name: copied.name,
+      trashOrigin,
+    })
+    await removeImageNode(id)
+    options?.onProgress?.({ done: total, total })
+    emitFilesVfsChanged([
+      { kind: 'deleted', path: previousPath },
+      { kind: 'created', path: await resolveFilesAbsolutePath(withOrigin) },
+    ])
+    return withOrigin
+  }
+
   const previousPath = await resolveFilesAbsolutePath(node)
   const moved = await moveNodeRecord({
     id,
@@ -1574,8 +1759,13 @@ export async function restoreNode(id: string): Promise<FilesNode> {
       throw new Error('原位置所在挂载已被移除，无法恢复')
     }
   }
+  if (isImageLocationId(origin.locationId)) {
+    if (!getCachedImageMount(origin.locationId)) {
+      throw new Error('原位置所在磁盘镜像已推出，无法恢复')
+    }
+  }
 
-  if (isMountLocationId(origin.locationId)) {
+  if (isMountLocationId(origin.locationId) || isImageLocationId(origin.locationId)) {
     // 目标为挂载卷：复制到挂载卷后删除废纸篓原件
     const copied = await copyNodeTree(node, origin.locationId, destParentId, () => undefined)
     await removeNode(id)
@@ -1627,6 +1817,13 @@ async function removeNodeInner(
     emitFilesVfsChanged({ kind: 'deleted', path })
     return
   }
+  if (isImageNodeId(id)) {
+    options?.onProgress?.({ done: 0, total: 1 })
+    await removeImageNode(id)
+    options?.onProgress?.({ done: 1, total: 1 })
+    emitFilesVfsChanged({ kind: 'deleted', path })
+    return
+  }
   const subtree = await collectSubtreeIds(id)
   await deleteLocalSubtreeWithProgress(subtree, options?.onProgress)
   emitFilesVfsChanged({ kind: 'deleted', path })
@@ -1660,7 +1857,7 @@ export async function removeNodesByPathsBatch(
     if (!parsed || parsed.segments.length === 0) {
       throw new Error('不能删除卷根')
     }
-    if (isMountLocationId(parsed.locationId)) {
+    if (isMountLocationId(parsed.locationId) || isImageLocationId(parsed.locationId)) {
       const node = await resolveNodeByAbsolutePath(absolutePath)
       if (!node) {
         if (skipMissing) continue
@@ -1692,7 +1889,11 @@ export async function removeNodesByPathsBatch(
   }
 
   for (const mount of mountDeletes) {
-    await removeMountNode(mount.id)
+    if (isImageNodeId(mount.id)) {
+      await removeImageNode(mount.id)
+    } else {
+      await removeMountNode(mount.id)
+    }
   }
 
   if (localRootIds.length > 0) {
@@ -1708,6 +1909,11 @@ export async function removeNodesByPathsBatch(
 export async function getNodeOrThrow(id: string): Promise<FilesNode> {
   if (isMountNodeId(id)) {
     const node = await getMountNode(id)
+    if (!node) throw new Error('项目不存在')
+    return node
+  }
+  if (isImageNodeId(id)) {
+    const node = await getImageNode(id)
     if (!node) throw new Error('项目不存在')
     return node
   }
@@ -1824,7 +2030,7 @@ export async function copyNodeTo(params: {
     throw new Error('不能将文件夹粘贴到自身或其子文件夹中')
   }
 
-  const usesLocalQuota = !isMountLocationId(params.destLocationId)
+  const usesLocalQuota = !isMountLocationId(params.destLocationId) && !isImageLocationId(params.destLocationId)
   if (usesLocalQuota) {
     const needed = await estimateCopyBytesForNode(source, params.destLocationId)
     await assertAdditionalBytesAvailable(needed)
@@ -1847,8 +2053,8 @@ export async function copyNodeTo(params: {
 
 /** IndexedDB 本地卷之间复制文件时可共享 blob（写时复制） */
 function canShareBlobOnCopy(source: FilesNode, destLocationId: FilesLocationId): boolean {
-  if (isMountLocationId(destLocationId)) return false
-  if (isMountNodeId(source.id)) return false
+  if (isMountLocationId(destLocationId) || isImageLocationId(destLocationId)) return false
+  if (isMountNodeId(source.id) || isImageNodeId(source.id)) return false
   if (source.id.startsWith('models3d:') || source.id.startsWith('source:') || source.id.startsWith('applications:')) {
     return false
   }
@@ -1998,7 +2204,7 @@ export async function upsertFilesBatch(
     if (!parsed || parsed.segments.length === 0) {
       throw new Error('路径无效')
     }
-    if (isMountLocationId(parsed.locationId)) {
+    if (isMountLocationId(parsed.locationId) || isImageLocationId(parsed.locationId)) {
       throw new Error('挂载卷暂不支持批量写入')
     }
     if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {

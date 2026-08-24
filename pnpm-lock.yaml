@@ -101,6 +101,9 @@ importers:
       libflacjs:
         specifier: ^5.6.0
         version: 5.6.0
+      libmount:
+        specifier: ^0.6.0
+        version: 0.6.0
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0
@@ -1148,6 +1151,9 @@ packages:
   libflacjs@5.6.0:
     resolution: {integrity: sha512-ev9pJxcPEkUdQDBd5ywPHEtYe9mGlzLaNwj+sS32IpiOTPnCYQsCPZLR95dAYXix24UICJJwld4D/tZrR0RFbw==}
     hasBin: true
+
+  libmount@0.6.0:
+    resolution: {integrity: sha512-JXtE9cP6bxXviE3oqeu7LjPxeXN+SL/uDqjFSYPla9Sasj8Sbdizlbvf81haSL4xgRqSNr3uX+dBYHZvg0yU4w==}
 
   lie@3.3.0:
     resolution: {integrity: sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ==}
@@ -2488,6 +2494,8 @@ snapshots:
   kolorist@1.8.0: {}
 
   libflacjs@5.6.0: {}
+
+  libmount@0.6.0: {}
 
   lie@3.3.0:
     dependencies:
