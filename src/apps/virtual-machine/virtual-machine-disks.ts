@@ -159,6 +159,24 @@ type SlotAssignment = {
   device: VmStorageDevice
 }
 
+export type VmMountedDiskSlots = {
+  hda: boolean
+  hdb: boolean
+  cdrom: boolean
+  fda: boolean
+  fdb: boolean
+}
+
+export function emptyVmMountedDiskSlots(): VmMountedDiskSlots {
+  return {
+    hda: false,
+    hdb: false,
+    cdrom: false,
+    fda: false,
+    fdb: false,
+  }
+}
+
 function assignDevicesToSlots(devices: readonly VmStorageDevice[]): SlotAssignment[] {
   const used = new Map<VmStorageDeviceType, number>()
   const assignments: SlotAssignment[] = []
@@ -175,6 +193,23 @@ function assignDevicesToSlots(devices: readonly VmStorageDevice[]): SlotAssignme
     assignments.push({ slot: slots[index], label: deviceTypeLabel(device.type), device })
   }
   return assignments
+}
+
+/** 设置里已填路径的存储槽位。指示灯按这个判断，不依赖模拟器回报的 present。 */
+export function vmMountedDiskSlots(
+  devices: readonly VmStorageDevice[] | undefined,
+): VmMountedDiskSlots {
+  const mounted = emptyVmMountedDiskSlots()
+  if (!devices) {
+    return mounted
+  }
+  for (const assignment of assignDevicesToSlots(devices)) {
+    if (assignment.slot === 'state') {
+      continue
+    }
+    mounted[assignment.slot] = true
+  }
+  return mounted
 }
 
 export function virtualMachineDiskPersistsWrites(

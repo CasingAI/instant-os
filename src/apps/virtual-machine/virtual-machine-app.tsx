@@ -16,7 +16,7 @@ import {
   formatVmMemoryLabel,
   settingsFromRecord,
 } from './virtual-machine-config.ts'
-import { virtualMachineHasBootMedia } from './virtual-machine-disks.ts'
+import { virtualMachineHasBootMedia, vmMountedDiskSlots } from './virtual-machine-disks.ts'
 import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
@@ -756,6 +756,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               stats={selectedSnapshot?.stats}
               running={selectedRunning && !displayedBusy}
               diskStreamIds={selectedDiskStreamIds}
+              mountedSlots={vmMountedDiskSlots(selected?.devices)}
             />
           </div>
           {inspectorOpen && selected ? (

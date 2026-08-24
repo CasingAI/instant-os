@@ -4,6 +4,7 @@ import {
   formatFilesIoDurationMs,
   formatFilesIoOpsPerSec,
 } from '../../os/files-io-metrics.ts'
+import type { VmMountedDiskSlots } from './virtual-machine-disks.ts'
 import type { InstantVmDiskStats, InstantVmStatsSnapshot } from './virtual-machine-protocol.ts'
 import {
   emptyVmDiskStreamIoSnapshot,
@@ -25,16 +26,17 @@ type LedKind = 'hdd1' | 'hdd2' | 'cdrom' | 'fd1' | 'fd2' | 'cpu'
 const DISK_IO_POLL_MS = 500
 
 function ledState(disk: InstantVmDiskStats | undefined, running: boolean): 'off' | 'idle' | 'busy' {
-  if (!disk?.present) {
-    return 'off'
-  }
   if (!running) {
     return 'off'
   }
-  if (disk.busy === 'read' || disk.busy === 'write') {
+  if (disk?.busy === 'read' || disk?.busy === 'write') {
     return 'busy'
   }
   return 'idle'
+}
+
+function diskLedVisible(mounted: boolean, disk: InstantVmDiskStats | undefined): boolean {
+  return mounted || Boolean(disk?.present)
 }
 
 function cpuLedState(stats: InstantVmStatsSnapshot | undefined, running: boolean): 'off' | 'idle' | 'busy' {
@@ -75,9 +77,23 @@ function DetailSection({ title, children }: { title: string; children: preact.Co
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({
+  label,
+  value,
+  stale,
+}: {
+  label: string
+  value: string
+  stale?: boolean
+}) {
   return (
-    <div class="virtual-machine__stats-row">
+    <div
+      class={
+        stale
+          ? 'virtual-machine__stats-row virtual-machine__stats-row--stale'
+          : 'virtual-machine__stats-row'
+      }
+    >
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>
@@ -109,10 +125,12 @@ export function VirtualMachineActivity({
   stats,
   running,
   diskStreamIds = [],
+  mountedSlots,
 }: {
   stats: InstantVmStatsSnapshot | undefined
   running: boolean
   diskStreamIds?: readonly string[]
+  mountedSlots?: VmMountedDiskSlots
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -168,6 +186,11 @@ export function VirtualMachineActivity({
   const cdrom = stats?.cdrom
   const fda = stats?.fda
   const fdb = stats?.fdb
+  const showHda = diskLedVisible(Boolean(mountedSlots?.hda), hda)
+  const showHdb = diskLedVisible(Boolean(mountedSlots?.hdb), hdb)
+  const showCdrom = diskLedVisible(Boolean(mountedSlots?.cdrom), cdrom)
+  const showFda = diskLedVisible(Boolean(mountedSlots?.fda), fda)
+  const showFdb = diskLedVisible(Boolean(mountedSlots?.fdb), fdb)
   const ide = stats
     ? stats.ideLabel === 'hdd'
       ? stats.hda
@@ -180,44 +203,44 @@ export function VirtualMachineActivity({
     <div class="virtual-machine__activity" ref={rootRef}>
       <div class="virtual-machine__bezel">
         <div class="virtual-machine__leds" role="group" aria-label="设备指示灯">
-          {hda?.present ? (
+          {showHda ? (
             <ActivityLed
               kind="hdd1"
               label="硬盘 1"
               state={ledState(hda, running)}
-              title={diskActivityTitle('硬盘 1', hda)}
+              title={diskActivityTitle('硬盘 1', hda, running)}
             />
           ) : undefined}
-          {hdb?.present ? (
+          {showHdb ? (
             <ActivityLed
               kind="hdd2"
               label="硬盘 2"
               state={ledState(hdb, running)}
-              title={diskActivityTitle('硬盘 2', hdb)}
+              title={diskActivityTitle('硬盘 2', hdb, running)}
             />
           ) : undefined}
-          {cdrom?.present ? (
+          {showCdrom ? (
             <ActivityLed
               kind="cdrom"
               label="光盘"
               state={ledState(cdrom, running)}
-              title={diskActivityTitle('光盘', cdrom)}
+              title={diskActivityTitle('光盘', cdrom, running)}
             />
           ) : undefined}
-          {fda?.present ? (
+          {showFda ? (
             <ActivityLed
               kind="fd1"
               label="软盘 1"
               state={ledState(fda, running)}
-              title={diskActivityTitle('软盘 1', fda)}
+              title={diskActivityTitle('软盘 1', fda, running)}
             />
           ) : undefined}
-          {fdb?.present ? (
+          {showFdb ? (
             <ActivityLed
               kind="fd2"
               label="软盘 2"
               state={ledState(fdb, running)}
-              title={diskActivityTitle('软盘 2', fdb)}
+              title={diskActivityTitle('软盘 2', fdb, running)}
             />
           ) : undefined}
           <ActivityLed
@@ -263,10 +286,12 @@ export function VirtualMachineActivity({
                 <DetailRow
                   label="读取延迟"
                   value={formatHostDiskLatency(diskIo.avgReadDurationMs, hasStream)}
+                  stale={hasStream && diskIo.readLatencyStale}
                 />
                 <DetailRow
                   label="写入延迟"
                   value={formatHostDiskLatency(diskIo.avgWriteDurationMs, hasStream)}
+                  stale={hasStream && diskIo.writeLatencyStale}
                 />
                 <DetailRow
                   label="请求/秒"

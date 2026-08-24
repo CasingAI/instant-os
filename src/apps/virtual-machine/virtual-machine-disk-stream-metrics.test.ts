@@ -36,6 +36,8 @@ function testReadsAndWritesGoToMatchingDirection(): void {
   assert.equal(snapshot.writeBytesPerSec, 8192)
   assert.equal(snapshot.avgReadDurationMs, 10)
   assert.equal(snapshot.avgWriteDurationMs, 20)
+  assert.equal(snapshot.readLatencyStale, false)
+  assert.equal(snapshot.writeLatencyStale, false)
   releaseVmDiskStreamMetrics(streamId)
 }
 
@@ -60,6 +62,7 @@ function testExpiredSamplesAreDropped(): void {
   assert.equal(snapshot.readOpsPerSec, 1 / 3)
   assert.equal(snapshot.readBytesPerSec, 2048 / 3)
   assert.equal(snapshot.avgReadDurationMs, 8)
+  assert.equal(snapshot.readLatencyStale, false)
   releaseVmDiskStreamMetrics(streamId)
 }
 
@@ -131,6 +134,8 @@ function testLatencyIsEmptyWithoutSamples(): void {
   const snapshot = getVmDiskStreamIoSnapshot([streamId], now, 1_000)
   assert.equal(snapshot.avgReadDurationMs, undefined)
   assert.equal(snapshot.avgWriteDurationMs, undefined)
+  assert.equal(snapshot.readLatencyStale, false)
+  assert.equal(snapshot.writeLatencyStale, false)
   assert.equal(snapshot.opsPerSec, 0)
   assert.equal(snapshot.readBytesPerSec, 0)
   assert.equal(snapshot.writeBytesPerSec, 0)
@@ -165,6 +170,7 @@ function testReleaseRemovesSamples(): void {
   const snapshot = getVmDiskStreamIoSnapshot([streamId], now, 1_000)
   assert.equal(snapshot.readOpsPerSec, 0)
   assert.equal(snapshot.avgReadDurationMs, undefined)
+  assert.equal(snapshot.readLatencyStale, false)
 }
 
 function testListVmDiskStreamIdsSkipsStateAndMissing(): void {
@@ -179,6 +185,78 @@ function testListVmDiskStreamIdsSkipsStateAndMissing(): void {
   )
 }
 
+function testIdleKeepsLastReadLatencyAsStale(): void {
+  const streamId = 'ds-hold-read'
+  const now = 8_000_000
+  recordVmDiskStreamIo({
+    streamId,
+    direction: 'read',
+    bytes: 4096,
+    durationMs: 15,
+    at: now - 4_000,
+  })
+  const idle = getVmDiskStreamIoSnapshot([streamId], now, VM_DISK_STREAM_IO_WINDOW_MS)
+  assert.equal(idle.readOpsPerSec, 0)
+  assert.equal(idle.avgReadDurationMs, 15)
+  assert.equal(idle.readLatencyStale, true)
+  assert.equal(idle.avgWriteDurationMs, undefined)
+  assert.equal(idle.writeLatencyStale, false)
+  releaseVmDiskStreamMetrics(streamId)
+}
+
+function testHoldoverPrefersLastWindowAverage(): void {
+  const streamId = 'ds-hold-avg'
+  const now = 9_000_000
+  recordVmDiskStreamIo({
+    streamId,
+    direction: 'read',
+    bytes: 1024,
+    durationMs: 10,
+    at: now - 800,
+  })
+  recordVmDiskStreamIo({
+    streamId,
+    direction: 'read',
+    bytes: 1024,
+    durationMs: 20,
+    at: now - 400,
+  })
+  const live = getVmDiskStreamIoSnapshot([streamId], now, 1_000)
+  assert.equal(live.avgReadDurationMs, 15)
+  assert.equal(live.readLatencyStale, false)
+  const idle = getVmDiskStreamIoSnapshot([streamId], now + 5_000, 1_000)
+  assert.equal(idle.readOpsPerSec, 0)
+  assert.equal(idle.avgReadDurationMs, 15)
+  assert.equal(idle.readLatencyStale, true)
+  releaseVmDiskStreamMetrics(streamId)
+}
+
+function testNewReadClearsStaleLatency(): void {
+  const streamId = 'ds-hold-refresh'
+  const now = 10_000_000
+  recordVmDiskStreamIo({
+    streamId,
+    direction: 'read',
+    bytes: 512,
+    durationMs: 40,
+    at: now - 8_000,
+  })
+  const idle = getVmDiskStreamIoSnapshot([streamId], now, VM_DISK_STREAM_IO_WINDOW_MS)
+  assert.equal(idle.readLatencyStale, true)
+  assert.equal(idle.avgReadDurationMs, 40)
+  recordVmDiskStreamIo({
+    streamId,
+    direction: 'read',
+    bytes: 512,
+    durationMs: 7,
+    at: now - 100,
+  })
+  const live = getVmDiskStreamIoSnapshot([streamId], now, VM_DISK_STREAM_IO_WINDOW_MS)
+  assert.equal(live.avgReadDurationMs, 7)
+  assert.equal(live.readLatencyStale, false)
+  releaseVmDiskStreamMetrics(streamId)
+}
+
 testReadsAndWritesGoToMatchingDirection()
 testExpiredSamplesAreDropped()
 testUnrecordedFailuresDoNotCount()
@@ -187,4 +265,7 @@ testLatencyIsEmptyWithoutSamples()
 testEmptyStreamListIsEmptySnapshot()
 testReleaseRemovesSamples()
 testListVmDiskStreamIdsSkipsStateAndMissing()
+testIdleKeepsLastReadLatencyAsStale()
+testHoldoverPrefersLastWindowAverage()
+testNewReadClearsStaleLatency()
 console.log('virtual-machine-disk-stream-metrics.test.ts ok')

@@ -14,6 +14,7 @@ import {
   virtualMachineDiskPersistsWrites,
   virtualMachineHasBootMedia,
   virtualMachineMountWriteBackError,
+  vmMountedDiskSlots,
 } from './virtual-machine-disks.ts'
 import {
   formatVmMips,
@@ -48,6 +49,40 @@ function testBootOrderMatchesV86(): void {
   assert.equal(INSTANT_VM_BOOT_ORDER_TO_V86['floppy-cd-hdd'], 0x231)
   assert.equal(INSTANT_VM_BOOT_ORDER_TO_V86['floppy-hdd-cd'], 0x321)
   assert.equal(INSTANT_VM_BOOT_ORDER_TO_V86['hdd-cd-floppy'], 0x132)
+}
+
+function testMountedDiskSlots(): void {
+  const empty = sampleSettings()
+  assert.deepEqual(vmMountedDiskSlots(undefined), {
+    hda: false,
+    hdb: false,
+    cdrom: false,
+    fda: false,
+    fdb: false,
+  })
+  assert.deepEqual(vmMountedDiskSlots(empty.devices), {
+    hda: false,
+    hdb: false,
+    cdrom: false,
+    fda: false,
+    fdb: false,
+  })
+  assert.deepEqual(
+    vmMountedDiskSlots([
+      { id: 'h1', type: 'hdd', source: 'local', path: '/user/disks/a.img' },
+      { id: 'h2', type: 'hdd', source: 'local', path: '/user/disks/b.img' },
+      { id: 'c', type: 'cdrom', source: 'local', path: '/user/os.iso' },
+      { id: 'blank', type: 'floppy', source: 'local', path: '  ' },
+      { id: 's', type: 'state', source: 'local', path: '/user/state.bin' },
+    ]),
+    {
+      hda: true,
+      hdb: true,
+      cdrom: true,
+      fda: false,
+      fdb: false,
+    },
+  )
 }
 
 function testHasBootMedia(): void {
@@ -492,6 +527,7 @@ function testDiskWriteFailedMessage(): void {
 }
 
 testBootOrderMatchesV86()
+testMountedDiskSlots()
 testHasBootMedia()
 testPersistWritesHonorsMode()
 testRefuseMountWriteBack()

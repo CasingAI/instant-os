@@ -9,6 +9,8 @@ export type VmDiskStreamIoSnapshot = {
   writeBytesPerSec: number
   avgReadDurationMs: number | undefined
   avgWriteDurationMs: number | undefined
+  readLatencyStale: boolean
+  writeLatencyStale: boolean
 }
 
 type VmDiskStreamIoSample = {
@@ -19,10 +21,19 @@ type VmDiskStreamIoSample = {
   durationMs: number
 }
 
+type VmDiskStreamLastOp = {
+  at: number
+  durationMs: number
+}
+
 const SAMPLE_RETENTION_MS = 60_000
 export const VM_DISK_STREAM_IO_WINDOW_MS = 3_000
 
 const samples: VmDiskStreamIoSample[] = []
+const lastReadOpByStream = new Map<string, VmDiskStreamLastOp>()
+const lastWriteOpByStream = new Map<string, VmDiskStreamLastOp>()
+const lastReadWindowAvgByStreams = new Map<string, number>()
+const lastWriteWindowAvgByStreams = new Map<string, number>()
 
 const DISK_STREAM_SLOTS = [
   'hdaStream',
@@ -51,6 +62,51 @@ export function emptyVmDiskStreamIoSnapshot(
     writeBytesPerSec: 0,
     avgReadDurationMs: undefined,
     avgWriteDurationMs: undefined,
+    readLatencyStale: false,
+    writeLatencyStale: false,
+  }
+}
+
+function streamsKey(streamIds: readonly string[]): string {
+  return [...streamIds].join('\0')
+}
+
+function pickLastOp(
+  map: Map<string, VmDiskStreamLastOp>,
+  wanted: Set<string>,
+): VmDiskStreamLastOp | undefined {
+  let best: VmDiskStreamLastOp | undefined
+  for (const id of wanted) {
+    const op = map.get(id)
+    if (!op) {
+      continue
+    }
+    if (!best || op.at > best.at) {
+      best = op
+    }
+  }
+  return best
+}
+
+function holdoverDuration(
+  windowAvg: number | undefined,
+  lastOp: VmDiskStreamLastOp | undefined,
+): number | undefined {
+  return windowAvg ?? lastOp?.durationMs
+}
+
+function dropStreamHoldover(streamId: string): void {
+  lastReadOpByStream.delete(streamId)
+  lastWriteOpByStream.delete(streamId)
+  for (const key of [...lastReadWindowAvgByStreams.keys()]) {
+    if (key === streamId || key.split('\0').includes(streamId)) {
+      lastReadWindowAvgByStreams.delete(key)
+    }
+  }
+  for (const key of [...lastWriteWindowAvgByStreams.keys()]) {
+    if (key === streamId || key.split('\0').includes(streamId)) {
+      lastWriteWindowAvgByStreams.delete(key)
+    }
   }
 }
 
@@ -67,13 +123,20 @@ export function recordVmDiskStreamIo(params: {
     return
   }
   const at = params.at ?? Date.now()
+  const durationMs = Math.max(0, params.durationMs)
   samples.push({
     streamId,
     at,
     direction: params.direction,
     bytes: Math.max(0, params.bytes),
-    durationMs: Math.max(0, params.durationMs),
+    durationMs,
   })
+  const lastOp = { at, durationMs }
+  if (params.direction === 'read') {
+    lastReadOpByStream.set(streamId, lastOp)
+  } else {
+    lastWriteOpByStream.set(streamId, lastOp)
+  }
   pruneSamples(at)
 }
 
@@ -86,6 +149,7 @@ export function releaseVmDiskStreamMetrics(streamId: string | undefined): void {
       samples.splice(i, 1)
     }
   }
+  dropStreamHoldover(streamId)
 }
 
 export function listVmDiskStreamIds(
@@ -148,6 +212,31 @@ export function getVmDiskStreamIoSnapshot(
     }
   }
   const seconds = Math.max(windowMs / 1000, 0.001)
+  const key = streamsKey(streamIds)
+  let avgReadDurationMs: number | undefined
+  let avgWriteDurationMs: number | undefined
+  let readLatencyStale = false
+  let writeLatencyStale = false
+  if (readOps > 0) {
+    avgReadDurationMs = readDurationSum / readOps
+    lastReadWindowAvgByStreams.set(key, avgReadDurationMs)
+  } else {
+    avgReadDurationMs = holdoverDuration(
+      lastReadWindowAvgByStreams.get(key),
+      pickLastOp(lastReadOpByStream, wanted),
+    )
+    readLatencyStale = avgReadDurationMs !== undefined
+  }
+  if (writeOps > 0) {
+    avgWriteDurationMs = writeDurationSum / writeOps
+    lastWriteWindowAvgByStreams.set(key, avgWriteDurationMs)
+  } else {
+    avgWriteDurationMs = holdoverDuration(
+      lastWriteWindowAvgByStreams.get(key),
+      pickLastOp(lastWriteOpByStream, wanted),
+    )
+    writeLatencyStale = avgWriteDurationMs !== undefined
+  }
   return {
     windowMs,
     readOpsPerSec: readOps / seconds,
@@ -155,7 +244,9 @@ export function getVmDiskStreamIoSnapshot(
     opsPerSec: (readOps + writeOps) / seconds,
     readBytesPerSec: readBytes / seconds,
     writeBytesPerSec: writeBytes / seconds,
-    avgReadDurationMs: readOps > 0 ? readDurationSum / readOps : undefined,
-    avgWriteDurationMs: writeOps > 0 ? writeDurationSum / writeOps : undefined,
+    avgReadDurationMs,
+    avgWriteDurationMs,
+    readLatencyStale,
+    writeLatencyStale,
   }
 }

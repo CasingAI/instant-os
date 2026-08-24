@@ -63,14 +63,18 @@ export function formatVmVgaResolution(stats: InstantVmStatsSnapshot): string {
   return `${width}×${height}×${bpp}`
 }
 
-export function diskActivityTitle(label: string, disk: InstantVmDiskStats): string {
-  if (!disk.present) {
-    return `${label}未挂载`
+export function diskActivityTitle(
+  label: string,
+  disk: InstantVmDiskStats | undefined,
+  running: boolean,
+): string {
+  if (!running) {
+    return `${label}未运行`
   }
-  if (disk.busy === 'read') {
+  if (disk?.busy === 'read') {
     return `${label}读取中`
   }
-  if (disk.busy === 'write') {
+  if (disk?.busy === 'write') {
     return `${label}写入中`
   }
   return `${label}空闲`

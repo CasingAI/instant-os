@@ -425,6 +425,11 @@
   border-bottom: none;
 }
 
+.virtual-machine__stats-row--stale dd {
+  color: #999;
+  font-weight: 500;
+}
+
 .virtual-machine__stats-row dt {
   color: #666;
 }
