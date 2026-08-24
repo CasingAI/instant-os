@@ -4,7 +4,7 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
 import { FilesNodeIcon } from '../files/files-node-icon.tsx'
-import { getNode } from '../files/files-storage.ts'
+import { getFileBlobStorageInfo, getNode, type FilesBlobStorageInfo } from '../files/files-storage.ts'
 import {
   filesLocationPathRoot,
   formatFilesByteSize,
@@ -344,6 +344,16 @@ function SingleInfoPanel({ tab }: { tab: InfoTab }) {
   return <SingleInfoContent tab={tab} node={node} />
 }
 
+function isIndexedDbManagedFile(node: FilesNode): boolean {
+  return (
+    node.kind === 'file' &&
+    !isMountNodeId(node.id) &&
+    !node.id.startsWith('models3d:') &&
+    !node.id.startsWith('source:') &&
+    !node.id.startsWith('applications:')
+  )
+}
+
 function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
   const [folderStats, setFolderStats] = useState<FolderStats | undefined>(undefined)
   const [folderStatsState, setFolderStatsState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
@@ -351,6 +361,10 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
   )
   const [mountNode, setMountNode] = useState<FilesNode | undefined>(undefined)
   const [trashParentName, setTrashParentName] = useState<string | undefined>(undefined)
+  const [blobStorage, setBlobStorage] = useState<FilesBlobStorageInfo | undefined>(undefined)
+  const [blobStorageState, setBlobStorageState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    'idle',
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -433,6 +447,29 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
       cancelled = true
     }
   }, [node.id, node.trashOrigin])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!isIndexedDbManagedFile(node)) {
+      setBlobStorageState('idle')
+      setBlobStorage(undefined)
+      return
+    }
+    setBlobStorageState('loading')
+    setBlobStorage(undefined)
+    getFileBlobStorageInfo(node.id)
+      .then((info) => {
+        if (cancelled) return
+        setBlobStorage(info)
+        setBlobStorageState('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setBlobStorageState('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [node.id, node.kind])
 
   const displayNode = mountNode ?? node
 
@@ -545,6 +582,43 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
           </div>
         </dl>
       </details>
+
+      {node.kind === 'file' && (isIndexedDbManagedFile(node) || isMountNodeId(node.id)) ? (
+        <details class="file-info-app__section">
+          <summary class="file-info-app__section-summary">文件系统信息</summary>
+          <dl class="file-info-app__info">
+            {isIndexedDbManagedFile(node) ? (
+              <>
+                <div class="file-info-app__info-row">
+                  <dt>分块</dt>
+                  <dd>
+                    {blobStorageState === 'loading'
+                      ? '读取中…'
+                      : blobStorageState === 'error' || !blobStorage
+                        ? '—'
+                        : blobStorage.chunkCount}
+                  </dd>
+                </div>
+                <div class="file-info-app__info-row">
+                  <dt>存储</dt>
+                  <dd>
+                    {blobStorageState === 'loading'
+                      ? '读取中…'
+                      : blobStorageState === 'error' || !blobStorage
+                        ? '—'
+                        : blobStorage.bodyStore}
+                  </dd>
+                </div>
+              </>
+            ) : (
+              <div class="file-info-app__info-row">
+                <dt>存储</dt>
+                <dd>本机文件夹</dd>
+              </div>
+            )}
+          </dl>
+        </details>
+      ) : undefined}
 
       {listFileInfoSections(node).map((contribution) => (
         <InfoSectionCard

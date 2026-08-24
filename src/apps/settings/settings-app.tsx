@@ -118,6 +118,7 @@ export function SettingsApp() {
     appDataBytesByApp: {} as Record<string, number>,
     registryBytesByApp: {} as Record<string, number>,
   })
+  const [dataStorageReady, setDataStorageReady] = useState(false)
   const { installedApps, storageRevision } = useGeneratedApps()
   const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
   const experimentalSettings = useMemo(
@@ -137,7 +138,11 @@ export function SettingsApp() {
     const refreshDataBytes = () => {
       void initBrowserPageCache()
         .then(() => loadDataStorageBreakdown())
-        .then(setDataStorage)
+        .then((next) => {
+          setDataStorage(next)
+          setDataStorageReady(true)
+        })
+        .catch(() => undefined)
     }
     const refreshSystemBytes = () => {
       setCacheRevision((value) => value + 1)
@@ -416,6 +421,7 @@ export function SettingsApp() {
       <SettingsKeepLayer show={showUsage} keep={keepUsage}>
         <UsageView
           summary={summary}
+          dataReady={dataStorageReady}
           onBack={() => setRoute({ view: 'root' })}
           onSelectApp={(appId) => setRoute({ view: 'app-detail', appId, from: 'usage' })}
           onOpenAppsStorage={() => setRoute({ view: 'apps-storage' })}
@@ -637,6 +643,7 @@ function ContentNav({ label, onBack }: ContentNavProps) {
 
 type UsageViewProps = {
   summary: ReturnType<typeof getStorageSummary>
+  dataReady: boolean
   onBack: () => void
   onSelectApp: (appId: BuiltinAppId | GeneratedAppId) => void
   onOpenAppsStorage: () => void
@@ -707,6 +714,7 @@ function StorageMeter({
 
 function UsageView({
   summary,
+  dataReady,
   onBack,
   onSelectApp,
   onOpenAppsStorage,
@@ -786,11 +794,18 @@ function UsageView({
               <div class="settings__box" aria-label="数据空间用量">
                 <div class="settings__meter-row">
                   <span>
-                    已用 <strong>{formatStorageSize(summary.dataUsedBytes)}</strong>
+                    已用{' '}
+                    <strong>
+                      {dataReady ? formatStorageSize(summary.dataUsedBytes) : '正在计算…'}
+                    </strong>
                   </span>
                   <span>上限 {formatStorageSize(dataCapacityBytes)}</span>
                 </div>
-                <StorageMeter capacityBytes={dataCapacityBytes} segments={dataSegments} />
+                {dataReady ? (
+                  <StorageMeter capacityBytes={dataCapacityBytes} segments={dataSegments} />
+                ) : (
+                  <p class="settings__hint">正在读取数据空间占用…</p>
+                )}
               </div>
             </section>
 
@@ -831,40 +846,46 @@ function UsageView({
                   <span>大小</span>
                 </div>
                 <div class="settings__list-body">
-                  <StorageCategoryRow label="网页浏览器网页缓存" bytes={summary.safariCacheBytes} />
-                  <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} />
+                  <StorageCategoryRow label="网页浏览器网页缓存" bytes={summary.safariCacheBytes} ready={dataReady} />
+                  <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} ready={dataReady} />
                   <StorageCategoryRow
                     label="文件"
                     bytes={summary.filesBytes}
+                    ready={dataReady}
                     hint="文件系统占用（不含应用 Data/Contents，点进查看分卷）"
                     onClick={onOpenFilesStorage}
                   />
                   <StorageCategoryRow
                     label="应用"
                     bytes={summary.appDataBytes}
+                    ready={dataReady}
                     hint="各应用 /Applications 下的 Data 与 Contents"
                     onClick={onOpenAppsStorage}
                   />
-                  <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
+                  <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} ready={dataReady} />
                   <StorageCategoryRow
                     label="事件日志"
                     bytes={summary.aiEventLogBytes}
+                    ready={dataReady}
                     hint="AI 调用的完整输入与输出"
                     onClick={onOpenEventLogStorage}
                   />
                   <StorageCategoryRow
                     label="程序图标缓存"
                     bytes={summary.folderIconSnapshotsBytes}
+                    ready={dataReady}
                     hint="文件夹预览缩略图缓存"
                   />
                   <StorageCategoryRow
                     label="模型识图结果"
                     bytes={summary.modelVisionBytes}
+                    ready={dataReady}
                     hint="3D 模型视觉标注缓存"
                   />
                   <StorageCategoryRow
                     label="其他"
                     bytes={dataOtherBytes}
+                    ready={dataReady}
                     hint="未归入已知分类的数据空间占用"
                     onClick={onOpenDataOtherStorage}
                   />
@@ -935,9 +956,17 @@ type StorageCategoryRowProps = {
   bytes: number
   hint?: string
   onClick?: () => void
+  ready?: boolean
 }
 
-function StorageCategoryRow({ label, bytes, hint, onClick }: StorageCategoryRowProps) {
+function StorageCategoryRow({
+  label,
+  bytes,
+  hint,
+  onClick,
+  ready = true,
+}: StorageCategoryRowProps) {
+  const sizeLabel = ready ? formatStorageSize(bytes) : '—'
   if (onClick) {
     return (
       <button
@@ -947,7 +976,7 @@ function StorageCategoryRow({ label, bytes, hint, onClick }: StorageCategoryRowP
         title={hint}
       >
         <span class="settings__row-name">{label}</span>
-        <span class="settings__row-size">{formatStorageSize(bytes)}</span>
+        <span class="settings__row-size">{sizeLabel}</span>
         <SettingsDisclosureIcon />
       </button>
     )
@@ -956,7 +985,7 @@ function StorageCategoryRow({ label, bytes, hint, onClick }: StorageCategoryRowP
   return (
     <div class="settings__row settings__row--static" title={hint}>
       <span class="settings__row-name">{label}</span>
-      <span class="settings__row-size">{formatStorageSize(bytes)}</span>
+      <span class="settings__row-size">{sizeLabel}</span>
     </div>
   )
 }

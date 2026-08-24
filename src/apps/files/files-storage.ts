@@ -471,6 +471,47 @@ export function newFilesBlobId(): string {
   return `blob:${crypto.randomUUID()}`
 }
 
+/** 文件正文在 IndexedDB 卷中的存放方式（供属性面板等展示） */
+export type FilesBlobStorageInfo = {
+  blobId: string
+  /** 正文所在存储；节点索引始终在 IndexedDB */
+  bodyStore: 'IndexedDB' | 'OPFS'
+  /** 正文分块数；未分块时为 1，OPFS 整文件也为 1 */
+  chunkCount: number
+}
+
+function resolveBlobChunkCount(blob: FilesBlobRecord): number {
+  if (isOpfsBlob(blob)) return 1
+  if (blob.chunked === true) return blob.chunkCount ?? 0
+  return 1
+}
+
+/** 读取 IndexedDB 本地卷文件的 blob 存放信息 */
+export async function getFileBlobStorageInfo(
+  nodeId: string,
+): Promise<FilesBlobStorageInfo | undefined> {
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const node = await requestToPromise(
+    tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  if (!node || node.kind !== 'file') {
+    await waitForTransaction(tx)
+    return undefined
+  }
+  const blobId = resolveNodeBlobId(node)
+  const blob = await requestToPromise(
+    tx.objectStore(FILES_BLOBS_STORE).get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+  )
+  await waitForTransaction(tx)
+  if (!blob) return undefined
+  return {
+    blobId,
+    bodyStore: isOpfsBlob(blob) ? 'OPFS' : 'IndexedDB',
+    chunkCount: resolveBlobChunkCount(blob),
+  }
+}
+
 /** 测试用：查看文件节点当前 blob 引用 */
 export async function getFileBlobRefForTests(
   nodeId: string,
