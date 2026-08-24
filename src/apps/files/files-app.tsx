@@ -208,6 +208,32 @@ function writeFilesSort(sort: FilesSort): void {
   }
 }
 
+type LocalItemsChange =
+  | { kind: 'remove'; ids: ReadonlySet<string> }
+  | { kind: 'add'; nodes: FilesNode[] }
+  | { kind: 'update'; node: FilesNode }
+
+/**
+ * 在本地 items 上直接应用写操作结果，避免整表清空再重绘。
+ * 写操作成功后先调用本函数，再 `refresh({ quiet: true })` 与 VFS 最终同步。
+ */
+function applyLocalItemsChange(
+  items: readonly FilesNode[],
+  change: LocalItemsChange,
+  sort: FilesSort,
+): FilesNode[] {
+  if (change.kind === 'remove') {
+    return items.filter((item) => !change.ids.has(item.id))
+  }
+  if (change.kind === 'add') {
+    return sortNodeList([...items, ...change.nodes], sort)
+  }
+  return sortNodeList(
+    items.map((item) => (item.id === change.node.id ? change.node : item)),
+    sort,
+  )
+}
+
 /** 列表排序：文件夹恒排前，组内按 key 排序；direction=desc 组内反转 */
 function sortNodeList(nodes: readonly FilesNode[], sort: FilesSort): FilesNode[] {
   const compare = (a: FilesNode, b: FilesNode): number => {
@@ -2014,6 +2040,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (nodes.length === 0) return
       closeTransientMenus()
       const single = nodes.length === 1 ? nodes[0]! : undefined
+      const removedIds = new Set(nodes.map((node) => node.id))
       if (permanent) {
         const ok = await modal.confirm({
           title: single ? `永久删除「${single.name}」？` : `永久删除选中的 ${nodes.length} 项？`,
@@ -2049,11 +2076,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               }
             },
           })
+          setItems((prev) => applyLocalItemsChange(prev, { kind: 'remove', ids: removedIds }, sort))
         } catch (err) {
           await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
         }
         clearSelection()
-        await refresh()
+        refresh({ quiet: true })
         return
       }
 
@@ -2086,14 +2114,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             }
           },
         })
+        setItems((prev) => applyLocalItemsChange(prev, { kind: 'remove', ids: removedIds }, sort))
       } catch (err) {
         await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
       }
       showToast(nodes.length > 1 ? `已将 ${nodes.length} 项移入废纸篓` : '已移入废纸篓')
       clearSelection()
-      await refresh()
+      refresh({ quiet: true })
     },
-    [clearSelection, closeTransientMenus, modal, refresh, showToast],
+    [clearSelection, closeTransientMenus, modal, refresh, setItems, showToast, sort],
   )
 
   /** 从废纸篓恢复选中项 */
@@ -2217,12 +2246,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     })
     if (name === undefined) return
     try {
-      await mkdir({ locationId, parentId: folderId, name })
-      await refresh()
+      const created = await mkdir({ locationId, parentId: folderId, name })
+      setItems((prev) => applyLocalItemsChange(prev, { kind: 'add', nodes: [created] }, sort))
+      refresh({ quiet: true })
     } catch (err) {
       await modal.alert({ title: '无法创建', message: formatError(err), themeColor: THEME })
     }
-  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh])
+  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, setItems, sort])
 
   const openNewFileMenu = useCallback(() => {
     if (!canCreateHere) return
@@ -2264,16 +2294,17 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     if (baseName === undefined) return
 
     try {
-      await createTextFile({
+      const created = await createTextFile({
         locationId,
         parentId: folderId,
         name: toTextFileName(baseName),
       })
-      await refresh()
+      setItems((prev) => applyLocalItemsChange(prev, { kind: 'add', nodes: [created] }, sort))
+      refresh({ quiet: true })
     } catch (err) {
       await modal.alert({ title: '无法创建', message: formatError(err), themeColor: THEME })
     }
-  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh])
+  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, setItems, sort])
 
   const handleRename = useCallback(
     async (node: FilesNode) => {
