@@ -12,6 +12,7 @@ import { filesOpenStreamWrite } from './files-api.ts'
 import { filesLocationPathRoot, joinFilesAbsolutePath } from './files-path.ts'
 import {
   estimateFilesOpDurationMs,
+  filesWorkloadUnits,
 } from './files-op-progress-policy.ts'
 import {
   runFilesOpWithProgress,
@@ -166,13 +167,14 @@ export async function importExternalNodes(params: {
     0,
   )
   const isLocalTarget = !isMountLocationId(dest.destLocationId)
+  const units = filesWorkloadUnits(steps.length, totalBytes)
   if (isLocalTarget) {
     await assertAdditionalBytesAvailable(totalBytes)
   }
   await runFilesOpWithProgress({
     kind: 'paste',
     totalWork: Math.max(1, totalBytes),
-    estimatedTotalMs: estimateFilesOpDurationMs(Math.max(1, totalBytes)),
+    estimatedTotalMs: estimateFilesOpDurationMs(units),
     onUiChange,
     task: async (report) => {
       let written = 0
@@ -210,21 +212,28 @@ export async function importExternalNodes(params: {
         }
         const writer = await filesOpenStreamWrite(
           filePath,
-          isMountLocationId(dest.destLocationId) ? undefined : { nameMode: 'unique-suffix' },
+          isMountLocationId(dest.destLocationId)
+            ? undefined
+            : { nameMode: 'unique-suffix', expectedSize: step.file.size },
         )
-        const reader = step.file.stream().getReader()
+        // 拖入的大 File 用 slice 按块读并立刻落库：默认要攒到 5MB 才写盘，
+        // 前几兆只在内存里，下一次落库若卡住文件就一直是空的。
+        const sliceSize = 1024 * 1024
         try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            await writer.write(value)
-            written += value.byteLength
+          for (let offset = 0; offset < step.file.size; ) {
+            const end = Math.min(offset + sliceSize, step.file.size)
+            const buf = await step.file.slice(offset, end).arrayBuffer()
+            const bytes = new Uint8Array(buf)
+            await writer.write(bytes)
+            written += bytes.byteLength
             report({ done: written, total: Math.max(1, totalBytes) })
+            offset = end
           }
-        } finally {
-          reader.releaseLock()
+          await writer.close()
+        } catch (error) {
+          await writer.abort().catch(() => undefined)
+          throw error
         }
-        await writer.close()
       }
     },
   })

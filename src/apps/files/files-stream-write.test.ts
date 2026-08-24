@@ -375,7 +375,7 @@ function copyBytes(text: string): ArrayBuffer {
   return copy.buffer
 }
 
-/** 读取 blob 记录的 chunkOffsets（新格式偏移索引）。 */
+/** 读取 blob 记录的分块起始偏移（chunkOffsets 或等长块推算）。 */
 async function getChunkOffsets(blobId: string): Promise<number[] | undefined> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(FILES_DB_NAME)
@@ -383,13 +383,27 @@ async function getChunkOffsets(blobId: string): Promise<number[] | undefined> {
     request.onerror = () => reject(request.error ?? new Error('open failed'))
   })
   const tx = db.transaction(FILES_BLOBS_STORE, 'readonly')
-  const record = await new Promise<{ chunkOffsets?: number[] } | undefined>((resolve, reject) => {
+  const record = await new Promise<
+    | { chunkOffsets?: number[]; uniformChunkSize?: number; chunkCount?: number }
+    | undefined
+  >((resolve, reject) => {
     const request = tx.objectStore(FILES_BLOBS_STORE).get(blobId)
-    request.onsuccess = () => resolve(request.result as { chunkOffsets?: number[] } | undefined)
+    request.onsuccess = () =>
+      resolve(
+        request.result as
+          | { chunkOffsets?: number[]; uniformChunkSize?: number; chunkCount?: number }
+          | undefined,
+      )
     request.onerror = () => reject(request.error ?? new Error('blob get failed'))
   })
   db.close()
-  return record?.chunkOffsets
+  if (record?.chunkOffsets && record.chunkOffsets.length > 0) return record.chunkOffsets
+  const size = record?.uniformChunkSize
+  const count = record?.chunkCount
+  if (size !== undefined && size > 0 && count !== undefined && count > 0) {
+    return Array.from({ length: count }, (_, i) => i * size)
+  }
+  return undefined
 }
 
 /** 读取完整 blob 记录（检查 chunked / bytes / chunkOffsets）。 */

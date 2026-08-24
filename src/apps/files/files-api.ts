@@ -441,10 +441,11 @@ export async function filesCreateBinary(
  * `close()` 定稿、`abort()` 回滚。新建时文件立刻可见（byteSize 0）并逐步长大。
  * `chunkSize` 为本地卷目标块大小（默认 4MiB）；中间块恒为 chunkSize，尾部块
  * 不小于 1MiB（小于阈值时并入前一块）。挂载卷忽略该参数。
+ * `expectedSize` 为已知最终大小；内部卷超过约 25MB 时一开始就把正文写到 OPFS。
  */
 export async function filesOpenStreamWrite(
   path: string,
-  options?: { chunkSize?: number; nameMode?: FilesNodeNameMode },
+  options?: { chunkSize?: number; nameMode?: FilesNodeNameMode; expectedSize?: number },
 ): Promise<FilesStreamWriter> {
   const absolutePath = assertAbsolutePath(path)
   if (isFilesNamespaceRoot(absolutePath)) {
@@ -479,6 +480,7 @@ export async function filesOpenStreamWrite(
       metaBytes: estimateNodeMetaBytes(node),
       previousByteSize: 0,
       chunkSize: options?.chunkSize,
+      expectedSize: options?.expectedSize,
       nameMode,
     })
   }
@@ -497,6 +499,7 @@ export async function filesOpenStreamWrite(
       metaBytes: 0,
       previousByteSize: existing.byteSize,
       chunkSize: options?.chunkSize,
+      expectedSize: options?.expectedSize,
     })
   }
 
@@ -520,6 +523,7 @@ export async function filesOpenStreamWrite(
     metaBytes: estimateNodeMetaBytes(node),
     previousByteSize: 0,
     chunkSize: options?.chunkSize,
+    expectedSize: options?.expectedSize,
   })
 }
 

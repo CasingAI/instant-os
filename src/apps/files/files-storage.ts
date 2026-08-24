@@ -19,6 +19,19 @@ import {
   type FilesNodeAttributes,
   type FilesNodeKind,
 } from './files-types.ts'
+import {
+  copyOpfsBlob,
+  deleteOpfsBlob,
+  isOpfsAvailable,
+  openOpfsBlobWriter,
+  OPFS_SPILL_THRESHOLD,
+  readOpfsBlobBytes,
+  readOpfsBlobRange,
+  resetOpfsBlobsForTests,
+  writeOpfsBlobBytes,
+  writeOpfsBlobRange,
+  type OpfsBlobWriter,
+} from './files-opfs-blobs.ts'
 
 export const FILES_DB_NAME = 'instant-os-files'
 export const FILES_DB_VERSION = 6
@@ -90,6 +103,16 @@ type FilesBlobRecord = {
   byteSize?: number
   /** 分块数 */
   chunkCount?: number
+  /**
+   * 等长分块的块大小。有此字段时不必存 chunkOffsets：第 i 块起始为 i * uniformChunkSize，
+   * 最后一块可以更短。避免导入大文件时把数万条偏移整份写进 blob 记录。
+   */
+  uniformChunkSize?: number
+  /**
+   * 正文所在位置。缺省：IndexedDB（bytes / text / chunks）。
+   * opfs：正文在 OPFS，本记录只保留大小与引用。
+   */
+  backend?: 'opfs'
 }
 
 /** 分块 blob 内容单元；主键 [blobId, chunkIndex] */
@@ -108,9 +131,52 @@ const DEFAULT_STREAM_CHUNK_SIZE = 4 << 20
 const BYTES_TO_CHUNK_THRESHOLD = 16 << 20
 /** 尾部块最小尺寸：小于该值的块在 close 时合并进前一块（避免一次额外读写）。 */
 const MIN_TAIL_CHUNK_BYTES = 1 << 20
-/** 切块下限：pending 达到 chunkSize + MIN_TAIL 才切一块，保证尾部块不小于 MIN_TAIL。 */
+/** 切块下限：pending 达到 chunkSize + MIN_TAIL 才切。 */
 function flushThreshold(chunkSize: number): number {
   return chunkSize + MIN_TAIL_CHUNK_BYTES
+}
+
+function isOpfsBlob(
+  record: FilesBlobRecord | undefined,
+): record is FilesBlobRecord & { backend: 'opfs' } {
+  return record?.backend === 'opfs'
+}
+
+function shouldSpillToOpfs(byteLength: number): boolean {
+  return byteLength > OPFS_SPILL_THRESHOLD && isOpfsAvailable()
+}
+
+function opfsBlobIndexRecord(
+  blobId: string,
+  byteSize: number,
+  refCount = 1,
+): FilesBlobRecord {
+  return { id: blobId, refCount, backend: 'opfs', byteSize }
+}
+
+async function deleteOpfsBlobs(ids: Array<string | undefined>): Promise<void> {
+  for (const id of ids) {
+    if (id === undefined) continue
+    try {
+      await deleteOpfsBlob(id)
+    } catch {
+      // 正文可能已不在
+    }
+  }
+}
+
+function resolveChunkOffsets(blob: FilesBlobRecord): number[] | undefined {
+  if (Array.isArray(blob.chunkOffsets) && blob.chunkOffsets.length > 0) {
+    return blob.chunkOffsets
+  }
+  const size = blob.uniformChunkSize
+  const count = blob.chunkCount
+  if (size !== undefined && size > 0 && count !== undefined && count > 0) {
+    const offsets = new Array<number>(count)
+    for (let i = 0; i < count; i++) offsets[i] = i * size
+    return offsets
+  }
+  return undefined
 }
 
 type FilesMetaRecord = {
@@ -376,6 +442,7 @@ export async function resetFilesDbForTests(): Promise<void> {
     }
     dbPromise = undefined
   }
+  resetOpfsBlobsForTests()
   await new Promise<void>((resolve, reject) => {
     const request = indexedDB.deleteDatabase(FILES_DB_NAME)
     request.onsuccess = () => resolve()
@@ -393,6 +460,7 @@ function resolveBlobRefCount(record: FilesBlobRecord): number {
 }
 
 function blobPayloadBytes(record: FilesBlobRecord): number {
+  if (isOpfsBlob(record)) return record.byteSize ?? 0
   if (record.chunked === true) return record.byteSize ?? 0
   if (record.bytes !== undefined) return record.bytes.byteLength
   if (record.text !== undefined) return estimateTextBytes(record.text)
@@ -406,7 +474,9 @@ export function newFilesBlobId(): string {
 /** 测试用：查看文件节点当前 blob 引用 */
 export async function getFileBlobRefForTests(
   nodeId: string,
-): Promise<{ blobId: string; refCount: number; byteLength: number } | undefined> {
+): Promise<
+  { blobId: string; refCount: number; byteLength: number; backend?: 'opfs' } | undefined
+> {
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const node = await requestToPromise(
@@ -426,6 +496,7 @@ export async function getFileBlobRefForTests(
     blobId,
     refCount: resolveBlobRefCount(blob),
     byteLength: blobPayloadBytes(blob),
+    ...(isOpfsBlob(blob) ? { backend: 'opfs' as const } : {}),
   }
 }
 
@@ -807,6 +878,7 @@ export type FilesLocationBytes = {
  * 按卷汇总文件节点 byteSize。
  * 默认统计 local / dev / tmp（设置「文件」次级页展示）；也可传入指定卷列表。
  * 总占用仍以 getFilesTotalBytes() 为准。
+ * 只读目录上的大小，不扫 OPFS / chunks。
  */
 export async function getFilesBytesByLocation(
   locations: readonly FilesLocationId[] = DATA_SPACE_FILE_LOCATIONS,
@@ -900,6 +972,10 @@ export async function readBlobText(nodeId: string): Promise<string> {
   )
   await waitForTransaction(tx)
   if (!record) return ''
+  if (isOpfsBlob(record)) {
+    const bytes = await readOpfsBlobBytes(blobId)
+    return bytes === undefined ? '' : decodeBytesToText(bytes)
+  }
   if (record.chunked === true) {
     const bytes = await readChunkedBlobBytes(blobId)
     return bytes === undefined ? '' : decodeBytesToText(bytes)
@@ -927,6 +1003,9 @@ export async function readBlobBytes(nodeId: string): Promise<ArrayBuffer | undef
   )
   await waitForTransaction(tx)
   if (!record) return undefined
+  if (isOpfsBlob(record)) {
+    return readOpfsBlobBytes(blobId)
+  }
   if (record.chunked === true) {
     return readChunkedBlobBytes(blobId)
   }
@@ -985,10 +1064,15 @@ export async function readBlobBytesRange(
   await waitForTransaction(tx)
   if (!record) return undefined
 
-  if (record.chunked === true && Array.isArray(record.chunkOffsets) && record.chunkOffsets.length > 0) {
-    return readChunkedBlobBytesRange(blobId, record.chunkOffsets, start, want)
+  if (isOpfsBlob(record)) {
+    return readOpfsBlobRange(blobId, start, want)
   }
+
   if (record.chunked === true) {
+    const offsets = resolveChunkOffsets(record)
+    if (offsets !== undefined) {
+      return readChunkedBlobBytesRange(blobId, offsets, start, want)
+    }
     // 旧格式（无偏移索引）：整读后裁切（语义正确，仅不省 IO）
     const all = await readChunkedBlobBytes(blobId)
     if (all === undefined) return undefined
@@ -1078,6 +1162,29 @@ async function deleteBlobChunksInTx(tx: IDBTransaction, blobId: string): Promise
   )
 }
 
+/**
+ * 事务内把 blob 引用减一；归零则删索引和 IDB 分块。
+ * 若正文在 OPFS，返回该 id，调用方须在事务提交后再删 OPFS 文件。
+ */
+async function releaseBlobRefInTx(
+  tx: IDBTransaction,
+  blobId: string,
+  blob: FilesBlobRecord | undefined,
+): Promise<string | undefined> {
+  if (!blob) return undefined
+  const blobs = tx.objectStore(FILES_BLOBS_STORE)
+  const nextRef = resolveBlobRefCount(blob) - 1
+  if (nextRef > 0) {
+    blobs.put({ ...blob, refCount: nextRef } satisfies FilesBlobRecord)
+    return undefined
+  }
+  blobs.delete(blobId)
+  if (blob.chunked === true) {
+    await deleteBlobChunksInTx(tx, blobId)
+  }
+  return isOpfsBlob(blob) ? blobId : undefined
+}
+
 /** 在既有事务内对 byte-total 做增量修正（避免外部并发写覆盖） */
 async function adjustByteTotal(tx: IDBTransaction, delta: number): Promise<void> {
   const meta = tx.objectStore(FILES_META_STORE)
@@ -1144,26 +1251,41 @@ export async function createFileWithBlob(params: {
     contentRevisionId: newContentRevisionId(),
   }
   const blobId = node.id
+  const bytes = encodeTextToArrayBuffer(params.text)
+  const useOpfs = shouldSpillToOpfs(bytes.byteLength)
+  if (useOpfs) {
+    await writeOpfsBlobBytes(blobId, new Uint8Array(bytes))
+  }
 
   const db = await openFilesDb()
-  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
-  const resolved = await resolveNameInTx(tx, node, params.nameMode)
-  if (resolved.existing) {
+  try {
+    const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
+    const resolved = await resolveNameInTx(tx, node, params.nameMode)
+    if (resolved.existing) {
+      await waitForTransaction(tx)
+      if (useOpfs) await deleteOpfsBlobs([blobId])
+      return recordToNode(resolved.existing)
+    }
+    const finalNode = resolved.name === node.name ? node : { ...node, name: resolved.name }
+    const finalMeta =
+      params.metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(node))
+    tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(finalNode, blobId))
+    if (useOpfs) {
+      tx.objectStore(FILES_BLOBS_STORE).put(opfsBlobIndexRecord(blobId, textBytes))
+    } else {
+      putBlobContentInTx(tx, blobId, bytes)
+    }
+    tx.objectStore(FILES_META_STORE).put({
+      key: 'byte-total',
+      totalBytes: total + finalMeta + textBytes,
+    } satisfies FilesMetaRecord)
     await waitForTransaction(tx)
-    return recordToNode(resolved.existing)
+    emitFilesDataStorageChanged()
+    return finalNode
+  } catch (error) {
+    if (useOpfs) await deleteOpfsBlobs([blobId])
+    throw error
   }
-  const finalNode = resolved.name === node.name ? node : { ...node, name: resolved.name }
-  const finalMeta =
-    params.metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(node))
-  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(finalNode, blobId))
-  putBlobContentInTx(tx, blobId, encodeTextToArrayBuffer(params.text))
-  tx.objectStore(FILES_META_STORE).put({
-    key: 'byte-total',
-    totalBytes: total + finalMeta + textBytes,
-  } satisfies FilesMetaRecord)
-  await waitForTransaction(tx)
-  emitFilesDataStorageChanged()
-  return finalNode
 }
 
 export async function createFileWithBytes(params: {
@@ -1181,26 +1303,40 @@ export async function createFileWithBytes(params: {
     contentRevisionId: newContentRevisionId(),
   }
   const blobId = node.id
+  const useOpfs = shouldSpillToOpfs(contentBytes)
+  if (useOpfs) {
+    await writeOpfsBlobBytes(blobId, new Uint8Array(params.bytes))
+  }
 
   const db = await openFilesDb()
-  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
-  const resolved = await resolveNameInTx(tx, node, params.nameMode)
-  if (resolved.existing) {
+  try {
+    const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
+    const resolved = await resolveNameInTx(tx, node, params.nameMode)
+    if (resolved.existing) {
+      await waitForTransaction(tx)
+      if (useOpfs) await deleteOpfsBlobs([blobId])
+      return recordToNode(resolved.existing)
+    }
+    const finalNode = resolved.name === node.name ? node : { ...node, name: resolved.name }
+    const finalMeta =
+      params.metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(node))
+    tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(finalNode, blobId))
+    if (useOpfs) {
+      tx.objectStore(FILES_BLOBS_STORE).put(opfsBlobIndexRecord(blobId, contentBytes))
+    } else {
+      putBlobContentInTx(tx, blobId, params.bytes)
+    }
+    tx.objectStore(FILES_META_STORE).put({
+      key: 'byte-total',
+      totalBytes: total + finalMeta + contentBytes,
+    } satisfies FilesMetaRecord)
     await waitForTransaction(tx)
-    return recordToNode(resolved.existing)
+    emitFilesDataStorageChanged()
+    return finalNode
+  } catch (error) {
+    if (useOpfs) await deleteOpfsBlobs([blobId])
+    throw error
   }
-  const finalNode = resolved.name === node.name ? node : { ...node, name: resolved.name }
-  const finalMeta =
-    params.metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(node))
-  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(finalNode, blobId))
-  putBlobContentInTx(tx, blobId, params.bytes)
-  tx.objectStore(FILES_META_STORE).put({
-    key: 'byte-total',
-    totalBytes: total + finalMeta + contentBytes,
-  } satisfies FilesMetaRecord)
-  await waitForTransaction(tx)
-  emitFilesDataStorageChanged()
-  return finalNode
 }
 
 /**
@@ -1341,6 +1477,128 @@ export async function writeBlobBytes(params: {
   })
 }
 
+async function commitOpfsRangeWrite(params: {
+  nodeRecord: FilesNodeRecord
+  blob: FilesBlobRecord
+  blobId: string
+  offset: number
+  bytes: Uint8Array
+  shared: boolean
+  newByteSize: number
+  capacityDelta: number
+  total: number
+}): Promise<FilesNode> {
+  const targetBlobId = params.shared ? newFilesBlobId() : params.blobId
+  if (params.shared) {
+    await copyOpfsBlob(params.blobId, targetBlobId)
+  }
+  await writeOpfsBlobRange(targetBlobId, params.offset, params.bytes)
+
+  const db = await openFilesDb()
+  const writeTx = beginIdbTransaction(
+    db,
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  const updated: FilesNodeRecord = {
+    ...params.nodeRecord,
+    blobId: targetBlobId,
+    byteSize: params.newByteSize,
+    updatedAt: osNowMs(),
+    contentRevisionId: newContentRevisionId(),
+    attributes: normalizeFilesNodeAttributes(
+      params.nodeRecord.locationId,
+      params.nodeRecord.attributes,
+    ),
+  }
+  writeTx.objectStore(FILES_NODES_STORE).put(updated)
+  let releasedOpfs: string | undefined
+  if (params.shared) {
+    writeTx
+      .objectStore(FILES_BLOBS_STORE)
+      .put(opfsBlobIndexRecord(targetBlobId, params.newByteSize))
+    releasedOpfs = await releaseBlobRefInTx(writeTx, params.blobId, params.blob)
+  } else {
+    writeTx.objectStore(FILES_BLOBS_STORE).put({
+      ...params.blob,
+      byteSize: params.newByteSize,
+    } satisfies FilesBlobRecord)
+  }
+  writeTx.objectStore(FILES_META_STORE).put({
+    key: 'byte-total',
+    totalBytes: Math.max(0, params.total + params.capacityDelta),
+  } satisfies FilesMetaRecord)
+  await waitForTransaction(writeTx)
+  await deleteOpfsBlobs([releasedOpfs])
+  emitFilesDataStorageChanged()
+  return recordToNode(updated)
+}
+
+async function spillIdbRangeWriteToOpfs(params: {
+  nodeRecord: FilesNodeRecord
+  blob: FilesBlobRecord | undefined
+  blobId: string
+  offset: number
+  bytes: Uint8Array
+  oldByteSize: number
+  shared: boolean
+  newByteSize: number
+  capacityDelta: number
+  total: number
+}): Promise<FilesNode> {
+  const oldChunks = params.blob ? await readBlobAsChunks(params.blobId, params.blob) : []
+  const newChunks = buildRangeWriteChunks(
+    oldChunks,
+    params.oldByteSize,
+    params.offset,
+    params.bytes,
+    0,
+    DEFAULT_STREAM_CHUNK_SIZE,
+  )
+  const full = new Uint8Array(params.newByteSize)
+  for (const chunk of newChunks) {
+    full.set(chunk.bytes, chunk.offset)
+  }
+  const targetBlobId = params.shared ? newFilesBlobId() : params.blobId
+  await writeOpfsBlobBytes(targetBlobId, full)
+
+  const db = await openFilesDb()
+  const writeTx = beginIdbTransaction(
+    db,
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  const updated: FilesNodeRecord = {
+    ...params.nodeRecord,
+    blobId: targetBlobId,
+    byteSize: params.newByteSize,
+    updatedAt: osNowMs(),
+    contentRevisionId: newContentRevisionId(),
+    attributes: normalizeFilesNodeAttributes(
+      params.nodeRecord.locationId,
+      params.nodeRecord.attributes,
+    ),
+  }
+  writeTx.objectStore(FILES_NODES_STORE).put(updated)
+  writeTx
+    .objectStore(FILES_BLOBS_STORE)
+    .put(opfsBlobIndexRecord(targetBlobId, params.newByteSize, params.shared ? 1 : resolveBlobRefCount(params.blob ?? { id: params.blobId })))
+  let releasedOpfs: string | undefined
+  if (params.shared) {
+    releasedOpfs = await releaseBlobRefInTx(writeTx, params.blobId, params.blob)
+  } else if (params.blob?.chunked === true) {
+    await deleteBlobChunksInTx(writeTx, params.blobId)
+  }
+  writeTx.objectStore(FILES_META_STORE).put({
+    key: 'byte-total',
+    totalBytes: Math.max(0, params.total + params.capacityDelta),
+  } satisfies FilesMetaRecord)
+  await waitForTransaction(writeTx)
+  await deleteOpfsBlobs([releasedOpfs])
+  emitFilesDataStorageChanged()
+  return recordToNode(updated)
+}
+
 /**
  * 按偏移随机写：在文件 [offset, offset+bytes.length) 处覆盖写入。
  * 支持 chunk 拆分/合并、COW、配额增量。
@@ -1395,6 +1653,35 @@ export async function writeBlobBytesRange(params: {
   const netDelta = bytes.byteLength - replacedOldBytes
   const capacityDelta = shared ? newByteSize : netDelta
   const total = await assertCapacity(capacityDelta)
+
+  if (isOpfsBlob(blob)) {
+    return commitOpfsRangeWrite({
+      nodeRecord,
+      blob,
+      blobId,
+      offset,
+      bytes,
+      shared,
+      newByteSize,
+      capacityDelta,
+      total,
+    })
+  }
+
+  if (shouldSpillToOpfs(newByteSize)) {
+    return spillIdbRangeWriteToOpfs({
+      nodeRecord,
+      blob,
+      blobId,
+      offset,
+      bytes,
+      oldByteSize,
+      shared,
+      newByteSize,
+      capacityDelta,
+      total,
+    })
+  }
 
   const targetBlobId = shared ? newFilesBlobId() : blobId
   const oldChunks = blob ? await readBlobAsChunks(blobId, blob) : []
@@ -1452,7 +1739,8 @@ export async function writeBlobBytesRange(params: {
   }
 
   // 非共享：原地修改
-  if (!blob || blob.chunked !== true || !Array.isArray(blob.chunkOffsets) || blob.chunkOffsets.length === 0) {
+  const existingOffsets = blob ? resolveChunkOffsets(blob) : undefined
+  if (!blob || blob.chunked !== true || existingOffsets === undefined) {
     // 整块 blob：整体重建
     const writeTx = beginIdbTransaction(
       db,
@@ -1492,7 +1780,7 @@ export async function writeBlobBytesRange(params: {
   }
 
   // 分块 blob 原地修改：保留未受影响前缀，重写 firstIdx 及之后
-  const chunkOffsets = blob.chunkOffsets
+  const chunkOffsets = existingOffsets
   const firstIdx = Math.max(0, upperBound(chunkOffsets, writeStart) - 1)
   const regionStart = chunkOffsets[firstIdx] ?? 0
 
@@ -1600,7 +1888,13 @@ async function readBlobAsChunks(
   blobId: string,
   blob: FilesBlobRecord,
 ): Promise<{ offset: number; bytes: Uint8Array }[]> {
-  if (blob.chunked === true && Array.isArray(blob.chunkOffsets) && blob.chunkOffsets.length > 0) {
+  if (isOpfsBlob(blob)) {
+    const bytes = await readOpfsBlobBytes(blobId)
+    if (!bytes || bytes.byteLength === 0) return []
+    return [{ offset: 0, bytes: new Uint8Array(bytes) }]
+  }
+  const offsets = resolveChunkOffsets(blob)
+  if (blob.chunked === true && offsets !== undefined) {
     const db = await openFilesDb()
     const tx = beginIdbTransaction(db, FILES_CHUNKS_STORE, 'readonly')
     const store = tx.objectStore(FILES_CHUNKS_STORE)
@@ -1612,10 +1906,10 @@ async function readBlobAsChunks(
       byIndex.set(record.chunkIndex, new Uint8Array(record.bytes))
     }
     const chunks: { offset: number; bytes: Uint8Array }[] = []
-    for (let i = 0; i < blob.chunkOffsets.length; i++) {
+    for (let i = 0; i < offsets.length; i++) {
       const c = byIndex.get(i)
       if (c) {
-        chunks.push({ offset: blob.chunkOffsets[i]!, bytes: c })
+        chunks.push({ offset: offsets[i]!, bytes: c })
       }
     }
     return chunks
@@ -1792,40 +2086,43 @@ async function writeFileContentCow(params: {
     : params.contentByteSize - params.previousByteSize + params.nameMetaDelta
   const total = await assertCapacity(needed)
 
+  const stayOnOpfs = isOpfsBlob(oldBlob) && !shared
+  const useOpfs = stayOnOpfs || shouldSpillToOpfs(params.bytes.byteLength)
+  const targetBlobId = shared ? newFilesBlobId() : oldBlobId
+  if (useOpfs) {
+    await writeOpfsBlobBytes(targetBlobId, new Uint8Array(params.bytes))
+  }
+
   const updated: FilesNodeRecord = {
     ...existing,
     byteSize: params.contentByteSize,
     updatedAt: osNowMs(),
     contentRevisionId: newContentRevisionId(),
     attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
+    blobId: targetBlobId,
   }
 
-  const writeTx = beginIdbTransaction(db, 
+  const writeTx = beginIdbTransaction(
+    db,
     [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
     'readwrite',
   )
   const blobs = writeTx.objectStore(FILES_BLOBS_STORE)
+  const exclusiveRef = shared ? 1 : resolveBlobRefCount(oldBlob ?? { id: oldBlobId })
 
-  if (shared) {
-    const newBlobId = newFilesBlobId()
-    updated.blobId = newBlobId
-    putBlobContentInTx(writeTx, newBlobId, params.bytes)
-    if (oldBlob) {
-      const nextRef = refCount - 1
-      if (nextRef <= 0) {
-        blobs.delete(oldBlobId)
-      } else {
-        blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
-      }
-    }
+  if (!shared && oldBlob?.chunked === true) {
+    await deleteBlobChunksInTx(writeTx, oldBlobId)
+  }
+
+  if (useOpfs) {
+    blobs.put(opfsBlobIndexRecord(targetBlobId, params.contentByteSize, exclusiveRef))
   } else {
-    updated.blobId = oldBlobId
-    putBlobContentInTx(writeTx, oldBlobId, params.bytes)
-    // 原分块 blob 被整块内容原地替换：删除遗留 chunk 记录（其字节已随
-    // needed = contentByteSize - previousByteSize 的配额修正释放）
-    if (oldBlob?.chunked === true) {
-      await deleteBlobChunksInTx(writeTx, oldBlobId)
-    }
+    putBlobContentInTx(writeTx, targetBlobId, params.bytes, exclusiveRef)
+  }
+
+  let releasedOpfs: string | undefined
+  if (shared) {
+    releasedOpfs = await releaseBlobRefInTx(writeTx, oldBlobId, oldBlob)
   }
 
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
@@ -1834,6 +2131,7 @@ async function writeFileContentCow(params: {
     totalBytes: Math.max(0, total + needed),
   } satisfies FilesMetaRecord)
   await waitForTransaction(writeTx)
+  await deleteOpfsBlobs([releasedOpfs])
   emitFilesDataStorageChanged()
   return recordToNode(updated)
 }
@@ -1883,6 +2181,8 @@ type FilesStreamWriteState = {
   terminal: 'open' | 'closed' | 'aborted'
   /** write/close/abort 串行化链 */
   queue: Promise<unknown>
+  backend: 'idb' | 'opfs'
+  opfsWriter?: OpfsBlobWriter
 }
 
 const streamWrites = new Map<string, FilesStreamWriteState>()
@@ -1921,6 +2221,7 @@ function assertStreamOpen(state: FilesStreamWriteState): void {
  * @param previousByteSize 覆盖时原内容字节（close 释放配额用）；新建传 0
  * @param chunkSize 目标块大小（默认 4MiB）；中间块恒为 chunkSize，尾部块在
  *                  (0, chunkSize + MIN_TAIL] 内，close 时合并 < MIN_TAIL 的尾巴
+ * @param expectedSize 已知最终大小时传入；超过约 25MB 则一开始就写 OPFS
  */
 export async function openStreamWriteBlob(params: {
   node: FilesNode
@@ -1928,10 +2229,12 @@ export async function openStreamWriteBlob(params: {
   metaBytes: number
   previousByteSize: number
   chunkSize?: number
+  expectedSize?: number
   nameMode: FilesNodeNameMode
 }): Promise<FilesStreamWriter> {
   const { node, isNew, metaBytes, previousByteSize } = params
   const chunkSize = params.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
+  const useOpfs = shouldSpillToOpfs(params.expectedSize ?? 0)
   const id = crypto.randomUUID()
   const blobId = newFilesBlobId()
   const db = await openFilesDb()
@@ -1964,7 +2267,9 @@ export async function openStreamWriteBlob(params: {
       metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(baseNode))
     nodeRecord = nodeToRecord(finalNode, blobId)
     tx.objectStore(FILES_NODES_STORE).put(nodeRecord)
-    tx.objectStore(FILES_BLOBS_STORE).put(emptyChunkedBlobRecord(blobId))
+    tx.objectStore(FILES_BLOBS_STORE).put(
+      useOpfs ? opfsBlobIndexRecord(blobId, 0) : emptyChunkedBlobRecord(blobId),
+    )
     tx.objectStore(FILES_META_STORE).put({
       key: 'byte-total',
       totalBytes: total + finalMeta,
@@ -1990,9 +2295,31 @@ export async function openStreamWriteBlob(params: {
     oldRefCount = oldBlob ? resolveBlobRefCount(oldBlob) : 1
     nodeRecord = existing
     const tx = beginIdbTransaction(db, FILES_BLOBS_STORE, 'readwrite')
-    tx.objectStore(FILES_BLOBS_STORE).put(emptyChunkedBlobRecord(blobId))
+    tx.objectStore(FILES_BLOBS_STORE).put(
+      useOpfs ? opfsBlobIndexRecord(blobId, 0) : emptyChunkedBlobRecord(blobId),
+    )
     await waitForTransaction(tx)
     quotaCommitted = 0
+  }
+
+  let opfsWriter: OpfsBlobWriter | undefined
+  if (useOpfs) {
+    try {
+      opfsWriter = await openOpfsBlobWriter(blobId)
+    } catch (error) {
+      const rollback = beginIdbTransaction(
+        db,
+        [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
+        'readwrite',
+      )
+      rollback.objectStore(FILES_BLOBS_STORE).delete(blobId)
+      if (isNew) {
+        rollback.objectStore(FILES_NODES_STORE).delete(nodeRecord.id)
+        await adjustByteTotal(rollback, -quotaCommitted)
+      }
+      await waitForTransaction(rollback)
+      throw error
+    }
   }
 
   const state: FilesStreamWriteState = {
@@ -2012,6 +2339,8 @@ export async function openStreamWriteBlob(params: {
     quotaCommitted,
     terminal: 'open',
     queue: Promise.resolve(),
+    backend: useOpfs ? 'opfs' : 'idb',
+    opfsWriter,
   }
   streamWrites.set(id, state)
 
@@ -2023,32 +2352,99 @@ export async function openStreamWriteBlob(params: {
   }
 }
 
-/** 在既有事务内落库一个分块 + 更新 blob 元数据（chunkOffsets/byteSize/chunkCount）。 */
-async function putChunkInTx(
+/** 在既有事务内落库一个分块；blob 元数据由 putStreamBlobMetaInTx 单独写一次。 */
+function putChunkBytesInTx(
   tx: IDBTransaction,
   state: FilesStreamWriteState,
   data: Uint8Array,
-): Promise<void> {
+): void {
   tx.objectStore(FILES_CHUNKS_STORE).put({
     blobId: state.blobId,
     chunkIndex: state.chunkIndex,
     bytes: copyUint8ToArrayBuffer(data),
   } satisfies FilesChunkRecord)
-
-  const blob = await requestToPromise(
-    tx.objectStore(FILES_BLOBS_STORE).get(state.blobId) as IDBRequest<FilesBlobRecord | undefined>,
-  )
-  if (blob) {
-    tx.objectStore(FILES_BLOBS_STORE).put({
-      ...blob,
-      chunkOffsets: [...state.chunkOffsets, state.writtenBytes],
-      byteSize: state.writtenBytes + data.byteLength,
-      chunkCount: state.chunkIndex + 1,
-    } satisfies FilesBlobRecord)
-  }
   state.chunkIndex += 1
   state.writtenBytes += data.byteLength
   state.chunkOffsets.push(state.writtenBytes - data.byteLength)
+}
+
+function putStreamBlobMetaInTx(tx: IDBTransaction, state: FilesStreamWriteState): void {
+  tx.objectStore(FILES_BLOBS_STORE).put({
+    id: state.blobId,
+    refCount: 1,
+    chunked: true,
+    byteSize: state.writtenBytes,
+    chunkCount: state.chunkIndex,
+    uniformChunkSize: state.chunkSize,
+  } satisfies FilesBlobRecord)
+}
+
+function putOpfsStreamMetaInTx(tx: IDBTransaction, state: FilesStreamWriteState): void {
+  tx.objectStore(FILES_BLOBS_STORE).put(opfsBlobIndexRecord(state.blobId, state.writtenBytes))
+}
+
+async function updateOpfsStreamVisibleSize(state: FilesStreamWriteState): Promise<void> {
+  const db = await openFilesDb()
+  const blobTx = beginIdbTransaction(db, FILES_BLOBS_STORE, 'readwrite')
+  putOpfsStreamMetaInTx(blobTx, state)
+  await waitForTransaction(blobTx)
+  if (state.isNew) {
+    const next: FilesNodeRecord = { ...state.nodeRecord, byteSize: state.writtenBytes }
+    state.nodeRecord = next
+    const nodeTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
+    nodeTx.objectStore(FILES_NODES_STORE).put(next)
+    await waitForTransaction(nodeTx)
+  }
+}
+
+async function spillStreamToOpfs(state: FilesStreamWriteState): Promise<void> {
+  if (state.backend === 'opfs' || !isOpfsAvailable()) return
+
+  const writer = await openOpfsBlobWriter(state.blobId)
+  let offset = 0
+  try {
+    if (state.chunkIndex > 0) {
+      const assembled = await readChunkedBlobBytes(state.blobId)
+      if (assembled !== undefined && assembled.byteLength > 0) {
+        const view = new Uint8Array(assembled)
+        await writer.writeAt(0, view)
+        offset = view.byteLength
+      }
+    }
+    if (state.pending.byteLength > 0) {
+      await writer.writeAt(offset, state.pending)
+      offset += state.pending.byteLength
+    }
+
+    const db = await openFilesDb()
+    const tx = beginIdbTransaction(
+      db,
+      [FILES_BLOBS_STORE, FILES_CHUNKS_STORE],
+      'readwrite',
+    )
+    await deleteBlobChunksInTx(tx, state.blobId)
+    tx.objectStore(FILES_BLOBS_STORE).put(opfsBlobIndexRecord(state.blobId, offset))
+    await waitForTransaction(tx)
+  } catch (error) {
+    await writer.abort()
+    await deleteOpfsBlobs([state.blobId])
+    throw error
+  }
+
+  state.writtenBytes = offset
+  state.pending = new Uint8Array(0)
+  state.chunkIndex = 0
+  state.chunkOffsets = []
+  state.opfsWriter = writer
+  state.backend = 'opfs'
+  if (state.isNew) {
+    const next: FilesNodeRecord = { ...state.nodeRecord, byteSize: state.writtenBytes }
+    state.nodeRecord = next
+    const db = await openFilesDb()
+    const nodeTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
+    nodeTx.objectStore(FILES_NODES_STORE).put(next)
+    await waitForTransaction(nodeTx)
+  }
 }
 
 async function writeStreamChunk(state: FilesStreamWriteState, chunk: Uint8Array): Promise<void> {
@@ -2056,6 +2452,21 @@ async function writeStreamChunk(state: FilesStreamWriteState, chunk: Uint8Array)
   if (chunk.byteLength === 0) return
   const n = chunk.byteLength
   await assertCapacity(n)
+
+  if (state.backend === 'opfs') {
+    if (!state.opfsWriter) {
+      state.opfsWriter = await openOpfsBlobWriter(state.blobId)
+    }
+    await state.opfsWriter.writeAt(state.writtenBytes, chunk)
+    state.writtenBytes += n
+    state.quotaCommitted += n
+    const db = await openFilesDb()
+    const metaTx = beginIdbTransaction(db, FILES_META_STORE, 'readwrite')
+    await adjustByteTotal(metaTx, n)
+    await waitForTransaction(metaTx)
+    await updateOpfsStreamVisibleSize(state)
+    return
+  }
 
   // 追加进缓冲；配额写即预占（与原始行为一致），落库只是物理写
   const next = new Uint8Array(state.pending.byteLength + n)
@@ -2069,48 +2480,74 @@ async function writeStreamChunk(state: FilesStreamWriteState, chunk: Uint8Array)
   await adjustByteTotal(metaTx, n)
   await waitForTransaction(metaTx)
 
-  // 缓冲足够大才切块落库（阈值 = chunkSize + MIN_TAIL，保证尾部块不小于 MIN_TAIL）；
-  // 每次 write 循环切掉所有可切整块，避免单次大 write 造成 pending 内存峰值
-  const threshold = flushThreshold(state.chunkSize)
-  while (state.pending.byteLength >= threshold) {
-    const chunkTx = beginIdbTransaction(
-      db,
-      [FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_NODES_STORE, FILES_META_STORE],
-      'readwrite',
-    )
-    await putChunkInTx(chunkTx, state, state.pending.subarray(0, state.chunkSize))
-    if (state.isNew) {
-      chunkTx.objectStore(FILES_NODES_STORE).put({
-        ...state.nodeRecord,
-        byteSize: state.writtenBytes,
-      } satisfies FilesNodeRecord)
-    }
-    await waitForTransaction(chunkTx)
+  if (shouldSpillToOpfs(state.writtenBytes + state.pending.byteLength)) {
+    await spillStreamToOpfs(state)
+    return
+  }
 
-    // 剩余缓冲移到最前（无拷贝的视图复位 + 拷贝剩余段）
+  // 缓冲足够大才切块落库；每次 write 把当前能切的整块放进同一笔事务，避免每块都等提交
+  const threshold = flushThreshold(state.chunkSize)
+  if (state.pending.byteLength < threshold) return
+
+  const chunkTx = beginIdbTransaction(
+    db,
+    [FILES_BLOBS_STORE, FILES_CHUNKS_STORE],
+    'readwrite',
+  )
+  while (state.pending.byteLength >= threshold) {
+    putChunkBytesInTx(chunkTx, state, state.pending.subarray(0, state.chunkSize))
     const rest = state.pending.subarray(state.chunkSize)
     const remaining = new Uint8Array(rest.byteLength)
     remaining.set(rest)
     state.pending = remaining
+  }
+  putStreamBlobMetaInTx(chunkTx, state)
+  await waitForTransaction(chunkTx)
+  if (state.isNew) {
+    const nodeTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
+    nodeTx.objectStore(FILES_NODES_STORE).put({
+      ...state.nodeRecord,
+      byteSize: state.writtenBytes,
+    } satisfies FilesNodeRecord)
+    await waitForTransaction(nodeTx)
   }
 }
 
 async function closeStreamWrite(state: FilesStreamWriteState): Promise<FilesNode> {
   assertStreamOpen(state)
   const db = await openFilesDb()
-  const tx = beginIdbTransaction(
-    db,
-    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
-    'readwrite',
-  )
-  const nodes = tx.objectStore(FILES_NODES_STORE)
-  const blobs = tx.objectStore(FILES_BLOBS_STORE)
 
-  // 剩余缓冲作为最后一块整体落库（含 < MIN_TAIL 的尾巴：单块文件 = 一次读）。
-  // 配额已在每次 write 时预占，此处只做物理写，不再 adjustByteTotal。
-  if (state.pending.byteLength > 0) {
-    await putChunkInTx(tx, state, state.pending)
+  if (
+    state.backend === 'idb' &&
+    shouldSpillToOpfs(state.writtenBytes + state.pending.byteLength)
+  ) {
+    await spillStreamToOpfs(state)
+  }
+
+  if (state.backend === 'opfs') {
+    if (state.pending.byteLength > 0) {
+      if (!state.opfsWriter) {
+        state.opfsWriter = await openOpfsBlobWriter(state.blobId)
+      }
+      await state.opfsWriter.writeAt(state.writtenBytes, state.pending)
+      state.writtenBytes += state.pending.byteLength
+      state.pending = new Uint8Array(0)
+    }
+    await state.opfsWriter?.close()
+    state.opfsWriter = undefined
+    const blobTx = beginIdbTransaction(db, FILES_BLOBS_STORE, 'readwrite')
+    putOpfsStreamMetaInTx(blobTx, state)
+    await waitForTransaction(blobTx)
+  } else if (state.pending.byteLength > 0) {
+    const chunkTx = beginIdbTransaction(
+      db,
+      [FILES_BLOBS_STORE, FILES_CHUNKS_STORE],
+      'readwrite',
+    )
+    putChunkBytesInTx(chunkTx, state, state.pending)
     state.pending = new Uint8Array(0)
+    putStreamBlobMetaInTx(chunkTx, state)
+    await waitForTransaction(chunkTx)
   }
 
   const updated: FilesNodeRecord = {
@@ -2121,35 +2558,41 @@ async function closeStreamWrite(state: FilesStreamWriteState): Promise<FilesNode
       ? { blobId: state.blobId, contentRevisionId: newContentRevisionId() }
       : {}),
   }
-  nodes.put(updated)
 
   if (!state.isNew && state.oldBlobId !== undefined) {
-    const oldBlob = await requestToPromise(
-      blobs.get(state.oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
+    const tx = beginIdbTransaction(
+      db,
+      [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
+      'readwrite',
     )
-    if (oldBlob) {
-      const nextRef = resolveBlobRefCount(oldBlob) - 1
-      if (nextRef <= 0) {
-        blobs.delete(state.oldBlobId)
-        await adjustByteTotal(tx, -state.previousByteSize)
-        if (oldBlob.chunked === true) {
-          await deleteBlobChunksInTx(tx, state.oldBlobId)
-        }
-      } else {
-        blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
-      }
+    tx.objectStore(FILES_NODES_STORE).put(updated)
+    const oldBlob = await requestToPromise(
+      tx.objectStore(FILES_BLOBS_STORE).get(state.oldBlobId) as IDBRequest<
+        FilesBlobRecord | undefined
+      >,
+    )
+    const releasedOpfs = await releaseBlobRefInTx(tx, state.oldBlobId, oldBlob)
+    if (oldBlob && resolveBlobRefCount(oldBlob) <= 1) {
+      await adjustByteTotal(tx, -state.previousByteSize)
     }
+    await waitForTransaction(tx)
+    await deleteOpfsBlobs([releasedOpfs])
+  } else {
+    const nodeTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
+    nodeTx.objectStore(FILES_NODES_STORE).put(updated)
+    await waitForTransaction(nodeTx)
   }
 
   state.terminal = 'closed'
   streamWrites.delete(state.id)
-  await waitForTransaction(tx)
   emitFilesDataStorageChanged()
   return recordToNode(updated)
 }
 
 async function abortStreamWrite(state: FilesStreamWriteState): Promise<void> {
   assertStreamOpen(state)
+  await state.opfsWriter?.abort()
+  state.opfsWriter = undefined
   const db = await openFilesDb()
   const tx = beginIdbTransaction(
     db,
@@ -2166,6 +2609,7 @@ async function abortStreamWrite(state: FilesStreamWriteState): Promise<void> {
   state.terminal = 'aborted'
   streamWrites.delete(state.id)
   await waitForTransaction(tx)
+  await deleteOpfsBlobs([state.blobId])
   emitFilesDataStorageChanged()
 }
 
@@ -2499,6 +2943,7 @@ export async function deleteSubtree(params: {
 
   let reclaimBytes = 0
   const fileIdSet = new Set(params.fileIds)
+  const releasedOpfs: string[] = []
 
   for (const id of params.fileIds) {
     const record = await requestToPromise(
@@ -2511,15 +2956,10 @@ export async function deleteSubtree(params: {
       blobs.get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
     )
     if (!blob) continue
-    const nextRef = resolveBlobRefCount(blob) - 1
-    if (nextRef <= 0) {
+    const released = await releaseBlobRefInTx(tx, blobId, blob)
+    if (released !== undefined) {
+      releasedOpfs.push(released)
       reclaimBytes += blobPayloadBytes(blob)
-      blobs.delete(blobId)
-      if (blob.chunked === true) {
-        await deleteBlobChunksInTx(tx, blobId)
-      }
-    } else {
-      blobs.put({ ...blob, refCount: nextRef } satisfies FilesBlobRecord)
     }
   }
 
@@ -2544,6 +2984,7 @@ export async function deleteSubtree(params: {
   } satisfies FilesMetaRecord)
 
   await waitForTransaction(tx)
+  await deleteOpfsBlobs(releasedOpfs)
   emitFilesDataStorageChanged()
 }
 
@@ -2614,6 +3055,7 @@ export async function commitFilesBatch(
   const refByNodeId = new Map<string, number>()
   const blobIdByNodeId = new Map<string, string>()
   const sourceRecordById = new Map<string, FilesNodeRecord>()
+  const opfsBlobIds = new Set<string>()
   if (probeIds.size > 0) {
     const probeTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
     for (const id of probeIds) {
@@ -2630,6 +3072,7 @@ export async function commitFilesBatch(
           .get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
       )
       refByNodeId.set(id, blob ? resolveBlobRefCount(blob) : 1)
+      if (isOpfsBlob(blob)) opfsBlobIds.add(blobId)
     }
     await waitForTransaction(probeTx)
   }
@@ -2660,6 +3103,39 @@ export async function commitFilesBatch(
   }
   const total = await assertCapacity(needed)
 
+  const opfsTargetByOp: Array<string | undefined> = Array.from({ length: ops.length })
+  const opfsCreated: string[] = []
+  const releasedOpfs: string[] = []
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i]!
+    if (op.kind === 'create-bytes' && shouldSpillToOpfs(op.bytes.byteLength)) {
+      await writeOpfsBlobBytes(op.node.id, new Uint8Array(op.bytes))
+      opfsTargetByOp[i] = op.node.id
+      opfsCreated.push(op.node.id)
+      continue
+    }
+    if (op.kind === 'create-text') {
+      const bytes = encodeTextToArrayBuffer(op.text)
+      if (shouldSpillToOpfs(bytes.byteLength)) {
+        await writeOpfsBlobBytes(op.node.id, new Uint8Array(bytes))
+        opfsTargetByOp[i] = op.node.id
+        opfsCreated.push(op.node.id)
+      }
+      continue
+    }
+    if (op.kind !== 'write-bytes' && op.kind !== 'write-text') continue
+    const bytes =
+      op.kind === 'write-bytes' ? op.bytes : encodeTextToArrayBuffer(op.text)
+    const oldBlobId = blobIdByNodeId.get(op.id)
+    const ref = refByNodeId.get(op.id) ?? 1
+    const stay = oldBlobId !== undefined && opfsBlobIds.has(oldBlobId) && ref <= 1
+    if (!stay && !shouldSpillToOpfs(bytes.byteLength)) continue
+    const targetId = ref > 1 ? newFilesBlobId() : (oldBlobId ?? newFilesBlobId())
+    await writeOpfsBlobBytes(targetId, new Uint8Array(bytes))
+    opfsTargetByOp[i] = targetId
+    if (!stay) opfsCreated.push(targetId)
+  }
+
   const tx = beginIdbTransaction(db, 
     [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
     'readwrite',
@@ -2674,7 +3150,10 @@ export async function commitFilesBatch(
   const liveRef = (blobId: string, base: number): number =>
     base + (liveRefDelta.get(blobId) ?? 0)
 
-  for (const op of ops) {
+  try {
+  for (let opIndex = 0; opIndex < ops.length; opIndex++) {
+    const op = ops[opIndex]!
+    const opfsTarget = opfsTargetByOp[opIndex]
     if (op.kind === 'create-folder') {
       // 事务内精确查重：同名冲突直接失败，避免整批被唯一索引打掉
       await resolveNameInTx(tx, op.node, 'exact')
@@ -2692,7 +3171,11 @@ export async function commitFilesBatch(
       }
       const blobId = node.id
       nodes.put(nodeToRecord(node, blobId))
-      putBlobContentInTx(tx, blobId, encodeTextToArrayBuffer(op.text))
+      if (opfsTarget !== undefined) {
+        blobs.put(opfsBlobIndexRecord(blobId, textBytes))
+      } else {
+        putBlobContentInTx(tx, blobId, encodeTextToArrayBuffer(op.text))
+      }
       results.push(node)
       continue
     }
@@ -2706,7 +3189,11 @@ export async function commitFilesBatch(
       }
       const blobId = node.id
       nodes.put(nodeToRecord(node, blobId))
-      putBlobContentInTx(tx, blobId, op.bytes)
+      if (opfsTarget !== undefined) {
+        blobs.put(opfsBlobIndexRecord(blobId, contentBytes))
+      } else {
+        putBlobContentInTx(tx, blobId, op.bytes)
+      }
       results.push(node)
       continue
     }
@@ -2758,26 +3245,38 @@ export async function commitFilesBatch(
         attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
       }
       if (refCount > 1) {
-        const newBlobId = newFilesBlobId()
+        const newBlobId = opfsTarget ?? newFilesBlobId()
         updated.blobId = newBlobId
-        putBlobContentInTx(tx, newBlobId, bytes)
+        if (opfsTarget !== undefined) {
+          blobs.put(opfsBlobIndexRecord(newBlobId, textBytes))
+        } else {
+          putBlobContentInTx(tx, newBlobId, bytes)
+        }
         const oldBlob = await requestToPromise(
           blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
         )
         if (oldBlob) {
           const nextRef = refCount - 1
           liveRefDelta.set(oldBlobId, (liveRefDelta.get(oldBlobId) ?? 0) - 1)
-          if (nextRef <= 0) blobs.delete(oldBlobId)
-          else blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
+          if (nextRef <= 0) {
+            const released = await releaseBlobRefInTx(tx, oldBlobId, oldBlob)
+            if (released !== undefined) releasedOpfs.push(released)
+          } else {
+            blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
+          }
         }
       } else {
         updated.blobId = oldBlobId
-        putBlobContentInTx(tx, oldBlobId, bytes)
         const oldBlob = await requestToPromise(
           blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
         )
         if (oldBlob?.chunked === true) {
           await deleteBlobChunksInTx(tx, oldBlobId)
+        }
+        if (opfsTarget !== undefined) {
+          blobs.put(opfsBlobIndexRecord(oldBlobId, textBytes))
+        } else {
+          putBlobContentInTx(tx, oldBlobId, bytes)
         }
       }
       nodes.put(updated)
@@ -2803,26 +3302,38 @@ export async function commitFilesBatch(
       attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
     }
     if (refCount > 1) {
-      const newBlobId = newFilesBlobId()
+      const newBlobId = opfsTarget ?? newFilesBlobId()
       updated.blobId = newBlobId
-      putBlobContentInTx(tx, newBlobId, op.bytes)
+      if (opfsTarget !== undefined) {
+        blobs.put(opfsBlobIndexRecord(newBlobId, contentBytes))
+      } else {
+        putBlobContentInTx(tx, newBlobId, op.bytes)
+      }
       const oldBlob = await requestToPromise(
         blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
       )
       if (oldBlob) {
         const nextRef = refCount - 1
         liveRefDelta.set(oldBlobId, (liveRefDelta.get(oldBlobId) ?? 0) - 1)
-        if (nextRef <= 0) blobs.delete(oldBlobId)
-        else blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
+        if (nextRef <= 0) {
+          const released = await releaseBlobRefInTx(tx, oldBlobId, oldBlob)
+          if (released !== undefined) releasedOpfs.push(released)
+        } else {
+          blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
+        }
       }
     } else {
       updated.blobId = oldBlobId
-      putBlobContentInTx(tx, oldBlobId, op.bytes)
       const oldBlob = await requestToPromise(
         blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
       )
       if (oldBlob?.chunked === true) {
         await deleteBlobChunksInTx(tx, oldBlobId)
+      }
+      if (opfsTarget !== undefined) {
+        blobs.put(opfsBlobIndexRecord(oldBlobId, contentBytes))
+      } else {
+        putBlobContentInTx(tx, oldBlobId, op.bytes)
       }
     }
     nodes.put(updated)
@@ -2834,7 +3345,12 @@ export async function commitFilesBatch(
     totalBytes: Math.max(0, total + needed),
   } satisfies FilesMetaRecord)
 
-  await waitForTransaction(tx)
+    await waitForTransaction(tx)
+  } catch (error) {
+    await deleteOpfsBlobs(opfsCreated)
+    throw error
+  }
+  await deleteOpfsBlobs(releasedOpfs)
   emitFilesDataStorageChanged()
   return results
 }

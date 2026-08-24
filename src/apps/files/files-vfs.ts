@@ -1189,10 +1189,11 @@ export async function openStreamWrite(params: {
   metaBytes: number
   previousByteSize: number
   chunkSize?: number
+  expectedSize?: number
   /** 新建时的冲突处理：内部卷透传给 openStreamWriteBlob；挂载卷忽略（FSA 无同名） */
   nameMode?: FilesNodeNameMode
 }): Promise<FilesStreamWriter> {
-  const { node, isNew, metaBytes, previousByteSize, chunkSize, nameMode } = params
+  const { node, isNew, metaBytes, previousByteSize, chunkSize, expectedSize, nameMode } = params
   let writer: FilesStreamWriter
   // 按卷类型分发（新建占位节点 id 非 mount 前缀，须看 locationId）
   if (isMountLocationId(node.locationId)) {
@@ -1209,6 +1210,7 @@ export async function openStreamWrite(params: {
       metaBytes,
       previousByteSize,
       chunkSize,
+      expectedSize,
       // 存储层必选；VFS 层缺省精确失败（files-api 新建默认路径）
       nameMode: nameMode ?? 'exact',
     })
@@ -1221,7 +1223,11 @@ export async function openStreamWrite(params: {
   }
   return {
     node: writer.node,
-    write: (chunk) => writer.write(chunk),
+    write: async (chunk) => {
+      const startedAt = performance.now()
+      await writer.write(chunk)
+      recordFilesIoWrite(writer.node, chunk.byteLength, 'streamWrite', performance.now() - startedAt)
+    },
     close: async () => {
       const startedAt = performance.now()
       const written = await writer.close()

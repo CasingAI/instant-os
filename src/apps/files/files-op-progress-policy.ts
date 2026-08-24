@@ -58,7 +58,10 @@ export function filesOpProgressFraction(done: number, total: number): number {
 }
 
 export function formatFilesOpRemainingLabel(remainingMs: number): string {
-  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+  if (!Number.isFinite(remainingMs)) {
+    return '正在估算剩余时间…'
+  }
+  if (remainingMs <= 0) {
     return '即将完成…'
   }
   if (remainingMs < 1000) {
@@ -69,5 +72,12 @@ export function formatFilesOpRemainingLabel(remainingMs: number): string {
     return `大约还要 ${seconds} 秒`
   }
   const minutes = Math.ceil(seconds / 60)
-  return `大约还要 ${minutes} 分钟`
+  if (minutes < 60) {
+    return `大约还要 ${minutes} 分钟`
+  }
+  const hours = Math.ceil(minutes / 60)
+  if (hours >= 24) {
+    return '大约还要超过 1 天'
+  }
+  return `大约还要 ${hours} 小时`
 }
