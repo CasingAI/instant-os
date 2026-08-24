@@ -2320,13 +2320,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       })
       if (name === undefined || name.trim() === node.name) return
       try {
-        await renameNode(node.id, name)
-        await refresh()
+        const renamed = await renameNode(node.id, name)
+        setItems((prev) => applyLocalItemsChange(prev, { kind: 'update', node: renamed }, sort))
+        refresh({ quiet: true })
       } catch (err) {
         await modal.alert({ title: '无法重命名', message: formatError(err), themeColor: THEME })
       }
     },
-    [closeTransientMenus, modal, refresh],
+    [closeTransientMenus, modal, refresh, setItems, sort],
   )
 
   const handleShowInfo = useCallback(
