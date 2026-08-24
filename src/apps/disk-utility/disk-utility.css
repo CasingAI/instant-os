@@ -1,0 +1,326 @@
+/* 磁盘工具 — 复用 settings.css 组件；树状层级 + 底层信息布局 */
+
+.disk-utility {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.disk-utility--narrow > .keychain-stack {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ─── 分栏 ─── */
+
+.disk-utility__split {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(220px, 36%) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  gap: 0;
+  overflow: visible;
+}
+
+.disk-utility__pane {
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+
+.disk-utility__pane--list {
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
+}
+
+.disk-utility__pane--detail {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+/* ─── 树状列表 ─── */
+
+.disk-utility__tree {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── 树节点行 ─── */
+
+.disk-utility__tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 3px 10px;
+  min-height: 32px;
+  border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+  transition: background 0.1s;
+}
+
+.disk-utility__tree-row:last-child {
+  border-bottom: none;
+}
+
+.disk-utility__tree-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.disk-utility__tree-row--selected {
+  background: rgba(0, 122, 255, 0.12);
+}
+
+.disk-utility__tree-row--selected:hover {
+  background: rgba(0, 122, 255, 0.16);
+}
+
+/* ─── Chevron ─── */
+
+.disk-utility__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: #8e8e93;
+  transition: transform 0.15s ease;
+}
+
+.disk-utility__chevron--open {
+  transform: rotate(90deg);
+}
+
+.disk-utility__chevron-placeholder {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* ─── 图标 ─── */
+
+.disk-utility__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #8e8e93;
+}
+
+.disk-utility__icon--partition {
+  color: #aeaeb2;
+}
+
+/* ─── 树标签 ─── */
+
+.disk-utility__tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* ─── 卷大小 / 百分比 ─── */
+
+.disk-utility__tree-size {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+}
+
+.disk-utility__tree-pct {
+  flex-shrink: 0;
+  width: 42px;
+  text-align: right;
+  font-size: 12px;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── 文件系统类型 badge ─── */
+
+.disk-utility__fs-badge {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 15px;
+  color: #147efb;
+  background: rgba(20, 126, 251, 0.1);
+}
+
+/* ─── 占用方 badge ─── */
+
+.disk-utility__occupancy-badge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 15px;
+  color: #fff;
+  background: #ff9500;
+}
+
+/* ─── 旧 kind-badge 保留兼容（如有外部引用） ─── */
+
+.disk-utility__kind-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 14px;
+  color: #fff;
+  background: #8e8e93;
+}
+
+.disk-utility__kind-badge--image {
+  background: #5856d6;
+}
+
+.disk-utility__kind-badge--mount {
+  background: #34c759;
+}
+
+/* ─── 使用率条 ─── */
+
+.disk-utility__usage-bar {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.disk-utility__usage-bar-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  background: linear-gradient(#4da3ff, #147efb);
+}
+
+.disk-utility__usage-bar-fill--warn {
+  background: linear-gradient(#ffd60a, #f0a400);
+}
+
+.disk-utility__usage-bar-fill--full {
+  background: linear-gradient(#ff6961, #e03128);
+}
+
+/* ─── 分区条 ─── */
+
+.disk-utility__partitions {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  margin: 6px 0;
+}
+
+.disk-utility__partition-seg {
+  position: relative;
+  height: 22px;
+  min-width: 14px;
+  border-radius: 4px;
+  background: rgba(20, 126, 251, 0.16);
+  border: 1px solid rgba(20, 126, 251, 0.45);
+  color: #146efb;
+  font-size: 10px;
+  line-height: 20px;
+  text-align: center;
+  cursor: default;
+}
+
+.disk-utility__partition-seg--fat {
+  background: rgba(52, 199, 89, 0.18);
+  border-color: rgba(52, 199, 89, 0.55);
+  color: #248a3d;
+}
+
+/* ─── 详情面板行标签+值 ─── */
+
+.disk-utility__detail-bar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.disk-utility__detail-bar-label {
+  font-size: 12px;
+  color: #636366;
+}
+
+.disk-utility__detail-bar-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #3c3c43;
+}
+
+/* ─── 操作按钮 ─── */
+
+.disk-utility__detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+/* ─── 旧 pick-row 兼容（移除即可，保留以防外部引用） ─── */
+
+.disk-utility__pick-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 4px 10px;
+  min-height: 36px;
+  border: none;
+  border-bottom: 1px solid #ececec;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+
+.disk-utility__pick-row:last-child {
+  border-bottom: none;
+}
+
+.disk-utility__pick-row-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.disk-utility__pick-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.disk-utility__occupancy-note {
+  font-size: 11px;
+}

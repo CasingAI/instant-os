@@ -1,4 +1,5 @@
 import { AppIconTile } from './app-icon-tile.tsx'
+export { DiskUtilityIcon } from './disk-utility-icon.tsx'
 import { CompassMark } from '../apps/browser/compass-mark.tsx'
 import {
   formatCalendarYearLabel,

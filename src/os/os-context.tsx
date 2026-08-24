@@ -168,6 +168,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   'archive-utility': { title: '压缩包实用工具', width: 860, height: 560 },
   downloader: { title: '下载器', width: 900, height: 560 },
   'space-sniffer': { title: '空间嗅探', width: 1020, height: 720 },
+  'disk-utility': { title: '磁盘工具', width: 820, height: 600 },
   packages: { title: '包管理', width: 720, height: 520 },
   'virtual-js': { title: 'Virtual JS', width: 860, height: 640 },
   'virtual-machine': { title: 'Virtual Machine', width: 980, height: 680 },

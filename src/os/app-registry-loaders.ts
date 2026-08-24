@@ -48,6 +48,8 @@ const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = {
   downloader: () => import('../apps/downloader/downloader-app.tsx').then((m) => m.DownloaderApp),
   'space-sniffer': () =>
     import('../apps/space-sniffer/space-sniffer-app.tsx').then((m) => m.SpaceSnifferApp),
+  'disk-utility': () =>
+    import('../apps/disk-utility/disk-utility-app.tsx').then((m) => m.DiskUtilityApp),
   keychain: () => import('../apps/keychain/keychain-app.tsx').then((m) => m.KeychainApp),
   'github-desktop': () =>
     import('../apps/github-desktop/github-desktop-app.tsx').then((m) => m.GithubDesktopApp),

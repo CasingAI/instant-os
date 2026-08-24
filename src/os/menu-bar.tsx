@@ -576,6 +576,11 @@ export function MenuBar() {
         },
         {
           type: 'action',
+          label: '磁盘工具',
+          onClick: () => openApp('disk-utility'),
+        },
+        {
+          type: 'action',
           label: '事件日志',
           onClick: () => openApp('event-log'),
         },

@@ -267,6 +267,14 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '启动时选择要扫描的卷或文件夹。单击文件夹可在原框内细分；双击可放大进入。右键可在「文件」中显示对应位置。',
     ],
   },
+  'disk-utility': {
+    version: '磁盘与卷信息',
+    paragraphs: [
+      '磁盘工具并列展示内置卷、本机挂载卷与磁盘镜像卷的容量与占用信息。',
+      '对磁盘镜像会读取 MBR 分区表与 FAT 引导扇区，显示分区布局、文件系统类型与占用方；镜像与虚拟机共享互斥锁时会标注当前使用状态。',
+      '底部还会显示浏览器 storage.estimate 配额、系统数据空间上限与持久化状态，方便确认数据是否受浏览器垃圾回收保护。',
+    ],
+  },
   keychain: {
     version: '凭证与 API Key',
     paragraphs: [
