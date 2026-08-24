@@ -4,6 +4,7 @@ import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { recommendFatVariant, type DiskScheme, type FatVariant } from './disk-utility-format.ts'
 import { buildPlannedDiskMap } from './disk-utility-disk-map.ts'
 import { DiskMapBar } from './disk-utility-disk-map-bar.tsx'
+import { formatIops, formatSpeed, type BenchmarkPhase, type BenchmarkProgress, type BenchmarkResult } from './disk-utility-benchmark.ts'
 
 export const DISK_UTILITY_THEME = '#2f3640'
 
@@ -279,6 +280,143 @@ export function PartitionDiskDialog({
         </select>
       </div>
       <p class="window-modal__message">{variantHint(Math.floor(state.sizeBytes / count), variant)}</p>
+      {error ? <p class="window-modal__error">{error}</p> : undefined}
+    </WindowModal>
+  )
+}
+
+const BENCHMARK_PHASE_LABELS: Record<BenchmarkPhase, string> = {
+  write: '写入',
+  read: '读取',
+  'random-read': '随机读取',
+}
+
+export type BenchmarkDialogState = {
+  rootPath: string
+  label: string
+}
+
+export function BenchmarkDialog({
+  state,
+  busy,
+  progress,
+  result,
+  error,
+  onClose,
+  onRun,
+}: {
+  state: BenchmarkDialogState | undefined
+  busy: boolean
+  progress: BenchmarkProgress | undefined
+  result: BenchmarkResult | undefined
+  error: string | undefined
+  onClose: () => void
+  onRun: (signal: AbortSignal) => void
+}): preact.JSX.Element | undefined {
+  const [controller, setController] = useState<AbortController | undefined>(undefined)
+
+  useEffect(() => {
+    if (!state) {
+      setController(undefined)
+      return
+    }
+    const next = new AbortController()
+    setController(next)
+    return () => {
+      next.abort()
+      setController(undefined)
+    }
+  }, [state])
+
+  if (!state) return undefined
+
+  const phaseLabel = progress ? `${BENCHMARK_PHASE_LABELS[progress.phase]}中…` : undefined
+  const progressValue = progress
+    ? progress.bytesTotal > 0
+      ? Math.min(100, Math.round((progress.bytesDone / progress.bytesTotal) * 100))
+      : 0
+    : undefined
+
+  return (
+    <WindowModal
+      open
+      title={`测速 · ${state.label}`}
+      themeColor={DISK_UTILITY_THEME}
+      onClose={busy ? undefined : onClose}
+      actions={[
+        {
+          key: 'cancel',
+          label: busy ? '停止' : '关闭',
+          tone: 'secondary',
+          disabled: false,
+          onClick: () => {
+            if (busy) {
+              controller?.abort()
+              return
+            }
+            onClose()
+          },
+        },
+        {
+          key: 'run',
+          label: '开始测速',
+          tone: 'primary',
+          disabled: busy,
+          busy,
+          onClick: () => {
+            if (!controller) return
+            onRun(controller.signal)
+          },
+        },
+      ]}
+    >
+      <p class="window-modal__message">
+        将在「{state.label}」创建临时文件并测试写入、读取和随机读取速度，测试结束后自动删除。
+      </p>
+
+      {busy && phaseLabel ? (
+        <div class="disk-utility-benchmark__progress">
+          <div class="disk-utility-benchmark__progress-label">{phaseLabel}</div>
+          {progressValue !== undefined ? (
+            <div class="disk-utility-benchmark__progress-bar">
+              <div
+                class="disk-utility-benchmark__progress-fill"
+                style={{ width: `${progressValue}%` }}
+                role="progressbar"
+                aria-valuenow={progressValue}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              />
+            </div>
+          ) : undefined}
+        </div>
+      ) : undefined}
+
+      {result ? (
+        <div class="disk-utility-benchmark__results">
+          <div class="disk-utility-benchmark__result-row">
+            <span class="disk-utility-benchmark__result-name">顺序写入</span>
+            <span class="disk-utility-benchmark__result-value">{formatSpeed(result.writeBytesPerSecond)}</span>
+          </div>
+          <div class="disk-utility-benchmark__result-row">
+            <span class="disk-utility-benchmark__result-name">顺序读取</span>
+            <span class="disk-utility-benchmark__result-value">{formatSpeed(result.readBytesPerSecond)}</span>
+          </div>
+          <div class="disk-utility-benchmark__result-row">
+            <span class="disk-utility-benchmark__result-name">随机读取</span>
+            <span class="disk-utility-benchmark__result-value">{formatSpeed(result.randomReadBytesPerSecond)}</span>
+          </div>
+          <div class="disk-utility-benchmark__result-row">
+            <span class="disk-utility-benchmark__result-name">随机读取 IOPS</span>
+            <span class="disk-utility-benchmark__result-value">{formatIops(result.randomReadIops)}</span>
+          </div>
+          <div class="disk-utility-benchmark__result-row disk-utility-benchmark__result-row--meta">
+            <span class="disk-utility-benchmark__result-name">测试文件</span>
+            <span class="disk-utility-benchmark__result-value">{formatStorageSize(result.testFileSizeBytes)}</span>
+          </div>
+        </div>
+      ) : undefined}
+
       {error ? <p class="window-modal__error">{error}</p> : undefined}
     </WindowModal>
   )

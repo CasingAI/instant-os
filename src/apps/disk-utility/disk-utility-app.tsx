@@ -21,6 +21,11 @@ import {
   type TreeNode,
   type BrowserStorageSnapshot,
 } from './disk-utility-data.ts'
+import {
+  runDiskBenchmark,
+  type BenchmarkProgress,
+  type BenchmarkResult,
+} from './disk-utility-benchmark.ts'
 import { buildDiskMap, findAncestorImageRoot } from './disk-utility-disk-map.ts'
 import { DiskMapBar } from './disk-utility-disk-map-bar.tsx'
 import {
@@ -35,6 +40,8 @@ import {
   DISK_UTILITY_THEME,
   EraseDiskDialog,
   PartitionDiskDialog,
+  BenchmarkDialog,
+  type BenchmarkDialogState,
   type EraseDialogState,
   type PartitionDialogState,
 } from './disk-utility-dialogs.tsx'
@@ -264,6 +271,7 @@ type DetailActions = {
   partitionImage: (node: TreeNode) => void
   erasePartition: (node: TreeNode) => void
   unmountImage: (node: TreeNode) => void
+  runBenchmark: (node: TreeNode) => void
 }
 
 function isVmOccupied(node: TreeNode): boolean {
@@ -406,6 +414,12 @@ function DetailPanel({
             空间嗅探
           </IosButton>
         ) : undefined}
+
+        {node.pathRoot && node.writable !== false && !vmLocked ? (
+          <IosButton tone="secondary" size="compact" onClick={() => actions.runBenchmark(node)}>
+            测速
+          </IosButton>
+        ) : undefined}
       </div>
     </section>
   )
@@ -511,6 +525,9 @@ export function DiskUtilityApp() {
   )
   const [eraseState, setEraseState] = useState<EraseDialogState | undefined>(undefined)
   const [partitionState, setPartitionState] = useState<PartitionDialogState | undefined>(undefined)
+  const [benchmarkState, setBenchmarkState] = useState<BenchmarkDialogState | undefined>(undefined)
+  const [benchmarkProgress, setBenchmarkProgress] = useState<BenchmarkProgress | undefined>(undefined)
+  const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResult | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [dialogError, setDialogError] = useState<string | undefined>(undefined)
   const busyRef = useRef(false)
@@ -630,6 +647,31 @@ export function DiskUtilityApp() {
     [refresh],
   )
 
+  const runBenchmarkWork = useCallback(
+    async (signal: AbortSignal, rootPath: string) => {
+      if (busyRef.current) return
+      busyRef.current = true
+      setBusy(true)
+      setDialogError(undefined)
+      setBenchmarkProgress(undefined)
+      setBenchmarkResult(undefined)
+      try {
+        const result = await runDiskBenchmark({
+          rootPath,
+          onProgress: (progress) => setBenchmarkProgress(progress),
+          signal,
+        })
+        setBenchmarkResult(result)
+      } catch (error) {
+        setDialogError(formatError(error))
+      } finally {
+        busyRef.current = false
+        setBusy(false)
+      }
+    },
+    [],
+  )
+
   const detailActions = useMemo<DetailActions>(
     () => ({
       revealInFiles: (path: string) => {
@@ -693,6 +735,16 @@ export function DiskUtilityApp() {
             })
           }
         })()
+      },
+      runBenchmark: (node) => {
+        if (!node.pathRoot) return
+        setBenchmarkProgress(undefined)
+        setBenchmarkResult(undefined)
+        setDialogError(undefined)
+        setBenchmarkState({
+          rootPath: node.pathRoot,
+          label: node.label,
+        })
       },
     }),
     [modal, openApp, refresh],
@@ -852,6 +904,25 @@ export function DiskUtilityApp() {
           void runMutation(target.path, async () => {
             await partitionDiskImageFile(target.path, target.sizeBytes, options)
           })
+        }}
+      />
+
+      <BenchmarkDialog
+        state={benchmarkState}
+        busy={busy}
+        progress={benchmarkProgress}
+        result={benchmarkResult}
+        error={dialogError}
+        onClose={() => {
+          if (busy) return
+          setBenchmarkState(undefined)
+          setBenchmarkProgress(undefined)
+          setBenchmarkResult(undefined)
+          setDialogError(undefined)
+        }}
+        onRun={(signal: AbortSignal) => {
+          if (!benchmarkState) return
+          void runBenchmarkWork(signal, benchmarkState.rootPath)
         }}
       />
     </div>
