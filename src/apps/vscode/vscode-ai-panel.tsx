@@ -103,10 +103,6 @@ import {
 } from './vscode-ai-chat-surface.tsx'
 import { osNowMs } from '../../os/os-clock.ts'
 import { formatHumanDurationMs } from '../../ai/format-human-duration.ts'
-import {
-  buildVscodeAiConversationDump,
-  copyTextToClipboard,
-} from './vscode-ai-conversation-dump.ts'
 import '../help/help.css'
 import './vscode-ai.css'
 
@@ -1121,15 +1117,6 @@ export function VscodeAiPanel({
   const liveStartedAtRef = useRef(0)
   /** 当前 live 回合的 assistant 草稿 id（供计划条「实施」关联） */
   const liveDraftAssistantIdRef = useRef<string | undefined>(undefined)
-  const [copyCopied, setCopyCopied] = useState(false)
-  const copyConversation = useCallback(() => {
-    const dump = buildVscodeAiConversationDump(messages, { sessionId })
-    void copyTextToClipboard(dump).then((ok) => {
-      if (!ok) return
-      setCopyCopied(true)
-      window.setTimeout(() => setCopyCopied(false), 1600)
-    })
-  }, [messages, sessionId])
   const sessionIdRef = useRef(sessionId)
   const messagesRef = useRef(messages)
   const sendQueueRef = useRef<QueuedSend[]>([])
@@ -2637,13 +2624,6 @@ export function VscodeAiPanel({
           >
             {readonlyStatusText}
           </span>
-          <button
-            type="button"
-            class={`vscode-ai__readonly-header-copy${copyCopied ? ' vscode-ai__readonly-header-copy--copied' : ''}`}
-            onClick={copyConversation}
-          >
-            {copyCopied ? '已复制' : '复制对话'}
-          </button>
         </div>
       ) : undefined}
       <div
@@ -2961,15 +2941,6 @@ export function VscodeAiPanel({
             ) : undefined}
           </div>
         )}
-        {!readOnly && messages.length > 0 ? (
-          <button
-            type="button"
-            class={`vscode-ai__chat-copy${copyCopied ? ' vscode-ai__chat-copy--copied' : ''}`}
-            onClick={copyConversation}
-          >
-            {copyCopied ? '已复制' : '复制对话'}
-          </button>
-        ) : undefined}
       </div>
 
       {readOnly ? (
