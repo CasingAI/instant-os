@@ -10,6 +10,11 @@ import {
   isUnsolicitedVmStopped,
   createDiskWriteFailedWatchdog,
   DISK_WRITE_FAILED_FORCE_STOP_MS,
+  DISK_WRITE_FAILED_FORCE_STOP_HINT,
+  DISK_IMAGE_INCOMPLETE_HINT,
+  READING_DISK_IMAGE_HINT,
+  STARTING_EMULATOR_HINT,
+  isTransientBootHint,
 } from './virtual-machine-runtime.ts'
 import { INSTANT_VM_MESSAGE_TYPE } from './virtual-machine-protocol.ts'
 
@@ -101,10 +106,22 @@ function testDiskWriteFailedWatchdogCancelsWhenStopped(): void {
   assert.deepEqual(forced, [])
 }
 
+function testTransientBootHint(): void {
+  assert.equal(isTransientBootHint(READING_DISK_IMAGE_HINT), true)
+  assert.equal(isTransientBootHint(STARTING_EMULATOR_HINT), true)
+  // 警告类 hint 开机后仍有用，模拟器已启动也不能清
+  assert.equal(isTransientBootHint(undefined), false)
+  assert.equal(isTransientBootHint('已挂网卡但未选网络后端，按离线启动'), false)
+  assert.equal(isTransientBootHint(DISK_WRITE_FAILED_FORCE_STOP_HINT), false)
+  assert.equal(isTransientBootHint(DISK_IMAGE_INCOMPLETE_HINT), false)
+  assert.equal(isTransientBootHint('启动失败：运行时无响应'), false)
+}
+
 testRequestIdFormat()
 testPickDisplayedMachineId()
 testPickBackgroundMachineIds()
 testUnsolicitedStopped()
 testDiskWriteFailedWatchdogForceStopsWhenStillRunning()
 testDiskWriteFailedWatchdogCancelsWhenStopped()
+testTransientBootHint()
 console.log('virtual-machine-runtime.test.ts ok')

@@ -116,6 +116,13 @@ export const DISK_WRITE_FAILED_FORCE_STOP_MS = 30_000
 export const DISK_WRITE_FAILED_FORCE_STOP_HINT =
   '硬盘回写失败，已强制标记为已关机；镜像可能不完整'
 export const DISK_IMAGE_INCOMPLETE_HINT = '硬盘回写未完成，镜像可能不完整'
+export const READING_DISK_IMAGE_HINT = '正在读取镜像…'
+export const STARTING_EMULATOR_HINT = '正在启动模拟器…'
+
+/** 临时开机进度文案：模拟器回报已启动后就该清掉；警告类 hint 不算，开机后仍有用。 */
+export function isTransientBootHint(hint: string | undefined): boolean {
+  return hint === READING_DISK_IMAGE_HINT || hint === STARTING_EMULATOR_HINT
+}
 
 export function createDiskWriteFailedWatchdog(options: {
   delayMs?: number
@@ -545,6 +552,14 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
 
   const onStarted = useCallback((id: string) => {
     setStartedIds((current) => new Set(current).add(id))
+    setHints((current) => {
+      if (!isTransientBootHint(current.get(id))) {
+        return current
+      }
+      const next = new Map(current)
+      next.delete(id)
+      return next
+    })
   }, [])
 
   const onGuestPoweredOff = useCallback(
@@ -572,7 +587,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
         return
       }
       addRunningId(id)
-      setHints((current) => new Map(current).set(id, '正在读取镜像…'))
+      setHints((current) => new Map(current).set(id, READING_DISK_IMAGE_HINT))
       console.log('[vm-boot] loading disks', id)
       let disks:
         | Awaited<ReturnType<typeof loadVirtualMachineDisks>>
@@ -591,7 +606,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
           releaseVirtualMachineDiskImageOccupancy(id)
           return
         }
-        setHints((current) => new Map(current).set(id, '正在启动模拟器…'))
+        setHints((current) => new Map(current).set(id, STARTING_EMULATOR_HINT))
         const message = buildStartMessage(newVmRequestId(), machine, disks)
         console.log('[vm-boot] built start message', id, message.requestId)
         const nextMessages = new Map(startMessagesRef.current).set(id, message)
