@@ -1,8 +1,8 @@
 /**
  * 镜像正文安静块写入通道。
  * 用于虚拟机实时写入、FAT 卷回刷等高频场景：只按偏移写 OPFS 正文，
- * 运行期间不更新内容版本、不广播、不改目录账本；关闭时一次性更新修改时间。
- * 若正文仍在 IndexedDB（未溢到 OPFS），返回 undefined，调用方走常规 files API。
+ * 运行期间不更新内容版本、不广播、不改目录账本；关闭时一次性更新修改时间并派发 VFS modified。
+ * 若正文仍在 IndexedDB，会先尝试溢到 OPFS；OPFS 不可用或溢出失败则返回 undefined，调用方走常规 files API。
  */
 
 import { osNowMs } from '../../os/os-clock.ts'
@@ -10,15 +10,16 @@ import { beginIdbTransaction } from '../../os/idb-transaction.ts'
 import {
   resolveFileNodeByAbsolutePath,
   resolveFilesAbsolutePath,
-  invalidateFilesVfsPathCaches,
+  emitFilesVfsPathModified,
 } from './files-vfs.ts'
 import {
   FILES_NODES_STORE,
   getFileBlobStorageInfo,
   openFilesDb,
+  spillIdbBlobToOpfsIfNeeded,
   type FilesNodeRecord,
 } from './files-storage.ts'
-import { openOpfsBlobWriter } from './files-opfs-blobs.ts'
+import { isOpfsAvailable, openOpfsBlobWriter } from './files-opfs-blobs.ts'
 import { newContentRevisionId } from './files-types.ts'
 
 export type QuietBlobWriter = {
@@ -37,8 +38,18 @@ export async function openQuietBlobWriter(
 ): Promise<QuietBlobWriter | undefined> {
   const node = await resolveFileNodeByAbsolutePath(path)
   if (!node) return undefined
-  const info = await getFileBlobStorageInfo(node.id)
-  if (!info || info.bodyStore !== 'OPFS') return undefined
+  let info = await getFileBlobStorageInfo(node.id)
+  if (!info) return undefined
+  if (info.bodyStore !== 'OPFS') {
+    if (!isOpfsAvailable()) return undefined
+    const spilled = await spillIdbBlobToOpfsIfNeeded(node.id)
+    if (!spilled) {
+      console.warn('[files] 安静写入通道无法打开：正文仍在 IndexedDB', path)
+      return undefined
+    }
+    info = await getFileBlobStorageInfo(node.id)
+    if (!info || info.bodyStore !== 'OPFS') return undefined
+  }
 
   const writer = await openOpfsBlobWriter(info.blobId)
   let closed = false
@@ -61,10 +72,9 @@ export async function openQuietBlobWriter(
     async close() {
       await closeWriter()
       await bumpNodeUpdatedAt(node.id)
-      const path = await resolveFilesAbsolutePath(node)
-      if (path) {
-        // 只清路径缓存；不派改事件，避免 UI 在运行期刷新
-        invalidateFilesVfsPathCaches()
+      const resolved = await resolveFilesAbsolutePath(node)
+      if (resolved) {
+        emitFilesVfsPathModified(resolved)
       }
     },
     async abort() {

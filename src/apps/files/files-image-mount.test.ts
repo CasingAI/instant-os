@@ -5,7 +5,7 @@
 import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
 import { createFat12Image } from './files-image-fat12-fixture.ts'
-import { FatImageVolume, type ImageDiskIo } from './files-image-fat-volume.ts'
+import { FatImageVolume, SectorCache, adaptFatClusterLayout, adaptFatFileNode, type ImageDiskIo } from './files-image-fat-volume.ts'
 import { mountDiskImage, unmountDiskImage, restorePersistedImageMounts, resetImageMountRestoreForTests } from './files-image-actions.ts'
 import {
   openImageMount,
@@ -482,6 +482,92 @@ async function testBlankImageRangeIoAcceptance(): Promise<void> {
   await volume.close()
 }
 
+async function testFlushFailureKeepsDirtySectors(): Promise<void> {
+  const bytes = createFat12Image()
+  let failNext = true
+  const io: ImageDiskIo = {
+    size: bytes.byteLength,
+    async read(offset, length) {
+      return bytes.slice(offset, offset + length)
+    },
+    async write(offset, data) {
+      if (failNext) {
+        failNext = false
+        throw new Error('second-write-fails')
+      }
+      bytes.set(data, offset)
+    },
+  }
+  const volume = new FatImageVolume(io)
+  await volume.prepare()
+  await volume.writeFile('keep.bin', new Uint8Array(512).fill(7))
+  await assert.rejects(() => volume.flush(), /second-write-fails/)
+  assert.equal(volume.hasUnflushedSectors(), true)
+  await volume.flush()
+  assert.equal(volume.hasUnflushedSectors(), false)
+  const remounted = new FatImageVolume(memoryDisk(bytes))
+  await remounted.prepare()
+  const got = await remounted.readFile('keep.bin')
+  assert.deepEqual(got, new Uint8Array(512).fill(7))
+  await remounted.close()
+}
+
+async function testStreamWriteOverwritesWithoutOldTail(): Promise<void> {
+  const volume = new FatImageVolume(memoryDisk(createFat12Image()))
+  await volume.prepare()
+  await volume.writeFile('cover.bin', new Uint8Array(2048).fill(1))
+  const writer = await volume.streamWriteFile('cover.bin', { isNew: false })
+  await writer.write(new Uint8Array(16).fill(2))
+  await writer.close()
+  const got = await volume.readFile('cover.bin')
+  assert.equal(got.byteLength, 16)
+  assert.deepEqual(got, new Uint8Array(16).fill(2))
+  await volume.close()
+}
+
+async function testStreamWriteSerializesWithList(): Promise<void> {
+  const volume = new FatImageVolume(memoryDisk(createFat12Image()))
+  await volume.prepare()
+  const writer = await volume.streamWriteFile('mix.bin', { isNew: true })
+  const tasks: Promise<unknown>[] = []
+  for (let i = 0; i < 8; i += 1) {
+    tasks.push(writer.write(new Uint8Array(256).fill(i)))
+    tasks.push(volume.list(''))
+  }
+  await Promise.all(tasks)
+  await writer.close()
+  const got = await volume.readFile('mix.bin')
+  assert.equal(got.byteLength, 8 * 256)
+  for (let i = 0; i < 8; i += 1) {
+    assert.equal(got[i * 256], i)
+  }
+  await volume.close()
+}
+
+async function testSectorCacheEvictsCleanKeepsDirty(): Promise<void> {
+  const image = new Uint8Array(32 * 1024)
+  const io = memoryDisk(image)
+  const cache = new SectorCache(image.byteLength, 4 * 512)
+  for (let i = 0; i < 24; i += 1) {
+    await cache.fill(io, i * 512, 512)
+    cache.read(i * 512, 512)
+  }
+  assert.ok(cache.residentSectorCount <= 4)
+
+  await cache.fill(io, 0, 512)
+  cache.write(0, new Uint8Array(512).fill(9))
+  for (let i = 1; i < 24; i += 1) {
+    await cache.fill(io, i * 512, 512)
+  }
+  assert.equal(cache.hasSector(0), true)
+  assert.equal(cache.dirtySectorCount, 1)
+}
+
+async function testFatInternalsAdapterRejectsBadShape(): Promise<void> {
+  assert.throws(() => adaptFatFileNode({} as never), /形状不符合预期/)
+  assert.throws(() => adaptFatClusterLayout({} as never), /缺少簇内容偏移/)
+}
+
 await testInMemoryFatVolume()
 await testMountWriteUnmountRemount()
 await testVmOccupancyBlocksMount()
@@ -494,4 +580,9 @@ await testUnmountFlushesDirtySectors()
 await testWriteBehindFlushesOnDemand()
 await testRangeWriteOnlyDirtiesHitSectors()
 await testBlankImageRangeIoAcceptance()
+await testFlushFailureKeepsDirtySectors()
+await testStreamWriteOverwritesWithoutOldTail()
+await testStreamWriteSerializesWithList()
+await testSectorCacheEvictsCleanKeepsDirty()
+await testFatInternalsAdapterRejectsBadShape()
 console.log('files-image-mount.test.ts ok')

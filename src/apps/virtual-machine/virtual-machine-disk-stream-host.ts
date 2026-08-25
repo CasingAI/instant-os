@@ -1,5 +1,5 @@
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
-import { openQuietBlobWriter } from '../files/files-quiet-blob-write.ts'
+import { openQuietBlobWriter, type QuietBlobWriter } from '../files/files-quiet-blob-write.ts'
 import {
   recordVmDiskStreamIo,
   releaseVmDiskStreamMetrics,
@@ -18,7 +18,18 @@ type StreamEntry = {
   path: string
   size: number
   writable: boolean
-  quietWriter: Awaited<ReturnType<typeof openQuietBlobWriter>>
+  quietWriter: QuietBlobWriter | undefined
+}
+
+export const OVERLAY_FLUSH_INTERVAL_MS = 50
+export const OVERLAY_FLUSH_DIRTY_BYTES = 256 * 1024
+export const OVERLAY_HIGH_WATER_BYTES = 4 * 1024 * 1024
+export const OVERLAY_LOW_WATER_BYTES = 1024 * 1024
+
+export type OverlayFlusher = {
+  afterWrite: () => void
+  acknowledgeGuestWrite: () => Promise<void>
+  flushUntilEmpty: () => Promise<void>
 }
 
 type DirtyRun = {
@@ -229,34 +240,18 @@ export class DirtyOverlay {
   }
 }
 
-function createOverlayFlusher(
+export function createOverlayFlusher(
   _streamId: string,
   entry: StreamEntry,
   overlay: DirtyOverlay,
-): () => Promise<void> {
-  const FLUSH_INTERVAL_MS = 50
-  const FLUSH_DIRTY_BYTES = 256 * 1024
+): OverlayFlusher {
   let timer: ReturnType<typeof setTimeout> | undefined
-  let flushing = false
+  let flushPromise: Promise<void> | undefined
 
-  async function flush(): Promise<void> {
-    if (flushing) return
-    if (overlay.dirtyBytes === 0) return
-    flushing = true
-    try {
-      const runs = overlay.takeRunsForFlush()
-      if (!entry.quietWriter) {
-        for (const run of runs) {
-          await filesWriteBytesRange(entry.path, run.offset, run.bytes)
-        }
-      } else {
-        for (const run of runs) {
-          await entry.quietWriter.writeAt(run.offset, run.bytes)
-        }
-        await entry.quietWriter.flush()
-      }
-    } finally {
-      flushing = false
+  function cancelSchedule(): void {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
     }
   }
 
@@ -264,17 +259,86 @@ function createOverlayFlusher(
     if (timer !== undefined) return
     timer = setTimeout(() => {
       timer = undefined
-      void flush()
-    }, FLUSH_INTERVAL_MS)
+      void flushRound()
+    }, OVERLAY_FLUSH_INTERVAL_MS)
   }
 
-  return async () => {
-    if (overlay.dirtyBytes >= FLUSH_DIRTY_BYTES) {
-      await flush()
+  async function persistRuns(runs: DirtyRun[]): Promise<void> {
+    let processed = 0
+    try {
+      if (!entry.quietWriter) {
+        for (const run of runs) {
+          await filesWriteBytesRange(entry.path, run.offset, run.bytes)
+          processed += 1
+        }
+        return
+      }
+      for (const run of runs) {
+        await entry.quietWriter.writeAt(run.offset, run.bytes)
+        processed += 1
+      }
+      try {
+        await entry.quietWriter.flush()
+      } catch (error) {
+        processed = 0
+        throw error
+      }
+    } catch (error) {
+      for (const run of runs.slice(processed)) {
+        overlay.write(run.offset, run.bytes)
+      }
+      throw error
+    }
+  }
+
+  function flushRound(maxBytes?: number): Promise<void> {
+    if (flushPromise) return flushPromise
+    if (overlay.dirtyBytes === 0) return Promise.resolve()
+    cancelSchedule()
+    const runs = overlay.takeRunsForFlush(maxBytes)
+    if (runs.length === 0) return Promise.resolve()
+    const pending = persistRuns(runs).finally(() => {
+      if (flushPromise === pending) {
+        flushPromise = undefined
+      }
+    })
+    flushPromise = pending
+    return pending
+  }
+
+  async function flushUntilEmpty(): Promise<void> {
+    cancelSchedule()
+    if (flushPromise) await flushPromise
+    while (overlay.dirtyBytes > 0) {
+      await flushRound()
+    }
+  }
+
+  async function flushUntilBelow(limit: number): Promise<void> {
+    cancelSchedule()
+    if (flushPromise) await flushPromise
+    while (overlay.dirtyBytes > limit) {
+      await flushRound(Math.max(OVERLAY_FLUSH_DIRTY_BYTES, overlay.dirtyBytes - limit))
+    }
+  }
+
+  function afterWrite(): void {
+    if (overlay.dirtyBytes >= OVERLAY_FLUSH_DIRTY_BYTES) {
+      void flushRound()
     } else if (overlay.dirtyBytes > 0) {
       schedule()
     }
   }
+
+  async function acknowledgeGuestWrite(): Promise<void> {
+    if (overlay.dirtyBytes > OVERLAY_HIGH_WATER_BYTES) {
+      await flushUntilBelow(OVERLAY_LOW_WATER_BYTES)
+      return
+    }
+    afterWrite()
+  }
+
+  return { afterWrite, acknowledgeGuestWrite, flushUntilEmpty }
 }
 
 async function readDiskRange(
@@ -345,7 +409,7 @@ async function readDiskRange(
 async function writeDiskRange(
   entry: StreamEntry,
   overlay: DirtyOverlay,
-  triggerFlush: () => Promise<void>,
+  flusher: OverlayFlusher,
   offset: number,
   bytes: ArrayBuffer,
 ): Promise<InstantVmDiskWriteResultMessage> {
@@ -361,7 +425,7 @@ async function writeDiskRange(
   }
   try {
     overlay.write(offset, new Uint8Array(bytes))
-    void triggerFlush()
+    await flusher.acknowledgeGuestWrite()
     return {
       type: INSTANT_VM_MESSAGE_TYPE.diskWriteResult,
       requestId: '',
@@ -390,7 +454,8 @@ function postSource(
 }
 
 const overlays = new Map<string, DirtyOverlay>()
-const flushers = new Map<string, () => Promise<void>>()
+const flushers = new Map<string, OverlayFlusher>()
+const releasingIds = new Set<string>()
 
 function onDiskStreamMessage(event: MessageEvent): void {
   const isRead = isInstantVmDiskReadMessage(event.data)
@@ -418,6 +483,36 @@ function onDiskStreamMessage(event: MessageEvent): void {
 
   void enqueueStreamWork(streamId, async () => {
     try {
+      if (releasingIds.has(streamId)) {
+        if (isInstantVmDiskWriteMessage(event.data)) {
+          postSource(
+            target,
+            {
+              type: INSTANT_VM_MESSAGE_TYPE.diskWriteResult,
+              requestId: event.data.requestId,
+              streamId: event.data.streamId,
+              status: 404,
+              totalSize: 0,
+            } satisfies InstantVmDiskWriteResultMessage,
+            event.origin,
+          )
+          return
+        }
+        if (isInstantVmDiskReadMessage(event.data)) {
+          postSource(
+            target,
+            {
+              type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
+              requestId: event.data.requestId,
+              streamId: event.data.streamId,
+              status: 404,
+              totalSize: 0,
+            } satisfies InstantVmDiskReadResultMessage,
+            event.origin,
+          )
+        }
+        return
+      }
       if (isInstantVmDiskWriteMessage(event.data)) {
         const write = event.data
         if (!entry) {
@@ -436,13 +531,13 @@ function onDiskStreamMessage(event: MessageEvent): void {
         }
         const overlay = overlays.get(streamId) ?? new DirtyOverlay()
         overlays.set(streamId, overlay)
-        let triggerFlush = flushers.get(streamId)
-        if (!triggerFlush) {
-          triggerFlush = createOverlayFlusher(streamId, entry, overlay)
-          flushers.set(streamId, triggerFlush)
+        let flusher = flushers.get(streamId)
+        if (!flusher) {
+          flusher = createOverlayFlusher(streamId, entry, overlay)
+          flushers.set(streamId, flusher)
         }
         const writeBytes = write.bytes.byteLength
-        const result = await writeDiskRange(entry, overlay, triggerFlush, write.offset, write.bytes)
+        const result = await writeDiskRange(entry, overlay, flusher, write.offset, write.bytes)
         if (result.status === 200) {
           recordVmDiskStreamIo({
             streamId,
@@ -546,39 +641,74 @@ export async function flushVirtualMachineDiskStream(streamId: string | undefined
   const overlay = overlays.get(streamId)
   const flusher = flushers.get(streamId)
   if (flusher) {
-    await flusher()
-  } else if (overlay) {
-    const entry = streams.get(streamId)
-    if (entry) {
-      const newFlusher = createOverlayFlusher(streamId, entry, overlay)
-      flushers.set(streamId, newFlusher)
-      await newFlusher()
-    }
+    await flusher.flushUntilEmpty()
+    return
   }
+  if (!overlay) return
+  const entry = streams.get(streamId)
+  if (!entry) return
+  const created = createOverlayFlusher(streamId, entry, overlay)
+  flushers.set(streamId, created)
+  await created.flushUntilEmpty()
+}
+
+async function drainStreamWork(streamId: string): Promise<void> {
+  for (;;) {
+    const tail = streamWorkTails.get(streamId)
+    if (!tail) return
+    await tail
+    if (streamWorkTails.get(streamId) === tail) return
+  }
+}
+
+export async function drainThenFlushThenClose(params: {
+  drain: () => Promise<void>
+  flushUntilEmpty: () => Promise<void>
+  close: () => Promise<void>
+}): Promise<void> {
+  await params.drain()
+  await params.flushUntilEmpty()
+  await params.close()
 }
 
 export async function releaseVirtualMachineDiskStream(streamId: string | undefined): Promise<void> {
   if (!streamId) {
     return
   }
-  await flushVirtualMachineDiskStream(streamId)
+  releasingIds.add(streamId)
   const entry = streams.get(streamId)
-  if (entry?.quietWriter) {
-    await entry.quietWriter.close()
+  const flusher = flushers.get(streamId)
+  try {
+    await drainThenFlushThenClose({
+      drain: () => drainStreamWork(streamId),
+      flushUntilEmpty: async () => {
+        if (flusher) {
+          await flusher.flushUntilEmpty()
+          return
+        }
+        const overlay = overlays.get(streamId)
+        if (!overlay || !entry) return
+        const created = createOverlayFlusher(streamId, entry, overlay)
+        flushers.set(streamId, created)
+        await created.flushUntilEmpty()
+      },
+      close: async () => {
+        if (entry?.quietWriter) {
+          await entry.quietWriter.close()
+        }
+      },
+    })
+  } finally {
+    streams.delete(streamId)
+    overlays.delete(streamId)
+    flushers.delete(streamId)
+    releasingIds.delete(streamId)
+    releaseVmDiskStreamMetrics(streamId)
+    streamWorkTails.delete(streamId)
   }
-  streams.delete(streamId)
-  overlays.delete(streamId)
-  flushers.delete(streamId)
-  releaseVmDiskStreamMetrics(streamId)
-  const tail = streamWorkTails.get(streamId)
-  if (!tail) {
-    return
-  }
-  await tail
-  streamWorkTails.delete(streamId)
 }
 
-export function releaseVirtualMachineDiskStreams(
+export async function releaseVirtualMachineDiskStreams(
   message: Partial<{
     hdaStream?: { id: string }
     hdbStream?: { id: string }
@@ -587,11 +717,13 @@ export function releaseVirtualMachineDiskStreams(
     fdbStream?: { id: string }
     stateStream?: { id: string }
   }>,
-): void {
-  void releaseVirtualMachineDiskStream(message.hdaStream?.id)
-  void releaseVirtualMachineDiskStream(message.hdbStream?.id)
-  void releaseVirtualMachineDiskStream(message.cdromStream?.id)
-  void releaseVirtualMachineDiskStream(message.fdaStream?.id)
-  void releaseVirtualMachineDiskStream(message.fdbStream?.id)
-  void releaseVirtualMachineDiskStream(message.stateStream?.id)
+): Promise<void> {
+  await Promise.all([
+    releaseVirtualMachineDiskStream(message.hdaStream?.id),
+    releaseVirtualMachineDiskStream(message.hdbStream?.id),
+    releaseVirtualMachineDiskStream(message.cdromStream?.id),
+    releaseVirtualMachineDiskStream(message.fdaStream?.id),
+    releaseVirtualMachineDiskStream(message.fdbStream?.id),
+    releaseVirtualMachineDiskStream(message.stateStream?.id),
+  ])
 }

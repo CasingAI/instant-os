@@ -512,6 +512,72 @@ export async function getFileBlobStorageInfo(
   }
 }
 
+/**
+ * 若正文仍在 IndexedDB，整份溢到 OPFS（不附加额外写入）。
+ * 已在 OPFS 或溢出失败时返回 false，不抛给调用方。
+ */
+export async function spillIdbBlobToOpfsIfNeeded(nodeId: string): Promise<boolean> {
+  if (!isOpfsAvailable()) return false
+  try {
+    const db = await openFilesDb()
+    const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+    const node = await requestToPromise(
+      tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
+    )
+    if (!node || node.kind !== 'file') {
+      await waitForTransaction(tx)
+      return false
+    }
+    const blobId = resolveNodeBlobId(node)
+    const blob = await requestToPromise(
+      tx.objectStore(FILES_BLOBS_STORE).get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+    )
+    await waitForTransaction(tx)
+    if (!blob) return false
+    if (isOpfsBlob(blob)) return true
+
+    const shared = resolveBlobRefCount(blob) > 1
+    const targetBlobId = shared ? newFilesBlobId() : blobId
+    const writer = await openOpfsBlobWriter(targetBlobId)
+    try {
+      await copyIdbBlobToOpfsWriter(blobId, blob, writer)
+      await writer.close()
+    } catch (error) {
+      await writer.abort()
+      await deleteOpfsBlobs([targetBlobId])
+      throw error
+    }
+
+    const writeTx = beginIdbTransaction(
+      db,
+      [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE],
+      'readwrite',
+    )
+    if (shared) {
+      writeTx.objectStore(FILES_NODES_STORE).put({ ...node, blobId: targetBlobId })
+      writeTx
+        .objectStore(FILES_BLOBS_STORE)
+        .put(opfsBlobIndexRecord(targetBlobId, node.byteSize, 1))
+      const releasedOpfs = await releaseBlobRefInTx(writeTx, blobId, blob)
+      await waitForTransaction(writeTx)
+      await deleteOpfsBlobs([releasedOpfs])
+    } else {
+      if (blob.chunked === true) {
+        await deleteBlobChunksInTx(writeTx, blobId)
+      }
+      writeTx
+        .objectStore(FILES_BLOBS_STORE)
+        .put(opfsBlobIndexRecord(blobId, node.byteSize, resolveBlobRefCount(blob)))
+      await waitForTransaction(writeTx)
+    }
+    emitFilesDataStorageChanged()
+    return true
+  } catch (error) {
+    console.warn('[files] IndexedDB 正文溢到 OPFS 失败', error)
+    return false
+  }
+}
+
 /** 测试用：查看文件节点当前 blob 引用 */
 export async function getFileBlobRefForTests(
   nodeId: string,

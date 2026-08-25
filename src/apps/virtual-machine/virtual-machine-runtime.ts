@@ -115,6 +115,7 @@ export function isUnsolicitedVmStopped(message: {
 export const DISK_WRITE_FAILED_FORCE_STOP_MS = 30_000
 export const DISK_WRITE_FAILED_FORCE_STOP_HINT =
   '硬盘回写失败，已强制标记为已关机；镜像可能不完整'
+export const DISK_IMAGE_INCOMPLETE_HINT = '硬盘回写未完成，镜像可能不完整'
 
 export function createDiskWriteFailedWatchdog(options: {
   delayMs?: number
@@ -460,6 +461,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
   const [startedIds, setStartedIds] = useState<ReadonlySet<string>>(new Set())
   const [hints, setHints] = useState<ReadonlyMap<string, string>>(new Map())
   const runningIdsRef = useRef(new Set<string>())
+  const startMessagesRef = useRef(new Map<string, InstantVmStartMessage>())
   const apiByIdRef = useRef(new Map<string, VmRuntimeApi>())
   const watchdogRef = useRef<{ cancel: (id: string) => void; arm: (id: string) => void } | undefined>(
     undefined,
@@ -470,20 +472,25 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     setRunningIds([...runningIdsRef.current])
   }, [])
 
-  const removeRunningId = useCallback((id: string) => {
+  const removeRunningId = useCallback(async (id: string) => {
     watchdogRef.current?.cancel(id)
+    const message = startMessagesRef.current.get(id)
+    let releaseError: unknown
+    try {
+      if (message) {
+        await releaseVirtualMachineDiskStreams(message)
+      }
+    } catch (error) {
+      releaseError = error
+      console.error('[vm] 释放磁盘流失败', id, error)
+    }
     releaseVirtualMachineDiskImageOccupancy(id)
     runningIdsRef.current.delete(id)
     setRunningIds([...runningIdsRef.current])
-    setStartMessages((current) => {
-      const next = new Map(current)
-      const message = next.get(id)
-      if (message) {
-        releaseVirtualMachineDiskStreams(message)
-      }
-      next.delete(id)
-      return next
-    })
+    const nextMessages = new Map(startMessagesRef.current)
+    nextMessages.delete(id)
+    startMessagesRef.current = nextMessages
+    setStartMessages(nextMessages)
     setSnapshots((current) => {
       const next = new Map(current)
       next.delete(id)
@@ -499,6 +506,9 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
       next.delete(id)
       return next
     })
+    if (releaseError !== undefined) {
+      throw releaseError instanceof Error ? releaseError : new Error(String(releaseError))
+    }
   }, [])
 
   const diskWriteFailedWatchdog = useMemo(
@@ -506,8 +516,11 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
       createDiskWriteFailedWatchdog({
         isRunning: (id) => runningIdsRef.current.has(id),
         onForceStop: (id) => {
-          removeRunningId(id)
-          setHints((current) => new Map(current).set(id, DISK_WRITE_FAILED_FORCE_STOP_HINT))
+          void removeRunningId(id)
+            .catch(() => undefined)
+            .finally(() => {
+              setHints((current) => new Map(current).set(id, DISK_WRITE_FAILED_FORCE_STOP_HINT))
+            })
         },
       }),
     [removeRunningId],
@@ -536,14 +549,19 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
 
   const onGuestPoweredOff = useCallback(
     (id: string) => {
-      removeRunningId(id)
+      void removeRunningId(id).catch(() => {
+        setHints((current) => new Map(current).set(id, DISK_IMAGE_INCOMPLETE_HINT))
+      })
     },
     [removeRunningId],
   )
 
   const onBootError = useCallback((id: string, message: string) => {
-    removeRunningId(id)
-    setHints((current) => new Map(current).set(id, message))
+    void removeRunningId(id)
+      .catch(() => undefined)
+      .finally(() => {
+        setHints((current) => new Map(current).set(id, message))
+      })
   }, [removeRunningId])
 
   const boot = useCallback(
@@ -556,9 +574,12 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
       addRunningId(id)
       setHints((current) => new Map(current).set(id, '正在读取镜像…'))
       console.log('[vm-boot] loading disks', id)
+      let disks:
+        | Awaited<ReturnType<typeof loadVirtualMachineDisks>>
+        | undefined
       try {
         claimVirtualMachineDiskImageOccupancy(id, machine.devices)
-        const disks = await withTimeout(
+        disks = await withTimeout(
           loadVirtualMachineDisks(machine),
           DISK_LOAD_TIMEOUT_MS,
           '读取镜像',
@@ -566,19 +587,33 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
         console.log('[vm-boot] disks loaded', id, diskPresence(disks))
         if (!runningIdsRef.current.has(id)) {
           console.log('[vm-boot] machine stopped before start message built', id)
+          await releaseVirtualMachineDiskStreams(disks)
           releaseVirtualMachineDiskImageOccupancy(id)
           return
         }
         setHints((current) => new Map(current).set(id, '正在启动模拟器…'))
         const message = buildStartMessage(newVmRequestId(), machine, disks)
         console.log('[vm-boot] built start message', id, message.requestId)
-        setStartMessages((current) => new Map(current).set(id, message))
+        const nextMessages = new Map(startMessagesRef.current).set(id, message)
+        startMessagesRef.current = nextMessages
+        setStartMessages(nextMessages)
         if (machine.network !== 'none' && machine.networkBackend === 'off') {
           setHints((current) => new Map(current).set(id, '已挂网卡但未选网络后端，按离线启动'))
         }
       } catch (error) {
         console.error('[vm-boot] failed', id, error)
-        removeRunningId(id)
+        if (disks && !startMessagesRef.current.has(id)) {
+          try {
+            await releaseVirtualMachineDiskStreams(disks)
+          } catch (releaseError) {
+            console.error('[vm] 启动失败后释放磁盘流失败', id, releaseError)
+          }
+        }
+        try {
+          await removeRunningId(id)
+        } catch (releaseError) {
+          console.error('[vm] 启动失败后清理运行态失败', id, releaseError)
+        }
         throw error instanceof Error ? error : new Error(String(error))
       }
     },
@@ -596,7 +631,11 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
           await api.stop()
         }
       } finally {
-        removeRunningId(id)
+        try {
+          await removeRunningId(id)
+        } catch {
+          setHints((current) => new Map(current).set(id, DISK_IMAGE_INCOMPLETE_HINT))
+        }
       }
     },
     [removeRunningId],

@@ -285,12 +285,16 @@ export async function openImageStreamWrite(params: {
   parentId: string | undefined
   name: string
   isNew: boolean
+  expectedSize?: number
 }): Promise<FilesStreamWriter> {
   const parentPath = dirPathFromParent(params.parentId)
   const path = joinFatRelativePath(parentPath, params.name)
   const locationId = requireLocation(params.locationId)
   const volume = getImageVolume(locationId)
-  const writer = await volume.streamWriteFile(path)
+  const writer = await volume.streamWriteFile(path, {
+    isNew: params.isNew,
+    expectedSize: params.expectedSize,
+  })
   let aborted = false
   let closed = false
   return {

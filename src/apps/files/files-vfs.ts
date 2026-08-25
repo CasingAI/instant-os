@@ -245,6 +245,11 @@ async function emitNodeModified(node: FilesNode): Promise<void> {
   emitFilesVfsChanged({ kind: 'modified', path })
 }
 
+/** 按绝对路径派发 modified；安静写入关闭等不经过整文件保存的路径使用。 */
+export function emitFilesVfsPathModified(path: string): void {
+  emitFilesVfsChanged({ kind: 'modified', path })
+}
+
 /** 记录数据读（路径异步解析，不阻塞返回；含 0 字节以统计次数） */
 function recordFilesIoRead(
   node: FilesNode,
@@ -1348,6 +1353,7 @@ export async function openStreamWrite(params: {
       parentId: node.parentId,
       name: node.name,
       isNew,
+      expectedSize,
     })
   } else {
     writer = await openStreamWriteBlob({

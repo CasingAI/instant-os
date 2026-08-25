@@ -11,6 +11,7 @@ import {
 } from './virtual-machine-config.ts'
 import {
   registerVirtualMachineDiskStream,
+  releaseVirtualMachineDiskStream,
 } from './virtual-machine-disk-stream-host.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
@@ -307,32 +308,47 @@ export async function loadVirtualMachineDisks(
   settings: Pick<VirtualMachineSettings, 'devices' | 'diskWriteMode'>,
 ): Promise<Partial<Pick<InstantVmStartMessage, SlotName | `${SlotName}Blob` | `${SlotName}Url` | `${SlotName}Stream`>>> {
   const assignments = assignDevicesToSlots(settings.devices)
-  const loaded = await Promise.all(
-    assignments.map(async (assignment) => ({
-      slot: assignment.slot,
-      ...await loadDisk(assignment.device.path, assignment.label, {
+  const loadedStreams: InstantVmDiskStreamRef[] = []
+  const results = await Promise.allSettled(
+    assignments.map(async (assignment) => {
+      const loaded = await loadDisk(assignment.device.path, assignment.label, {
         persist: virtualMachineDiskPersistsWrites(
           assignment.device.type,
           settings.diskWriteMode,
         ),
         stream: assignment.device.type !== 'state',
-      }),
-    })),
+      })
+      if (loaded.stream) {
+        loadedStreams.push(loaded.stream)
+      }
+      return { slot: assignment.slot, ...loaded }
+    }),
   )
+  const firstError = results.find((item) => item.status === 'rejected')
+  if (firstError) {
+    await Promise.all(
+      loadedStreams.map((stream) =>
+        releaseVirtualMachineDiskStream(stream.id).catch(() => undefined),
+      ),
+    )
+    throw firstError.reason
+  }
   const result: Partial<Pick<InstantVmStartMessage, SlotName | `${SlotName}Blob` | `${SlotName}Url` | `${SlotName}Stream`>> = {}
-  for (const item of loaded) {
-    const slot = item.slot
-    if (item.buffer) {
-      result[slot] = item.buffer
+  for (const item of results) {
+    if (item.status !== 'fulfilled') continue
+    const loaded = item.value
+    const slot = loaded.slot
+    if (loaded.buffer) {
+      result[slot] = loaded.buffer
     }
-    if (item.blob) {
-      result[`${slot}Blob`] = item.blob
+    if (loaded.blob) {
+      result[`${slot}Blob`] = loaded.blob
     }
-    if (item.url) {
-      result[`${slot}Url`] = item.url
+    if (loaded.url) {
+      result[`${slot}Url`] = loaded.url
     }
-    if (item.stream) {
-      result[`${slot}Stream`] = item.stream
+    if (loaded.stream) {
+      result[`${slot}Stream`] = loaded.stream
     }
   }
   return result
