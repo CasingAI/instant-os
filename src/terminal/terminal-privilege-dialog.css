@@ -4,7 +4,9 @@
   position: fixed;
   inset: 0;
   z-index: 12000;
-  pointer-events: none;
+  /* 必须压过 .floating-overlay-root > * 的 pe:auto：那条规则随懒加载分包更晚注入，
+     同优先级下会反超，令关闭态宿主变成整屏挡点击 */
+  pointer-events: none !important;
 }
 
 .terminal-privilege-host .window-modal-backdrop {
