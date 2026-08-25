@@ -37,6 +37,15 @@ import {
   writeVersionsPackageIndex,
   type GeneratedAppVersionManifest,
 } from './generated-app-versions-layout.ts'
+import {
+  buildIcodeTsxTemplateFiles,
+  bundleProjectToSingleFile,
+  detectProjectEntry,
+  isAssetPath,
+  PROJECT_DIST_PRODUCT,
+  PROJECT_ENTRY_FILE,
+} from '../apps/icode/icode-project-build.ts'
+
 export const ICODE_APP_ENTRY_FILE = 'index.html'
 
 const TEXT_FILE_EXTENSIONS = new Set([
@@ -74,7 +83,7 @@ export function icodeVersionManifestFromIdentity(
   }
 }
 
-/** 静态网站默认骨架（第一期；第四期新应用默认换成 TSX 工程骨架） */
+/** 静态网站骨架（旧草稿自愈模板；旧应用保持网页形态，不强制迁移） */
 export function buildIcodeHtmlTemplateFiles(identity: IcodeAppIdentity): Array<{ path: string; text: string }> {
   const escaped = identity.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return [
@@ -160,8 +169,13 @@ export async function createIcodeManagedAppPackage(input: {
     },
   })
 
-  const files = input.templateFiles ?? buildIcodeHtmlTemplateFiles(input.identity)
-  await writeDraftManifest(input.appId, icodeVersionManifestFromIdentity(input.identity))
+  // 新 iCode 应用默认按 TSX 工程生成（约定入口 + 最小骨架 + 引用系统 Preact）
+  const files =
+    input.templateFiles ?? buildIcodeTsxTemplateFiles(input.identity)
+  await writeDraftManifest(input.appId, {
+    ...icodeVersionManifestFromIdentity(input.identity),
+    entry: PROJECT_ENTRY_FILE,
+  })
   for (const file of files) {
     await writeDraftTextFile({ appId: input.appId, relativePath: file.path, text: file.text })
   }
@@ -204,8 +218,8 @@ export async function ensureIcodeDraftSnapshot(
       tags: [],
     }
     return {
-      manifest: icodeVersionManifestFromIdentity(identity),
-      files: buildIcodeHtmlTemplateFiles(identity),
+      manifest: { ...icodeVersionManifestFromIdentity(identity), entry: PROJECT_ENTRY_FILE },
+      files: buildIcodeTsxTemplateFiles(identity),
     }
   })
 
@@ -253,6 +267,59 @@ export async function saveIcodeDraftSnapshot(
 /** 发布：草稿升格为新最大号并只读，立刻再拷新草稿。返回新正式号。 */
 export function publishIcodeAppDraft(appId: GeneratedAppId): Promise<number> {
   return publishDraftToNewFormalVersion(appId)
+}
+
+export type IcodeBundleOutcome =
+  | { kind: 'static' }
+  | { kind: 'bundled' }
+  | { kind: 'failed'; error: string }
+
+/**
+ * 发布收口（第四期 3.2/3.7）：升格之后立刻从该正式号源码在用户浏览器里用
+ * esbuild-wasm 打成一份单文件，写入该号约定产物目录 Dist（与源码同夹共存、只读）。
+ * 静态树无需产物；工程树打包失败则这一号没有产物（桌面明确失败态，不假装成功）。
+ */
+export async function bundleIcodeFormalVersion(
+  appId: GeneratedAppId,
+  version: number,
+): Promise<IcodeBundleOutcome> {
+  const manifest = await readVersionManifest(appId, version)
+  const files = new Map<string, string>()
+  const assets = new Map<string, Uint8Array>()
+  for (const file of await listVersionTreeFiles(appId, version)) {
+    if (file.path === PROJECT_DIST_PRODUCT || file.path.startsWith(`${PROJECT_DIST_PRODUCT.slice(0, PROJECT_DIST_PRODUCT.indexOf('/'))}/`)) {
+      continue
+    }
+    if (isAssetPath(file.path)) {
+      const bytes = await readVersionFileBytes(appId, version, file.path)
+      if (bytes !== undefined) assets.set(file.path, bytes)
+    } else {
+      const text = await readVersionFileText(appId, version, file.path)
+      if (text !== undefined) files.set(file.path, text)
+    }
+  }
+
+  const entry = detectProjectEntry(
+    manifest?.entry,
+    (path) => files.has(path) || assets.has(path),
+  )
+  if (!entry) {
+    return { kind: 'static' }
+  }
+
+  const result = await bundleProjectToSingleFile({ entryPath: entry, files, assets })
+  if (!result.ok) {
+    return { kind: 'failed', error: result.error }
+  }
+  await writeVersionTextFile({
+    appId,
+    dirName: String(version),
+    relativePath: PROJECT_DIST_PRODUCT,
+    text: result.html,
+    mimeType: 'text/html',
+    writable: false,
+  })
+  return { kind: 'bundled' }
 }
 
 // ---- 聊天（版本树之外，绑在应用上） ----

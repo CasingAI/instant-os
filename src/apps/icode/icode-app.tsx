@@ -7,6 +7,12 @@ import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { buildSiteDocument, EMPTY_SITE_DOCUMENT } from '../generated/generated-app-site-html.ts'
+import {
+  buildProjectErrorDocument,
+  buildProjectPreviewDocument,
+  detectProjectEntry,
+} from './icode-project-build.ts'
+import { readVersionFileBytes } from '../../os/generated-app-versions-layout.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from '../../os/experimental-settings-storage.ts'
 import {
   isGeneratedAppStorageMessage,
@@ -564,14 +570,79 @@ export function ICodeApp() {
     setPreviewEpoch((epoch) => epoch + 1)
   }, [linkedAppDataRevision, session?.appId])
 
+  // 第四期：工程树（有 main.tsx / 清单入口）→ 预览按模块转译，保持多文件形态
+  const projectEntryPath = session
+    ? detectProjectEntry(
+        session.manifest.entry,
+        (path) =>
+          session.files.some((file) => file.path === path) ||
+          session.binaryFiles.some((file) => file.path === path),
+      )
+    : undefined
+
+  const [projectPreviewDoc, setProjectPreviewDoc] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (!session || !projectEntryPath) {
+      setProjectPreviewDoc(undefined)
+      return
+    }
+    let alive = true
+    void (async () => {
+      const assets = new Map<string, Uint8Array>()
+      for (const asset of session.binaryFiles) {
+        const bytes = await readVersionFileBytes(session.appId, 'Draft', asset.path)
+        if (bytes !== undefined) {
+          assets.set(asset.path, bytes)
+        }
+      }
+      const files = new Map(session.files.map((file) => [file.path, file.text] as const))
+      const result = await buildProjectPreviewDocument({
+        entryPath: projectEntryPath,
+        files,
+        assets,
+      })
+      if (!alive) {
+        return
+      }
+      if (result.ok) {
+        setProjectPreviewDoc(result.html)
+        return
+      }
+      // 转译/解析失败：预览能看见原因（模型也能读到并自修）
+      const message = `工程预览构建失败：\n${result.error}`
+      console.error(message)
+      setProjectPreviewDoc(
+        buildProjectErrorDocument('预览构建失败', `<pre>${result.error.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch] ?? ch)}</pre>`),
+      )
+    })()
+    return () => {
+      alive = false
+    }
+  }, [session, projectEntryPath, previewEpoch])
+
+  const previewEntryPath = session ? entryPathForSession(session) : undefined
+  const hasPreviewContent = projectEntryPath
+    ? projectPreviewDoc !== undefined
+    : Boolean(
+        session && previewEntryPath && session.files.some((file) => file.path === previewEntryPath),
+      )
+
   const preparedHtml = useMemo(() => {
     if (!session || !runtimeAppId || !previewAppId || !previewHeartbeatWindowId) {
       return undefined
     }
-    const entry = entryPathForSession(session)
-    const document =
-      buildSiteDocument({ entryPath: entry, resources: filesToResources(session.files) }) ??
-      EMPTY_SITE_DOCUMENT
+    let document: string | undefined
+    if (projectEntryPath) {
+      document = projectPreviewDoc
+    } else {
+      const entry = entryPathForSession(session)
+      document =
+        buildSiteDocument({ entryPath: entry, resources: filesToResources(session.files) }) ??
+        EMPTY_SITE_DOCUMENT
+    }
+    if (document === undefined) {
+      return undefined
+    }
     const runtimeHtml = prepareIcodePreviewHtml(
       document,
       runtimeAppId,
@@ -592,15 +663,12 @@ export function ICodeApp() {
     previewEpoch,
     previewHeartbeatWindowId,
     processIsolated,
+    projectEntryPath,
+    projectPreviewDoc,
     runtimeAppId,
     session,
     session?.files,
   ])
-
-  const previewEntryPath = session ? entryPathForSession(session) : undefined
-  const hasPreviewContent = Boolean(
-    session && previewEntryPath && session.files.some((file) => file.path === previewEntryPath),
-  )
 
   const previewRemountKey = previewAppId
     ? `${previewAppId}-${previewEpoch}-${processIsolated ? 'iso' : 'std'}`

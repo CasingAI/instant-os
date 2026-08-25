@@ -44,7 +44,8 @@
     "vendor:quickjs-guest": "node scripts/vendor-quickjs-guest-builtins.mjs",
     "typecheck": "tsc -b --noEmit",
     "prepare": "simple-git-hooks",
-    "test:icode-versions": "node --experimental-strip-types src/os/generated-app-versions-layout.test.ts && node --experimental-strip-types src/apps/generated/generated-app-site-html.test.ts"
+    "test:icode-versions": "node --experimental-strip-types src/os/generated-app-versions-layout.test.ts && node --experimental-strip-types src/apps/generated/generated-app-site-html.test.ts",
+    "test:icode-project-build": "node --experimental-strip-types src/apps/icode/icode-project-build.test.ts && node --experimental-strip-types src/os/icode-managed-apps-publish.test.ts"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm typecheck"
@@ -74,6 +75,7 @@
     "d3-hierarchy": "^3.1.2",
     "docx-preview": "^0.4.0",
     "dompurify": "^3.4.9",
+    "esbuild-wasm": "^0.28.2",
     "fflate": "^0.8.3",
     "frimousse": "^0.3.0",
     "hash-wasm": "^4.12.0",

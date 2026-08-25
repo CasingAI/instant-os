@@ -196,13 +196,15 @@ type RewriteContext = {
   resources: Map<string, Uint8Array>
   processedPages: Map<string, string>
   fetchMap: Record<string, string>
+  /** 覆盖资源查找（工程树 CSS 内联用；优先于 resources） */
+  resolveOverride?: (path: string | undefined) => Uint8Array | undefined
 }
 
 function cssUrlReplacement(referrerPath: string, rawRef: string, context: RewriteContext): string | undefined {
   if (isExternalUrl(rawRef)) return undefined
   const resolved = resolveSiteRef(referrerPath, rawRef)
   if (resolved === undefined) return undefined
-  const bytes = context.resources.get(resolved)
+  const bytes = context.resolveOverride?.(resolved) ?? context.resources.get(resolved)
   if (bytes === undefined) return undefined
   return toDataUrl(bytes, resolved)
 }
@@ -224,6 +226,20 @@ function rewriteCssText(css: string, referrerPath: string, context: RewriteConte
     },
   )
   return output
+}
+
+/** 工程树（第四期）CSS 资源内联：把 url()/@import 按资源表解析为 data: URL */
+export function inlineCssAssetRefs(params: {
+  css: string
+  referrerPath: string
+  resolveBytes: (path: string | undefined) => Uint8Array | undefined
+}): string {
+  return rewriteCssText(params.css, params.referrerPath, {
+    resources: new Map(),
+    processedPages: new Map(),
+    fetchMap: {},
+    resolveOverride: params.resolveBytes,
+  } as RewriteContext)
 }
 
 function rewriteSrcset(

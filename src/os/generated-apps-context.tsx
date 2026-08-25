@@ -35,6 +35,7 @@ import { clearGeneratedAppData } from './generated-app-data-storage.ts'
 import { loadInstalledApps, saveInstalledApps } from './generated-apps-storage.ts'
 import { hydrateInstalledAppsFromFiles, rebuildVersionsLayoutRecord } from './generated-apps-store.ts'
 import {
+  bundleIcodeFormalVersion,
   copyInstalledAppToIcodePackage,
   createIcodeManagedAppPackage,
   migrateLegacyIcodeInternalProjectsOnce,
@@ -844,6 +845,12 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     async (appId: GeneratedAppId): Promise<number | undefined> => {
       try {
         const version = await publishIcodeAppDraft(appId)
+        // 升格之后立刻在用户浏览器里打单文件写入该号 Dist；
+        // 工程树打包失败则该号无产物（桌面明确失败态），版本与草稿保持完好
+        const bundle = await bundleIcodeFormalVersion(appId, version)
+        if (bundle.kind === 'failed') {
+          console.error('[icode] 发布打包失败', bundle.error)
+        }
         await refreshIcodeManagedApp(appId)
         return version
       } catch (error) {
