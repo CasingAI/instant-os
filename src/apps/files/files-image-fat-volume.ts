@@ -734,6 +734,8 @@ export class FatImageVolume {
         const file = root.makeFile(relativePath)
         if (!file) throw new Error('无法写入文件')
         if (!isNew) {
+          // 覆盖已有文件：打开阶段立即截断原内容。
+          // 若后续 write/close 前调用 abort()，文件会保持为空；调用方应自行保证可接受此语义。
           const trunc = file.open()
           if (!trunc) throw new Error('无法写入文件')
           trunc.writeData(new Uint8Array(0))

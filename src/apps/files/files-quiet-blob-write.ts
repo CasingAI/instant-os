@@ -42,7 +42,9 @@ export async function openQuietBlobWriter(
   if (!info) return undefined
   if (info.bodyStore !== 'OPFS') {
     if (!isOpfsAvailable()) return undefined
-    const spilled = await spillIdbBlobToOpfsIfNeeded(node.id)
+    const spilled = await spillIdbBlobToOpfsIfNeeded(node.id, {
+      onSpilled: () => emitFilesVfsPathModified(path),
+    })
     if (!spilled) {
       console.warn('[files] 安静写入通道无法打开：正文仍在 IndexedDB', path)
       return undefined

@@ -546,8 +546,12 @@ export async function getFileBlobStorageInfo(
 /**
  * 若正文仍在 IndexedDB，整份溢到 OPFS（不附加额外写入）。
  * 已在 OPFS 或溢出失败时返回 false，不抛给调用方。
+ * 溢出成功且调用方提供 onSpilled 时，会在事务提交后调用它（供安静写入通道刷新 VFS 缓存）。
  */
-export async function spillIdbBlobToOpfsIfNeeded(nodeId: string): Promise<boolean> {
+export async function spillIdbBlobToOpfsIfNeeded(
+  nodeId: string,
+  options?: { onSpilled?: () => void },
+): Promise<boolean> {
   if (!isOpfsAvailable()) return false
   try {
     const db = await openFilesDb()
@@ -602,6 +606,7 @@ export async function spillIdbBlobToOpfsIfNeeded(nodeId: string): Promise<boolea
       await waitForTransaction(writeTx)
     }
     emitFilesDataStorageChanged()
+    options?.onSpilled?.()
     return true
   } catch (error) {
     console.warn('[files] IndexedDB 正文溢到 OPFS 失败', error)

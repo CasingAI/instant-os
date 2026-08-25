@@ -10,6 +10,7 @@ import {
   diskWriteReplyStatus,
   drainThenFlushThenClose,
   DirtyOverlay,
+  OVERLAY_FLUSH_MAX_ATTEMPTS,
   OVERLAY_HIGH_WATER_BYTES,
   OVERLAY_LOW_WATER_BYTES,
 } from './virtual-machine-disk-stream-host.ts'
@@ -244,6 +245,93 @@ async function testOverlayBackpressureFlushesBeforeAck(): Promise<void> {
   assert.ok(overlay.dirtyBytes <= OVERLAY_LOW_WATER_BYTES)
 }
 
+async function testFlushUntilEmptySerializesConcurrentCallers(): Promise<void> {
+  const overlay = new DirtyOverlay()
+  overlay.write(0, new Uint8Array([1, 2, 3, 4]))
+  overlay.write(512, new Uint8Array([5, 6, 7, 8]))
+  let rounds = 0
+  const flusher = createOverlayFlusher(
+    's5',
+    stubEntry(
+      stubWriter({
+        async flush() {
+          rounds += 1
+          await new Promise((resolve) => setTimeout(resolve, 5))
+        },
+      }),
+    ),
+    overlay,
+  )
+  await Promise.all([flusher.flushUntilEmpty(), flusher.flushUntilEmpty(), flusher.flushUntilEmpty()])
+  assert.equal(rounds, 1)
+  assert.equal(overlay.dirtyBytes, 0)
+}
+
+async function testFlushUntilEmptyGivesUpAfterMaxAttempts(): Promise<void> {
+  const overlay = new DirtyOverlay()
+  overlay.write(0, new Uint8Array([1, 2, 3, 4]))
+  const flusher = createOverlayFlusher(
+    's6',
+    stubEntry(
+      stubWriter({
+        async writeAt() {
+          throw new Error('disk full')
+        },
+      }),
+    ),
+    overlay,
+  )
+  await assert.rejects(() => flusher.flushUntilEmpty(), /已中止/)
+  assert.equal(overlay.dirtyBytes, 4)
+}
+
+async function testFlushFailureRecoversOnRetry(): Promise<void> {
+  const overlay = new DirtyOverlay()
+  overlay.write(0, new Uint8Array([1, 2, 3, 4]))
+  let remainingFails = OVERLAY_FLUSH_MAX_ATTEMPTS
+  const flusher = createOverlayFlusher(
+    's7',
+    stubEntry(
+      stubWriter({
+        async writeAt() {
+          if (remainingFails > 0) {
+            remainingFails -= 1
+            throw new Error('transient')
+          }
+        },
+      }),
+    ),
+    overlay,
+  )
+  await assert.rejects(() => flusher.flushUntilEmpty(), /已中止/)
+  assert.equal(overlay.dirtyBytes, 4)
+  await flusher.flushUntilEmpty()
+  assert.equal(overlay.dirtyBytes, 0)
+}
+
+async function testFlushUntilEmptyKeepsReadDuringBackpressure(): Promise<void> {
+  const overlay = new DirtyOverlay()
+  overlay.write(0, new Uint8Array(OVERLAY_HIGH_WATER_BYTES + 16))
+  assert.equal(diskReadReplyStatus({ size: OVERLAY_HIGH_WATER_BYTES + 4096 }, 0, 16), 206)
+  const hit = overlay.read(0, 16)
+  assert.ok(hit)
+  const flusher = createOverlayFlusher(
+    's8',
+    stubEntry(
+      stubWriter({
+        async flush() {
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        },
+      }),
+    ),
+    overlay,
+  )
+  const ack = flusher.acknowledgeGuestWrite()
+  assert.equal(diskReadReplyStatus({ size: OVERLAY_HIGH_WATER_BYTES + 4096 }, 0, 16), 206)
+  await ack
+  assert.ok(overlay.dirtyBytes <= OVERLAY_LOW_WATER_BYTES)
+}
+
 testMissingStreamIs404()
 testReadonlyStreamIs403()
 testOutOfRangeIs416()
@@ -258,4 +346,8 @@ await testFlusherRestoresAllRunsWhenPersistFlushFails()
 await testFlusherSerializesConcurrentFlush()
 await testReleaseDrainsThenFlushesThenCloses()
 await testOverlayBackpressureFlushesBeforeAck()
+await testFlushUntilEmptySerializesConcurrentCallers()
+await testFlushUntilEmptyGivesUpAfterMaxAttempts()
+await testFlushFailureRecoversOnRetry()
+await testFlushUntilEmptyKeepsReadDuringBackpressure()
 console.log('virtual-machine-disk-stream-host.test.ts ok')

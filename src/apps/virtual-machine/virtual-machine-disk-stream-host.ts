@@ -41,7 +41,7 @@ const streams = new Map<string, StreamEntry>()
 const streamWorkTails = new Map<string, Promise<void>>()
 let listenerInstalled = false
 
-function enqueueStreamWork<T>(streamId: string, work: () => Promise<T>): Promise<T> {
+export function enqueueStreamWork<T>(streamId: string, work: () => Promise<T>): Promise<T> {
   const previous = streamWorkTails.get(streamId) ?? Promise.resolve()
   const current = previous.then(work, work)
   streamWorkTails.set(
@@ -240,6 +240,8 @@ export class DirtyOverlay {
   }
 }
 
+export const OVERLAY_FLUSH_MAX_ATTEMPTS = 5
+
 export function createOverlayFlusher(
   _streamId: string,
   entry: StreamEntry,
@@ -247,6 +249,7 @@ export function createOverlayFlusher(
 ): OverlayFlusher {
   let timer: ReturnType<typeof setTimeout> | undefined
   let flushPromise: Promise<void> | undefined
+  let flushUntilEmptyPromise: Promise<void> | undefined
 
   function cancelSchedule(): void {
     if (timer !== undefined) {
@@ -307,15 +310,38 @@ export function createOverlayFlusher(
   }
 
   async function flushUntilEmpty(): Promise<void> {
-    cancelSchedule()
-    if (flushPromise) await flushPromise
-    while (overlay.dirtyBytes > 0) {
-      await flushRound()
-    }
+    if (flushUntilEmptyPromise) return flushUntilEmptyPromise
+    flushUntilEmptyPromise = (async () => {
+      try {
+        cancelSchedule()
+        if (flushPromise) {
+          try {
+            await flushPromise
+          } catch {
+            // 进行中的一轮已把未落盘段写回覆盖层，下面按失败次数重试
+          }
+        }
+        let failures = 0
+        while (overlay.dirtyBytes > 0) {
+          try {
+            await flushRound()
+          } catch {
+            failures += 1
+            if (failures >= OVERLAY_FLUSH_MAX_ATTEMPTS) {
+              throw new Error('覆盖层刷盘失败次数过多，已中止')
+            }
+          }
+        }
+      } finally {
+        flushUntilEmptyPromise = undefined
+      }
+    })()
+    return flushUntilEmptyPromise
   }
 
   async function flushUntilBelow(limit: number): Promise<void> {
     cancelSchedule()
+    if (flushUntilEmptyPromise) await flushUntilEmptyPromise
     if (flushPromise) await flushPromise
     while (overlay.dirtyBytes > limit) {
       await flushRound(Math.max(OVERLAY_FLUSH_DIRTY_BYTES, overlay.dirtyBytes - limit))
@@ -706,6 +732,10 @@ export async function releaseVirtualMachineDiskStream(streamId: string | undefin
     releaseVmDiskStreamMetrics(streamId)
     streamWorkTails.delete(streamId)
   }
+}
+
+export function countVirtualMachineDiskStreams(): number {
+  return streams.size
 }
 
 export async function releaseVirtualMachineDiskStreams(

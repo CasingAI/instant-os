@@ -525,6 +525,18 @@ async function testStreamWriteOverwritesWithoutOldTail(): Promise<void> {
   await volume.close()
 }
 
+async function testStreamWriteOverwriteAbortLeavesEmpty(): Promise<void> {
+  const volume = new FatImageVolume(memoryDisk(createFat12Image()))
+  await volume.prepare()
+  await volume.writeFile('cover.bin', new Uint8Array(2048).fill(1))
+  const writer = await volume.streamWriteFile('cover.bin', { isNew: false })
+  await writer.write(new Uint8Array(16).fill(2))
+  await writer.abort()
+  const got = await volume.readFile('cover.bin')
+  assert.equal(got.byteLength, 0)
+  await volume.close()
+}
+
 async function testStreamWriteSerializesWithList(): Promise<void> {
   const volume = new FatImageVolume(memoryDisk(createFat12Image()))
   await volume.prepare()
@@ -582,6 +594,7 @@ await testRangeWriteOnlyDirtiesHitSectors()
 await testBlankImageRangeIoAcceptance()
 await testFlushFailureKeepsDirtySectors()
 await testStreamWriteOverwritesWithoutOldTail()
+await testStreamWriteOverwriteAbortLeavesEmpty()
 await testStreamWriteSerializesWithList()
 await testSectorCacheEvictsCleanKeepsDirty()
 await testFatInternalsAdapterRejectsBadShape()
