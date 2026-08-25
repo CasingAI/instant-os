@@ -1,6 +1,6 @@
 /**
  * Instant OS ↔ Instant-virtual-machine postMessage protocol.
- * Keep this file in sync with `/Users/john/Documents/GitHub/Instant-virtual-machine/src/protocol.ts`.
+ * Keep this file in sync with Instant-virtual-machine `src/protocol.ts`.
  */
 
 export const INSTANT_VM_MESSAGE_TYPE = {
