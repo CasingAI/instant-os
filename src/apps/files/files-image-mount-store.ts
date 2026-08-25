@@ -115,7 +115,7 @@ export async function closeImageMount(id: ImageFilesLocationId): Promise<void> {
   const session = sessions.get(id)
   if (!session) return
   try {
-    await session.volume.flush()
+    await session.volume.close()
   } finally {
     sessions.delete(id)
     releaseDiskImagePath(session.imagePath, { kind: 'files-mount', id })
@@ -123,9 +123,10 @@ export async function closeImageMount(id: ImageFilesLocationId): Promise<void> {
   }
 }
 
-export function resetImageMountsForTests(): void {
-  for (const session of sessions.values()) {
-    releaseDiskImagePath(session.imagePath, { kind: 'files-mount', id: session.id })
+export async function resetImageMountsForTests(): Promise<void> {
+  const ids = [...sessions.keys()]
+  for (const id of ids) {
+    await closeImageMount(id).catch(() => undefined)
   }
   sessions.clear()
 }

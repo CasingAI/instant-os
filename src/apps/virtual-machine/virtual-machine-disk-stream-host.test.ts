@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { INSTANT_VM_DISK_RANGE_MAX_BYTES } from './virtual-machine-protocol.ts'
-import { diskReadReplyStatus, diskWriteReplyStatus } from './virtual-machine-disk-stream-host.ts'
+import { diskReadReplyStatus, diskWriteReplyStatus, DirtyOverlay } from './virtual-machine-disk-stream-host.ts'
 
 function testMissingStreamIs404(): void {
   assert.equal(diskWriteReplyStatus(undefined, 0, 512), 404)
@@ -51,5 +51,45 @@ testReadonlyStreamIs403()
 testOutOfRangeIs416()
 testTooLargeIs413()
 testWritableInRangeIs200()
+function testOverlayReadOwnWrites(): void {
+  const overlay = new DirtyOverlay()
+  const a = new Uint8Array([1, 2, 3, 4])
+  const b = new Uint8Array([5, 6, 7, 8])
+  overlay.write(0, a)
+  overlay.write(512, b)
+  assert.deepEqual(overlay.read(0, 4), a)
+  assert.deepEqual(overlay.read(512, 4), b)
+  assert.equal(overlay.read(1024, 4), undefined)
+}
+
+function testOverlayMergesAdjacentWrites(): void {
+  const overlay = new DirtyOverlay()
+  overlay.write(0, new Uint8Array([1, 2, 3, 4]))
+  overlay.write(4, new Uint8Array([5, 6, 7, 8]))
+  assert.equal(overlay.dirtyBytes, 8)
+  assert.deepEqual(overlay.read(0, 8), new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))
+  const runs = overlay.takeRunsForFlush()
+  assert.equal(runs.length, 1)
+  assert.equal(runs[0]?.offset, 0)
+  assert.equal(runs[0]?.bytes.byteLength, 8)
+}
+
+function testOverlayPartialReadFails(): void {
+  const overlay = new DirtyOverlay()
+  overlay.write(0, new Uint8Array([1, 2, 3, 4]))
+  overlay.write(8, new Uint8Array([5, 6, 7, 8]))
+  assert.equal(overlay.read(0, 8), undefined)
+  assert.deepEqual(overlay.read(0, 4), new Uint8Array([1, 2, 3, 4]))
+  assert.deepEqual(overlay.read(8, 4), new Uint8Array([5, 6, 7, 8]))
+}
+
+testMissingStreamIs404()
+testReadonlyStreamIs403()
+testOutOfRangeIs416()
+testTooLargeIs413()
+testWritableInRangeIs200()
 testDiskReadFullFileIsStillPartial()
+testOverlayReadOwnWrites()
+testOverlayMergesAdjacentWrites()
+testOverlayPartialReadFails()
 console.log('virtual-machine-disk-stream-host.test.ts ok')

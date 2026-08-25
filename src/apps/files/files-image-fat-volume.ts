@@ -2,6 +2,8 @@ import { mount } from 'libmount'
 
 const SECTOR = 512
 const PREFETCH_MIN = 4096
+const WRITE_BEHIND_IDLE_MS = 100
+const WRITE_BEHIND_DIRTY_BYTES = 256 * 1024
 const FAT_PARTITION_TYPES = new Set([
   0x01, 0x04, 0x06, 0x0b, 0x0c, 0x0e, 0x11, 0x14, 0x16, 0x1b, 0x1c,
 ])
@@ -10,12 +12,29 @@ export type ImageDiskIo = {
   size: number
   read(offset: number, length: number): Promise<Uint8Array>
   write(offset: number, data: Uint8Array): Promise<void>
+  /** 卸载 / 停止时调用，关闭底层写入会话 */
+  close?(): Promise<void>
+  /** 由卷 flush 触发，把已写入数据刷入持久层 */
+  flush?(): Promise<void>
 }
 
 type FatDisk = ReturnType<typeof mount>
 type FatFileSystem = NonNullable<ReturnType<FatDisk['getFileSystem']>>
 type FatFile = ReturnType<FatFileSystem['getRoot']>
 type FatPartition = ReturnType<FatDisk['getPartitions']>[number]
+
+type FatFileNode = {
+  fstClus: number
+  dirEntry: { FileSize: number }
+}
+
+type FatFileSystemInternals = {
+  getSizeOfCluster(): number
+  getContentOffset(clusNum: number): number
+  FAT: {
+    getNextClusNum(clusNum: number): number
+  }
+}
 
 export type FatVolumeEntry = {
   name: string
@@ -61,6 +80,21 @@ function posixDirname(path: string): string {
 function posixBasename(path: string): string {
   const slash = path.lastIndexOf('/')
   return slash >= 0 ? path.slice(slash + 1) : path
+}
+
+function overlayRangeOnCluster(
+  clusterBuf: Uint8Array,
+  clusterIndex: number,
+  clusterSize: number,
+  rangeOffset: number,
+  data: Uint8Array,
+): void {
+  const pos = clusterIndex * clusterSize
+  const overlapStart = Math.max(0, rangeOffset - pos)
+  const overlapEnd = Math.min(clusterSize, rangeOffset + data.byteLength - pos)
+  if (overlapEnd <= overlapStart) return
+  const srcStart = pos + overlapStart - rangeOffset
+  clusterBuf.set(data.subarray(srcStart, srcStart + (overlapEnd - overlapStart)), overlapStart)
 }
 
 class SectorCache {
@@ -144,6 +178,10 @@ class SectorCache {
     }
   }
 
+  dirtyBytes(): number {
+    return this.dirty.size * SECTOR
+  }
+
   async flush(io: ImageDiskIo): Promise<void> {
     if (this.dirty.size === 0) return
     const indexes = [...this.dirty].sort((a, b) => a - b)
@@ -181,7 +219,13 @@ export class FatImageVolume {
   }
   private partition: FatPartition | undefined
   private chain: Promise<void> = Promise.resolve()
+  private flushing: Promise<void> = Promise.resolve()
   private readonly io: ImageDiskIo
+  private mountedFileSystem: FatFileSystem | undefined
+  private dirty = false
+  private flushTimer: ReturnType<typeof setTimeout> | undefined
+  private clusterChains = new Map<string, number[]>()
+  private clusterSizes = new Map<string, number>()
 
   constructor(io: ImageDiskIo) {
     this.io = io
@@ -243,10 +287,115 @@ export class FatImageVolume {
     return fileSystem
   }
 
+  private ensureMounted(): FatFileSystem {
+    if (this.mountedFileSystem) return this.mountedFileSystem
+    const fs = this.resolveFileSystem(this.attach())
+    this.mountedFileSystem = fs
+    return fs
+  }
+
   private async withRoot<T>(fn: (root: FatFile) => T | Promise<T>): Promise<T> {
     return this.withSectors(async () => {
-      const fileSystem = this.resolveFileSystem(this.attach())
+      const fileSystem = this.ensureMounted()
       return await fn(fileSystem.getRoot())
+    })
+  }
+
+  private fsInternals(): FatFileSystemInternals {
+    return this.ensureMounted() as unknown as FatFileSystemInternals
+  }
+
+  private fileInternals(file: FatFile): FatFileNode {
+    const wrapped = file as unknown as { node?: FatFileNode }
+    const node = wrapped.node
+    if (!node || typeof node.fstClus !== 'number' || !node.dirEntry) {
+      throw new Error('无法读取 FAT 文件内部结构')
+    }
+    return node
+  }
+
+  private clusterSize(): number {
+    return this.fsInternals().getSizeOfCluster()
+  }
+
+  private setCachedClusterSize(relativePath: string, size: number): void {
+    this.clusterSizes.set(relativePath, size)
+  }
+
+  private getCachedClusterChain(relativePath: string): number[] | undefined {
+    return this.clusterChains.get(relativePath)
+  }
+
+  private setCachedClusterChain(relativePath: string, chain: number[]): void {
+    this.clusterChains.set(relativePath, chain)
+  }
+
+  private invalidateClusterCache(relativePath: string): void {
+    this.clusterChains.delete(relativePath)
+    this.clusterSizes.delete(relativePath)
+  }
+
+  private clusterChainFromFile(file: FatFile): number[] {
+    const fs = this.fsInternals()
+    const maxClus = this.ensureMounted().getCountOfClusters() + 1
+    const node = this.fileInternals(file)
+    const chain: number[] = []
+    let clus = node.fstClus
+    while (clus >= 2 && clus <= maxClus && chain.length <= maxClus) {
+      chain.push(clus)
+      const next = fs.FAT.getNextClusNum(clus)
+      if (next === clus) break
+      clus = next
+    }
+    return chain
+  }
+
+  private getClusterChain(relativePath: string, file: FatFile): number[] {
+    const cached = this.getCachedClusterChain(relativePath)
+    if (cached) return cached
+    const chain = this.clusterChainFromFile(file)
+    this.setCachedClusterChain(relativePath, chain)
+    this.setCachedClusterSize(relativePath, this.clusterSize())
+    return chain
+  }
+
+  private kickFlush(): void {
+    this.flushing = this.flushing.then(
+      () => this.flushIfNeeded(),
+      () => this.flushIfNeeded(),
+    )
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushTimer !== undefined) return
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = undefined
+      this.kickFlush()
+    }, WRITE_BEHIND_IDLE_MS)
+  }
+
+  private markDirty(): void {
+    this.dirty = true
+    if (this.cache.dirtyBytes() >= WRITE_BEHIND_DIRTY_BYTES) {
+      this.kickFlush()
+    } else {
+      this.scheduleFlush()
+    }
+  }
+
+  private async flushIfNeeded(): Promise<void> {
+    if (!this.dirty) return
+    this.dirty = false
+    if (this.flushTimer !== undefined) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = undefined
+    }
+    await this.flushNow()
+  }
+
+  private async flushNow(): Promise<void> {
+    await this.enqueue(async () => {
+      await this.cache.flush(this.io)
     })
   }
 
@@ -257,9 +406,14 @@ export class FatImageVolume {
   }
 
   async flush(): Promise<void> {
-    await this.enqueue(async () => {
-      await this.cache.flush(this.io)
-    })
+    this.kickFlush()
+    await this.flushing
+    await this.io.flush?.()
+  }
+
+  async close(): Promise<void> {
+    await this.flush()
+    await this.io.close?.()
   }
 
   async list(relativeDir: string): Promise<FatVolumeEntry[]> {
@@ -305,6 +459,46 @@ export class FatImageVolume {
     })
   }
 
+  async readFileRange(relativePath: string, offset: number, length: number): Promise<Uint8Array> {
+    return this.enqueue(async () => {
+      return this.withSectors(async () => {
+        const fs = this.ensureMounted()
+        const root = fs.getRoot()
+        const file = root.getFile(relativePath)
+        if (!file?.isRegularFile()) {
+          throw new Error('文件不存在')
+        }
+        const fileSize = file.length()
+        const clusterSize = fs.getSizeOfCluster()
+        const start = Math.max(0, offset)
+        const want = Math.max(0, Math.min(length, fileSize - start))
+        if (want <= 0) return new Uint8Array(0)
+
+        if (want >= fileSize) {
+          const io = file.open()
+          if (!io) throw new Error('无法读取文件')
+          return copyBytes(io.readData())
+        }
+
+        const internals = this.fsInternals()
+        const chain = this.getClusterChain(relativePath, file)
+        const startCluster = Math.floor(start / clusterSize)
+        const endCluster = Math.floor((start + want - 1) / clusterSize)
+        const out = new Uint8Array((endCluster - startCluster + 1) * clusterSize)
+        let cursor = 0
+        for (let i = startCluster; i <= endCluster; i += 1) {
+          const clus = chain[i]
+          if (clus === undefined) break
+          const offsetBytes = internals.getContentOffset(clus)
+          out.set(this.driver.read(offsetBytes, clusterSize), cursor)
+          cursor += clusterSize
+        }
+        const sliceStart = start % clusterSize
+        return out.subarray(sliceStart, sliceStart + want)
+      })
+    })
+  }
+
   async writeFile(relativePath: string, data: Uint8Array): Promise<FatVolumeEntry> {
     return this.enqueue(async () => {
       const entry = await this.withRoot((root) => {
@@ -319,8 +513,158 @@ export class FatImageVolume {
         io.writeData(data)
         return this.toEntry(file)
       })
-      await this.cache.flush(this.io)
+      this.invalidateClusterCache(relativePath)
+      this.markDirty()
       return entry
+    })
+  }
+
+  async writeFileRange(relativePath: string, offset: number, data: Uint8Array): Promise<FatVolumeEntry> {
+    return this.enqueue(async () => {
+      const entry = await this.withSectors(async () => {
+        const fs = this.ensureMounted()
+        const file = fs.getRoot().getFile(relativePath)
+        if (!file?.isRegularFile()) {
+          throw new Error('文件不存在')
+        }
+        const clusterSize = fs.getSizeOfCluster()
+        const oldSize = file.length()
+        if (offset > oldSize) {
+          throw new Error('offset 超出文件末尾，当前不支持空洞扩展')
+        }
+        if (data.byteLength === 0) {
+          file.setLastModified(new Date())
+          return this.toEntry(file)
+        }
+        const newSize = Math.max(oldSize, offset + data.byteLength)
+        const internals = this.fsInternals()
+        let chain = this.getClusterChain(relativePath, file)
+        const allocatedBefore = chain.length
+        const neededClusters = Math.ceil(newSize / clusterSize)
+        const startCluster = Math.floor(offset / clusterSize)
+        const endCluster = Math.floor((offset + data.byteLength - 1) / clusterSize)
+
+        if (neededClusters > allocatedBefore) {
+          const io = file.open()
+          if (!io) {
+            throw new Error('无法写入文件')
+          }
+          io.rewind()
+          for (let i = 0; i < allocatedBefore; i += 1) {
+            io.skipClus()
+          }
+          for (let i = allocatedBefore; i < neededClusters; i += 1) {
+            const clusterBuf = new Uint8Array(clusterSize)
+            overlayRangeOnCluster(clusterBuf, i, clusterSize, offset, data)
+            const writeLen = Math.min(clusterSize, Math.max(1, newSize - i * clusterSize))
+            if (io.writeClus(clusterBuf.subarray(0, writeLen)) === 0) {
+              throw new Error('磁盘空间不足')
+            }
+          }
+          this.invalidateClusterCache(relativePath)
+          chain = this.getClusterChain(relativePath, file)
+        }
+
+        const lastExisting = Math.min(endCluster, allocatedBefore - 1)
+        for (let i = startCluster; i <= lastExisting; i += 1) {
+          const clus = chain[i]
+          if (clus === undefined) break
+          const diskOffset = internals.getContentOffset(clus)
+          const clusterBuf = new Uint8Array(clusterSize)
+          clusterBuf.set(this.driver.read(diskOffset, clusterSize))
+          overlayRangeOnCluster(clusterBuf, i, clusterSize, offset, data)
+          this.driver.write(diskOffset, clusterBuf)
+        }
+
+        if (newSize !== oldSize) {
+          this.fileInternals(file).dirEntry.FileSize = newSize
+        }
+        file.setLastModified(new Date())
+        return this.toEntry(file)
+      })
+      this.invalidateClusterCache(relativePath)
+      this.markDirty()
+      return entry
+    })
+  }
+
+  async streamWriteFile(
+    relativePath: string,
+  ): Promise<{ write(chunk: Uint8Array): Promise<void>; close(): Promise<FatVolumeEntry>; abort(): Promise<void> }> {
+    const volume = this
+    return this.enqueue(async () => {
+      return this.withRoot((root) => {
+        const file = root.makeFile(relativePath)
+        if (!file) {
+          throw new Error('无法写入文件')
+        }
+        const io = file.open()
+        if (!io) {
+          throw new Error('无法写入文件')
+        }
+        const clusterSize = this.clusterSize()
+        let pending = new Uint8Array(0)
+        let totalWritten = 0
+        let aborted = false
+        let closed = false
+
+        const flushPending = async (): Promise<void> => {
+          if (pending.byteLength === 0) return
+          const writeSize = Math.min(clusterSize, pending.byteLength)
+          const chunk = pending.subarray(0, writeSize)
+          io.writeClus(chunk)
+          totalWritten += writeSize
+          pending = pending.subarray(writeSize)
+          if (pending.byteLength > 0) {
+            await flushPending()
+          }
+        }
+
+        return {
+          async write(chunk) {
+            if (closed || aborted) return
+            const combined = new Uint8Array(pending.byteLength + chunk.byteLength)
+            combined.set(pending)
+            combined.set(chunk, pending.byteLength)
+            pending = combined
+            while (pending.byteLength >= clusterSize) {
+              const full = pending.subarray(0, clusterSize)
+              io.writeClus(full)
+              totalWritten += clusterSize
+              pending = pending.subarray(clusterSize)
+            }
+          },
+          async close() {
+            if (closed || aborted) return volume.toEntry(file)
+            closed = true
+            await flushPending()
+            const node = volume.fileInternals(file)
+            node.dirEntry.FileSize = totalWritten + pending.byteLength
+            if (pending.byteLength > 0) {
+              io.writeClus(pending)
+              totalWritten += pending.byteLength
+              pending = new Uint8Array(0)
+            }
+            node.dirEntry.FileSize = totalWritten
+            file.setLastModified(new Date())
+            volume.invalidateClusterCache(relativePath)
+            volume.markDirty()
+            return volume.toEntry(file)
+          },
+          async abort() {
+            if (closed) return
+            aborted = true
+            pending = new Uint8Array(0)
+            try {
+              io.rewind()
+              // writeData with empty data would unlink clusters; instead just truncate via writeFile
+              await volume.writeFile(relativePath, new Uint8Array(0))
+            } catch {
+              // 忽略清理失败
+            }
+          },
+        }
+      })
     })
   }
 
@@ -333,7 +677,7 @@ export class FatImageVolume {
         }
         return this.toEntry(dir)
       })
-      await this.cache.flush(this.io)
+      this.markDirty()
       return entry
     })
   }
@@ -347,7 +691,8 @@ export class FatImageVolume {
         }
         file.delete()
       })
-      await this.cache.flush(this.io)
+      this.invalidateClusterCache(relativePath)
+      this.markDirty()
     })
   }
 
@@ -368,7 +713,9 @@ export class FatImageVolume {
         }
         return this.toEntry(moved)
       })
-      await this.cache.flush(this.io)
+      this.invalidateClusterCache(fromRelative)
+      this.invalidateClusterCache(toRelative)
+      this.markDirty()
       return entry
     })
   }

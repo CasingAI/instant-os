@@ -1,4 +1,5 @@
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
+import { openQuietBlobWriter } from '../files/files-quiet-blob-write.ts'
 import {
   recordVmDiskStreamIo,
   releaseVmDiskStreamMetrics,
@@ -17,6 +18,12 @@ type StreamEntry = {
   path: string
   size: number
   writable: boolean
+  quietWriter: Awaited<ReturnType<typeof openQuietBlobWriter>>
+}
+
+type DirtyRun = {
+  offset: number
+  bytes: Uint8Array
 }
 
 const streams = new Map<string, StreamEntry>()
@@ -99,8 +106,180 @@ export function diskWriteReplyStatus(
   return 200
 }
 
+export class DirtyOverlay {
+  private runs: DirtyRun[] = []
+  private totalDirtyBytes = 0
+
+  /** 合并重叠或相邻的 run，返回合并后的范围 */
+  private mergeRuns(startIndex: number, offset: number, bytes: Uint8Array): DirtyRun {
+    const end = offset + bytes.byteLength
+    const runs = this.runs
+    const first = runs[startIndex]!
+    let newStart = Math.min(first.offset, offset)
+    let newEnd = Math.max(first.offset + first.bytes.byteLength, end)
+    let merged = new Uint8Array(newEnd - newStart)
+    merged.set(first.bytes, first.offset - newStart)
+    merged.set(bytes, offset - newStart)
+
+    let j = startIndex + 1
+    while (j < runs.length) {
+      const next = runs[j]!
+      if (next.offset > newEnd) break
+      const nextEnd = Math.max(newEnd, next.offset + next.bytes.byteLength)
+      if (nextEnd > merged.byteLength) {
+        const grown = new Uint8Array(nextEnd - newStart)
+        grown.set(merged)
+        grown.set(next.bytes, next.offset - newStart)
+        merged = grown
+      } else {
+        merged.set(next.bytes, next.offset - newStart)
+      }
+      newEnd = nextEnd
+      j += 1
+    }
+
+    this.totalDirtyBytes += merged.byteLength - first.bytes.byteLength
+    for (let k = startIndex + 1; k < j; k++) {
+      this.totalDirtyBytes -= runs[k]!.bytes.byteLength
+    }
+    runs.splice(startIndex, j - startIndex, { offset: newStart, bytes: merged })
+    return { offset: newStart, bytes: merged }
+  }
+
+  write(offset: number, bytes: Uint8Array): void {
+    const end = offset + bytes.byteLength
+    const runs = this.runs
+    let insertIndex = runs.length
+    for (let i = 0; i < runs.length; i++) {
+      const run = runs[i]!
+      if (run.offset > end) {
+        insertIndex = i
+        break
+      }
+      if (run.offset + run.bytes.byteLength < offset) continue
+      // 重叠或相邻：合并
+      this.mergeRuns(i, offset, bytes)
+      return
+    }
+    runs.splice(insertIndex, 0, { offset, bytes: new Uint8Array(bytes) })
+    this.totalDirtyBytes += bytes.byteLength
+  }
+
+  /**
+   * 从覆盖层读取 [offset, offset+length)。
+   * 仅当覆盖层完整覆盖该区间时才返回等长 Uint8Array；否则返回 undefined。
+   */
+  read(offset: number, length: number): Uint8Array | undefined {
+    const end = offset + length
+    const out = new Uint8Array(length)
+    let cursor = offset
+    for (const run of this.runs) {
+      if (cursor >= end) break
+      if (run.offset >= end) break
+      const runEnd = run.offset + run.bytes.byteLength
+      if (runEnd <= cursor) continue
+      const srcStart = cursor - run.offset
+      const srcEnd = Math.min(run.bytes.byteLength, end - run.offset)
+      const take = srcEnd - srcStart
+      if (take <= 0) continue
+      out.set(run.bytes.subarray(srcStart, srcEnd), cursor - offset)
+      cursor = run.offset + srcEnd
+    }
+    if (cursor - offset < length) return undefined
+    return out
+  }
+
+  runsOverlapping(offset: number, length: number): DirtyRun[] {
+    const end = offset + length
+    const out: DirtyRun[] = []
+    for (const run of this.runs) {
+      if (run.offset >= end) break
+      const runEnd = run.offset + run.bytes.byteLength
+      if (runEnd <= offset) continue
+      const srcStart = Math.max(0, offset - run.offset)
+      const srcEnd = Math.min(run.bytes.byteLength, end - run.offset)
+      out.push({ offset: run.offset + srcStart, bytes: run.bytes.subarray(srcStart, srcEnd) })
+    }
+    return out
+  }
+
+  takeRunsForFlush(maxBytes?: number): DirtyRun[] {
+    if (maxBytes === undefined || this.totalDirtyBytes <= maxBytes) {
+      const taken = this.runs
+      this.runs = []
+      this.totalDirtyBytes = 0
+      return taken
+    }
+    let takenBytes = 0
+    let cut = 0
+    while (cut < this.runs.length && takenBytes < maxBytes) {
+      const run = this.runs[cut]!
+      if (takenBytes + run.bytes.byteLength > maxBytes && cut > 0) break
+      takenBytes += run.bytes.byteLength
+      cut += 1
+    }
+    const taken = this.runs.slice(0, cut)
+    this.runs = this.runs.slice(cut)
+    this.totalDirtyBytes -= takenBytes
+    return taken
+  }
+
+  get dirtyBytes(): number {
+    return this.totalDirtyBytes
+  }
+}
+
+function createOverlayFlusher(
+  _streamId: string,
+  entry: StreamEntry,
+  overlay: DirtyOverlay,
+): () => Promise<void> {
+  const FLUSH_INTERVAL_MS = 50
+  const FLUSH_DIRTY_BYTES = 256 * 1024
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let flushing = false
+
+  async function flush(): Promise<void> {
+    if (flushing) return
+    if (overlay.dirtyBytes === 0) return
+    flushing = true
+    try {
+      const runs = overlay.takeRunsForFlush()
+      if (!entry.quietWriter) {
+        for (const run of runs) {
+          await filesWriteBytesRange(entry.path, run.offset, run.bytes)
+        }
+      } else {
+        for (const run of runs) {
+          await entry.quietWriter.writeAt(run.offset, run.bytes)
+        }
+        await entry.quietWriter.flush()
+      }
+    } finally {
+      flushing = false
+    }
+  }
+
+  function schedule(): void {
+    if (timer !== undefined) return
+    timer = setTimeout(() => {
+      timer = undefined
+      void flush()
+    }, FLUSH_INTERVAL_MS)
+  }
+
+  return async () => {
+    if (overlay.dirtyBytes >= FLUSH_DIRTY_BYTES) {
+      await flush()
+    } else if (overlay.dirtyBytes > 0) {
+      schedule()
+    }
+  }
+}
+
 async function readDiskRange(
   entry: StreamEntry,
+  overlay: DirtyOverlay,
   offset: number,
   length: number,
 ): Promise<InstantVmDiskReadResultMessage> {
@@ -117,15 +296,45 @@ async function readDiskRange(
   }
   const want = Math.min(length, totalSize - offset, INSTANT_VM_DISK_RANGE_MAX_BYTES)
   try {
+    const overlayBytes = overlay.read(offset, want)
+    if (overlayBytes !== undefined) {
+      return {
+        type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
+        requestId: '',
+        streamId: '',
+        status,
+        totalSize,
+        bytes: overlayBytes.buffer.slice(
+          overlayBytes.byteOffset,
+          overlayBytes.byteOffset + overlayBytes.byteLength,
+        ) as ArrayBuffer,
+      }
+    }
+    const runs = overlay.runsOverlapping(offset, want)
+    if (runs.length === 0) {
+      const blob = await filesReadBlobRange(entry.path, offset, want)
+      return {
+        type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
+        requestId: '',
+        streamId: '',
+        status,
+        totalSize,
+        bytes: await blob.arrayBuffer(),
+      }
+    }
     const blob = await filesReadBlobRange(entry.path, offset, want)
-    const bytes = await blob.arrayBuffer()
+    const base = new Uint8Array(await blob.arrayBuffer())
+    for (const run of runs) {
+      const start = run.offset - offset
+      base.set(run.bytes, start)
+    }
     return {
       type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
       requestId: '',
       streamId: '',
       status,
       totalSize,
-      bytes,
+      bytes: base.buffer as ArrayBuffer,
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
@@ -135,6 +344,8 @@ async function readDiskRange(
 
 async function writeDiskRange(
   entry: StreamEntry,
+  overlay: DirtyOverlay,
+  triggerFlush: () => Promise<void>,
   offset: number,
   bytes: ArrayBuffer,
 ): Promise<InstantVmDiskWriteResultMessage> {
@@ -149,7 +360,8 @@ async function writeDiskRange(
     }
   }
   try {
-    await filesWriteBytesRange(entry.path, offset, bytes)
+    overlay.write(offset, new Uint8Array(bytes))
+    void triggerFlush()
     return {
       type: INSTANT_VM_MESSAGE_TYPE.diskWriteResult,
       requestId: '',
@@ -176,6 +388,9 @@ function postSource(
 ): void {
   source.postMessage(message, { targetOrigin: origin, transfer })
 }
+
+const overlays = new Map<string, DirtyOverlay>()
+const flushers = new Map<string, () => Promise<void>>()
 
 function onDiskStreamMessage(event: MessageEvent): void {
   const isRead = isInstantVmDiskReadMessage(event.data)
@@ -219,8 +434,15 @@ function onDiskStreamMessage(event: MessageEvent): void {
           )
           return
         }
+        const overlay = overlays.get(streamId) ?? new DirtyOverlay()
+        overlays.set(streamId, overlay)
+        let triggerFlush = flushers.get(streamId)
+        if (!triggerFlush) {
+          triggerFlush = createOverlayFlusher(streamId, entry, overlay)
+          flushers.set(streamId, triggerFlush)
+        }
         const writeBytes = write.bytes.byteLength
-        const result = await writeDiskRange(entry, write.offset, write.bytes)
+        const result = await writeDiskRange(entry, overlay, triggerFlush, write.offset, write.bytes)
         if (result.status === 200) {
           recordVmDiskStreamIo({
             streamId,
@@ -256,7 +478,8 @@ function onDiskStreamMessage(event: MessageEvent): void {
         postSource(target, reply, event.origin)
         return
       }
-      const result = await readDiskRange(entry, read.offset, read.length)
+      const overlay = overlays.get(streamId)
+      const result = await readDiskRange(entry, overlay ?? new DirtyOverlay(), read.offset, read.length)
       if (result.status === 206) {
         recordVmDiskStreamIo({
           streamId,
@@ -305,31 +528,54 @@ export async function registerVirtualMachineDiskStream(
   if (!stat || stat.kind !== 'file') {
     throw new Error(`文件不存在：${path}`)
   }
+  const writable = options?.writable === true
+  const quietWriter = writable ? await openQuietBlobWriter(path) : undefined
   const id = `ds-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`
   streams.set(id, {
     path,
     size: stat.byteSize,
-    writable: options?.writable === true,
+    writable,
+    quietWriter,
   })
   ensureListener()
   return id
 }
 
-export function releaseVirtualMachineDiskStream(streamId: string | undefined): void {
+export async function flushVirtualMachineDiskStream(streamId: string | undefined): Promise<void> {
+  if (!streamId) return
+  const overlay = overlays.get(streamId)
+  const flusher = flushers.get(streamId)
+  if (flusher) {
+    await flusher()
+  } else if (overlay) {
+    const entry = streams.get(streamId)
+    if (entry) {
+      const newFlusher = createOverlayFlusher(streamId, entry, overlay)
+      flushers.set(streamId, newFlusher)
+      await newFlusher()
+    }
+  }
+}
+
+export async function releaseVirtualMachineDiskStream(streamId: string | undefined): Promise<void> {
   if (!streamId) {
     return
   }
+  await flushVirtualMachineDiskStream(streamId)
+  const entry = streams.get(streamId)
+  if (entry?.quietWriter) {
+    await entry.quietWriter.close()
+  }
   streams.delete(streamId)
+  overlays.delete(streamId)
+  flushers.delete(streamId)
   releaseVmDiskStreamMetrics(streamId)
   const tail = streamWorkTails.get(streamId)
   if (!tail) {
     return
   }
-  void tail.finally(() => {
-    if (streamWorkTails.get(streamId) === tail) {
-      streamWorkTails.delete(streamId)
-    }
-  })
+  await tail
+  streamWorkTails.delete(streamId)
 }
 
 export function releaseVirtualMachineDiskStreams(
@@ -342,10 +588,10 @@ export function releaseVirtualMachineDiskStreams(
     stateStream?: { id: string }
   }>,
 ): void {
-  releaseVirtualMachineDiskStream(message.hdaStream?.id)
-  releaseVirtualMachineDiskStream(message.hdbStream?.id)
-  releaseVirtualMachineDiskStream(message.cdromStream?.id)
-  releaseVirtualMachineDiskStream(message.fdaStream?.id)
-  releaseVirtualMachineDiskStream(message.fdbStream?.id)
-  releaseVirtualMachineDiskStream(message.stateStream?.id)
+  void releaseVirtualMachineDiskStream(message.hdaStream?.id)
+  void releaseVirtualMachineDiskStream(message.hdbStream?.id)
+  void releaseVirtualMachineDiskStream(message.cdromStream?.id)
+  void releaseVirtualMachineDiskStream(message.fdaStream?.id)
+  void releaseVirtualMachineDiskStream(message.fdbStream?.id)
+  void releaseVirtualMachineDiskStream(message.stateStream?.id)
 }

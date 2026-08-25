@@ -258,15 +258,26 @@ export async function writeImageBytesRange(
     throw new Error('文件不存在')
   }
   const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
-  const current = await getImageVolume(parsed.locationId).readFile(parsed.path)
-  if (offset < 0 || offset > current.byteLength) {
-    throw new Error('写入偏移无效')
-  }
-  const next = new Uint8Array(Math.max(current.byteLength, offset + payload.byteLength))
-  next.set(current)
-  next.set(payload, offset)
-  const entry = await getImageVolume(parsed.locationId).writeFile(parsed.path, next)
+  const entry = await getImageVolume(parsed.locationId).writeFileRange(parsed.path, offset, payload)
   return makeFileNode(parsed.locationId, parsed.path, entry.byteSize, entry.updatedAt)
+}
+
+export async function readImageBlobRange(
+  id: string,
+  offset: number,
+  length: number,
+): Promise<{ node: FilesNode; blob: Blob }> {
+  const parsed = parseImageFileId(id)
+  if (!parsed?.path) {
+    throw new Error('文件不存在')
+  }
+  const stat = await getImageVolume(parsed.locationId).stat(parsed.path)
+  if (!stat || stat.kind !== 'file') {
+    throw new Error('文件不存在')
+  }
+  const bytes = await getImageVolume(parsed.locationId).readFileRange(parsed.path, offset, length)
+  const node = makeFileNode(parsed.locationId, parsed.path, stat.byteSize, stat.updatedAt)
+  return { node, blob: new Blob([new Uint8Array(bytes)], { type: node.mimeType ?? 'application/octet-stream' }) }
 }
 
 export async function openImageStreamWrite(params: {
@@ -278,39 +289,27 @@ export async function openImageStreamWrite(params: {
   const parentPath = dirPathFromParent(params.parentId)
   const path = joinFatRelativePath(parentPath, params.name)
   const locationId = requireLocation(params.locationId)
-  if (params.isNew) {
-    await getImageVolume(locationId).writeFile(path, new Uint8Array())
-  }
-  const chunks: Uint8Array[] = []
+  const volume = getImageVolume(locationId)
+  const writer = await volume.streamWriteFile(path)
   let aborted = false
+  let closed = false
   return {
     node: makeFileNode(locationId, path),
     async write(chunk) {
-      if (aborted) return
-      const copy = new Uint8Array(chunk.byteLength)
-      copy.set(chunk)
-      chunks.push(copy)
+      if (closed || aborted) return
+      const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+      await writer.write(bytes)
     },
     async close() {
-      const total = chunks.reduce((sum, item) => sum + item.byteLength, 0)
-      const data = new Uint8Array(total)
-      let offset = 0
-      for (const chunk of chunks) {
-        data.set(chunk, offset)
-        offset += chunk.byteLength
-      }
-      const entry = await getImageVolume(locationId).writeFile(path, data)
+      if (closed || aborted) return makeFileNode(locationId, path)
+      closed = true
+      const entry = await writer.close()
       return makeFileNode(locationId, path, entry.byteSize, entry.updatedAt)
     },
     async abort() {
+      if (closed) return
       aborted = true
-      if (params.isNew) {
-        try {
-          await getImageVolume(locationId).remove(path)
-        } catch {
-          // 可能尚未创建成功
-        }
-      }
+      await writer.abort()
     },
   }
 }

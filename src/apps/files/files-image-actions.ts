@@ -12,6 +12,7 @@ import {
   openImageMount,
   type ImageMountRecord,
 } from './files-image-mount-store.ts'
+import { openQuietBlobWriter } from './files-quiet-blob-write.ts'
 import { isImageLocationId, type ImageFilesLocationId } from './files-types.ts'
 import { parseFilesAbsolutePath } from './files-path.ts'
 
@@ -82,6 +83,7 @@ export async function mountDiskImage(imagePath: string): Promise<ImageMountRecor
   if (stat.byteSize < 512) {
     throw new Error('镜像太小，不像有效的磁盘映像')
   }
+  const quietWriter = await openQuietBlobWriter(path)
   const record = await openImageMount({
     imagePath: path,
     fileName: stat.name || fileNameFromPath(path),
@@ -92,6 +94,10 @@ export async function mountDiskImage(imagePath: string): Promise<ImageMountRecor
         return new Uint8Array(await blob.arrayBuffer())
       },
       async write(offset, data) {
+        if (quietWriter) {
+          await quietWriter.writeAt(offset, data)
+          return
+        }
         let cursor = 0
         while (cursor < data.byteLength) {
           const take = Math.min(RANGE_CHUNK, data.byteLength - cursor)
@@ -100,6 +106,16 @@ export async function mountDiskImage(imagePath: string): Promise<ImageMountRecor
           copy.set(slice)
           await filesWriteBytesRange(path, offset + cursor, copy)
           cursor += take
+        }
+      },
+      async flush() {
+        if (quietWriter) {
+          await quietWriter.flush()
+        }
+      },
+      async close() {
+        if (quietWriter) {
+          await quietWriter.close()
         }
       },
     },

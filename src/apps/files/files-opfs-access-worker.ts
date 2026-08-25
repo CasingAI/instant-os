@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { writeThroughOpfsSyncAccess } from './files-opfs-sync-range.ts'
+import { writeToOpfsSyncAccess } from './files-opfs-sync-range.ts'
 
 /**
  * OPFS 原地写入 Worker。SyncAccessHandle 只能在 Dedicated Worker 里打开。
@@ -22,6 +22,12 @@ export type OpfsAccessWriteRequest = {
   bytes: ArrayBuffer
 }
 
+export type OpfsAccessFlushRequest = {
+  type: 'flush'
+  id: number
+  sessionId: number
+}
+
 export type OpfsAccessCloseRequest = {
   type: 'close'
   id: number
@@ -37,12 +43,14 @@ export type OpfsAccessAbortRequest = {
 export type OpfsAccessRequest =
   | OpfsAccessOpenRequest
   | OpfsAccessWriteRequest
+  | OpfsAccessFlushRequest
   | OpfsAccessCloseRequest
   | OpfsAccessAbortRequest
 
 export type OpfsAccessResponse =
   | { type: 'opened'; id: number; sessionId: number }
   | { type: 'write-done'; id: number; size: number }
+  | { type: 'flushed'; id: number }
   | { type: 'closed'; id: number }
   | { type: 'aborted'; id: number }
   | { type: 'error'; id: number; message: string }
@@ -85,7 +93,7 @@ async function handleWrite(request: OpfsAccessWriteRequest): Promise<OpfsAccessR
   if (!access) {
     throw new Error('OPFS 写入会话不存在')
   }
-  const size = await writeThroughOpfsSyncAccess(
+  const size = await writeToOpfsSyncAccess(
     adaptAccess(access),
     request.offset,
     new Uint8Array(request.bytes),
@@ -115,6 +123,15 @@ function handleAbort(request: OpfsAccessAbortRequest): OpfsAccessResponse {
   return { type: 'aborted', id: request.id }
 }
 
+async function handleFlush(request: OpfsAccessFlushRequest): Promise<OpfsAccessResponse> {
+  const access = sessions.get(request.sessionId)
+  if (!access) {
+    throw new Error('OPFS 写入会话不存在')
+  }
+  access.flush()
+  return { type: 'flushed', id: request.id }
+}
+
 async function handleRequest(request: OpfsAccessRequest): Promise<void> {
   try {
     let response: OpfsAccessResponse
@@ -122,6 +139,8 @@ async function handleRequest(request: OpfsAccessRequest): Promise<void> {
       response = await handleOpen(request)
     } else if (request.type === 'write') {
       response = await handleWrite(request)
+    } else if (request.type === 'flush') {
+      response = await handleFlush(request)
     } else if (request.type === 'close') {
       response = handleClose(request)
     } else {

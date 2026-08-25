@@ -11,7 +11,7 @@ export type OpfsSyncRangeAccess = {
   flush: () => void | Promise<void>
 }
 
-export async function writeThroughOpfsSyncAccess(
+export async function writeToOpfsSyncAccess(
   access: OpfsSyncRangeAccess,
   offset: number,
   bytes: Uint8Array,
@@ -37,6 +37,15 @@ export async function writeThroughOpfsSyncAccess(
   if (written !== bytes.byteLength) {
     throw new Error('OPFS 原地写入不完整')
   }
-  await access.flush()
   return await access.getSize()
+}
+
+export async function writeThroughOpfsSyncAccess(
+  access: OpfsSyncRangeAccess,
+  offset: number,
+  bytes: Uint8Array,
+): Promise<number> {
+  const size = await writeToOpfsSyncAccess(access, offset, bytes)
+  await access.flush()
+  return size
 }

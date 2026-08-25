@@ -43,7 +43,7 @@ export const FILES_META_STORE = 'meta'
 /** IndexedDB 复合索引用空字符串表示根目录父级 */
 export const FILES_ROOT_PARENT_KEY = ''
 
-type FilesNodeRecord = {
+export type FilesNodeRecord = {
   id: string
   locationId: FilesLocationId
   parentId: string
@@ -208,7 +208,7 @@ export class FilesPathExistsError extends Error {
 
 let dbPromise: Promise<IDBDatabase> | undefined
 
-function openFilesDb(): Promise<IDBDatabase> {
+export function openFilesDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
 
   dbPromise = new Promise((resolve, reject) => {

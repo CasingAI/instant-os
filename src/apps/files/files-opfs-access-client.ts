@@ -2,6 +2,7 @@ import OpfsAccessWorkerCtor from './files-opfs-access-worker.ts?worker'
 import type {
   OpfsAccessAbortRequest,
   OpfsAccessCloseRequest,
+  OpfsAccessFlushRequest,
   OpfsAccessOpenRequest,
   OpfsAccessRequest,
   OpfsAccessResponse,
@@ -78,6 +79,7 @@ function callWorker(
 
 export type OpfsAccessSession = {
   writeAt(offset: number, data: Uint8Array): Promise<number>
+  flush(): Promise<void>
   close(): Promise<void>
   abort(): Promise<void>
 }
@@ -127,6 +129,18 @@ export async function openOpfsAccessSession(
         throw new Error('OPFS 原地写入失败')
       }
       return response.size
+    },
+    async flush() {
+      if (closed) throw new Error('OPFS 写入已结束')
+      const request: OpfsAccessFlushRequest = {
+        type: 'flush',
+        id: nextId++,
+        sessionId,
+      }
+      const response = await callWorker(request)
+      if (response.type !== 'flushed') {
+        throw new Error('OPFS 刷盘失败')
+      }
     },
     close: () => finish('close'),
     abort: () => finish('abort'),

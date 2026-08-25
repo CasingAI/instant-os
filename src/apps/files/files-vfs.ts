@@ -65,6 +65,7 @@ import {
   mkdirImage,
   openImageStreamWrite,
   readImageBlob,
+  readImageBlobRange,
   readImageText,
   readImageTextIfSmall,
   removeImageNode,
@@ -1175,9 +1176,11 @@ async function readFileBlobRangeByNodeIdUnmetered(
 ): Promise<{ node: FilesNode; blob: Blob }> {
   const start = Math.max(0, offset)
   const want = Math.max(0, length)
+  if (isImageNodeId(id)) {
+    return readImageBlobRange(id, start, want)
+  }
   if (
     isMountNodeId(id) ||
-    isImageNodeId(id) ||
     id.startsWith('models3d:') ||
     id.startsWith('source:') ||
     id.startsWith('applications:')

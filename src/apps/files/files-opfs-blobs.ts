@@ -14,6 +14,7 @@ type MemoryFile = { bytes: Uint8Array }
 
 export type OpfsBlobWriter = {
   writeAt(offset: number, data: Uint8Array): Promise<void>
+  flush(): Promise<void>
   close(): Promise<void>
   abort(): Promise<void>
 }
@@ -236,6 +237,10 @@ export async function openOpfsBlobWriter(blobId: string): Promise<OpfsBlobWriter
         if (closed) throw new Error('OPFS 写入已结束')
         writeMemoryAt(file, offset, data)
       },
+      async flush() {
+        if (closed) throw new Error('OPFS 写入已结束')
+        // 内存模式无需额外刷盘
+      },
       async close() {
         closed = true
       },
@@ -255,6 +260,10 @@ export async function openOpfsBlobWriter(blobId: string): Promise<OpfsBlobWriter
     async writeAt(offset, data) {
       if (closed) throw new Error('OPFS 写入已结束')
       await session.writeAt(offset, data)
+    },
+    async flush() {
+      if (closed) throw new Error('OPFS 写入已结束')
+      await session.flush()
     },
     async close() {
       if (closed) return
