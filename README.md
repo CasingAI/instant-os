@@ -282,7 +282,7 @@ pnpm dev
 
 开发服务器：**http://localhost:6173**
 
-Virtual Machine 生产环境使用托管运行时 **https://vm.casing-ai.com/**。本地开发需要另开 **Instant-virtual-machine** 运行时：在那个仓库执行 `pnpm dev`（端口 **6175**）。存储里可选本地镜像、网络地址，或 copy.sh 预制客户机（Android-x86 / ReactOS）。
+Virtual Machine 生产环境使用托管运行时 **https://vm.casing-ai.com/**。本地开发需要另开 **Instant-virtual-machine** 运行时（本地路径 `/Users/john/Documents/GitHub/Instant-virtual-machine`）：在该目录执行 `pnpm dev`（端口 **6175**）。存储里可选本地镜像、网络地址，或 copy.sh 预制客户机（Android-x86 / ReactOS）。
 
 ```bash
 pnpm build
