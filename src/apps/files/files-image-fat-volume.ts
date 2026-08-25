@@ -1,5 +1,6 @@
 import { countSystemDebugHot } from '../../os/system-debug-log.ts'
 import { mount } from 'libmount'
+import type { ImageVolumeEntry } from './files-image-volume.ts'
 
 const SECTOR = 512
 const PREFETCH_MIN = 4096
@@ -90,15 +91,11 @@ export function adaptFatClusterLayout(fs: FatFileSystem): {
   }
 }
 
-export type FatVolumeEntry = {
-  name: string
-  kind: 'file' | 'folder'
-  byteSize: number
-  createdAt: number
-  updatedAt: number
-}
+/** FAT 卷条目；exFAT 卷共用同一形状（见 files-image-volume.ts）。 */
+export type FatVolumeEntry = ImageVolumeEntry
 
-class ImageSectorMiss extends Error {
+/** 扇区缺页信号：exFAT 卷复用同一套 withSectors 重试桥接，需要跨文件识别 */
+export class ImageSectorMiss extends Error {
   readonly offset: number
   readonly length: number
 

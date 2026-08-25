@@ -353,6 +353,15 @@ function DetailPanel({
             <InfoRow name="文件系统" value={`${fat.variant}${fat.label ? ` · ${fat.label}` : ''}`} />
             <InfoRow name="簇大小" value={formatStorageSize(fat.clusterSizeBytes)} />
             <InfoRow name="簇总数" value={fat.totalClusters.toLocaleString()} />
+            {fat.variant === 'exFAT' ? (
+              <>
+                <InfoRow name="容量" value={formatStorageSize(fat.capacityBytes)} />
+                {fat.freeClusters !== undefined ? (
+                  <InfoRow name="空闲簇" value={fat.freeClusters.toLocaleString()} />
+                ) : undefined}
+                <InfoRow name="序列号" value={fat.serialNumber} mono />
+              </>
+            ) : undefined}
           </>
         ) : undefined}
       </InfoList>

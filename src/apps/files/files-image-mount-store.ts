@@ -4,6 +4,7 @@ import {
   releaseDiskImagePath,
 } from './files-disk-image-occupancy.ts'
 import { diskImageLabelFromFileName } from './files-disk-image-name.ts'
+import { ExfatImageVolume } from './files-image-exfat-volume.ts'
 import { FatImageVolume, type ImageDiskIo } from './files-image-fat-volume.ts'
 import { listPersistedImageMounts } from './files-image-mount-persist.ts'
 import {
@@ -12,6 +13,7 @@ import {
   newImageLocationKey,
   type ImageFilesLocationId,
 } from './files-types.ts'
+import type { ImageVolume } from './files-image-volume.ts'
 
 export type ImageMountRecord = {
   id: ImageFilesLocationId
@@ -23,7 +25,7 @@ export type ImageMountRecord = {
 export const FILES_IMAGE_MOUNTS_CHANGED_EVENT = 'instant-os-files-image-mounts-changed'
 
 type ImageMountSession = ImageMountRecord & {
-  volume: FatImageVolume
+  volume: ImageVolume
 }
 
 const sessions = new Map<ImageFilesLocationId, ImageMountSession>()
@@ -63,7 +65,7 @@ export function getImageMountReadError(id: ImageFilesLocationId): string | undef
   return sessions.get(id)?.unreadableReason
 }
 
-export function getImageVolume(id: ImageFilesLocationId): FatImageVolume {
+export function getImageVolume(id: ImageFilesLocationId): ImageVolume {
   const session = sessions.get(id)
   if (!session) {
     throw new Error('磁盘镜像未挂载')
@@ -92,12 +94,22 @@ export async function openImageMount(params: {
       : makeImageLocationId(newImageLocationKey(params.fileName, taken))
   const occupant = { kind: 'files-mount' as const, id }
   claimDiskImagePath(imagePath, occupant)
-  const volume = new FatImageVolume(params.io)
+  // 探测顺序：先 FAT（保持既有行为），失败再试 exFAT（分区类型 0x07 与 NTFS 同值，
+  // 只能靠引导区签名区分，见 ExfatImageVolume.detectBaseOffset）
+  const fatVolume = new FatImageVolume(params.io)
+  let volume: ImageVolume = fatVolume
   let unreadableReason: string | undefined
   try {
-    await volume.prepare()
-  } catch (error) {
-    unreadableReason = error instanceof Error ? error.message : String(error)
+    await fatVolume.prepare()
+  } catch (fatError) {
+    const exfatVolume = new ExfatImageVolume(params.io)
+    try {
+      await exfatVolume.prepare()
+      volume = exfatVolume
+    } catch {
+      volume = fatVolume
+      unreadableReason = fatError instanceof Error ? fatError.message : String(fatError)
+    }
   }
   const record: ImageMountSession = {
     id,

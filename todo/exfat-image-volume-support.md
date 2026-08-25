@@ -1,8 +1,8 @@
 # 磁盘镜像：支持 exFAT 文件系统
 
-> 建立时间：2026-08-24
+> 建立时间：2026-08-24；实施完成：2026-08-25
 > 涉及项目：`instant-app`（磁盘镜像挂载 / VFS）
-> 状态：方案，未实施
+> 状态：**已实施**（含真实 macOS exFAT 镜像互操作验证）
 
 目标：让磁盘镜像卷除了 FAT12/16/32 之外，也能挂载 **exFAT** 格式的镜像，并支持可读可写。
 
@@ -122,11 +122,34 @@ MBR 分区类型 `0x07` 同时表示 NTFS/HPFS/exFAT，不能仅靠分区类型�
 
 ## 6. 验收标准
 
-- [ ] exFAT 镜像可以在文件管理器中挂载、列出目录、读取文件。
-- [ ] 若外部库支持写入，则可创建/删除/重命名文件和目录、覆盖写入文件。
-- [ ] FAT12/16/32 镜像行为完全不变（回归）。
-- [ ] 磁盘工具能识别 exFAT 分区并展示基本信息（卷标、簇大小、容量、已用）。
-- [ ] 单元测试覆盖 exFAT fixture 的读写操作。
+- [x] exFAT 镜像可以在文件管理器中挂载、列出目录、读取文件。
+- [x] 创建/删除/重命名文件和目录、覆盖写入文件、范围读写、流式写（未采用外部库，自研实现，见下）。
+- [x] FAT12/16/32 镜像行为完全不变（回归：files-image-mount / files-location-mount-range / disk-utility 全绿）。
+- [x] 磁盘工具能识别 exFAT 分区并展示基本信息（卷标、簇大小、簇总数、容量、空闲簇、序列号）。
+- [x] 单元测试覆盖 exFAT fixture 的读写操作（`pnpm test:files-image`，11 组用例）。
+
+## 6.1 实施纪要（2026-08-25）
+
+**外部依赖结论**：npm `exfat` 包不可用——其目录项布局基于规范早期草案（FileInfo 字段偏移与正式规范不符），且 `readdir`/`readFile` 均为未实现桩，无写入能力。因此 exFAT 驱动为纯 TS 自研实现，不新增任何依赖。
+
+**落地文件**：
+
+- `src/apps/files/files-image-exfat-volume.ts` — ExfatImageVolume：VBR 解析与几何校验、FAT32 表项读写（双 FAT 镜像）、分配位图、目录项解析/序列化（含规范名字哈希与集合校验和）、NoFatChain 流的连续扩展与转链、目录扩容、list/stat/read/readRange/write/writeRange/streamWrite/mkdir/remove/rename。
+- `src/apps/files/files-image-volume.ts` — 抽出 FatImageVolume / ExfatImageVolume 共同实现的 `ImageVolume` 接口，上层（files-location-image.ts）不感知文件系统类型。
+- `src/apps/files/files-image-mount-store.ts` — 探测分流：先 FAT（保持既有行为），失败再试 exFAT（superfloppy 与 MBR 分区 0x07 均支持，靠引导区 EXFAT 签名区分 NTFS）。
+- `src/apps/disk-utility/disk-utility-data.ts` — `DiskFileSystemInfo = DiskFatInfo | DiskExfatInfo`；读取根目录卷标与分配位图统计空闲簇。
+- `src/apps/disk-utility/disk-utility-app.tsx` — exFAT 节点展示容量 / 空闲簇 / 序列号。
+- `src/apps/files/files-image-exfat-fixture.ts` — 内存 mkfs（引导区校验和、位图、根目录、预置文件）。
+- `src/apps/files/files-image-exfat.test.ts` — 11 组用例；`package.json` 增加 `test:files-image`。
+
+**真实系统互操作验证**（macOS）：用 `newfs_exfat` 生成真镜像 → 驱动读出 macOS 写入的文件（含多簇与中文长名）→ 驱动执行创建/覆盖/mkdir/重命名/删除/范围写 → `fsck_exfat` 判定 "appears to be OK" → macOS 挂载回读内容全部一致。
+
+**实现中踩过并修复的关键点**（后续维护注意）：
+
+1. `VolumeLength` 字段单位是**扇区**不是字节；
+2. 名字哈希按大写化 UTF-16 的**小端字节流逐字节**累加（macOS/Linux 实测口径），规范伪代码按码元读会算错；
+3. 原地补丁目录项（流扩展项 / 修改时间）后必须重算 SetChecksum，否则 fsck 判损坏；
+4. 目录项回收槽位判断要区分 0x85（在用）与 0x05（已删除）——仅差 bit7，不能按掩码类型匹配。
 
 ---
 

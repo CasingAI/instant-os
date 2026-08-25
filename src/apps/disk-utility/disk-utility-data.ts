@@ -14,6 +14,11 @@ import {
   type DiskImageOccupant,
 } from '../files/files-disk-image-occupancy.ts'
 import { listImageMounts } from '../files/files-image-mount-store.ts'
+import {
+  parseExfatDirectory,
+  parseExfatSuperblock,
+  type ExfatSuperblock,
+} from '../files/files-image-exfat-volume.ts'
 import { filesLocationPathRoot } from '../files/files-path.ts'
 import { isImageLocationId, type FilesLocationId } from '../files/files-types.ts'
 import { getFilesBytesByLocation } from '../files/files-storage.ts'
@@ -23,7 +28,7 @@ import {
 } from '../../os/device-storage.ts'
 import { getDataCapacityBytes, getTotalDataStorageBytes } from '../../os/device-data-storage.ts'
 
-/* ─── 分区 / FAT 基础类型 ─── */
+/* ─── 分区 / 文件系统基础类型 ─── */
 
 export type DiskPartitionInfo = {
   index: number
@@ -40,6 +45,20 @@ export type DiskFatInfo = {
   clusterSizeBytes: number
   totalClusters: number
 }
+
+export type DiskExfatInfo = {
+  variant: 'exFAT'
+  label: string
+  clusterSizeBytes: number
+  totalClusters: number
+  /** 卷序列号（十六进制展示） */
+  serialNumber: string
+  capacityBytes: number
+  /** 位图可读时才有 */
+  freeClusters?: number
+}
+
+export type DiskFileSystemInfo = DiskFatInfo | DiskExfatInfo
 
 export type ImageOccupancy =
   | { kind: 'free' }
@@ -74,8 +93,8 @@ export type TreeNode = {
   pathRoot?: string
   /** 分区信息，partition 节点才有 */
   partition?: DiskPartitionInfo
-  /** FAT 信息，volume/image-root 节点才有 */
-  fat?: DiskFatInfo
+  /** 文件系统信息（FAT 或 exFAT），volume/image-root 节点才有 */
+  fat?: DiskFileSystemInfo
   /** 镜像卷特有 */
   imageFile?: { path: string; sizeBytes: number }
   /** 镜像占用方 */
@@ -247,6 +266,99 @@ function parseFatBootSector(bootSector: Uint8Array): DiskFatInfo | undefined {
   }
 }
 
+/* ─── exFAT 卷信息 ─── */
+
+async function readExfatCluster(
+  path: string,
+  sb: ExfatSuperblock,
+  base: number,
+  cluster: number,
+): Promise<Uint8Array> {
+  return readSectorRange(
+    path,
+    base + sb.clusterHeapStart + (cluster - 2) * sb.clusterSize,
+    sb.clusterSize,
+  )
+}
+
+async function readExfatFatEntry(
+  path: string,
+  sb: ExfatSuperblock,
+  base: number,
+  cluster: number,
+): Promise<number> {
+  const bytes = await readSectorRange(path, base + sb.fatStart + cluster * 4, 4)
+  return (
+    bytes[0]! |
+    (bytes[1]! << 8) |
+    (bytes[2]! << 16) |
+    (bytes[3]! << 24 >>> 0)
+  )
+}
+
+/**
+ * 从根目录读卷标与分配位图，统计空闲簇；失败只降级少展示几行。
+ * 只做范围读，不整读镜像。
+ */
+async function inspectExfatVolume(
+  path: string,
+  base: number,
+  sb: ExfatSuperblock,
+): Promise<DiskExfatInfo> {
+  let label = ''
+  let freeClusters: number | undefined
+  try {
+    const root = await readExfatCluster(path, sb, base, sb.rootCluster)
+    const parsed = parseExfatDirectory(root.subarray(0, sb.clusterSize))
+    label = parsed.label ?? ''
+    const stream = parsed.bitmapStream
+    if (stream && stream.firstCluster >= 2) {
+      const size = Math.min(
+        stream.dataLength || Math.ceil(sb.clusterCount / 8),
+        Math.ceil(sb.clusterCount / 8),
+      )
+      const bitmap = new Uint8Array(size)
+      let cursor = 0
+      let clu = stream.firstCluster
+      let steps = 0
+      while (
+        cursor < size &&
+        clu >= 2 &&
+        clu < sb.clusterCount + 2 &&
+        steps < sb.clusterCount
+      ) {
+        const chunk = await readExfatCluster(path, sb, base, clu)
+        bitmap.set(chunk.subarray(0, Math.min(sb.clusterSize, size - cursor)), cursor)
+        cursor += sb.clusterSize
+        steps += 1
+        if (stream.noFatChain) {
+          clu += 1
+        } else {
+          const next = await readExfatFatEntry(path, sb, base, clu)
+          if (next >= 0x0ffffff8) break
+          clu = next
+        }
+      }
+      let free = 0
+      for (let bit = 0; bit < sb.clusterCount; bit += 1) {
+        if ((bitmap[bit >> 3]! & (1 << (bit & 7))) === 0) free += 1
+      }
+      freeClusters = free
+    }
+  } catch {
+    // 解析失败不影响基础信息
+  }
+  return {
+    variant: 'exFAT',
+    label,
+    clusterSizeBytes: sb.clusterSize,
+    totalClusters: sb.clusterCount,
+    serialNumber: `0x${sb.serialNumber.toString(16).toUpperCase().padStart(8, '0')}`,
+    capacityBytes: sb.volumeLength,
+    freeClusters,
+  }
+}
+
 /* ─── 占用方 ─── */
 
 function occupancyFromDisk(occupant: DiskImageOccupant | undefined): ImageOccupancy {
@@ -286,33 +398,56 @@ async function inspectImageVolume(
       if (partitions.length > 0) {
         imageRoot.children = []
         for (const partition of partitions) {
-          let partFat: DiskFatInfo | undefined
-          if (isFatTypeByte(partition.typeByte) && partition.startBytes + 512 <= sizeBytes) {
+          let partFs: DiskFileSystemInfo | undefined
+          const canReadBoot = partition.startBytes + 512 <= sizeBytes
+          if (isFatTypeByte(partition.typeByte) && canReadBoot) {
             try {
               const bootSector =
                 partition.startBytes === 0
                   ? sector0
                   : await readSectorRange(record.imagePath, partition.startBytes, 512)
-              partFat = parseFatBootSector(bootSector)
+              partFs = parseFatBootSector(bootSector)
             } catch {
-              partFat = undefined
+              partFs = undefined
+            }
+          }
+          // 分区类型 0x07 与 NTFS 同值，只能靠引导区 EXFAT 签名识别
+          if (!partFs && partition.typeByte === 0x07 && canReadBoot) {
+            try {
+              const bootSector =
+                partition.startBytes === 0
+                  ? sector0
+                  : await readSectorRange(record.imagePath, partition.startBytes, 512)
+              const sb = parseExfatSuperblock(bootSector)
+              if (sb) {
+                partFs = await inspectExfatVolume(record.imagePath, partition.startBytes, sb)
+              }
+            } catch {
+              partFs = undefined
             }
           }
           imageRoot.children.push({
             id: `${record.id}:part${partition.index}`,
             kind: 'partition',
-            label: partFat?.label || `分区 ${partition.index}${partition.active ? '（活动）' : ''}`,
+            label: partFs?.label || `分区 ${partition.index}${partition.active ? '（活动）' : ''}`,
             bytes: partition.sizeBytes,
             partition,
             imageFile: imageRoot.imageFile,
             occupancy,
-            fat: partFat,
+            fat: partFs,
           })
         }
         imageRoot.fat = imageRoot.children.find((child) => child.fat)?.fat
       } else {
         const fat = parseFatBootSector(sector0)
-        if (fat) imageRoot.fat = fat
+        if (fat) {
+          imageRoot.fat = fat
+        } else {
+          const sb = parseExfatSuperblock(sector0)
+          if (sb) {
+            imageRoot.fat = await inspectExfatVolume(record.imagePath, 0, sb)
+          }
+        }
       }
     } catch {
       // 解析失败不影响基础信息
