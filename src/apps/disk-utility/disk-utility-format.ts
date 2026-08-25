@@ -3,7 +3,7 @@
  * 再按偏移写入镜像文件。不整盘填零，只覆盖元数据区（引导扇区、FAT、根目录）。
  */
 import { fdisk, mkfsvfat, type DiskSectors } from 'libmount'
-import { filesReadBlobRange, filesWriteBytesRange } from '../files/files-api.ts'
+import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
 import {
   getDiskImageOccupant,
   normalizeDiskImagePath,
@@ -52,10 +52,87 @@ export function encodeFatLabel(raw: string): Uint8Array {
   return out
 }
 
-function fatTypeByte(type: string): number {
+const SPT = 63
+const INITIAL_HEADS = 16
+const MAX_CHS_CYLINDER = 1023
+const MAX_CHS_HEAD = 254
+const MAX_CHS_SECTOR = 63
+
+export type ChsGeometry = { heads: number; spt: number }
+
+export function chsGeometry(totalSectors: number): ChsGeometry {
+  let heads = INITIAL_HEADS
+  while (Math.floor(totalSectors / (heads * SPT)) > MAX_CHS_CYLINDER && heads < 256) {
+    heads *= 2
+  }
+  return { heads: Math.min(heads, 255), spt: SPT }
+}
+
+export function lbaToChs(lba: number, totalSectors: number): { c: number; h: number; s: number } {
+  const { heads, spt } = chsGeometry(totalSectors)
+  const c = Math.floor(lba / (heads * spt))
+  if (c > MAX_CHS_CYLINDER) {
+    return { c: MAX_CHS_CYLINDER, h: MAX_CHS_HEAD, s: MAX_CHS_SECTOR }
+  }
+  const r = lba % (heads * spt)
+  const h = Math.floor(r / spt)
+  const s = (r % spt) + 1
+  return { c, h, s }
+}
+
+function encodeChs(chs: { c: number; h: number; s: number }): [number, number, number] {
+  return [
+    chs.h & 0xff,
+    ((chs.c >> 8) << 6) | (chs.s & 0x3f),
+    chs.c & 0xff,
+  ]
+}
+
+function writeLe32(buffer: Uint8Array, offset: number, value: number): void {
+  buffer[offset] = value & 0xff
+  buffer[offset + 1] = (value >> 8) & 0xff
+  buffer[offset + 2] = (value >> 16) & 0xff
+  buffer[offset + 3] = (value >>> 24) & 0xff
+}
+
+export function patchPartitionTableEntry(
+  mbr: Uint8Array,
+  slot: number,
+  options: {
+    active: boolean
+    type: number
+    start: number
+    size: number
+    totalSectors: number
+  },
+): void {
+  if (slot < 0 || slot > 3) return
+  if (mbr.byteLength < 512) return
+  const offset = 446 + slot * 16
+  const endLba = options.start + options.size - 1
+  const startChs = lbaToChs(options.start, options.totalSectors)
+  const endChs = lbaToChs(endLba, options.totalSectors)
+  const [s0, s1, s2] = encodeChs(startChs)
+  const [e0, e1, e2] = encodeChs(endChs)
+  mbr[offset] = options.active ? 0x80 : 0x00
+  mbr[offset + 1] = s0
+  mbr[offset + 2] = s1
+  mbr[offset + 3] = s2
+  mbr[offset + 4] = options.type
+  mbr[offset + 5] = e0
+  mbr[offset + 6] = e1
+  mbr[offset + 7] = e2
+  writeLe32(mbr, offset + 8, options.start)
+  writeLe32(mbr, offset + 12, options.size)
+}
+
+function fatTypeByte(type: string, endLba: number, totalSectors: number): number {
+  const { heads, spt } = chsGeometry(totalSectors)
+  const maxChsLba = (MAX_CHS_CYLINDER + 1) * heads * spt - 1
+  const fitsChs = endLba <= maxChsLba
   if (type === 'FAT12') return 0x01
-  if (type === 'FAT16') return 0x0e
-  return 0x0c
+  if (type === 'FAT16') return fitsChs ? 0x06 : 0x0e
+  return fitsChs ? 0x0b : 0x0c
 }
 
 function mkfsOptions(
@@ -180,14 +257,25 @@ export function planEraseDisk(diskSizeBytes: number, options: EraseDiskOptions):
   const parts = layoutEqualPartitions(totalSectors, 1)
   const part = parts[0]!
   const fat = makeFat(part.size * SECTOR_SIZE, options.variant, options.label, part.start)
+  const type = fatTypeByte(fat.type, part.start + part.size - 1, totalSectors)
   const table = fdisk([
     {
       active: true,
-      type: fatTypeByte(fat.type),
+      type,
       relativeSectors: part.start,
       totalSectors: part.size,
     },
   ])
+  const mbr = table.dataSectors[0]?.data
+  if (mbr) {
+    patchPartitionTableEntry(mbr, 0, {
+      active: true,
+      type,
+      start: part.start,
+      size: part.size,
+      totalSectors,
+    })
+  }
   return {
     steps: [
       { offset: 0, sectors: table },
@@ -214,16 +302,33 @@ export function planPartitionDisk(diskSizeBytes: number, options: PartitionDiskO
     const part = parts[i]!
     const label = options.labels[i] ?? ''
     const fat = makeFat(part.size * SECTOR_SIZE, options.variant, label, part.start)
+    const type = fatTypeByte(fat.type, part.start + part.size - 1, totalSectors)
     tableParts.push({
       active: i === 0,
-      type: fatTypeByte(fat.type),
+      type,
       relativeSectors: part.start,
       totalSectors: part.size,
     })
     steps.push({ offset: part.start * SECTOR_SIZE, sectors: fat.sectors })
   }
 
-  steps.unshift({ offset: 0, sectors: fdisk(tableParts) })
+  const table = fdisk(tableParts)
+  const mbr = table.dataSectors[0]?.data
+  if (mbr) {
+    for (let i = 0; i < tableParts.length; i += 1) {
+      const part = parts[i]!
+      const tp = tableParts[i]!
+      patchPartitionTableEntry(mbr, i, {
+        active: tp.active,
+        type: tp.type,
+        start: part.start,
+        size: part.size,
+        totalSectors,
+      })
+    }
+  }
+
+  steps.unshift({ offset: 0, sectors: table })
   return { steps }
 }
 
@@ -253,11 +358,22 @@ export function formatPartitionBuffer(
   options: FormatPartitionOptions,
 ): string {
   const hidden = Math.floor(partition.startBytes / SECTOR_SIZE)
+  const size = Math.floor(partition.sizeBytes / SECTOR_SIZE)
   const fat = makeFat(partition.sizeBytes, options.variant, options.label, hidden)
   applyDiskSectorsToBuffer(buffer, fat.sectors, partition.startBytes)
   const slot = partition.index - 1
   if (slot >= 0 && slot < 4 && buffer.byteLength >= 512) {
-    buffer[446 + slot * 16 + 4] = fatTypeByte(fat.type)
+    const totalSectors = Math.floor(buffer.byteLength / SECTOR_SIZE)
+    const type = fatTypeByte(fat.type, hidden + size - 1, totalSectors)
+    const offset = 446 + slot * 16
+    const active = (buffer[offset]! & 0x80) !== 0
+    patchPartitionTableEntry(buffer, slot, {
+      active,
+      type,
+      start: hidden,
+      size,
+      totalSectors,
+    })
   }
   return fat.type
 }
@@ -329,13 +445,26 @@ export async function formatPartitionInImageFile(
   options: FormatPartitionOptions,
 ): Promise<void> {
   const hidden = Math.floor(partition.startBytes / SECTOR_SIZE)
+  const size = Math.floor(partition.sizeBytes / SECTOR_SIZE)
   const fat = makeFat(partition.sizeBytes, options.variant, options.label, hidden)
   await applyDiskSectors(path, fat.sectors, partition.startBytes)
   const slot = partition.index - 1
   if (slot < 0 || slot > 3) return
+  const stat = await filesStat(path)
+  if (!stat) return
+  const totalSectors = Math.floor(stat.byteSize / SECTOR_SIZE)
   const blob = await filesReadBlobRange(path, 0, SECTOR_SIZE)
   const mbr = new Uint8Array(await blob.arrayBuffer())
   if (mbr.byteLength < SECTOR_SIZE) return
-  mbr[446 + slot * 16 + 4] = fatTypeByte(fat.type)
+  const offset = 446 + slot * 16
+  const active = (mbr[offset]! & 0x80) !== 0
+  const type = fatTypeByte(fat.type, hidden + size - 1, totalSectors)
+  patchPartitionTableEntry(mbr, slot, {
+    active,
+    type,
+    start: hidden,
+    size,
+    totalSectors,
+  })
   await filesWriteBytesRange(path, 0, mbr)
 }

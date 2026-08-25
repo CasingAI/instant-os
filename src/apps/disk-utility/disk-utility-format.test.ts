@@ -5,8 +5,10 @@
 import assert from 'node:assert/strict'
 import { FatImageVolume, type ImageDiskIo } from '../files/files-image-fat-volume.ts'
 import {
+  chsGeometry,
   eraseDiskBuffer,
   formatPartitionBuffer,
+  lbaToChs,
   partitionDiskBuffer,
   recommendFatVariant,
 } from './disk-utility-format.ts'
@@ -43,6 +45,26 @@ function readMbrSlots(bytes: Uint8Array): number {
     if (type !== 0) count += 1
   }
   return count
+}
+
+function readMbrSlot(bytes: Uint8Array, slot: number) {
+  const off = 446 + slot * 16
+  return {
+    active: bytes[off] === 0x80,
+    startChs: [bytes[off + 1]!, bytes[off + 2]!, bytes[off + 3]!] as [number, number, number],
+    type: bytes[off + 4]!,
+    endChs: [bytes[off + 5]!, bytes[off + 6]!, bytes[off + 7]!] as [number, number, number],
+    startLba:
+      bytes[off + 8]! |
+      (bytes[off + 9]! << 8) |
+      (bytes[off + 10]! << 16) |
+      ((bytes[off + 11]! << 24) >>> 0),
+    totalSectors:
+      bytes[off + 12]! |
+      (bytes[off + 13]! << 8) |
+      (bytes[off + 14]! << 16) |
+      ((bytes[off + 15]! << 24) >>> 0),
+  }
 }
 
 function testRecommend(): void {
@@ -106,7 +128,64 @@ async function testFormatExistingPartition(): Promise<void> {
   await assertWritableVolume(bytes, 'reformat-ok')
 }
 
+function testChsGeometry(): void {
+  // 1342656 sectors ≈ 655.6 MiB，对应用户截图里 DiskGenius 的几何
+  assert.deepEqual(chsGeometry(1342656), { heads: 32, spt: 63 })
+  // 普通小盘：16 头即可覆盖
+  assert.deepEqual(chsGeometry(16384), { heads: 16, spt: 63 })
+  // 2 GiB 盘需要磁头倍增到 128 才能把柱面压到 ≤1023
+  assert.deepEqual(chsGeometry(4194304), { heads: 128, spt: 63 })
+}
+
+function testLbaToChs(): void {
+  // 用户截图的磁盘：几何 32/63，分区起止 CHS 应为 (1,0,33) / (665,31,63)
+  assert.deepEqual(lbaToChs(2048, 1342656), { c: 1, h: 0, s: 33 })
+  assert.deepEqual(lbaToChs(1342655, 1342656), { c: 665, h: 31, s: 63 })
+}
+
+function testMbrChsFields(): void {
+  // 8 MiB FAT16：16 头/63 扇区，分区可 CHS 表示，类型应为 0x06
+  let bytes = new Uint8Array(8 * 1024 * 1024)
+  eraseDiskBuffer(bytes, { scheme: 'mbr', variant: 'auto', label: 'DATA' })
+  let slot = readMbrSlot(bytes, 0)
+  assert.equal(slot.type, 0x06)
+  assert.deepEqual(slot.startChs, [0x00, 0x21, 0x02]) // (2,0,33)
+  assert.deepEqual(slot.endChs, [0x04, 0x04, 0x10]) // (16,4,4)
+  assert.equal(slot.startLba, 2048)
+
+  // 16 MiB FAT32：类型应为 CHS 型 0x0B
+  bytes = new Uint8Array(16 * 1024 * 1024)
+  eraseDiskBuffer(bytes, { scheme: 'mbr', variant: 'FAT32', label: 'BIG' })
+  slot = readMbrSlot(bytes, 0)
+  assert.equal(slot.type, 0x0b)
+  assert.deepEqual(slot.startChs, [0x00, 0x21, 0x02]) // (2,0,33)
+  assert.deepEqual(slot.endChs, [0x08, 0x08, 0x20]) // (32,8,8)
+  assert.equal(slot.startLba, 2048)
+}
+
+function testFormatPartitionPreservesChs(): void {
+  const bytes = new Uint8Array(8 * 1024 * 1024)
+  eraseDiskBuffer(bytes, { scheme: 'mbr', variant: 'auto', label: 'OLD' })
+  const before = readMbrSlot(bytes, 0)
+  formatPartitionBuffer(
+    bytes,
+    { index: 1, startBytes: before.startLba * 512, sizeBytes: before.totalSectors * 512 },
+    { variant: 'auto', label: 'NEW' },
+  )
+  const after = readMbrSlot(bytes, 0)
+  assert.equal(after.type, before.type) // FAT16 CHS 型 0x06
+  assert.deepEqual(after.startChs, before.startChs)
+  assert.deepEqual(after.endChs, before.endChs)
+  assert.equal(after.startLba, before.startLba)
+  assert.equal(after.totalSectors, before.totalSectors)
+  assert.equal(after.active, before.active)
+}
+
 testRecommend()
+testChsGeometry()
+testLbaToChs()
+testMbrChsFields()
+testFormatPartitionPreservesChs()
 await testFat12Superfloppy()
 await testFat16Mbr()
 await testFat32Explicit()
