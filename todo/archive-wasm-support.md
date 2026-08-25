@@ -18,7 +18,7 @@
 
 - zip / tar / gz / tar.gz 继续走 fflate（保留 GB18030 文件名修补等既有调优）。
 - 其余格式走第二后端（如 archive-wasm / 7z-wasm），**按需加载**，避免常驻体积。
-- 写出 / 改归档（rewrite）仍只支持 zip / tar / tar.gz；新格式只读浏览 + 解压。
+- 写出 / 改归档（rewrite）仍只支持 zip / tar / tar.gz；新格式只读浏览 + 解压。例外：ISO 用 @gcu/iso9660 支持读 + **新建镜像**（无法原地改写已有 ISO）。
 - 接入点：`src/archive/` 的 Worker 分流；扩展名注册（`archive-utility-format.ts`、`files-archive.ts` 的 `isArchiveFileName` 现在连 `.tar` 都不算，需统一）。
 
 ## 许可证（关键决策点，已逐个核实）
