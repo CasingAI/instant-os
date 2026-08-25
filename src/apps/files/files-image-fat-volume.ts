@@ -5,6 +5,8 @@ const PREFETCH_MIN = 4096
 const WRITE_BEHIND_IDLE_MS = 100
 const WRITE_BEHIND_DIRTY_BYTES = 256 * 1024
 export const SECTOR_CACHE_MAX_RESIDENT_BYTES = 32 * 1024 * 1024
+/** 长写入任务内的强制回刷水位：脏数据到点就在当前任务里落盘，低于常驻上限 */
+export const FAT_VOLUME_INLINE_FLUSH_DIRTY_BYTES = 4 * 1024 * 1024
 const FAT_PARTITION_TYPES = new Set([
   0x01, 0x04, 0x06, 0x0b, 0x0c, 0x0e, 0x11, 0x14, 0x16, 0x1b, 0x1c,
 ])
@@ -176,15 +178,17 @@ export class SectorCache {
 
   private evictClean(protectFrom?: number, protectTo?: number): void {
     if (this.chunks.size <= this.maxResidentSectors) return
-    for (const index of [...this.chunks.keys()]) {
+    const protectWindow =
+      protectFrom !== undefined && protectTo !== undefined
+    // 全脏时无可驱逐项：直接返回。长写入循环里每次 write 都会走到这里，
+    // 若仍展开全部编号扫描，脏扇区越多空转越久（平方级卡死主线程）。
+    if (!protectWindow && this.dirty.size >= this.chunks.size) return
+    // 直接在 Map 迭代上删除（规范允许），不预先拷贝全部 key；
+    // 常驻降回上限或本轮无可删项即自然结束。
+    for (const index of this.chunks.keys()) {
       if (this.chunks.size <= this.maxResidentSectors) return
       if (this.dirty.has(index)) continue
-      if (
-        protectFrom !== undefined &&
-        protectTo !== undefined &&
-        index >= protectFrom &&
-        index <= protectTo
-      ) {
+      if (protectWindow && index >= protectFrom! && index <= protectTo!) {
         continue
       }
       this.chunks.delete(index)
@@ -302,6 +306,15 @@ export class SectorCache {
   }
 }
 
+export type FatVolumeOptions = {
+  /** 扇区缓存常驻上限；默认 32MB */
+  maxResidentBytes?: number
+  /** 任务内强制回刷的脏数据水位；默认 4MB（须低于常驻上限，回刷后干净扇区才可被驱逐） */
+  inlineFlushDirtyBytes?: number
+  /** 任务结束后空闲回刷的脏数据阈值；默认 256KB */
+  writeBehindDirtyBytes?: number
+}
+
 export class FatImageVolume {
   private readonly cache: SectorCache
   private readonly driver: {
@@ -318,10 +331,14 @@ export class FatImageVolume {
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private clusterChains = new Map<string, number[]>()
   private clusterSizes = new Map<string, number>()
+  private readonly inlineFlushDirtyBytes: number
+  private readonly writeBehindDirtyBytes: number
 
-  constructor(io: ImageDiskIo, options?: { maxResidentBytes?: number }) {
+  constructor(io: ImageDiskIo, options?: FatVolumeOptions) {
     this.io = io
     this.cache = new SectorCache(io.size, options?.maxResidentBytes)
+    this.inlineFlushDirtyBytes = Math.max(1, options?.inlineFlushDirtyBytes ?? FAT_VOLUME_INLINE_FLUSH_DIRTY_BYTES)
+    this.writeBehindDirtyBytes = Math.max(1, options?.writeBehindDirtyBytes ?? WRITE_BEHIND_DIRTY_BYTES)
     this.driver = {
       capacity: io.size,
       read: (address, count) => this.cache.read(address, count),
@@ -459,7 +476,7 @@ export class FatImageVolume {
 
   private markDirty(): void {
     this.dirty = true
-    if (this.cache.dirtyBytes() >= WRITE_BEHIND_DIRTY_BYTES) {
+    if (this.cache.dirtyBytes() >= this.writeBehindDirtyBytes) {
       this.kickFlush()
     } else {
       this.scheduleFlush()
@@ -472,6 +489,10 @@ export class FatImageVolume {
 
   hasUnflushedSectors(): boolean {
     return this.cache.dirtyBytes() > 0
+  }
+
+  get unflushedBytes(): number {
+    return this.cache.dirtyBytes()
   }
 
   get residentSectorCount(): number {
@@ -499,6 +520,34 @@ export class FatImageVolume {
         throw error
       }
     })
+  }
+
+  /**
+   * 仅允许在已持有 enqueue 的长任务内调用：直接落盘脏扇区。
+   * 不能改走 flushNow/kickFlush——它们会重新 enqueue 排到当前任务之后，
+   * 当前任务不结束就永远轮不到，等于自己等自己。
+   */
+  private async flushHeld(): Promise<void> {
+    try {
+      await this.cache.flush(this.io)
+      if (this.cache.dirtyBytes() === 0) {
+        this.dirty = false
+      }
+    } catch (error) {
+      this.dirty = true
+      throw error
+    }
+  }
+
+  /**
+   * 长写入循环内逐簇调用：脏数据超过任务内水位就在当前任务里落盘，
+   * 再让出一次事件循环（宏任务而非微任务，界面与导入进度才有机会刷新）。
+   * 让出期间卷队列仍由当前任务持有，FAT 元数据不会与其它操作交错。
+   */
+  private async maybeFlushHeld(): Promise<void> {
+    if (this.cache.dirtyBytes() < this.inlineFlushDirtyBytes) return
+    await this.flushHeld()
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
   }
 
   async prepare(): Promise<void> {
@@ -609,6 +658,12 @@ export class FatImageVolume {
   }
 
   async writeFile(relativePath: string, data: Uint8Array): Promise<FatVolumeEntry> {
+    // 整包超过任务内脏水位时，writeData 会把全部数据一次性同步打进扇区缓存，
+    // 中途无法 await 落盘；改走 streamWriteFile，与拖入流式写共用预分配回压。
+    // streamWriteFile 内部已自行 enqueue，这里不能再包一层，否则套娃排队。
+    if (data.byteLength > this.inlineFlushDirtyBytes) {
+      return this.writeFileStreamed(relativePath, data)
+    }
     return this.enqueue(async () => {
       try {
         const entry = await this.withRoot((root) => {
@@ -629,6 +684,20 @@ export class FatImageVolume {
         this.noteDirtyCache()
       }
     })
+  }
+
+  private async writeFileStreamed(relativePath: string, data: Uint8Array): Promise<FatVolumeEntry> {
+    const writer = await this.streamWriteFile(relativePath, {
+      isNew: false,
+      expectedSize: data.byteLength,
+    })
+    try {
+      await writer.write(data)
+      return await writer.close()
+    } catch (error) {
+      await writer.abort().catch(() => undefined)
+      throw error
+    }
   }
 
   async writeFileRange(relativePath: string, offset: number, data: Uint8Array): Promise<FatVolumeEntry> {
@@ -673,6 +742,7 @@ export class FatImageVolume {
               if (io.writeClus(clusterBuf.subarray(0, writeLen)) === 0) {
                 throw new Error('磁盘空间不足')
               }
+              await this.maybeFlushHeld()
             }
             this.invalidateClusterCache(relativePath)
             chain = this.getClusterChain(relativePath, file)
@@ -687,6 +757,7 @@ export class FatImageVolume {
             clusterBuf.set(this.driver.read(diskOffset, clusterSize))
             overlayRangeOnCluster(clusterBuf, i, clusterSize, offset, data)
             this.driver.write(diskOffset, clusterBuf)
+            await this.maybeFlushHeld()
           }
 
           if (newSize !== oldSize) {
@@ -730,7 +801,7 @@ export class FatImageVolume {
 
     const start = async (): Promise<void> => {
       if (state.file && state.io) return
-      await this.withRoot((root) => {
+      await this.withRoot(async (root) => {
         const file = root.makeFile(relativePath)
         if (!file) throw new Error('无法写入文件')
         if (!isNew) {
@@ -751,6 +822,8 @@ export class FatImageVolume {
             if (io.writeClus(zeros.subarray(0, writeLen)) === 0) {
               throw new Error('磁盘空间不足')
             }
+            // 预分配整份文件会远超任务内脏水位：逐簇检查、到点落盘并让出
+            await this.maybeFlushHeld()
           }
           io.rewind()
         }
@@ -783,6 +856,7 @@ export class FatImageVolume {
                 if (io.writeClus(full) === 0) throw new Error('磁盘空间不足')
                 state.totalWritten += state.clusterSize
                 state.pending = state.pending.subarray(state.clusterSize)
+                await this.maybeFlushHeld()
               }
             })
           } finally {
@@ -808,6 +882,7 @@ export class FatImageVolume {
                 if (io.writeClus(piece) === 0) throw new Error('磁盘空间不足')
                 state.totalWritten += writeSize
                 state.pending = state.pending.subarray(writeSize)
+                await this.maybeFlushHeld()
               }
               adaptFatFileNode(file).setLength(state.totalWritten)
               file.setLastModified(new Date())

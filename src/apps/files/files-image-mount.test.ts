@@ -580,6 +580,145 @@ async function testFatInternalsAdapterRejectsBadShape(): Promise<void> {
   assert.throws(() => adaptFatClusterLayout({} as never), /缺少簇内容偏移/)
 }
 
+async function testSectorCacheAllDirtyEvictionIsBounded(): Promise<void> {
+  const image = new Uint8Array(64 * 1024)
+  const io = memoryDisk(image)
+  const cache = new SectorCache(image.byteLength, 4 * 512)
+  // 全脏：写入远超常驻上限的脏扇区，驱逐应直接返回——既不丢弃脏数据，也不空转扫描
+  for (let i = 0; i < 64; i += 1) {
+    cache.write(i * 512, new Uint8Array(512).fill(i))
+  }
+  assert.equal(cache.residentSectorCount, 64)
+  assert.equal(cache.dirtySectorCount, 64)
+
+  // 回刷后驱逐恢复工作：常驻降回上限
+  await cache.flush(io)
+  assert.equal(cache.dirtySectorCount, 0)
+  assert.ok(cache.residentSectorCount <= 4)
+
+  // 再补干净扇区：常驻保持在上限内
+  for (let i = 0; i < 16; i += 1) {
+    await cache.fill(io, i * 512, 512)
+  }
+  assert.ok(cache.residentSectorCount <= 4)
+}
+
+async function testStreamPreallocBackpressure(): Promise<void> {
+  const maxResident = 16 * 1024
+  const watermark = 4 * 1024
+  const cluster = 512
+  const image = createFat12Image(512 * 1024)
+  const tracer = tracingDisk(image)
+  const volume = new FatImageVolume(tracer.io, {
+    maxResidentBytes: maxResident,
+    inlineFlushDirtyBytes: watermark,
+  })
+  await volume.prepare()
+  tracer.clear()
+
+  const total = 64 * 1024
+  const writer = await volume.streamWriteFile('prealloc.bin', { isNew: true, expectedSize: total })
+  // 打开（预分配）完成时底层已有镜像写，不必等到 close；脏数据与常驻被压回水位/上限
+  assert.ok(tracer.writes.length > 0, '预分配阶段没有触发任务内落盘')
+  assert.ok(volume.unflushedBytes <= watermark + 2 * cluster)
+  assert.ok(volume.residentSectorCount <= maxResident / cluster + watermark / cluster + 8)
+
+  const chunkCount = total / 4096
+  for (let i = 0; i < chunkCount; i += 1) {
+    const chunk = new Uint8Array(4096)
+    chunk.fill(i)
+    await writer.write(chunk)
+    assert.ok(volume.unflushedBytes <= watermark + 2 * cluster, `第 ${i} 块写入后脏数据失控`)
+  }
+  await writer.close()
+  await volume.flush()
+
+  // 内容读回用默认缓存的重新挂载卷：顺带验证中途落盘的内容确实持久化
+  // （原卷常驻上限小于文件，读路径本就不支持整读超过缓存的文件，与回压无关）
+  const remounted = new FatImageVolume(memoryDisk(image))
+  await remounted.prepare()
+  const got = await remounted.readFile('prealloc.bin')
+  assert.equal(got.byteLength, total)
+  for (let i = 0; i < chunkCount; i += 1) {
+    assert.equal(got[i * 4096], i)
+  }
+  await remounted.close()
+}
+
+async function testLargeWriteFileStreamsBehindBackpressure(): Promise<void> {
+  const maxResident = 16 * 1024
+  const watermark = 4 * 1024
+  const cluster = 512
+  const image = createFat12Image(512 * 1024)
+  const tracer = tracingDisk(image)
+  const volume = new FatImageVolume(tracer.io, {
+    maxResidentBytes: maxResident,
+    inlineFlushDirtyBytes: watermark,
+  })
+  await volume.prepare()
+  tracer.clear()
+
+  const content = new Uint8Array(48 * 1024)
+  for (let i = 0; i < content.byteLength; i += 1) {
+    content[i] = i & 0xff
+  }
+  await volume.writeFile('bulk.bin', content)
+  // 整包写中途应有底层写，且不等显式 flush
+  assert.ok(tracer.writes.length > 0, '大整包写未走流式回压')
+  assert.ok(volume.unflushedBytes <= watermark + 2 * cluster)
+  await volume.flush()
+
+  const verify = async (expected: Uint8Array): Promise<void> => {
+    const remounted = new FatImageVolume(memoryDisk(image))
+    await remounted.prepare()
+    const got = await remounted.readFile('bulk.bin')
+    assert.equal(got.byteLength, expected.byteLength)
+    assert.deepEqual(got, expected)
+    await remounted.close()
+  }
+  await verify(content)
+
+  // 覆盖写同样走流式回压，旧尾内容不残留
+  const second = new Uint8Array(32 * 1024).fill(7)
+  tracer.clear()
+  await volume.writeFile('bulk.bin', second)
+  assert.ok(tracer.writes.length > 0)
+  await volume.flush()
+  await verify(second)
+}
+
+async function testInlineFlushFailureKeepsDirty(): Promise<void> {
+  const bytes = createFat12Image(256 * 1024)
+  let failuresLeft = 1
+  const io: ImageDiskIo = {
+    size: bytes.byteLength,
+    async read(offset, length) {
+      return bytes.slice(offset, offset + length)
+    },
+    async write(offset, data) {
+      if (failuresLeft > 0) {
+        failuresLeft -= 1
+        throw new Error('inline-write-fails')
+      }
+      bytes.set(data, offset)
+    },
+  }
+  const volume = new FatImageVolume(io, {
+    maxResidentBytes: 16 * 1024,
+    inlineFlushDirtyBytes: 4 * 1024,
+  })
+  await volume.prepare()
+  // 预分配到水位触发任务内落盘，IO 失败应向上抛出且脏标记保留
+  await assert.rejects(
+    () => volume.streamWriteFile('fail.bin', { isNew: true, expectedSize: 32 * 1024 }),
+    /inline-write-fails/,
+  )
+  assert.equal(volume.hasUnflushedSectors(), true)
+  await volume.flush()
+  assert.equal(volume.hasUnflushedSectors(), false)
+  await volume.close()
+}
+
 await testInMemoryFatVolume()
 await testMountWriteUnmountRemount()
 await testVmOccupancyBlocksMount()
@@ -597,5 +736,9 @@ await testStreamWriteOverwritesWithoutOldTail()
 await testStreamWriteOverwriteAbortLeavesEmpty()
 await testStreamWriteSerializesWithList()
 await testSectorCacheEvictsCleanKeepsDirty()
+await testSectorCacheAllDirtyEvictionIsBounded()
+await testStreamPreallocBackpressure()
+await testLargeWriteFileStreamsBehindBackpressure()
+await testInlineFlushFailureKeepsDirty()
 await testFatInternalsAdapterRejectsBadShape()
 console.log('files-image-mount.test.ts ok')
