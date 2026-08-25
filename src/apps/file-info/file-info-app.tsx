@@ -609,6 +609,12 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
                         : blobStorage.bodyStore}
                   </dd>
                 </div>
+                {blobStorage && blobStorage.storedByteSize < blobStorage.byteSize ? (
+                  <div class="file-info-app__info-row">
+                    <dt>占用</dt>
+                    <dd>{formatFilesByteSize(blobStorage.storedByteSize)}</dd>
+                  </div>
+                ) : undefined}
               </>
             ) : (
               <div class="file-info-app__info-row">

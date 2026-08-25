@@ -1,4 +1,9 @@
-import { filesMkdir, filesOpenStreamWrite, filesReadBlob, filesStat } from '../files/files-api.ts'
+import {
+  filesCreateSparseBinary,
+  filesMkdir,
+  filesReadBlob,
+  filesStat,
+} from '../files/files-api.ts'
 import { isDiskImageFileName } from '../files/files-disk-image-name.ts'
 import {
   claimDiskImagePath,
@@ -79,21 +84,9 @@ export async function createBlankVirtualMachineDisk(
   if (existing) {
     throw new Error(`文件已存在：${name}`)
   }
-  const writer = await filesOpenStreamWrite(path)
-  try {
-    const zeroChunk = new Uint8Array(BLANK_DISK_CHUNK_BYTES)
-    const totalBytes = sizeMb * 1024 * 1024
-    for (let written = 0; written < totalBytes; written += BLANK_DISK_CHUNK_BYTES) {
-      const remaining = totalBytes - written
-      const chunk =
-        remaining >= BLANK_DISK_CHUNK_BYTES ? zeroChunk : new Uint8Array(remaining)
-      await writer.write(chunk)
-    }
-  } catch (error) {
-    await writer.abort().catch(() => {})
-    throw error
-  }
-  await writer.close()
+  await filesCreateSparseBinary(path, sizeMb * 1024 * 1024, {
+    chunkSize: BLANK_DISK_CHUNK_BYTES,
+  })
   return path
 }
 

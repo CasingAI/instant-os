@@ -26,6 +26,7 @@ import { estimateNodeMetaBytes, FilesPathExistsError, newFilesNodeId, type Files
 import {
   copyNodeTo,
   createBinaryFile,
+  createSparseBinaryFile,
   createTextFile,
   emptyTrash,
   getFilesLocationLabel,
@@ -433,6 +434,33 @@ export async function filesCreateBinary(
     name: target.name,
     bytes,
     mimeType,
+    nameMode: 'exact',
+  })
+  return toEntry(node)
+}
+
+/**
+ * 创建定长稀疏二进制文件。逻辑大小为 byteSize，初始实占几乎为 0；
+ * 缺席块按全零读取。已存在则失败。
+ */
+export async function filesCreateSparseBinary(
+  path: string,
+  byteSize: number,
+  options?: { chunkSize?: number; mimeType?: string },
+): Promise<FilesApiEntry> {
+  const absolutePath = assertAbsolutePath(path)
+  const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
+  if (existing) {
+    throw new FilesPathExistsError('路径已存在', existing)
+  }
+  const target = await resolveParentForCreate(absolutePath)
+  const node = await createSparseBinaryFile({
+    locationId: target.locationId,
+    parentId: target.parentId,
+    name: target.name,
+    byteSize,
+    chunkSize: options?.chunkSize,
+    mimeType: options?.mimeType,
     nameMode: 'exact',
   })
   return toEntry(node)

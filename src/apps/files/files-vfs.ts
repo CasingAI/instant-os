@@ -11,6 +11,7 @@ import {
   createFileWithBlob,
   createFileWithBytes,
   createFolderNode,
+  createSparseFile,
   createSymlinkNode,
   deleteSubtree,
   deleteSubtreesMerged,
@@ -19,6 +20,7 @@ import {
   FILES_BATCH_DEFAULT_MAX_BYTES,
   FILES_BATCH_DEFAULT_SIZE,
   getNode,
+  getNodeBlobStoredBytes,
   listChildNodes,
   listLocalVolumeSubtreeNodes,
   newFilesNodeId,
@@ -689,6 +691,45 @@ export async function createBinaryFile(params: {
     'createBinary',
     performance.now() - startedAt,
   )
+  return created
+}
+
+export async function createSparseBinaryFile(params: {
+  locationId: FilesLocationId
+  parentId: string | undefined
+  name: string
+  byteSize: number
+  chunkSize?: number
+  mimeType?: string
+  /** 冲突处理：默认自动加后缀；files-api 精确创建时传 'exact' */
+  nameMode?: FilesNodeNameMode
+}): Promise<FilesNode> {
+  await assertCanCreateIn(params.locationId, params.parentId)
+  const desired = normalizeFilesNodeName(params.name.trim() || '未命名.bin')
+  const startedAt = performance.now()
+
+  const now = osNowMs()
+  const node: FilesNode = {
+    id: newFilesNodeId(),
+    locationId: params.locationId,
+    parentId: params.parentId,
+    name: desired,
+    kind: 'file',
+    mimeType: params.mimeType ?? 'application/octet-stream',
+    byteSize: 0,
+    createdAt: now,
+    updatedAt: now,
+    attributes: defaultFilesNodeAttributes(params.locationId),
+  }
+  const created = await createSparseFile({
+    node,
+    byteSize: params.byteSize,
+    chunkSize: params.chunkSize,
+    metaBytes: estimateNodeMetaBytes(node),
+    nameMode: params.nameMode ?? 'unique-suffix',
+  })
+  await emitNodeCreated(created)
+  recordFilesIoWrite(created, 0, 'createSparse', performance.now() - startedAt)
   return created
 }
 
@@ -1987,8 +2028,8 @@ async function estimateCopyBytesForNode(
     if (canShareBlobOnCopy(node, destLocationId)) {
       return estimateNodeMetaBytes(node)
     }
-    const { blob } = await readFileBlobByNodeIdUnmetered(node.id)
-    return estimateNodeMetaBytes(node) + blob.size
+    const storedBytes = await getNodeBlobStoredBytes(node.id)
+    return estimateNodeMetaBytes(node) + storedBytes
   }
   if (node.kind === 'symlink') {
     return estimateNodeMetaBytes(node) + estimateTextBytes(node.target ?? '')

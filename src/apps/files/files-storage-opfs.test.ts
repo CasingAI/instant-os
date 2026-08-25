@@ -57,7 +57,7 @@ useMemoryOpfsForTests()
 
 function patternedBytes(length: number): Uint8Array {
   const out = new Uint8Array(length)
-  for (let i = 0; i < length; i++) out[i] = i % 251
+  for (let i = 0; i < length; i++) out[i] = (i % 250) + 1
   return out
 }
 
