@@ -45,7 +45,8 @@
 | `03-host-executor.md` | 宿主执行与叠加 | 命令到了也没人画 |
 | `04-guest-image-and-files.md` | 镜像、送文件、藏桌面 | 没地方装游戏，或用户仍看见整台 XP |
 | `05-input-and-milestones.md` | 输入、验收阶梯 | 画面在、点不到；或一上来就上完整游戏 |
-| `06-resolution-auto-align.md` | 分辨率自动对齐（方案 C） | 窗口大小变化时客机分辨率不跟随，只能 CSS 拉伸 |
+
+> 分辨率自动对齐已从本系列独立出去，见 `todo/vm-resolution-auto-align.md`：它是独立功能、通道不走本系列的 3D 图形设备。
 
 文件共享的 Windows 替代路线见 `todo/vm-host-filesystem-sharing.md`。本文件夹只写 3D 通路需要的那部分，不重复整份共享方案。
 
