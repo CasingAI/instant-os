@@ -91,6 +91,7 @@ import {
   writeFilesNameDisplayMode,
   type FilesNameDisplayMode,
 } from './files-name-display.ts'
+import { filesTypeLabel } from './files-type-label.ts'
 import {
   applicationsBundleDisplayName,
   isApplicationsBundleRootNode,
@@ -157,7 +158,7 @@ const LOADING_MIN_VISIBLE_MS = 300
 
 type FilesViewMode = 'grid' | 'list'
 
-type FilesSortKey = 'name' | 'date' | 'size'
+type FilesSortKey = 'name' | 'type' | 'date' | 'size'
 type FilesSort = { key: FilesSortKey; direction: 'asc' | 'desc' }
 
 function menuCheckPrefix(active: boolean): string {
@@ -188,7 +189,10 @@ function readFilesSort(): FilesSort {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<FilesSort>
       if (
-        (parsed.key === 'name' || parsed.key === 'date' || parsed.key === 'size') &&
+        (parsed.key === 'name' ||
+          parsed.key === 'type' ||
+          parsed.key === 'date' ||
+          parsed.key === 'size') &&
         (parsed.direction === 'asc' || parsed.direction === 'desc')
       ) {
         return { key: parsed.key, direction: parsed.direction }
@@ -240,6 +244,12 @@ function sortNodeList(nodes: readonly FilesNode[], sort: FilesSort): FilesNode[]
     if (sort.key === 'name') {
       return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
     }
+    if (sort.key === 'type') {
+      return filesTypeLabel(a.kind, a.name).localeCompare(
+        filesTypeLabel(b.kind, b.name),
+        'zh-Hans-CN',
+      )
+    }
     if (sort.key === 'date') {
       return a.updatedAt - b.updatedAt
     }
@@ -257,6 +267,7 @@ function sortNodeList(nodes: readonly FilesNode[], sort: FilesSort): FilesNode[]
 
 const SORT_KEY_LABELS: Record<FilesSortKey, string> = {
   name: '名称',
+  type: '类型',
   date: '修改日期',
   size: '大小',
 }
@@ -267,12 +278,12 @@ function formatSortOptionLabel(sort: FilesSort, key: FilesSortKey): string {
   return `${SORT_KEY_LABELS[key]}${sort.direction === 'asc' ? ' ↑' : ' ↓'}`
 }
 
-/** 排序菜单项：按名称 / 修改日期 / 大小，当前字段前加 ✓ */
+/** 排序菜单项：按名称 / 类型 / 大小 / 修改日期，当前字段前加 ✓ */
 function buildSortMenuItems(
   sort: FilesSort,
   onChange: (key: FilesSortKey) => void,
 ): AdaptiveActionMenuLeafItem[] {
-  return (['name', 'date', 'size'] as const).map((key) => ({
+  return (['name', 'type', 'size', 'date'] as const).map((key) => ({
     type: 'action',
     label: `${sort.key === key ? '✓ ' : ''}${formatSortOptionLabel(sort, key)}`,
     onClick: () => onChange(key),
@@ -3703,6 +3714,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                   </button>
                   <button
                     type="button"
+                    class="files__list-header-btn files__list-header-btn--type"
+                    aria-sort={sort.key === 'type' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    onClick={() => handleSortColumn('type')}
+                  >
+                    类型{sort.key === 'type' ? (sort.direction === 'asc' ? ' ▲' : ' ▼') : ''}
+                  </button>
+                  <button
+                    type="button"
                     class="files__list-header-btn files__list-header-btn--size"
                     aria-sort={sort.key === 'size' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
                     onClick={() => handleSortColumn('size')}
@@ -3790,6 +3809,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                             <span class="files__list-date files__list-date--inline">
                               {formatListTimestamp(node, metaResolvedIds)}
                             </span>
+                          </span>
+                          <span class="files__list-type">
+                            {filesTypeLabel(node.kind, node.name)}
                           </span>
                           <span class="files__list-size">
                             {formatListByteSize(node, metaResolvedIds)}

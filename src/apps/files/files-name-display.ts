@@ -3,6 +3,7 @@ import {
   fileNameExtension,
   getDefaultFileOpenApp,
 } from '../../os/file-open-registry.ts'
+import { isDiskImageFileName } from './files-disk-image-name.ts'
 import { VSCODE_OPEN_EXTENSIONS } from '../vscode/vscode-tabs.ts'
 import {
   isBrowserOpenExtension,
@@ -52,9 +53,10 @@ function stripFileExtension(fileName: string): string {
   return base.slice(0, dot)
 }
 
-/** 系统能识别用途/图标的后缀（含 .app）；无后缀不算「未知」 */
+/** 系统能识别用途/图标的后缀（含 .app 与磁盘镜像）；无后缀不算「未知」 */
 export function isKnownFilesNameExtension(fileName: string): boolean {
   if (isAppBundleName(fileName)) return true
+  if (isDiskImageFileName(fileName)) return true
   const extension = fileNameExtension(fileName)
   if (!extension) return false
   if (getDefaultFileOpenApp(fileName)) return true
