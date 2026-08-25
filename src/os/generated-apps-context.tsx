@@ -117,8 +117,13 @@ type GeneratedAppsContextValue = {
   refreshIcodeManagedApp: (appId: GeneratedAppId) => Promise<void>
   /** 发布：草稿升格为新最大正式号（含立即再拷新草稿），刷新桌面记录 */
   publishIcodeApp: (appId: GeneratedAppId) => Promise<number | undefined>
-  /** 从商店/已安装应用复制出新身份的 iCode 应用（只带当前在跑的那一版） */
-  copyInstalledAppToIcode: (appId: GeneratedAppId) => Promise<GeneratedAppId | undefined>
+  /** 从商店/已安装应用复制出新身份的 iCode 应用（只带当前在跑的那一版）；失败抛错（消息可直接展示） */
+  copyInstalledAppToIcode: (appId: GeneratedAppId) => Promise<GeneratedAppId>
+  /** 手动导入旧版 iCode 内部项目（跳过一次性标记；返回逐项目失败详情供 UI 展示） */
+  importLegacyIcodeProjects: () => Promise<{
+    imported: number
+    failures: Array<{ name: string; message: string }>
+  }>
   /** 第二期·删除非最大号旧档 */
   deleteIcodeFormalVersion: (appId: GeneratedAppId, version: number) => Promise<boolean>
   /** 第二期·基于某一正式版再接一档新的最大号 */
@@ -204,14 +209,29 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      await hydrateInstalledAppsFromFiles()
-      const migration = await migrateLegacyIcodeInternalProjectsOnce({
-        getInstalledApps: () => loadInstalledApps(),
-      })
-      if (migration.changed) {
-        for (const appId of migration.appIds) {
-          await rebuildVersionsLayoutRecord(appId)
+      try {
+        await hydrateInstalledAppsFromFiles()
+      } catch (hydrateError) {
+        // hydrate 失败不阻断迁移：旧项目仍应有机会迁出来
+        console.error('[icode] 启动 hydrate 失败', hydrateError)
+      }
+      try {
+        const migration = await migrateLegacyIcodeInternalProjectsOnce({
+          getInstalledApps: () => loadInstalledApps(),
+        })
+        if (migration.failures.length > 0) {
+          console.error(
+            '[icode-migration] 部分旧项目迁移失败',
+            migration.failures.map((failure) => `${failure.name}: ${failure.message}`),
+          )
         }
+        if (migration.changed) {
+          for (const appId of migration.appIds) {
+            await rebuildVersionsLayoutRecord(appId)
+          }
+        }
+      } catch (migrationError) {
+        console.error('[icode-migration] 迁移流程异常', migrationError)
       }
       if (cancelled) return
       const fromCache = loadInstalledApps()
@@ -862,24 +882,48 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   )
 
   const copyInstalledAppToIcode = useCallback(
-    async (appId: GeneratedAppId): Promise<GeneratedAppId | undefined> => {
+    async (appId: GeneratedAppId): Promise<GeneratedAppId> => {
       const record = installedApps.find((app) => app.id === appId)
-      if (!record) return undefined
-      const newAppId = newIcodeAppId()
-      try {
-        await copyInstalledAppToIcodePackage({ record, newAppId })
-      } catch (error) {
-        console.error('[icode] 复制应用失败', error)
-        return undefined
+      if (!record) {
+        throw new Error('应用不存在或已被卸载')
       }
+      const newAppId = newIcodeAppId()
+      // 不吞错：调用方（iCode 复制弹窗）负责把真实消息展示给用户
+      await copyInstalledAppToIcodePackage({ record, newAppId })
       const newRecord = await rebuildVersionsLayoutRecord(newAppId)
-      if (!newRecord) return undefined
+      if (!newRecord) {
+        throw new Error('复制后的应用包无法识别（缺少版本清单）')
+      }
       setInstalledApps((current) => [...current, newRecord])
       invalidateAppCatalogCache()
       return newAppId
     },
     [installedApps],
   )
+
+  const importLegacyIcodeProjects = useCallback(async (): Promise<{
+    imported: number
+    failures: Array<{ name: string; message: string }>
+  }> => {
+    const migration = await migrateLegacyIcodeInternalProjectsOnce({
+      getInstalledApps: () => loadInstalledApps(),
+      force: true,
+    })
+    for (const appId of migration.appIds) {
+      await rebuildVersionsLayoutRecord(appId)
+    }
+    if (migration.changed) {
+      const fromCache = loadInstalledApps()
+      setInstalledApps((current) =>
+        fromCache.length === current.length &&
+        fromCache.every((app, index) => app.id === current[index]?.id)
+          ? current
+          : fromCache,
+      )
+      invalidateAppCatalogCache()
+    }
+    return { imported: migration.appIds.length, failures: migration.failures }
+  }, [])
 
   const deleteIcodeFormalVersion = useCallback(
     async (appId: GeneratedAppId, version: number): Promise<boolean> => {
@@ -955,6 +999,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       refreshIcodeManagedApp,
       publishIcodeApp,
       copyInstalledAppToIcode,
+      importLegacyIcodeProjects,
       deleteIcodeFormalVersion,
       createIcodeAppVersionFrom,
     }),
@@ -1003,6 +1048,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       refreshIcodeManagedApp,
       publishIcodeApp,
       copyInstalledAppToIcode,
+      importLegacyIcodeProjects,
       deleteIcodeFormalVersion,
       createIcodeAppVersionFrom,
     ],

@@ -310,6 +310,7 @@ export function ICodeApp() {
     refreshIcodeManagedApp,
     publishIcodeApp,
     copyInstalledAppToIcode,
+    importLegacyIcodeProjects,
     deleteIcodeFormalVersion,
     createIcodeAppVersionFrom,
     uninstallApp,
@@ -337,6 +338,12 @@ export function ICodeApp() {
   const [importAlert, setImportAlert] = useState<{ title: string; message: string } | undefined>()
   const [showNewProject, setShowNewProject] = useState(false)
   const [showImportPicker, setShowImportPicker] = useState(false)
+  const [copyError, setCopyError] = useState<string | undefined>()
+  const [legacyImportResult, setLegacyImportResult] = useState<
+    | { imported: number; failures: Array<{ name: string; message: string }> }
+    | undefined
+  >()
+  const [legacyImportWorking, setLegacyImportWorking] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<
     { appId: GeneratedAppId; name: string } | undefined
   >()
@@ -1533,17 +1540,39 @@ export function ICodeApp() {
 
   const onCopyFromInstalled = useCallback(
     async (record: GeneratedAppRecord) => {
-      const newAppId = await copyInstalledAppToIcode(record.id)
-      if (!newAppId) {
-        setError('复制失败，请检查存储空间')
-        return
+      setCopyError(undefined)
+      try {
+        const newAppId = await copyInstalledAppToIcode(record.id)
+        setShowImportPicker(false)
+        setCopyError(undefined)
+        setError(undefined)
+        void requestOpenApp(newAppId)
+      } catch (copyError) {
+        const message = copyError instanceof Error ? copyError.message : '复制失败'
+        setCopyError(message)
+        // 保留一条控制台记录，方便打开 DevTools 时看完整调用栈
+        console.error('[icode] 复制应用失败', copyError)
       }
-      setShowImportPicker(false)
-      setError(undefined)
-      void requestOpenApp(newAppId)
     },
     [copyInstalledAppToIcode, requestOpenApp],
   )
+
+  const onImportLegacyProjects = useCallback(async () => {
+    setLegacyImportWorking(true)
+    setLegacyImportResult(undefined)
+    try {
+      const result = await importLegacyIcodeProjects()
+      setLegacyImportResult(result)
+    } catch (err) {
+      setLegacyImportResult({
+        imported: 0,
+        failures: [{ name: '导入流程', message: err instanceof Error ? err.message : String(err) }],
+      })
+      console.error('[icode] 手动导入旧项目失败', err)
+    } finally {
+      setLegacyImportWorking(false)
+    }
+  }, [importLegacyIcodeProjects])
 
   const exportCurrentApp = useCallback(async () => {
     if (!session) {
@@ -1746,14 +1775,22 @@ export function ICodeApp() {
               >
                 新建应用
               </button>
-              <button
-                type="button"
-                class="icode__button icode__button--secondary"
-                onClick={() => setShowImportPicker(true)}
-                disabled={storeApps.length === 0}
-              >
-                从已安装应用复制…
-              </button>
+                <button
+                  type="button"
+                  class="icode__button icode__button--secondary"
+                  onClick={() => setShowImportPicker(true)}
+                  disabled={storeApps.length === 0}
+                >
+                  从已安装应用复制…
+                </button>
+                <button
+                  type="button"
+                  class="icode__button icode__button--secondary"
+                  onClick={() => void onImportLegacyProjects()}
+                  disabled={legacyImportWorking}
+                >
+                  {legacyImportWorking ? '导入中…' : '导入旧版应用…'}
+                </button>
               <button
                 type="button"
                 class="icode__button icode__button--secondary"
@@ -1819,19 +1856,30 @@ export function ICodeApp() {
           wide
           scrollBody
           themeColor={modalTheme}
-          onClose={() => setShowImportPicker(false)}
+          onClose={() => {
+            setShowImportPicker(false)
+            setCopyError(undefined)
+          }}
           actions={[
             {
               key: 'cancel',
               label: '取消',
               tone: 'secondary',
-              onClick: () => setShowImportPicker(false),
+              onClick: () => {
+                setShowImportPicker(false)
+                setCopyError(undefined)
+              },
             },
           ]}
         >
           <p class="window-modal__message">
             将复制出独立的新 iCode 应用（只带当前正在跑的那一版内容），原应用不受影响、不带其历史版本与用户数据。
           </p>
+          {copyError && (
+            <p class="icode__error" style={{ marginTop: '0.5rem' }}>
+              {copyError}
+            </p>
+          )}
           <div class="icode__list">
             {storeApps.map((app) => (
               <button
@@ -1857,6 +1905,47 @@ export function ICodeApp() {
               </button>
             ))}
           </div>
+        </WindowModal>
+
+        <WindowModal
+          open={legacyImportResult !== undefined}
+          title="导入旧版 iCode 项目"
+          themeColor={modalTheme}
+          onClose={() => setLegacyImportResult(undefined)}
+          actions={[
+            {
+              key: 'close',
+              label: '关闭',
+              tone: 'secondary',
+              onClick: () => setLegacyImportResult(undefined),
+            },
+          ]}
+        >
+          {legacyImportResult && (
+            <>
+              <p class="window-modal__message">
+                成功导入 {legacyImportResult.imported} 个旧项目。导入后的应用会出现在「iCode 应用」列表里。
+              </p>
+              {legacyImportResult.failures.length > 0 && (
+                <>
+                  <p class="icode__error" style={{ marginTop: '0.5rem' }}>
+                    以下项目导入失败（请把错误信息反馈给开发者）：
+                  </p>
+                  <ul class="icode__list" style={{ marginTop: '0.5rem' }}>
+                    {legacyImportResult.failures.map((failure) => (
+                      <li key={failure.name} class="icode__row" style={{ display: 'block' }}>
+                        <strong>{failure.name}</strong>
+                        <p class="icode__row-desc">{failure.message}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {legacyImportResult.imported === 0 && legacyImportResult.failures.length === 0 && (
+                <p class="window-modal__message">没有发现旧版 iCode 内部项目，或已全部导入过。</p>
+              )}
+            </>
+          )}
         </WindowModal>
 
         <WindowModal

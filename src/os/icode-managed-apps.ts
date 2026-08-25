@@ -692,27 +692,57 @@ export async function migrateLegacyIcodeProject(input: {
  * 运行时键值以桌面那份注册表为准；桌面为空且内部快照非空时才补写，不覆盖正在用的数据。
  * 迁完删除注册表里的项目列表字段。记录重建与安装列表注册由调用方（context）完成。
  */
+export type LegacyIcodeMigrationFailure = {
+  id: string
+  name: string
+  message: string
+}
+
 export async function migrateLegacyIcodeInternalProjectsOnce(input: {
   getInstalledApps: () => GeneratedAppRecord[]
-}): Promise<{ changed: boolean; appIds: GeneratedAppId[]; failed: string[] }> {
+  /** 手动导入入口：跳过一次性标记再迁一次（已迁移的包按幂等跳过） */
+  force?: boolean
+}): Promise<{
+  changed: boolean
+  appIds: GeneratedAppId[]
+  failed: string[]
+  failures: LegacyIcodeMigrationFailure[]
+}> {
   const { loadLegacyInternalProjects, clearLegacyInternalProjects, isLegacyInternalProjectsMigrated } =
     await import('../apps/icode/icode-storage.ts')
   const { loadGeneratedAppData, saveGeneratedAppDataAsync } = await import(
     './generated-app-data-storage.ts'
   )
 
-  if (isLegacyInternalProjectsMigrated()) {
-    return { changed: false, appIds: [], failed: [] }
+  const empty = { changed: false, appIds: [], failed: [], failures: [] }
+  if (!input.force && isLegacyInternalProjectsMigrated()) {
+    return empty
   }
 
-  const projects = await loadLegacyInternalProjects()
+  let projects: Awaited<ReturnType<typeof loadLegacyInternalProjects>>
+  try {
+    projects = await loadLegacyInternalProjects()
+  } catch (error) {
+    console.error('[icode-migration] 旧项目注册表读取失败', error)
+    return {
+      ...empty,
+      failures: [
+        {
+          id: '',
+          name: '旧项目注册表',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      ],
+    }
+  }
   if (projects.length === 0) {
     await clearLegacyInternalProjects()
-    return { changed: false, appIds: [], failed: [] }
+    return empty
   }
 
   const appIds: GeneratedAppId[] = []
   const failed: string[] = []
+  const failures: LegacyIcodeMigrationFailure[] = []
   for (const project of projects) {
     const appId = (project.linkedAppId ?? `gen:${project.id}`) as GeneratedAppId
     try {
@@ -748,13 +778,18 @@ export async function migrateLegacyIcodeInternalProjectsOnce(input: {
     } catch (error) {
       console.error(`[icode-migration] 项目 ${project.name} 迁移失败`, error)
       failed.push(project.id)
+      failures.push({
+        id: project.id,
+        name: project.name,
+        message: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
   if (failed.length === 0) {
     await clearLegacyInternalProjects()
   }
-  return { changed: appIds.length > 0, appIds, failed }
+  return { changed: appIds.length > 0, appIds, failed, failures }
 }
 
 /** 迁移用：读取版本树资源（供运行时加载与记录重建） */
