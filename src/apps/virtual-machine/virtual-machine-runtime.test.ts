@@ -8,6 +8,7 @@ import {
   pickBackgroundMachineIds,
   pickDisplayedMachineId,
   isUnsolicitedVmStopped,
+  shouldSurfaceUnsolicitedVmError,
   createDiskWriteFailedWatchdog,
   DISK_WRITE_FAILED_FORCE_STOP_MS,
   DISK_WRITE_FAILED_FORCE_STOP_HINT,
@@ -50,6 +51,29 @@ function testUnsolicitedStopped(): void {
     false,
   )
   assert.equal(isUnsolicitedVmStopped({ type: INSTANT_VM_MESSAGE_TYPE.started }), false)
+}
+
+function testShouldSurfaceUnsolicitedVmError(): void {
+  assert.equal(
+    shouldSurfaceUnsolicitedVmError({ type: INSTANT_VM_MESSAGE_TYPE.error }, 0),
+    true,
+  )
+  assert.equal(
+    shouldSurfaceUnsolicitedVmError({ type: INSTANT_VM_MESSAGE_TYPE.error }, 1),
+    false,
+    '开机请求还在飞时由该请求的失败路径提示，避免同一崩溃弹两次',
+  )
+  assert.equal(
+    shouldSurfaceUnsolicitedVmError(
+      { type: INSTANT_VM_MESSAGE_TYPE.error, requestId: 'r1' },
+      0,
+    ),
+    false,
+  )
+  assert.equal(
+    shouldSurfaceUnsolicitedVmError({ type: INSTANT_VM_MESSAGE_TYPE.stopped }, 0),
+    false,
+  )
 }
 
 function testDiskWriteFailedWatchdogForceStopsWhenStillRunning(): void {
@@ -121,6 +145,7 @@ testRequestIdFormat()
 testPickDisplayedMachineId()
 testPickBackgroundMachineIds()
 testUnsolicitedStopped()
+testShouldSurfaceUnsolicitedVmError()
 testDiskWriteFailedWatchdogForceStopsWhenStillRunning()
 testDiskWriteFailedWatchdogCancelsWhenStopped()
 testTransientBootHint()

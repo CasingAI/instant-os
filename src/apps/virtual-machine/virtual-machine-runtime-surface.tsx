@@ -63,6 +63,7 @@ export function VmRuntimeSurface({
     resolvedOrigin,
     () => onGuestPoweredOff(machineId),
     (message) => onDiskWriteFailed(machineId, message),
+    (message) => onBootError(machineId, message),
   )
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 

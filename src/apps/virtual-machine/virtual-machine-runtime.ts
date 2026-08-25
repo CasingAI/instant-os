@@ -112,6 +112,18 @@ export function isUnsolicitedVmStopped(message: {
   return message.type === INSTANT_VM_MESSAGE_TYPE.stopped && message.requestId === undefined
 }
 
+/** 开机完成后模拟器自己报错：没有对应请求号，且当时也没有未完成的宿主请求。 */
+export function shouldSurfaceUnsolicitedVmError(
+  message: { type: string; requestId?: string },
+  pendingCount: number,
+): boolean {
+  return (
+    message.type === INSTANT_VM_MESSAGE_TYPE.error &&
+    message.requestId === undefined &&
+    pendingCount === 0
+  )
+}
+
 export const DISK_WRITE_FAILED_FORCE_STOP_MS = 30_000
 export const DISK_WRITE_FAILED_FORCE_STOP_HINT =
   '硬盘回写失败，已强制标记为已关机；镜像可能不完整'
@@ -197,6 +209,7 @@ export function useVirtualMachineRuntime(
   origin: string | undefined,
   onGuestPoweredOff?: () => void,
   onDiskWriteFailed?: (message: string) => void,
+  onRuntimeError?: (message: string) => void,
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
@@ -204,6 +217,8 @@ export function useVirtualMachineRuntime(
   onGuestPoweredOffRef.current = onGuestPoweredOff
   const onDiskWriteFailedRef = useRef(onDiskWriteFailed)
   onDiskWriteFailedRef.current = onDiskWriteFailed
+  const onRuntimeErrorRef = useRef(onRuntimeError)
+  onRuntimeErrorRef.current = onRuntimeError
   const [ready, setReady] = useState(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
   const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
@@ -274,7 +289,11 @@ export function useVirtualMachineRuntime(
           pending?.reject(error)
           return
         }
+        const pendingCount = pendingRef.current.size
         failAll(error)
+        if (shouldSurfaceUnsolicitedVmError(message, pendingCount)) {
+          onRuntimeErrorRef.current?.(message.message)
+        }
         return
       }
 
