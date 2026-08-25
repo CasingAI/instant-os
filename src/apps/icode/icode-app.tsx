@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'preact/compat'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { osNowMs } from '../../os/os-clock.ts'
 import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
@@ -29,12 +30,6 @@ import {
 import type { AppCapabilityTag } from '../appstore/app-capability-tags.ts'
 import type { GeneratedAppRecord } from '../appstore/types.ts'
 import {
-  buildExportBundleFromInternal,
-  downloadBundleZip,
-  loadFormalAppData,
-  readBundleFromZipFile,
-} from './icode-backup.ts'
-import {
   draftFromInternalProject,
   draftFromSession,
   draftSnapshotsEqual,
@@ -44,7 +39,6 @@ import {
   type ICodePublishedSnapshot,
 } from './icode-draft.ts'
 import { buildIcodeEditorNavHint, buildIcodeNavigateAwayPrompt } from './icode-editor-nav-hint.ts'
-import { generateInternalAppHtml } from './icode-generation.ts'
 import { isIcodeGenerationAbortedError } from './icode-generation-abort.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
 import { parseAiderEditBlocks, stripAiderEditBlocksFromContent, extractNaturalLanguageReply } from './icode-apply-edits.ts'
@@ -54,7 +48,6 @@ import {
   mergeSessionTagsWithCapability,
   type GrantableIcodeCapabilityTag,
 } from './icode-capability-request.ts'
-import { IcodeChatAssistantMessage, IcodeChatMessageView } from './icode-chat-message.tsx'
 import {
   buildIcodeSyncInput,
   buildIcodePlaceholderSyncInput,
@@ -93,15 +86,36 @@ import {
   type ICodeInternalProject,
 } from './icode-types.ts'
 import { formatTokenCount } from '../browser/format-token-count.ts'
-import { IcodeAppDataEditor } from './icode-app-data-editor.tsx'
 import { measureIcodeContextPayload } from './icode-context-tokens.ts'
 import { useIcodeNarrowLayout } from './icode-layout.ts'
 import { appDataRecordsEqual } from './icode-app-data-value.ts'
-import { IcodeMonacoEditor } from './icode-monaco-editor.tsx'
-import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
 import { WindowModal, type WindowModalAction } from '../../window/window-modal.tsx'
 import { WindowModalTheme } from '../../window/window-modal-context.tsx'
 import './icode.css'
+
+const IcodeMonacoEditor = lazy(() =>
+  import('./icode-monaco-editor.tsx').then((module) => ({ default: module.IcodeMonacoEditor })),
+)
+const IcodeAppDataEditor = lazy(() =>
+  import('./icode-app-data-editor.tsx').then((module) => ({ default: module.IcodeAppDataEditor })),
+)
+const EmojiPickerPopover = lazy(() =>
+  import('../../ui/emoji-picker-popover.tsx').then((module) => ({
+    default: module.EmojiPickerPopover,
+  })),
+)
+const IcodeChatMessageView = lazy(() =>
+  import('./icode-chat-message.tsx').then((module) => ({ default: module.IcodeChatMessageView })),
+)
+const IcodeChatAssistantMessage = lazy(() =>
+  import('./icode-chat-message.tsx').then((module) => ({
+    default: module.IcodeChatAssistantMessage,
+  })),
+)
+
+function IcodeHeavyFallback({ label }: { label: string }) {
+  return <p class="icode__list--empty">{label}</p>
+}
 
 type EditorTab = 'chat' | 'source' | 'config' | 'data' | 'console'
 type MobileEditorPane = 'preview' | 'edit'
@@ -168,6 +182,25 @@ function formatProjectDate(timestamp: number): string {
   })
 }
 
+function htmlHasContent(html: string): boolean {
+  return html.length > 0
+}
+
+function chatMessagesEqual(left: ICodeChatMessage[], right: ICodeChatMessage[]): boolean {
+  if (left === right) {
+    return true
+  }
+  if (left.length !== right.length) {
+    return false
+  }
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) {
+      return false
+    }
+  }
+  return true
+}
+
 function sessionFromInternal(project: ICodeInternalProject): EditorSession {
   return {
     projectId: project.id,
@@ -232,6 +265,9 @@ export function ICodeApp() {
   const [projectRevision, setProjectRevision] = useState(0)
   const [session, setSession] = useState<EditorSession | undefined>()
   const [editorTab, setEditorTab] = useState<EditorTab>('chat')
+  const [visitedEditorTabs, setVisitedEditorTabs] = useState<Partial<Record<EditorTab, true>>>({
+    chat: true,
+  })
   const [mobilePane, setMobilePane] = useState<MobileEditorPane>('edit')
   const [prompt, setPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
@@ -381,10 +417,14 @@ export function ICodeApp() {
 
   useEffect(() => {
     let alive = true
-    void loadInternalProjects().then(() => {
-      if (alive) {
-        setProjectRevision((value) => value + 1)
+    void loadInternalProjects().then((projects) => {
+      if (!alive) {
+        return
       }
+      if (projects === loadInternalProjectsSync()) {
+        return
+      }
+      setProjectRevision((value) => value + 1)
     })
     return () => {
       alive = false
@@ -401,7 +441,7 @@ export function ICodeApp() {
   const dataDirty = Boolean(session && !appDataRecordsEqual(draftAppData, session.appData))
   const currentDraft = session ? draftFromSession(session, draftHtml, codeDirty) : undefined
   const storedProject = session
-    ? loadInternalProjectsSync().find((p) => p.id === session.projectId)
+    ? internalProjects.find((project) => project.id === session.projectId)
     : undefined
   const publishDirty =
     Boolean(session && publishedSnapshot && currentDraft) &&
@@ -411,7 +451,7 @@ export function ICodeApp() {
     !draftSnapshotsEqual(currentDraft!, draftFromInternalProject(storedProject!))
   const chatDirty =
     Boolean(session && storedProject) &&
-    JSON.stringify(session!.chat) !== JSON.stringify(storedProject!.chat)
+    !chatMessagesEqual(session!.chat, storedProject!.chat)
   const hasDraftToSave = internalSaveDirty || chatDirty
   const contextPayload = useMemo(() => {
     if (!session) {
@@ -444,7 +484,7 @@ export function ICodeApp() {
       return false
     }
 
-    if (!session.html.trim()) {
+    if (!htmlHasContent(session.html)) {
       return true
     }
 
@@ -538,7 +578,18 @@ export function ICodeApp() {
   }, [])
 
   useEffect(() => {
-    if (!session?.html.trim()) {
+    setVisitedEditorTabs((current) =>
+      current[editorTab] ? current : { ...current, [editorTab]: true },
+    )
+  }, [editorTab])
+
+  useEffect(() => {
+    setVisitedEditorTabs({ chat: true })
+    setEditorTab('chat')
+  }, [session?.projectId])
+
+  useEffect(() => {
+    if (!session || !htmlHasContent(session.html)) {
       return
     }
 
@@ -549,7 +600,7 @@ export function ICodeApp() {
   }, [linkedAppDataRevision, session?.html, session?.linkedAppId, session?.projectId])
 
   const preparedHtml = useMemo(() => {
-    if (!session || !runtimeAppId || !previewAppId || !previewHeartbeatWindowId || !session.html.trim()) {
+    if (!session || !runtimeAppId || !previewAppId || !previewHeartbeatWindowId || !htmlHasContent(session.html)) {
       return undefined
     }
 
@@ -590,7 +641,7 @@ export function ICodeApp() {
 
   const { iframeProps } = useGeneratedHtmlIframe(
     iframeRef,
-    session?.html.trim() ? preparedHtml : undefined,
+    session && htmlHasContent(session.html) ? preparedHtml : undefined,
     previewRemountKey,
     { processIsolated, onReady: handlePreviewIframeReady },
   )
@@ -970,6 +1021,8 @@ export function ICodeApp() {
     setStreamVisibleReply('')
     setStreamAppliedEdits(0)
     setClosePromptOpen(false)
+    setEditorTab('chat')
+    setVisitedEditorTabs({ chat: true })
   }, [])
 
   const completePendingNavigation = useCallback(async (): Promise<void> => {
@@ -995,6 +1048,7 @@ export function ICodeApp() {
         ),
       )
       setEditorTab('chat')
+      setVisitedEditorTabs({ chat: true })
       setError(undefined)
       return
     }
@@ -1146,6 +1200,7 @@ export function ICodeApp() {
         loadPublishedSnapshot(nextSession.linkedAppId ?? resolvePublishAppId(project), installedApps, project),
       )
       setEditorTab('chat')
+      setVisitedEditorTabs({ chat: true })
       setError(undefined)
     },
     [ensureDesktopPlaceholder, installedApps],
@@ -1230,16 +1285,13 @@ export function ICodeApp() {
     }
 
     if (session?.projectId === deleteTarget.projectId) {
-      setSession(undefined)
-      setDraftHtml('')
-      setPrompt('')
-      setGenerationStatus('')
+      resetEditorUi()
     }
 
     setProjectRevision((value) => value + 1)
     closeDeleteProjectModal()
     setError(undefined)
-  }, [closeDeleteProjectModal, deleteLinkedAppToo, deleteTarget, session?.projectId, uninstallApp])
+  }, [closeDeleteProjectModal, deleteLinkedAppToo, deleteTarget, resetEditorUi, session?.projectId, uninstallApp])
 
   const importFromInstalled = useCallback(
     async (record: GeneratedAppRecord) => {
@@ -1248,7 +1300,7 @@ export function ICodeApp() {
       const imported = await createInternalProject(importName, record.description)
       await updateInternalProject(imported.id, {
         html: record.html,
-        appData: loadFormalAppData(record.id),
+        appData: (await import('./icode-backup.ts')).loadFormalAppData(record.id),
         iconEmoji: record.iconEmoji,
         themeColor: record.themeColor,
         tags: record.tags ?? [],
@@ -1278,6 +1330,7 @@ export function ICodeApp() {
       return
     }
 
+    const { buildExportBundleFromInternal, downloadBundleZip } = await import('./icode-backup.ts')
     downloadBundleZip(
       buildExportBundleFromInternal({
         ...project,
@@ -1380,7 +1433,7 @@ export function ICodeApp() {
       }
 
       try {
-        const bundle = await readBundleFromZipFile(file)
+        const bundle = await (await import('./icode-backup.ts')).readBundleFromZipFile(file)
         await importBundle(bundle)
       } catch (importError) {
         setImportAlert({
@@ -1540,6 +1593,7 @@ export function ICodeApp() {
 
       const requestHtml = codeDirty ? draftHtml : activeSession.html
 
+      const { generateInternalAppHtml } = await import('./icode-generation.ts')
       const result = await generateInternalAppHtml(
         {
           ...project,
@@ -1923,7 +1977,7 @@ export function ICodeApp() {
                           <span class="icode__badge">iCode</span>
                           <span>
                             {formatProjectDate(project.updatedAt)}
-                            {project.html.trim()
+                            {htmlHasContent(project.html)
                               ? ` · ${project.html.length.toLocaleString('zh-CN')} 字符`
                               : ' · 尚未生成'}
                           </span>
@@ -2121,7 +2175,7 @@ export function ICodeApp() {
                   <button
                     type="button"
                     class="icode__button icode__button--run icode__nav-run"
-                    disabled={!draftHtml.trim()}
+                    disabled={!htmlHasContent(draftHtml)}
                     onClick={onRunDraft}
                   >
                     运行
@@ -2139,7 +2193,7 @@ export function ICodeApp() {
           <div class="icode__preview">
             <p class="icode__preview-label">应用预览</p>
             <div class={`icode__preview-screen${previewFrozen ? ' icode__preview-screen--unresponsive' : ''}`}>
-              {!session.html.trim() && !codeEditingActive && (
+              {!htmlHasContent(session.html) && !codeEditingActive && (
                 <div class="icode__preview-empty">
                   <span class="icode__preview-empty-icon" aria-hidden="true">
                     💬
@@ -2165,7 +2219,7 @@ export function ICodeApp() {
               )}
               <iframe
                 ref={iframeRef}
-                class={`icode__frame${session.html.trim() ? '' : ' icode__frame--hidden'}`}
+                class={`icode__frame${htmlHasContent(session.html) ? '' : ' icode__frame--hidden'}`}
                 title={`${session.name} 预览`}
                 {...iframeProps}
               />
@@ -2222,31 +2276,35 @@ export function ICodeApp() {
                       首次生成会创建完整应用；之后可提问或描述修改，AI 会先回复，需要时才会改代码。
                     </p>
                   ) : (
-                    session.chat.map((message) => (
-                      <IcodeChatMessageView
-                        key={message.id}
-                        message={message}
-                        grantedTags={session.tags}
-                        onGrantCapabilityRequest={(messageId, requestIndex, tag) =>
-                          void onGrantCapabilityRequest(messageId, requestIndex, tag)
-                        }
-                        onDismissCapabilityRequest={onDismissCapabilityRequest}
-                      />
-                    ))
+                    <Suspense fallback={<IcodeHeavyFallback label="正在加载对话…" />}>
+                      {session.chat.map((message) => (
+                        <IcodeChatMessageView
+                          key={message.id}
+                          message={message}
+                          grantedTags={session.tags}
+                          onGrantCapabilityRequest={(messageId, requestIndex, tag) =>
+                            void onGrantCapabilityRequest(messageId, requestIndex, tag)
+                          }
+                          onDismissCapabilityRequest={onDismissCapabilityRequest}
+                        />
+                      ))}
+                    </Suspense>
                   )}
                   {generating && (
-                    <IcodeChatAssistantMessage
-                      summary=""
-                      visibleReply={streamVisibleReply || undefined}
-                      reasoningText={streamReasoningText || undefined}
-                      outputText={streamContentText || undefined}
-                      edits={streamEdits.length > 0 ? streamEdits : undefined}
-                      appliedEdits={streamAppliedEdits}
-                      editStreaming={codeEditingActive}
-                      streaming
-                      phase={generationPhase}
-                      grantedTags={session.tags}
-                    />
+                    <Suspense fallback={<IcodeHeavyFallback label="正在加载对话…" />}>
+                      <IcodeChatAssistantMessage
+                        summary=""
+                        visibleReply={streamVisibleReply || undefined}
+                        reasoningText={streamReasoningText || undefined}
+                        outputText={streamContentText || undefined}
+                        edits={streamEdits.length > 0 ? streamEdits : undefined}
+                        appliedEdits={streamAppliedEdits}
+                        editStreaming={codeEditingActive}
+                        streaming
+                        phase={generationPhase}
+                        grantedTags={session.tags}
+                      />
+                    </Suspense>
                   )}
                 </div>
                 <div class="icode__chat-compose">
@@ -2298,17 +2356,21 @@ export function ICodeApp() {
                   <button
                     type="button"
                     class="icode__button icode__button--run icode__run-button"
-                    disabled={!codeDirty || !draftHtml.trim() || generating}
+                    disabled={!codeDirty || !htmlHasContent(draftHtml) || generating}
                     onClick={onRunDraft}
                   >
                     运行
                   </button>
                 </div>
-                <IcodeMonacoEditor
-                  value={draftHtml}
-                  onChange={setDraftHtml}
-                  active={editorTab === 'source'}
-                />
+                {(editorTab === 'source' || visitedEditorTabs.source) && (
+                  <Suspense fallback={<IcodeHeavyFallback label="正在加载源码编辑器…" />}>
+                    <IcodeMonacoEditor
+                      value={draftHtml}
+                      onChange={setDraftHtml}
+                      active={editorTab === 'source'}
+                    />
+                  </Suspense>
+                )}
               </div>
 
               <div class="icode__tab-pane" hidden={editorTab !== 'config'}>
@@ -2371,11 +2433,17 @@ export function ICodeApp() {
                           </span>
                           <div class="icode__config-appearance-copy">
                             <span class="icode__config-item-label">图标</span>
-                            <EmojiPickerPopover
-                              value={session.iconEmoji || '📦'}
-                              triggerLabel="选择表情"
-                              onChange={(emoji) => updateSessionMeta({ iconEmoji: emoji })}
-                            />
+                            {(editorTab === 'config' || visitedEditorTabs.config) ? (
+                              <Suspense fallback={<span class="icode__config-note">加载表情选择器…</span>}>
+                                <EmojiPickerPopover
+                                  value={session.iconEmoji || '📦'}
+                                  triggerLabel="选择表情"
+                                  onChange={(emoji) => updateSessionMeta({ iconEmoji: emoji })}
+                                />
+                              </Suspense>
+                            ) : (
+                              <span class="icode__config-note">{session.iconEmoji || '📦'}</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2523,13 +2591,17 @@ export function ICodeApp() {
                     应用
                   </button>
                 </div>
-                <IcodeAppDataEditor
-                  value={draftAppData}
-                  onChange={onDraftAppDataChange}
-                  active={editorTab === 'data'}
-                  onInvalidChange={setDataEditInvalid}
-                  narrowLayout={narrowLayout}
-                />
+                {(editorTab === 'data' || visitedEditorTabs.data) && (
+                  <Suspense fallback={<IcodeHeavyFallback label="正在加载数据编辑器…" />}>
+                    <IcodeAppDataEditor
+                      value={draftAppData}
+                      onChange={onDraftAppDataChange}
+                      active={editorTab === 'data'}
+                      onInvalidChange={setDataEditInvalid}
+                      narrowLayout={narrowLayout}
+                    />
+                  </Suspense>
+                )}
               </div>
 
               <div class="icode__tab-pane" hidden={editorTab !== 'console'}>

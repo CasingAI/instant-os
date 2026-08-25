@@ -16,7 +16,7 @@ export function prepareIcodePreviewHtml(
   consoleAppId?: GeneratedAppId,
   processIsolatedOrOptions?: boolean | PrepareIcodePreviewHtmlOptions,
 ): string {
-  if (!html.trim()) {
+  if (html.length === 0) {
     return ''
   }
 

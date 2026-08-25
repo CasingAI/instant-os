@@ -3,7 +3,7 @@
  * 运行：node --experimental-strip-types src/os/registry-store.test.ts
  *
  * 覆盖：默认 deserialize；async read/write 往返；写入后订阅通知；readSync 语义；
- * hydrate 后同步读；changedEventName 派发。
+ * hydrate 后同步读；changedEventName 派发；大 JSON 字段连续 readSync 走引用缓存。
  */
 import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
@@ -283,6 +283,23 @@ async function testFieldJsonWriteIsTyped(): Promise<void> {
   assert.equal(await registry.getText('name'), 'n')
 }
 
+async function testFieldReadSyncCacheSkipsReserializingLargeJson(): Promise<void> {
+  await resetState()
+  const store = makeFieldStore('registry-store-large-json-cache')
+  const items = Array.from({ length: 80 }, (_, index) => `${index}:${'n'.repeat(8000)}`)
+  await store.write({ items, name: 'n' })
+  const first = store.readSync()
+  const started = Date.now()
+  for (let index = 0; index < 300; index++) {
+    assert.equal(store.readSync(), first, '命中解析缓存时应返回同一引用')
+  }
+  const elapsed = Date.now() - started
+  assert.ok(
+    elapsed < 80,
+    `大 JSON 字段的连续 readSync 不应拷贝 raw，实际 ${elapsed}ms`,
+  )
+}
+
 async function testFieldRetagsUntypedWithoutRewritingRaw(): Promise<void> {
   await resetState()
   const raw = '[ "keep" , "order" ]'
@@ -314,6 +331,7 @@ async function main(): Promise<void> {
     testFieldReadSyncMerges,
     testFieldCleansLegacyKeyFromMemory,
     testFieldJsonWriteIsTyped,
+    testFieldReadSyncCacheSkipsReserializingLargeJson,
     testFieldRetagsUntypedWithoutRewritingRaw,
   ]
   for (const test of cases) {

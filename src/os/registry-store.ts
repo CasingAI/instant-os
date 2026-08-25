@@ -121,7 +121,12 @@ function createFieldRegistryStore<T>(
   const registry = createAppRegistry(appId)
   const listeners = new Set<() => void>()
 
-  let parsedCache: { signature: string; value: T } | undefined
+  type FieldRawPart = {
+    raw: string | undefined
+    valueType: string | undefined
+  }
+
+  let parsedCache: { parts: FieldRawPart[]; value: T } | undefined
 
   function notify(): void {
     parsedCache = undefined
@@ -133,25 +138,39 @@ function createFieldRegistryStore<T>(
     }
   }
 
-  function fieldEntriesSignature(
+  /**
+   * 用各字段 raw 字符串的引用做缓存键，禁止把整份 JSON 拼进签名。
+   * iCode 的 projects 可达数十 MB；旧实现每次 readSync 都会拷贝并逐字比较，主线程会卡住。
+   */
+  function fieldRawParts(
     entries: ReturnType<typeof getRegistryCacheEntries>,
-  ): string {
-    return fields
-      .map((field) => {
-        const entry = entries?.[field.key]
-        return `${field.key}:${entry?.valueType ?? ''}:${entry?.raw ?? ''}`
-      })
-      .join('|')
+  ): FieldRawPart[] {
+    return fields.map((field) => {
+      const entry = entries?.[field.key]
+      return { raw: entry?.raw, valueType: entry?.valueType }
+    })
+  }
+
+  function fieldRawPartsMatch(left: FieldRawPart[], right: FieldRawPart[]): boolean {
+    if (left.length !== right.length) {
+      return false
+    }
+    for (let index = 0; index < left.length; index++) {
+      if (left[index].raw !== right[index].raw || left[index].valueType !== right[index].valueType) {
+        return false
+      }
+    }
+    return true
   }
 
   function readMerged(): T {
     const entries = getRegistryCacheEntries(appId)
-    const signature = fieldEntriesSignature(entries)
-    if (parsedCache?.signature === signature) {
+    const parts = fieldRawParts(entries)
+    if (parsedCache && fieldRawPartsMatch(parsedCache.parts, parts)) {
       return parsedCache.value
     }
     const value = mergeFromEntries(entries)
-    parsedCache = { signature, value }
+    parsedCache = { parts, value }
     return value
   }
 
@@ -281,8 +300,12 @@ function createFieldRegistryStore<T>(
       await registry.hydrate()
       await runLegacyMigration()
       const snapshot = registry.snapshotSync() ?? {}
+      const previous = parsedCache?.value
       const writes: RegistryBatchItem[] = []
       for (const field of fields) {
+        if (previous !== undefined && field.read(store) === field.read(previous)) {
+          continue
+        }
         const encoded = encodedFieldValue(field, store)
         if (snapshot[field.key] === encoded) {
           continue
