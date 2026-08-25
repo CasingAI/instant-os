@@ -78,7 +78,7 @@ export function buildPreactPackageJsons(): Record<string, string> {
       types: 'src/index.d.ts',
     }),
     // 工程约定：样式与静态资源以默认字符串导入（与 esbuild 的 loader 行为对齐）
-    'icode-asset-modules.d.ts': `declare module '*.css' {\n  const content: string\n  export default content\n}\n${[
+    'icode-asset-modules.d.ts': `declare module '*.css' {\n  const content: string\n  export default content\n}\ndeclare module '*.less' {\n  const content: string\n  export default content\n}\n${[
       'png',
       'jpg',
       'jpeg',

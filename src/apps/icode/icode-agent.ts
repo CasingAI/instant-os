@@ -83,7 +83,7 @@ ${manifest}
 - 用 run_in_terminal 的 fs.readFileSync / fs.writeFileSync 按路径读改文件；搜索用 instant.grep
 ${
   input.fileManifest.includes('main.tsx')
-    ? '- 这是 TSX 工程：入口 main.tsx；用系统提供的 preact（import { render } from "preact"；hooks 从 "preact/hooks"），裸名只支持 preact / preact/hooks / preact/jsx-runtime；样式用普通 CSS 邻居文件'
+    ? '- 这是 TSX 工程：入口 main.tsx；用系统提供的 preact（import { render } from "preact"；hooks 从 "preact/hooks"），裸名只支持 preact / preact/hooks / preact/jsx-runtime；样式用普通 CSS 邻居文件（也可写 .less，与 CSS 混用）'
     : '- 入口是 index.html；样式、脚本、图片放邻居文件，页内相对引用即可解析'
 }
 - 改完即预览：宿主监听草稿树文件变更刷新；转译/类型诊断的报错你能读到，可自行修正

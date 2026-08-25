@@ -46,7 +46,8 @@
     "prepare": "simple-git-hooks",
     "test:icode-versions": "node --experimental-strip-types src/os/generated-app-versions-layout.test.ts && node --experimental-strip-types src/apps/generated/generated-app-site-html.test.ts",
     "test:icode-project-build": "node --experimental-strip-types src/apps/icode/icode-project-build.test.ts && node --experimental-strip-types src/os/icode-managed-apps-publish.test.ts",
-    "test:icode-type-check": "node --experimental-strip-types src/apps/icode/icode-type-check.test.ts"
+    "test:icode-type-check": "node --experimental-strip-types src/apps/icode/icode-type-check.test.ts",
+    "test:icode-less": "node --experimental-strip-types src/apps/icode/icode-less.test.ts"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm typecheck"
@@ -83,6 +84,7 @@
     "html-to-image": "^1.11.13",
     "hyperformula": "^3.3.0",
     "katex": "^0.16.22",
+    "less": "^4.9.0",
     "libflacjs": "^5.6.0",
     "libmount": "^0.6.0",
     "lowlight": "^3.3.0",

@@ -11,6 +11,7 @@
  * - 发布（收口）：esbuild.build bundle 成一份产物，与源码同夹共存于 Dist。
  */
 import { inlineCssAssetRefs, siteMimeForPath } from '../generated/generated-app-site-html.ts'
+import { compileLess } from './icode-less.ts'
 
 export const PROJECT_ENTRY_FILE = 'main.tsx'
 export const PROJECT_DIST_DIR = 'Dist'
@@ -23,7 +24,7 @@ export const SYSTEM_MODULE_WHITELIST: readonly string[] = [
   'preact/jsx-runtime',
 ]
 
-const MODULE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.css', '.json'] as const
+const MODULE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.css', '.less', '.json'] as const
 const ASSET_EXTENSIONS = [
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.svg',
   '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.wav', '.ogg', '.mp4', '.webm',
@@ -108,9 +109,14 @@ export function resolveProjectImport(params: {
     return undefined
   }
 
-  // 精确命中（含资源文件） → 资源或精确模块
+  // 精确命中（含资源文件） → 资源或精确模块（.less 与 .css 同为样式模块）
   if (hasPath(normalized)) {
-    if (isModulePath(normalized) || normalized.endsWith('.css') || normalized.endsWith('.json')) {
+    if (
+      isModulePath(normalized) ||
+      normalized.endsWith('.css') ||
+      normalized.endsWith('.less') ||
+      normalized.endsWith('.json')
+    ) {
       return { kind: 'module', path: normalized }
     }
     return { kind: 'asset', path: normalized }
@@ -298,10 +304,6 @@ export async function buildProjectPreviewDocument(
     }
   }
 
-  if (failures.length > 0) {
-    return { ok: false, error: `模块解析失败：\n${failures.join('\n')}` }
-  }
-
   const assetEntries: Array<[string, string]> = []
   for (const [path, bytes] of input.assets) {
     let binary = ''
@@ -324,11 +326,31 @@ export async function buildProjectPreviewDocument(
         path,
         `(function(){var s=document.createElement('style');s.textContent=${JSON.stringify(css)};document.head.appendChild(s);module.exports={}})`,
       )
+    } else if (path.endsWith('.less')) {
+      const compiled = await compileLess({ source, path, files: input.files })
+      const css = compiled.ok
+        ? inlineCssAssetRefs({
+            css: compiled.css,
+            referrerPath: path,
+            resolveBytes: (resolved) => (resolved ? input.assets.get(resolved) : undefined),
+          })
+        : `/* Less 编译失败：${compiled.error.replace('*/', '*\/')} */`
+      if (!compiled.ok) {
+        failures.push(`${path}: ${compiled.error}`)
+      }
+      registry.set(
+        path,
+        `(function(){var s=document.createElement('style');s.textContent=${JSON.stringify(css)};document.head.appendChild(s);module.exports={}})`,
+      )
     }
   }
 
   for (const [id, code] of registry) {
     moduleEntries.push(`${JSON.stringify(id)}: function(require, module, exports){\n${code}\n}`)
+  }
+
+  if (failures.length > 0) {
+    return { ok: false, error: `模块解析失败：\n${failures.join('\n')}` }
   }
 
   const html = `<!doctype html>
@@ -426,6 +448,13 @@ export async function bundleProjectToSingleFile(
         const path = args.path
         const text = input.files.get(path)
         if (text !== undefined) {
+          if (path.endsWith('.less')) {
+            const compiled = await compileLess({ source: text, path, files: input.files })
+            if (!compiled.ok) {
+              return { errors: [{ text: `Less 编译失败（${path}）：${compiled.error}`, location: null }] }
+            }
+            return { contents: compiled.css, loader: 'css' as const }
+          }
           return { contents: text, loader: loaderForPath(path) }
         }
         const bytes = input.assets.get(path)
