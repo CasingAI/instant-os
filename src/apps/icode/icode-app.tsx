@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'preact/compat'
+import type { ComponentChildren, ComponentType } from 'preact'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { osNowMs } from '../../os/os-clock.ts'
 import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
@@ -93,28 +93,89 @@ import { WindowModal, type WindowModalAction } from '../../window/window-modal.t
 import { WindowModalTheme } from '../../window/window-modal-context.tsx'
 import './icode.css'
 
-const IcodeMonacoEditor = lazy(() =>
-  import('./icode-monaco-editor.tsx').then((module) => ({ default: module.IcodeMonacoEditor })),
-)
-const IcodeAppDataEditor = lazy(() =>
-  import('./icode-app-data-editor.tsx').then((module) => ({ default: module.IcodeAppDataEditor })),
-)
-const EmojiPickerPopover = lazy(() =>
-  import('../../ui/emoji-picker-popover.tsx').then((module) => ({
-    default: module.EmojiPickerPopover,
-  })),
-)
-const IcodeChatMessageView = lazy(() =>
-  import('./icode-chat-message.tsx').then((module) => ({ default: module.IcodeChatMessageView })),
-)
-const IcodeChatAssistantMessage = lazy(() =>
-  import('./icode-chat-message.tsx').then((module) => ({
-    default: module.IcodeChatAssistantMessage,
-  })),
-)
-
 function IcodeHeavyFallback({ label }: { label: string }) {
   return <p class="icode__list--empty">{label}</p>
+}
+
+function createDeferredComponent<P extends object>(
+  load: () => Promise<ComponentType<P>>,
+  fallback: ComponentChildren,
+): ComponentType<P> {
+  let resolved: ComponentType<P> | undefined
+
+  return function DeferredComponent(props: P) {
+    const [Component, setComponent] = useState<ComponentType<P> | undefined>(() => resolved)
+
+    useEffect(() => {
+      if (resolved) {
+        setComponent(() => resolved)
+        return
+      }
+
+      let cancelled = false
+      void load()
+        .then((loaded) => {
+          resolved = loaded
+          if (!cancelled) {
+            setComponent(() => loaded)
+          }
+        })
+        .catch(() => undefined)
+      return () => {
+        cancelled = true
+      }
+    }, [])
+
+    if (!Component) {
+      return fallback
+    }
+    return <Component {...props} />
+  }
+}
+
+const IcodeMonacoEditor = createDeferredComponent(
+  () => import('./icode-monaco-editor.tsx').then((module) => module.IcodeMonacoEditor),
+  <IcodeHeavyFallback label="正在加载源码编辑器…" />,
+)
+const IcodeAppDataEditor = createDeferredComponent(
+  () => import('./icode-app-data-editor.tsx').then((module) => module.IcodeAppDataEditor),
+  <IcodeHeavyFallback label="正在加载数据编辑器…" />,
+)
+const EmojiPickerPopover = createDeferredComponent(
+  () => import('../../ui/emoji-picker-popover.tsx').then((module) => module.EmojiPickerPopover),
+  <span class="icode__config-note">加载表情选择器…</span>,
+)
+const loadIcodeChatMessages = () => import('./icode-chat-message.tsx')
+
+function IcodeDeferredGate<T>({
+  load,
+  fallback,
+  children,
+}: {
+  load: () => Promise<T>
+  fallback: ComponentChildren
+  children: (mod: T) => ComponentChildren
+}) {
+  const [mod, setMod] = useState<T | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    void load()
+      .then((loaded) => {
+        if (!cancelled) {
+          setMod(() => loaded)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [load])
+
+  if (!mod) {
+    return fallback
+  }
+  return children(mod)
 }
 
 type EditorTab = 'chat' | 'source' | 'config' | 'data' | 'console'
@@ -2269,42 +2330,51 @@ export function ICodeApp() {
                   </button>
                 </div>
                 <div ref={chatListRef} class="icode__chat-messages">
-                  {session.chat.length === 0 ? (
+                  {session.chat.length === 0 && !generating ? (
                     <p class="icode__chat-empty">
                       输入提示词开始生成。
                       <br />
                       首次生成会创建完整应用；之后可提问或描述修改，AI 会先回复，需要时才会改代码。
                     </p>
                   ) : (
-                    <Suspense fallback={<IcodeHeavyFallback label="正在加载对话…" />}>
-                      {session.chat.map((message) => (
-                        <IcodeChatMessageView
-                          key={message.id}
-                          message={message}
-                          grantedTags={session.tags}
-                          onGrantCapabilityRequest={(messageId, requestIndex, tag) =>
-                            void onGrantCapabilityRequest(messageId, requestIndex, tag)
-                          }
-                          onDismissCapabilityRequest={onDismissCapabilityRequest}
-                        />
-                      ))}
-                    </Suspense>
-                  )}
-                  {generating && (
-                    <Suspense fallback={<IcodeHeavyFallback label="正在加载对话…" />}>
-                      <IcodeChatAssistantMessage
-                        summary=""
-                        visibleReply={streamVisibleReply || undefined}
-                        reasoningText={streamReasoningText || undefined}
-                        outputText={streamContentText || undefined}
-                        edits={streamEdits.length > 0 ? streamEdits : undefined}
-                        appliedEdits={streamAppliedEdits}
-                        editStreaming={codeEditingActive}
-                        streaming
-                        phase={generationPhase}
-                        grantedTags={session.tags}
-                      />
-                    </Suspense>
+                    <IcodeDeferredGate
+                      load={loadIcodeChatMessages}
+                      fallback={<IcodeHeavyFallback label="正在加载对话…" />}
+                    >
+                      {(mod) => {
+                        const ChatMessageView = mod.IcodeChatMessageView
+                        const ChatAssistantMessage = mod.IcodeChatAssistantMessage
+                        return (
+                          <>
+                            {session.chat.map((message) => (
+                              <ChatMessageView
+                                key={message.id}
+                                message={message}
+                                grantedTags={session.tags}
+                                onGrantCapabilityRequest={(messageId, requestIndex, tag) =>
+                                  void onGrantCapabilityRequest(messageId, requestIndex, tag)
+                                }
+                                onDismissCapabilityRequest={onDismissCapabilityRequest}
+                              />
+                            ))}
+                            {generating && (
+                              <ChatAssistantMessage
+                                summary=""
+                                visibleReply={streamVisibleReply || undefined}
+                                reasoningText={streamReasoningText || undefined}
+                                outputText={streamContentText || undefined}
+                                edits={streamEdits.length > 0 ? streamEdits : undefined}
+                                appliedEdits={streamAppliedEdits}
+                                editStreaming={codeEditingActive}
+                                streaming
+                                phase={generationPhase}
+                                grantedTags={session.tags}
+                              />
+                            )}
+                          </>
+                        )
+                      }}
+                    </IcodeDeferredGate>
                   )}
                 </div>
                 <div class="icode__chat-compose">
@@ -2363,13 +2433,11 @@ export function ICodeApp() {
                   </button>
                 </div>
                 {(editorTab === 'source' || visitedEditorTabs.source) && (
-                  <Suspense fallback={<IcodeHeavyFallback label="正在加载源码编辑器…" />}>
-                    <IcodeMonacoEditor
-                      value={draftHtml}
-                      onChange={setDraftHtml}
-                      active={editorTab === 'source'}
-                    />
-                  </Suspense>
+                  <IcodeMonacoEditor
+                    value={draftHtml}
+                    onChange={setDraftHtml}
+                    active={editorTab === 'source'}
+                  />
                 )}
               </div>
 
@@ -2434,13 +2502,11 @@ export function ICodeApp() {
                           <div class="icode__config-appearance-copy">
                             <span class="icode__config-item-label">图标</span>
                             {(editorTab === 'config' || visitedEditorTabs.config) ? (
-                              <Suspense fallback={<span class="icode__config-note">加载表情选择器…</span>}>
-                                <EmojiPickerPopover
-                                  value={session.iconEmoji || '📦'}
-                                  triggerLabel="选择表情"
-                                  onChange={(emoji) => updateSessionMeta({ iconEmoji: emoji })}
-                                />
-                              </Suspense>
+                              <EmojiPickerPopover
+                                value={session.iconEmoji || '📦'}
+                                triggerLabel="选择表情"
+                                onChange={(emoji) => updateSessionMeta({ iconEmoji: emoji })}
+                              />
                             ) : (
                               <span class="icode__config-note">{session.iconEmoji || '📦'}</span>
                             )}
@@ -2592,15 +2658,13 @@ export function ICodeApp() {
                   </button>
                 </div>
                 {(editorTab === 'data' || visitedEditorTabs.data) && (
-                  <Suspense fallback={<IcodeHeavyFallback label="正在加载数据编辑器…" />}>
-                    <IcodeAppDataEditor
-                      value={draftAppData}
-                      onChange={onDraftAppDataChange}
-                      active={editorTab === 'data'}
-                      onInvalidChange={setDataEditInvalid}
-                      narrowLayout={narrowLayout}
-                    />
-                  </Suspense>
+                  <IcodeAppDataEditor
+                    value={draftAppData}
+                    onChange={onDraftAppDataChange}
+                    active={editorTab === 'data'}
+                    onInvalidChange={setDataEditInvalid}
+                    narrowLayout={narrowLayout}
+                  />
                 )}
               </div>
 
