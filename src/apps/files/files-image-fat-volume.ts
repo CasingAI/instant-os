@@ -1,3 +1,4 @@
+import { countSystemDebugHot } from '../../os/system-debug-log.ts'
 import { mount } from 'libmount'
 
 const SECTOR = 512
@@ -488,6 +489,7 @@ export class FatImageVolume {
     let clus = node.firstCluster
     while (clus >= 2 && clus <= maxClus && chain.length <= maxClus) {
       chain.push(clus)
+      countSystemDebugHot('files', 'fat-chain-walk')
       const next = layout.nextCluster(clus)
       if (next === clus) break
       clus = next
@@ -942,10 +944,15 @@ export class FatImageVolume {
             await start()
             const io = state.io
             if (!io) throw new Error('无法写入文件')
-            const combined = new Uint8Array(state.pending.byteLength + chunk.byteLength)
+            // 每次写入都重新分配并复制整个 pending：高频小写时接近平方级
+            const pendingBefore = state.pending.byteLength
+            const combined = new Uint8Array(pendingBefore + chunk.byteLength)
             combined.set(state.pending)
-            combined.set(chunk, state.pending.byteLength)
+            combined.set(chunk, pendingBefore)
             state.pending = combined
+            if (pendingBefore > state.clusterSize) {
+              countSystemDebugHot('files', 'fat-pending-recombine', pendingBefore)
+            }
             while (state.pending.byteLength >= state.clusterSize) {
               const full = state.pending.subarray(0, state.clusterSize)
               await this.withSectors(() => {
@@ -953,6 +960,7 @@ export class FatImageVolume {
               })
               state.totalWritten += state.clusterSize
               state.pending = state.pending.subarray(state.clusterSize)
+              countSystemDebugHot('files', 'fat-cluster-write')
               await this.maybeFlushHeld()
               await this.maybeYieldHeld()
             }
@@ -980,6 +988,7 @@ export class FatImageVolume {
               })
               state.totalWritten += writeSize
               state.pending = state.pending.subarray(writeSize)
+              countSystemDebugHot('files', 'fat-cluster-write')
               await this.maybeFlushHeld()
               await this.maybeYieldHeld()
             }

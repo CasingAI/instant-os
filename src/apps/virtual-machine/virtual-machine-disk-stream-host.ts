@@ -1,6 +1,11 @@
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
 import { openQuietBlobWriter, type QuietBlobWriter } from '../files/files-quiet-blob-write.ts'
 import {
+  countSystemDebugHot,
+  recordSystemDebugHot,
+  recordSystemDebugTimeline,
+} from '../../os/system-debug-log.ts'
+import {
   recordVmDiskStreamIo,
   releaseVmDiskStreamMetrics,
 } from './virtual-machine-disk-stream-metrics.ts'
@@ -169,11 +174,13 @@ export class DirtyOverlay {
       }
       if (run.offset + run.bytes.byteLength < offset) continue
       // 重叠或相邻：合并
+      countSystemDebugHot('vm', 'overlay-merge')
       this.mergeRuns(i, offset, bytes)
       return
     }
     runs.splice(insertIndex, 0, { offset, bytes: new Uint8Array(bytes) })
     this.totalDirtyBytes += bytes.byteLength
+    countSystemDebugHot('vm', 'overlay-write')
   }
 
   /**
@@ -268,6 +275,7 @@ export function createOverlayFlusher(
 
   async function persistRuns(runs: DirtyRun[]): Promise<void> {
     let processed = 0
+    const persistStartedAt = performance.now()
     try {
       if (!entry.quietWriter) {
         for (const run of runs) {
@@ -287,10 +295,33 @@ export function createOverlayFlusher(
         throw error
       }
     } catch (error) {
+      recordSystemDebugTimeline({
+        layer: 'vm',
+        op: 'overlay-persist-failed',
+        detail: {
+          path: entry.path,
+          runs: runs.length,
+          processed,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
       for (const run of runs.slice(processed)) {
         overlay.write(run.offset, run.bytes)
       }
       throw error
+    } finally {
+      const durationMs = performance.now() - persistStartedAt
+      if (durationMs > 100) {
+        recordSystemDebugHot({
+          layer: 'vm',
+          op: 'overlay-persist-runs',
+          detail: `${runs.length} runs ${durationMs.toFixed(0)}ms`,
+          durationMs,
+          thresholdMs: 100,
+        })
+      } else {
+        countSystemDebugHot('vm', 'overlay-persist-runs', durationMs)
+      }
     }
   }
 
@@ -312,6 +343,8 @@ export function createOverlayFlusher(
   async function flushUntilEmpty(): Promise<void> {
     if (flushUntilEmptyPromise) return flushUntilEmptyPromise
     flushUntilEmptyPromise = (async () => {
+      const startedAt = performance.now()
+      let rounds = 0
       try {
         cancelSchedule()
         if (flushPromise) {
@@ -323,14 +356,29 @@ export function createOverlayFlusher(
         }
         let failures = 0
         while (overlay.dirtyBytes > 0) {
+          rounds += 1
           try {
             await flushRound()
           } catch {
             failures += 1
             if (failures >= OVERLAY_FLUSH_MAX_ATTEMPTS) {
+              recordSystemDebugTimeline({
+                layer: 'vm',
+                op: 'overlay-flush-giveup',
+                detail: { path: entry.path, rounds, failures },
+              })
               throw new Error('覆盖层刷盘失败次数过多，已中止')
             }
           }
+        }
+        if (rounds > 1) {
+          recordSystemDebugHot({
+            layer: 'vm',
+            op: 'flush-until-empty',
+            detail: `${rounds} rounds ${(performance.now() - startedAt).toFixed(0)}ms`,
+            durationMs: performance.now() - startedAt,
+            thresholdMs: 100,
+          })
         }
       } finally {
         flushUntilEmptyPromise = undefined
@@ -340,11 +388,29 @@ export function createOverlayFlusher(
   }
 
   async function flushUntilBelow(limit: number): Promise<void> {
+    const startedAt = performance.now()
     cancelSchedule()
     if (flushUntilEmptyPromise) await flushUntilEmptyPromise
     if (flushPromise) await flushPromise
+    let rounds = 0
     while (overlay.dirtyBytes > limit) {
+      rounds += 1
       await flushRound(Math.max(OVERLAY_FLUSH_DIRTY_BYTES, overlay.dirtyBytes - limit))
+    }
+    if (rounds > 0) {
+      // 高水位背压：直接决定客机写停顿时长
+      const durationMs = performance.now() - startedAt
+      if (durationMs > 100) {
+        recordSystemDebugHot({
+          layer: 'vm',
+          op: 'flush-backpressure',
+          detail: `${rounds} rounds limit=${limit} ${(durationMs).toFixed(0)}ms`,
+          durationMs,
+          thresholdMs: 100,
+        })
+      } else {
+        countSystemDebugHot('vm', 'flush-backpressure', durationMs)
+      }
     }
   }
 
@@ -358,6 +424,12 @@ export function createOverlayFlusher(
 
   async function acknowledgeGuestWrite(): Promise<void> {
     if (overlay.dirtyBytes > OVERLAY_HIGH_WATER_BYTES) {
+      // 高水位：客机写被卡到低水位才 ack，客机会停顿——这是一次强信号
+      recordSystemDebugHot({
+        layer: 'vm',
+        op: 'write-high-water',
+        detail: `dirty=${overlay.dirtyBytes} limit=${OVERLAY_LOW_WATER_BYTES}`,
+      })
       await flushUntilBelow(OVERLAY_LOW_WATER_BYTES)
       return
     }
@@ -373,21 +445,24 @@ async function readDiskRange(
   offset: number,
   length: number,
 ): Promise<InstantVmDiskReadResultMessage> {
-  const totalSize = entry.size
-  const status = diskReadReplyStatus(entry, offset, length)
-  if (status !== 206) {
-    return {
-      type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
-      requestId: '',
-      streamId: '',
-      status,
-      totalSize,
-    }
-  }
-  const want = Math.min(length, totalSize - offset, INSTANT_VM_DISK_RANGE_MAX_BYTES)
+  const startedAt = performance.now()
   try {
+    const totalSize = entry.size
+    const status = diskReadReplyStatus(entry, offset, length)
+    if (status !== 206) {
+      return {
+        type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
+        requestId: '',
+        streamId: '',
+        status,
+        totalSize,
+      }
+    }
+    const want = Math.min(length, totalSize - offset, INSTANT_VM_DISK_RANGE_MAX_BYTES)
+
     const overlayBytes = overlay.read(offset, want)
     if (overlayBytes !== undefined) {
+      countSystemDebugHot('vm', 'disk-read', performance.now() - startedAt)
       return {
         type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
         requestId: '',
@@ -403,13 +478,25 @@ async function readDiskRange(
     const runs = overlay.runsOverlapping(offset, want)
     if (runs.length === 0) {
       const blob = await filesReadBlobRange(entry.path, offset, want)
+      const bytes = await blob.arrayBuffer()
+      const durationMs = performance.now() - startedAt
+      if (durationMs > 32) {
+        recordSystemDebugHot({
+          layer: 'vm',
+          op: 'disk-read',
+          detail: `${want}B ${(durationMs).toFixed(0)}ms`,
+          durationMs,
+        })
+      } else {
+        countSystemDebugHot('vm', 'disk-read', durationMs)
+      }
       return {
         type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
         requestId: '',
         streamId: '',
         status,
         totalSize,
-        bytes: await blob.arrayBuffer(),
+        bytes,
       }
     }
     const blob = await filesReadBlobRange(entry.path, offset, want)
@@ -417,6 +504,17 @@ async function readDiskRange(
     for (const run of runs) {
       const start = run.offset - offset
       base.set(run.bytes, start)
+    }
+    const durationMs = performance.now() - startedAt
+    if (durationMs > 32) {
+      recordSystemDebugHot({
+        layer: 'vm',
+        op: 'disk-read',
+        detail: `merge ${runs.length} runs ${want}B ${(durationMs).toFixed(0)}ms`,
+        durationMs,
+      })
+    } else {
+      countSystemDebugHot('vm', 'disk-read', durationMs)
     }
     return {
       type: INSTANT_VM_MESSAGE_TYPE.diskReadResult,
@@ -451,7 +549,19 @@ async function writeDiskRange(
   }
   try {
     overlay.write(offset, new Uint8Array(bytes))
+    const writeStartedAt = performance.now()
     await flusher.acknowledgeGuestWrite()
+    const durationMs = performance.now() - writeStartedAt
+    if (durationMs > 32) {
+      recordSystemDebugHot({
+        layer: 'vm',
+        op: 'disk-write',
+        detail: `${bytes.byteLength}B ack ${(durationMs).toFixed(0)}ms`,
+        durationMs,
+      })
+    } else {
+      countSystemDebugHot('vm', 'disk-write', durationMs)
+    }
     return {
       type: INSTANT_VM_MESSAGE_TYPE.diskWriteResult,
       requestId: '',
@@ -506,8 +616,21 @@ function onDiskStreamMessage(event: MessageEvent): void {
     ) => void
   }
   const receivedAt = performance.now()
+  countSystemDebugHot('vm', isWrite ? 'disk-write-msg' : 'disk-read-msg')
 
   void enqueueStreamWork(streamId, async () => {
+    const queueWaitMs = performance.now() - receivedAt
+    if (queueWaitMs > 64) {
+      // 串行工作链堵了：客机 IO 在排队等上一条（GB 级 flush / 慢盘）
+      recordSystemDebugHot({
+        layer: 'vm',
+        op: 'stream-queue-wait',
+        detail: `${queueWaitMs.toFixed(0)}ms ${isWrite ? 'write' : 'read'}`,
+        durationMs: queueWaitMs,
+      })
+    } else {
+      countSystemDebugHot('vm', 'stream-queue-wait', queueWaitMs)
+    }
     try {
       if (releasingIds.has(streamId)) {
         if (isInstantVmDiskWriteMessage(event.data)) {
@@ -645,6 +768,7 @@ export async function registerVirtualMachineDiskStream(
   path: string,
   options?: { writable?: boolean },
 ): Promise<string> {
+  const startedAt = performance.now()
   const stat = await filesStat(path)
   if (!stat || stat.kind !== 'file') {
     throw new Error(`文件不存在：${path}`)
@@ -659,6 +783,12 @@ export async function registerVirtualMachineDiskStream(
     quietWriter,
   })
   ensureListener()
+  recordSystemDebugTimeline({
+    layer: 'vm',
+    op: 'disk-stream-register',
+    detail: `${stat.byteSize}B writable=${writable}`,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
   return id
 }
 
@@ -679,11 +809,21 @@ export async function flushVirtualMachineDiskStream(streamId: string | undefined
 }
 
 async function drainStreamWork(streamId: string): Promise<void> {
+  let rounds = 0
   for (;;) {
     const tail = streamWorkTails.get(streamId)
-    if (!tail) return
+    if (!tail) break
     await tail
-    if (streamWorkTails.get(streamId) === tail) return
+    rounds += 1
+    countSystemDebugHot('vm', 'stream-drain-round')
+    if (streamWorkTails.get(streamId) === tail) break
+  }
+  if (rounds > 8) {
+    recordSystemDebugHot({
+      layer: 'vm',
+      op: 'stream-drain',
+      detail: `${rounds} rounds`,
+    })
   }
 }
 
@@ -701,6 +841,7 @@ export async function releaseVirtualMachineDiskStream(streamId: string | undefin
   if (!streamId) {
     return
   }
+  const releaseStartedAt = performance.now()
   releasingIds.add(streamId)
   const entry = streams.get(streamId)
   const flusher = flushers.get(streamId)
@@ -723,6 +864,11 @@ export async function releaseVirtualMachineDiskStream(streamId: string | undefin
           await entry.quietWriter.close()
         }
       },
+    })
+    recordSystemDebugTimeline({
+      layer: 'vm',
+      op: 'disk-stream-release',
+      durationMs: Math.round(performance.now() - releaseStartedAt),
     })
   } finally {
     streams.delete(streamId)

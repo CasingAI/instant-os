@@ -1,3 +1,4 @@
+import { recordSystemDebugHot } from '../os/system-debug-log.ts'
 import { gunzipSync } from 'fflate'
 import {
   materializeArchiveEntries,
@@ -20,13 +21,22 @@ function entriesFromRecord(record: Record<string, Uint8Array>): Map<string, Uint
 
 /** gunzip（失败则当裸 tar）→ untar；不落盘。 */
 export function decodeGzipTar(tarball: Uint8Array): Map<string, Uint8Array> {
+  // gunzipSync + untarBytes 全同步：在本线程调用时大包会长时间占用（埋点用于确认它在主线程被调到）
+  const startAt = performance.now()
   let tarBytes: Uint8Array
   try {
     tarBytes = gunzipSync(tarball)
   } catch {
     tarBytes = tarball
   }
-  return entriesFromRecord(untarBytes(tarBytes))
+  const entries = entriesFromRecord(untarBytes(tarBytes))
+  recordSystemDebugHot({
+    layer: 'files',
+    op: 'gzip-tar-decode-sync',
+    detail: `${tarball.byteLength}B → ${entries.size} entries`,
+    durationMs: performance.now() - startAt,
+  })
+  return entries
 }
 
 /** 解压 gzip+tar（或裸 tar）到目录。 */

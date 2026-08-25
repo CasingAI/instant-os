@@ -1,3 +1,4 @@
+import { recordSystemDebugTimeline } from '../os/system-debug-log.ts'
 import {
   filesCreateText,
   filesDecodeArchive,
@@ -211,6 +212,7 @@ export async function extractTarballToStore(params: {
   if (await isPackageInStore(config, name, version)) {
     return dest
   }
+  const extractStartAt = performance.now()
 
   // 无完成标记的目录视为半成品，清掉再解
   await removeStoreDirBestEffort(dest)
@@ -264,6 +266,12 @@ export async function extractTarballToStore(params: {
       await filesWriteText(storeCompleteMarkerPath(dest), '')
     }
     await freezeStorePackageTree(dest)
+    recordSystemDebugTimeline({
+      layer: 'npm',
+      op: 'tarball-extracted',
+      detail: `${name}@${version} ${tarball.byteLength}B`,
+      durationMs: Math.round(performance.now() - extractStartAt),
+    })
     return dest
   } catch (error) {
     await removeStoreDirBestEffort(dest)
@@ -319,6 +327,7 @@ export async function readStorePackageJson(
 }
 
 export async function estimateStoreBytes(config: PackageServiceConfig): Promise<number> {
+  const estimateStartAt = performance.now()
   const st = await filesStat(config.storeRoot)
   if (!st) return 0
   try {
@@ -328,6 +337,12 @@ export async function estimateStoreBytes(config: PackageServiceConfig): Promise<
     for (const file of files) {
       total += file.byteSize
     }
+    recordSystemDebugTimeline({
+      layer: 'npm',
+      op: 'estimate-store-bytes-done',
+      detail: `${files.length} files`,
+      durationMs: Math.round(performance.now() - estimateStartAt),
+    })
     return total
   } catch {
     return st.byteSize

@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import {
@@ -13,6 +13,10 @@ import {
   loadSystemDebugLogSettings,
   patchSystemDebugLogSettings,
 } from '../../os/system-debug-log-settings-storage.ts'
+import {
+  clearAllSystemDebugData,
+  fetchSystemDebugStats,
+} from '../../os/system-debug-log.ts'
 import {
   getDataCapacityBytes,
   clearDevDataStorageFill,
@@ -79,6 +83,8 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
   const [systemDebugLog, setSystemDebugLog] = useState(
     () => loadSystemDebugLogSettings().enabled,
   )
+  const [systemDebugLogBytes, setSystemDebugLogBytes] = useState<number | undefined>(undefined)
+  const [systemDebugLogClearing, setSystemDebugLogClearing] = useState(false)
   const [modelSource, setModelSource] = useState<ModelSource>(
     () => loadModelSourceSettings().source,
   )
@@ -93,6 +99,14 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
   const [dataFillStatus, setDataFillStatus] = useState<string | undefined>(undefined)
   const [fillError, setFillError] = useState<string | undefined>(undefined)
   const storageBusy = fillBusy !== undefined || clearFillBusy !== undefined
+
+  useEffect(() => {
+    void fetchSystemDebugStats().then((stats) => {
+      if (stats !== undefined) {
+        setSystemDebugLogBytes(stats.bytes)
+      }
+    })
+  }, [])
 
   const handleToggleImmersiveChrome = (checked: boolean) => {
     if (!patchExperimentalSettings({ fullscreenImmersiveChrome: checked })) {
@@ -151,6 +165,16 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
     }
     setSaveError(false)
     setSystemDebugLog(checked)
+  }
+
+  const handleClearSystemDebugData = async () => {
+    setSystemDebugLogClearing(true)
+    try {
+      await clearAllSystemDebugData()
+      setSystemDebugLogBytes(0)
+    } finally {
+      setSystemDebugLogClearing(false)
+    }
   }
 
   const handleModelSourceChange = (value: string) => {
@@ -479,12 +503,38 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
               checked={alwaysShowCursor}
               onChange={handleToggleAlwaysShowCursor}
             />
-            <DeveloperFeature
-              title="系统诊断日志"
-              description="在「事件日志 → 系统」记录 npm run / QuickJS / 文件系统采样面包屑，并节流写入 localStorage（跨标签可读）。整页卡死后请新开标签页查看「上次会话残留」；不保证卡死当下 UI 仍可操作。"
-              checked={systemDebugLog}
-              onChange={handleToggleSystemDebugLog}
-            />
+            <div class="settings__experimental-feature">
+              <div class="settings__list">
+                <div class="settings__toggle-row">
+                  <span class="settings__toggle-row-label">系统诊断日志（黑匣子）</span>
+                  <IosSwitch
+                    checked={systemDebugLog}
+                    onChange={handleToggleSystemDebugLog}
+                    label="系统诊断日志"
+                  />
+                </div>
+              </div>
+              <p class="settings__section-footnote">
+                打开后在 npm run / QuickJS / 文件系统 / 虚拟机等高危路径采样记录面包屑，由独立
+                Worker 收集并心跳监测主线程；主线程卡死时 Worker 仍能记录「未响应」并落盘。开启会在高危路径上产生少量开销，默认关闭。整页卡死后请新开标签页查看「事件日志 →
+                系统」；本数据写入独立诊断库，不计入数据空间。
+              </p>
+              <div class="settings__actions settings__actions--in-box">
+                <span class="settings__section-footnote" aria-live="polite">
+                  {systemDebugLogBytes !== undefined
+                    ? `诊断库占用约 ${formatStorageSize(systemDebugLogBytes)}`
+                    : ''}
+                </span>
+                <button
+                  type="button"
+                  class="settings__btn settings__btn--default"
+                  disabled={systemDebugLogClearing}
+                  onClick={() => void handleClearSystemDebugData()}
+                >
+                  {systemDebugLogClearing ? '正在清空…' : '清空诊断数据'}
+                </button>
+              </div>
+            </div>
             <DeveloperFeature
               title="停用窗口合成器加速"
               description="非系统应用默认在 sandbox 中通过 Blob URL 加载（不含同源权限）。开启后改回同源 iframe 写入，便于排查兼容问题，但子应用异常时可能拖死系统界面。切换后会重新加载已打开的非系统应用窗口。"

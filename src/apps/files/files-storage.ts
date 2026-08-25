@@ -3,6 +3,7 @@
  * 不检查节点 `writable`；内置应用维护受保护数据时应使用本模块或专用 internal 模块，
  * 面向用户的读写请走 files-vfs / files-api。
  */
+import { countSystemDebugHot, recordSystemDebugHot, recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import { beginIdbTransaction } from '../../os/idb-transaction.ts'
 import {
@@ -374,6 +375,7 @@ function migrateV3BlobRef(tx: IDBTransaction): Promise<void> {
  * 中断场景残留，是不可读的纯空间浪费。每进程仅首次打开 DB 时跑一次。
  */
 export async function sweepOrphanChunksOnce(db: IDBDatabase): Promise<void> {
+  const sweepStartAt = performance.now()
   try {
     if (!db.objectStoreNames.contains(FILES_CHUNKS_STORE)) {
       return
@@ -433,6 +435,12 @@ export async function sweepOrphanChunksOnce(db: IDBDatabase): Promise<void> {
   } catch (error) {
     // 清理失败不影响业务
     console.warn('files: orphan chunk sweep failed', error)
+  } finally {
+    recordSystemDebugTimeline({
+      layer: 'files',
+      op: 'sweep-orphan-chunks-done',
+      durationMs: Math.round(performance.now() - sweepStartAt),
+    })
   }
 }
 
@@ -1025,6 +1033,7 @@ export type FilesLocationBytes = {
 export async function getFilesBytesByLocation(
   locations: readonly FilesLocationId[] = DATA_SPACE_FILE_LOCATIONS,
 ): Promise<FilesLocationBytes[]> {
+  const scanStartAt = performance.now()
   const db = await openFilesDb()
   const tx = beginIdbTransaction(
     db,
@@ -1054,6 +1063,12 @@ export async function getFilesBytesByLocation(
   }
 
   await waitForTransaction(tx)
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'bytes-by-location-done',
+    detail: `${locations.length} locations`,
+    durationMs: Math.round(performance.now() - scanStartAt),
+  })
   return results
 }
 
@@ -1196,6 +1211,8 @@ async function readChunkedBlobBytes(
       }
     }
   }
+  // 整文件物化：getAll 全部 chunk 后在主线程拼整块
+  const materializeStartAt = performance.now()
   const out = new Uint8Array(byteSize)
   if (offsets !== undefined) {
     for (const record of records) {
@@ -1215,6 +1232,17 @@ async function readChunkedBlobBytes(
       out.set(src.subarray(0, len), offset)
       offset += src.byteLength
     }
+  }
+  const durationMs = performance.now() - materializeStartAt
+  if (byteSize > 8 * 1024 * 1024 || durationMs > 32) {
+    recordSystemDebugHot({
+      layer: 'files',
+      op: 'blob-materialize',
+      detail: `${byteSize}B ${records.length} chunks`,
+      durationMs,
+    })
+  } else {
+    countSystemDebugHot('files', 'blob-materialize', durationMs)
   }
   return out.buffer
 }
@@ -1905,6 +1933,7 @@ export async function writeBlobBytesRange(params: {
   if (offset > oldLogicalByteSize) {
     throw new Error('offset 超出文件末尾，当前不支持空洞扩展')
   }
+  countSystemDebugHot('files', 'range-write', bytes.byteLength)
 
   const refCount = blob ? resolveBlobRefCount(blob) : 1
   const shared = refCount > 1
@@ -2308,13 +2337,19 @@ async function copyIdbBlobToOpfsWriter(
   writer: OpfsBlobWriter,
 ): Promise<void> {
   if (!blob) return
+  const copyStartAt = performance.now()
+  let copiedBytes = 0
+  const trackWrite = (bytes: number, written: Promise<unknown>) => {
+    copiedBytes += bytes
+    return written
+  }
   if (blob.chunked === true) {
     const offsets = resolveChunkOffsets(blob)
     if (offsets !== undefined) {
       for (let i = 0; i < offsets.length; i++) {
         const bytes = await readIdbChunkBytes(blobId, i)
         if (!bytes || bytes.byteLength === 0) continue
-        await writer.writeAt(offsets[i]!, bytes)
+        await trackWrite(bytes.byteLength, writer.writeAt(offsets[i]!, bytes))
       }
       return
     }
@@ -2322,7 +2357,7 @@ async function copyIdbBlobToOpfsWriter(
     for (const index of await listIdbChunkIndexes(blobId)) {
       const bytes = await readIdbChunkBytes(blobId, index)
       if (!bytes || bytes.byteLength === 0) continue
-      await writer.writeAt(offset, bytes)
+      await trackWrite(bytes.byteLength, writer.writeAt(offset, bytes))
       offset += bytes.byteLength
     }
     return
@@ -2334,7 +2369,17 @@ async function copyIdbBlobToOpfsWriter(
     source = new Uint8Array(encodeTextToArrayBuffer(blob.text))
   }
   if (source && source.byteLength > 0) {
-    await writer.writeAt(0, source)
+    trackWrite(source.byteLength, writer.writeAt(0, source))
+  }
+  const copyDurationMs = performance.now() - copyStartAt
+  if (copiedBytes > 0) {
+    // IDB→OPFS 全量逐块搬移：GB 级文件长时间占用，易被误判为开机卡死
+    recordSystemDebugTimeline({
+      layer: 'files',
+      op: 'idb-spill-to-opfs-done',
+      detail: `${copiedBytes}B`,
+      durationMs: Math.round(copyDurationMs),
+    })
   }
 }
 
@@ -3095,7 +3140,9 @@ async function flushStreamPendingChunks(
     [FILES_BLOBS_STORE, FILES_CHUNKS_STORE],
     'readwrite',
   )
+  const flushStartAt = performance.now()
   while (state.pending.byteLength >= threshold) {
+    countSystemDebugHot('files', 'stream-chunk-flush')
     const slotBytes = state.pending.subarray(0, state.chunkSize)
     if (isAllZeros(slotBytes)) {
       advanceChunkSlot(state, state.chunkSize)
@@ -3136,6 +3183,18 @@ async function flushStreamPendingChunks(
       byteSize: state.writtenBytes,
     } satisfies FilesNodeRecord)
     await waitForTransaction(nodeTx)
+  }
+
+  const flushDurationMs = performance.now() - flushStartAt
+  if (flushDurationMs > 100) {
+    recordSystemDebugHot({
+      layer: 'files',
+      op: 'stream-flush-tx-slow',
+      detail: `pending=${state.pending.byteLength}B delta=${storedDelta}B`,
+      durationMs: flushDurationMs,
+    })
+  } else {
+    countSystemDebugHot('files', 'stream-flush-tx', flushDurationMs)
   }
 
   return storedDelta
@@ -3429,9 +3488,11 @@ export async function collectSubtreeIds(rootId: string): Promise<{
   const releaseByBlobId = new Map<string, number>()
   let reclaimBytes = 0
 
+  const collectStartAt = performance.now()
   const visit = async (id: string): Promise<void> => {
     const record = await requestToPromise(store.get(id) as IDBRequest<FilesNodeRecord | undefined>)
     if (!record) return
+    countSystemDebugHot('files', 'subtree-visit')
     nodeIds.push(record.id)
     reclaimBytes += estimateNodeMetaBytes(recordToNode(record))
     if (record.kind === 'file') {
@@ -3462,6 +3523,14 @@ export async function collectSubtreeIds(rootId: string): Promise<{
   }
 
   await waitForTransaction(tx)
+  if (nodeIds.length > 500) {
+    recordSystemDebugTimeline({
+      layer: 'files',
+      op: 'collect-subtree-done',
+      detail: `${nodeIds.length} nodes ${reclaimBytes}B`,
+      durationMs: Math.round(performance.now() - collectStartAt),
+    })
+  }
   return { nodeIds, fileIds, reclaimBytes }
 }
 
@@ -3583,6 +3652,7 @@ export async function deleteSubtree(params: {
   fileIds: string[]
   reclaimBytes: number
 }): Promise<void> {
+  const deleteStartAt = performance.now()
   const total = await getFilesTotalBytes()
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
@@ -3635,6 +3705,14 @@ export async function deleteSubtree(params: {
   await waitForTransaction(tx)
   await deleteOpfsBlobs(releasedOpfs)
   emitFilesDataStorageChanged()
+  if (params.nodeIds.length > 200) {
+    recordSystemDebugTimeline({
+      layer: 'files',
+      op: 'delete-subtree-tx-done',
+      detail: `${params.nodeIds.length} nodes`,
+      durationMs: Math.round(performance.now() - deleteStartAt),
+    })
+  }
 }
 
 /** 单次批量提交建议条数（降低 IndexedDB 事务固定开销） */
@@ -4029,6 +4107,7 @@ export async function listLocalVolumeFileNodes(
 
   const files: LocalVolumeFileNodeMeta[] = []
   const folderQueue: Array<string | undefined> = [rootFolderId]
+  const scanStartAt = performance.now()
 
   while (folderQueue.length > 0) {
     const parentId = folderQueue.shift()
@@ -4052,6 +4131,12 @@ export async function listLocalVolumeFileNodes(
   }
 
   await waitForTransaction(tx)
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'list-volume-files-done',
+    detail: `${locationId} → ${files.length} files`,
+    durationMs: Math.round(performance.now() - scanStartAt),
+  })
   return files
 }
 
@@ -4093,7 +4178,14 @@ export async function backfillContentRevisionIds(
   }
 
   await waitForTransaction(tx)
-  if (written > 0) emitFilesDataStorageChanged()
+  if (written > 0) {
+    recordSystemDebugTimeline({
+      layer: 'files',
+      op: 'backfill-revision-ids',
+      detail: `${locationId} wrote=${written}`,
+    })
+    emitFilesDataStorageChanged()
+  }
   return written
 }
 
@@ -4116,6 +4208,7 @@ export async function listLocalVolumeSubtreeNodes(
   const files: LocalVolumeFileNodeMeta[] = []
   const folders = new Map<string, { parentId: string | undefined; name: string }>()
   const folderQueue: Array<string | undefined> = [rootFolderId]
+  const scanStartAt = performance.now()
 
   while (folderQueue.length > 0) {
     const parentId = folderQueue.shift()
@@ -4143,5 +4236,14 @@ export async function listLocalVolumeSubtreeNodes(
   }
 
   await waitForTransaction(tx)
+  if (files.length + folders.size > 500) {
+    // 大子树 BFS：tsc 扫类型树 / 搜索 / 打包前的全量枚举
+    recordSystemDebugTimeline({
+      layer: 'files',
+      op: 'list-volume-subtree-done',
+      detail: `${locationId} → ${files.length} files ${folders.size} folders`,
+      durationMs: Math.round(performance.now() - scanStartAt),
+    })
+  }
   return { files, folders }
 }

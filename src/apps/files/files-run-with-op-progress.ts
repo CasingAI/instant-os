@@ -7,6 +7,7 @@ import {
   shouldShowFilesOpProgressAtObserve,
   type FilesOpProgressSnapshot,
 } from './files-op-progress-policy.ts'
+import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import type { FilesVfsOpProgress } from './files-vfs.ts'
 
 export type FilesOpProgressKind = 'paste' | 'delete' | 'compress' | 'extract'
@@ -86,5 +87,15 @@ export async function runFilesOpWithProgress<T>(params: {
   } finally {
     clearTimers()
     params.onUiChange(undefined)
+    // 所有文件 App 重操作（导入/粘贴/删除/压缩/解压）的统一咽喉：端到端耗时面包屑
+    const elapsedMs = performance.now() - startedAt
+    if (elapsedMs > 200) {
+      recordSystemDebugTimeline({
+        layer: 'files',
+        op: `op-${params.kind}-done`,
+        detail: `work=${total} done=${done}`,
+        durationMs: Math.round(elapsedMs),
+      })
+    }
   }
 }

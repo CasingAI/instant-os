@@ -5,7 +5,7 @@
 import { wrapTerminalProgramEval } from '../apps/terminal/terminal-repl-program-eval.ts'
 import { createQuickJsInstance } from '../quickjs/quickjs-public.ts'
 import type { InstantShellHost } from '../terminal/instant-shell/instant-shell-types.ts'
-import { appendSystemDebugLog } from './system-debug-log.ts'
+import { recordSystemDebugTimeline } from './system-debug-log.ts'
 import { getResolvedSystemEnv } from './system-env.ts'
 import {
   getEnabledStartupItems,
@@ -44,16 +44,15 @@ export async function runOneStartupItem(
     })
     const durationMs = Date.now() - startedAt
     if (!result.ok) {
-      appendSystemDebugLog({
+      recordSystemDebugTimeline({
         layer: 'system',
         op: 'startup-item-error',
-        detail: `${label}: ${result.error}`,
+        detail: `${label}: ${result.error.slice(0, 200)}`,
         durationMs,
-        force: true,
       })
       return { ok: false, error: result.error, durationMs }
     }
-    appendSystemDebugLog({
+    recordSystemDebugTimeline({
       layer: 'system',
       op: 'startup-item-ok',
       detail: label,
@@ -63,12 +62,11 @@ export async function runOneStartupItem(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const durationMs = Date.now() - startedAt
-    appendSystemDebugLog({
+    recordSystemDebugTimeline({
       layer: 'system',
       op: 'startup-item-error',
-      detail: `${label}: ${message}`,
+      detail: `${label}: ${message.slice(0, 200)}`,
       durationMs,
-      force: true,
     })
     return { ok: false, error: message, durationMs }
   } finally {
@@ -83,7 +81,7 @@ export async function runStartupItems(host: InstantShellHost): Promise<void> {
     return
   }
 
-  appendSystemDebugLog({
+  recordSystemDebugTimeline({
     layer: 'system',
     op: 'startup-items-begin',
     detail: `${items.length} item(s)`,
@@ -94,16 +92,15 @@ export async function runStartupItems(host: InstantShellHost): Promise<void> {
       await runOneStartupItem(item, host)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      appendSystemDebugLog({
+      recordSystemDebugTimeline({
         layer: 'system',
         op: 'startup-item-error',
-        detail: `${startupItemDisplayLabel(item)}: ${message}`,
-        force: true,
+        detail: `${startupItemDisplayLabel(item)}: ${message.slice(0, 200)}`,
       })
     }
   }
 
-  appendSystemDebugLog({
+  recordSystemDebugTimeline({
     layer: 'system',
     op: 'startup-items-end',
     detail: `${items.length} item(s)`,

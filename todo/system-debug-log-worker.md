@@ -2,7 +2,7 @@
 
 > 建立时间：2026-08-25
 > 涉及项目：`instant-app`（系统诊断 / 主线程卡死 / IndexedDB）
-> 状态：方案，未实施
+> 状态：**已实施（第一版，2026-08-25）**。实施记录见文末「16. 实施记录」。
 
 目标：把系统诊断日志从主线程同步收集 + `localStorage` 快照，改成 **开关可控的埋点 + 独立 Worker 收集 / 心跳 / 落盘**。高危路径可以打得很勤；关掉开关时调用几乎是空操作；主线程死循环时仍能留下临终尾巴，并记一条「主线程未响应」。
 
@@ -466,3 +466,32 @@ Worker 打开诊断库，覆盖写 live，未响应时加快照。新标签启�
 6. 落盘内容为字符串行；调用方可传对象。
 7. 不再使用 `localStorage` 作为诊断正文主存储。
 8. 高危点没有新增 `console.log` 风暴路径。
+
+---
+
+## 16. 实施记录（2026-08-25，第一版）
+
+按第 11 节顺序全部落地：
+
+| 步骤 | 落点 |
+|---|---|
+| 11.1 开关 | `system-debug-log-settings-storage.ts`：内存缓存 + 默认关 + storage 事件失效缓存 |
+| 11.2 纯逻辑 | `system-debug-log-core.ts`：`SystemDebugLogRecorder`（双环 + 计数器 + 限速 + 合并）、`MainThreadHeartbeatMonitor`、`stringifySystemDebugDetail`（限深/限键/限长/循环占位）；单测 `system-debug-log-core.test.ts`（`pnpm test:system-debug-log`） |
+| 11.3 Worker + 门面 | `system-debug-log-worker.ts`（`new Worker(new URL(...))` 惰性创建，Node 单测可安全 import）+ `system-debug-log.ts` 门面（热路径只读内存布尔 + 短字段 postMessage；纯计数攒 64 条批量发） |
+| 11.4 心跳 | Worker 每 2s ping、5s 无 pong 判「主线程未响应」并立即写未响应快照 + live；恢复记 `main-thread-recovered`；未响应期间降频 4s |
+| 11.5 独立 IDB | `system-debug-log-idb.ts`：库 `instant-os-system-debug-log`，只存覆盖写快照（live + previous + 最近 3 份未响应）；启动抬升 stale live（>20s）；旧 localStorage live/residual 键一次性迁移后删除 |
+| 11.6 界面 | 事件日志系统栏改读 Worker（时间线置顶 + 热路径 + 计数器 + 残留/未响应快照）；开发者设置加占用与「清空诊断数据」；卡死对话框文案与异步复制 |
+| 11.7 埋点收口 | `appendSystemDebugLog` 全部删除；`force` 不复存在；新入口 `recordSystemDebugTimeline` / `recordSystemDebugHot` / `countSystemDebugHot` / `beginSystemDebugHotTrace` |
+| 11.8 清理 | 主线程 `persistSnapshot` / `LIVE_STORAGE_KEY` / `storage` 事件跨标签逻辑全部删除 |
+
+**热路径档位（默认值）**：时间线事件全量进环（每层限速 60/s）；热路径每次调用只动内存计数，超阈值（fs 16ms / VFS 8ms / 磁盘流 32ms）或攒满 64 次才 postMessage；Worker 侧每层限速 240/s、1.5s 窗口重复合并成 ×N、热环 1024 条覆盖、时间线 128 条禁止被热路径冲掉。
+
+**第二阶段埋点扫描（尽量多加）**：
+
+- 虚拟机（layer `vm`）：boot 各阶段（boot-start/disks-loaded/message-built/failed）、start-ack、save-state、快照分片写、磁盘整读（≤256MB 含 state 快照）、磁盘流消息泵（每条客机读写消息计数 + 排队等待 >64ms 告警）、覆盖层写/合并计数、刷盘轮次与失败、高水位背压（客机写停顿强信号）、关机排空耗时、回写失败看门狗强制关机、`handlePower` 决策链（替换了遗留的 fetch 调试脚手架与 console.log）。
+- 文件系统（layer `files`）：递归工作量估算、批量删除（分批/合并路径）、清空废纸篓、恢复、复制树整读、子树 BFS 枚举（>500 节点记录）、批量 upsert、`runFilesOpWithProgress` 统一端到端耗时（导入/粘贴/删除/压缩/解压 >200ms 记录）、整文件物化（>8MB 或 >32ms）、IDB→OPFS 全量搬移、OPFS 整读/整写（>4MB 或 >50ms）、流写 chunk 刷盘慢事务、FAT 链 walk / 簇写 / pending 拼接（平方级风险点）、tarball 下载/解压、gzip 同步解码、文本搜索、外部导入。
+- npm（layer `npm`）：install done/failed（含 resolved/downloaded/added 计数）、uninstall、tarball 流式下载拼接、解压入 store、store 体积估算。
+- QuickJS（layer `qjs`）：eval 起止/错误/销毁（时间线）之外，新增 interrupt-check 计数（客户机纯计算死循环时的主要面包屑）、promise 等待自旋、idle 等待自旋。
+- 系统（layer `system`）：boot 阶段（hydrate/migration）、启动项、开关变更、Worker 判定的主线程未响应/恢复。
+
+**遗留（后续版本）**：Shared Worker 跨标签直连、共享内存环热通道、心跳参数可配、OPFS 单文件覆盖写替代 IDB 快照。

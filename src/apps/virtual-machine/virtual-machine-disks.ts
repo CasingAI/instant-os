@@ -5,6 +5,7 @@ import {
   filesStat,
 } from '../files/files-api.ts'
 import { isDiskImageFileName } from '../files/files-disk-image-name.ts'
+import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import {
   claimDiskImagePath,
   releaseDiskImagePath,
@@ -286,11 +287,20 @@ async function loadDisk(
   }
 
   try {
+    const readStartAt = performance.now()
     const blob = await filesReadBlob(trimmed)
     if (blob.size > DISK_BLOB_THRESHOLD_BYTES) {
       return { blob }
     }
-    return { buffer: await blob.arrayBuffer() }
+    // 整读进内存：≤256MB 的盘（含全部 state 快照恢复路径）
+    const buffer = await blob.arrayBuffer()
+    recordSystemDebugTimeline({
+      layer: 'vm',
+      op: 'disk-load-buffer',
+      detail: `${label} ${buffer.byteLength}B`,
+      durationMs: Math.round(performance.now() - readStartAt),
+    })
+    return { buffer }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     throw new Error(`无法读取${label} ${trimmed}：${detail}`)

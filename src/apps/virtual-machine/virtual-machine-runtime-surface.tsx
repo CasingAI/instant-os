@@ -1,3 +1,4 @@
+import { countSystemDebugHot, recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { useEffect, useRef } from 'preact/hooks'
 import type {
   InstantVmStartMessage,
@@ -101,10 +102,7 @@ export function VmRuntimeSurface({
 
   useEffect(() => {
     if (!ready || !startMessage) {
-      console.log('[vm-boot] wait for runtime', machineId, {
-        ready,
-        hasStart: Boolean(startMessage),
-      })
+      countSystemDebugHot('vm', 'boot-wait-runtime')
       return
     }
     if (processedRef.current === startMessage) {
@@ -112,7 +110,11 @@ export function VmRuntimeSurface({
     }
     const target = startMessage
     processedRef.current = target
-    console.log('[vm-boot] sending start to runtime', machineId, target.requestId)
+    recordSystemDebugTimeline({
+      layer: 'vm',
+      op: 'send-start-to-runtime',
+      detail: `${machineId} ${target.requestId}`,
+    })
     void start(target)
       .then(() => {
         onStarted(machineId)

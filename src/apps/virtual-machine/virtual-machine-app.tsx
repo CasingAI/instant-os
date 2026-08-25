@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
+import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
@@ -354,23 +355,44 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
 
   const handlePower = useCallback(
     (action: 'start' | 'stop' | 'reset') => {
+      const powerStartAt = performance.now()
+      const machineId = selected?.id
+      const trace = (op: string, extra?: Record<string, unknown>) => {
+        recordSystemDebugTimeline({
+          layer: 'vm',
+          op,
+          detail: {
+            action,
+            machineId,
+            running: machineId !== undefined ? pool.runningIds.includes(machineId) : undefined,
+            ...extra,
+          },
+          durationMs: Math.round(performance.now() - powerStartAt),
+        })
+      }
+      trace('power-pressed')
       if (!selected || !selectedBackend) {
+        trace('power-skipped', { reason: 'no-selection-or-backend' })
         return
       }
       if (!selectedBackend.available || !runtimeOrigin) {
         setPowerHint(vmPowerUnavailableMessage(action))
+        trace('power-skipped', { reason: 'backend-unavailable', runtimeOrigin })
         return
       }
       if (action === 'start') {
         if (pool.runningIds.includes(selected.id)) {
+          trace('power-skipped', { reason: 'already-running' })
           return
         }
         if (!virtualMachineHasBootMedia(selected)) {
           setPowerHint('请先在设置里挂载硬盘、光盘或软盘')
+          trace('power-skipped', { reason: 'no-boot-media' })
           return
         }
       } else if (!pool.runningIds.includes(selected.id)) {
         setPowerHint(action === 'stop' ? '这台虚拟机未在运行' : '请先开机')
+        trace('power-skipped', { reason: 'not-running' })
         return
       }
 
@@ -380,17 +402,23 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         try {
           if (action === 'stop') {
             await pool.shutdown(machine.id)
+            trace('power-stop-done')
             setPowerHint(undefined)
             return
           }
           if (action === 'reset') {
             await pool.resetInstance(machine.id)
+            trace('power-reset-done')
             setPowerHint(undefined)
             return
           }
           await pool.boot(machine)
+          trace('power-boot-issued')
           setPowerHint(undefined)
         } catch (error) {
+          trace('power-failed', {
+            error: error instanceof Error ? error.message : String(error),
+          })
           showVmError(error instanceof Error ? error.message : '操作失败')
         } finally {
           setPowerBusy(false)
@@ -439,6 +467,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
 
   const handleDiskWriteFailed = useCallback(
     (machineId: string, detail: string) => {
+      recordSystemDebugTimeline({
+        layer: 'vm',
+        op: 'disk-write-failed',
+        detail: `${machineId}: ${detail.slice(0, 200)}`,
+      })
       pool.armDiskWriteFailedWatchdog(machineId)
       const machine = machines.find((item) => item.id === machineId)
       postVirtualMachineDiskWriteFailedNotification({

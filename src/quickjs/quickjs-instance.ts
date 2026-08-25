@@ -5,7 +5,7 @@ import {
   type QuickJSHandle,
 } from 'quickjs-emscripten'
 import { getResolvedSystemEnv } from '../os/system-env.ts'
-import { appendSystemDebugLog, shortenDebugPath } from '../os/system-debug-log.ts'
+import { countSystemDebugHot, recordSystemDebugTimeline, shortenDebugPath } from '../os/system-debug-log.ts'
 import { FILES_VFS_READ_ROOT } from '../apps/files/files-path.ts'
 import {
   ensureTmpSessionDir,
@@ -361,6 +361,9 @@ export async function createQuickJsInstance(
   runtime.setMemoryLimit(hostConfig.quotas.memoryLimitBytes)
   runtime.setMaxStackSize(hostConfig.quotas.maxStackSizeBytes)
   runtime.setInterruptHandler((rt) => {
+    // 中断处理器在客户机代码执行期间被周期性调用：
+    // 客户机纯计算死循环时这里是最主要的「还活着」面包屑来源
+    countSystemDebugHot('qjs', 'interrupt-check')
     if (abortRequested || processState.exitRequested) {
       return true
     }
@@ -559,11 +562,10 @@ export async function createQuickJsInstance(
 
   const destroy = () => {
     if (state.destroyed) return
-    appendSystemDebugLog({
+    recordSystemDebugTimeline({
       layer: 'qjs',
       op: 'destroy',
       detail: instanceId,
-      force: true,
     })
     abortRequested = true
     // 先标记销毁，让 in-flight async 走 abandon 路径且不再碰 guest handle
@@ -668,7 +670,8 @@ while (promiseState.type === 'pending') {
 	          if (savedExit) processState.exitRequested = true
 	          notify()
 	        }
-	        promiseState = context.getPromiseState(valueHandle)
+	        countSystemDebugHot('qjs', 'promise-wait-spin')
+        promiseState = context.getPromiseState(valueHandle)
 	      }
 
       if (promiseState.type === 'rejected') {
@@ -704,6 +707,7 @@ while (promiseState.type === 'pending') {
           const timers = asyncBridge.getPendingTimerCount()
           return `timeout after ${timeoutMs}ms with pending async work (timers=${timers})`
         }
+        countSystemDebugHot('qjs', 'idle-wait-spin')
         await asyncBridge.flushHostTasks()
         await asyncBridge.drainAfterSync()
         await yieldToHostEventLoop()
@@ -721,11 +725,10 @@ while (promiseState.type === 'pending') {
         evalSeq,
       )
       activeEvalFilename = evalFilename
-      appendSystemDebugLog({
+      recordSystemDebugTimeline({
         layer: 'qjs',
         op: 'eval-start',
         detail: `${instanceId} ${shortenDebugPath(evalFilename)}`,
-        force: true,
       })
       const evalStartedAt = performance.now()
       const evalResult = await context.evalCodeAsync(code, evalFilename)
@@ -734,12 +737,11 @@ while (promiseState.type === 'pending') {
         result = makeFailure('QuickJS instance destroyed during evaluation')
       } else if (evalResult.error) {
         const error = formatQuickJsError(context, evalResult.error)
-        appendSystemDebugLog({
+        recordSystemDebugTimeline({
           layer: 'qjs',
           op: 'eval-error',
           detail: `${instanceId} ${error.slice(0, 200)}`,
           durationMs: Math.round(performance.now() - evalStartedAt),
-          force: true,
         })
         if (processState.exitRequested) {
           syncExitCodeFromGuest(context, processState)
@@ -759,12 +761,11 @@ while (promiseState.type === 'pending') {
           await asyncBridge.drainAfterSync()
           syncExitCodeFromGuest(context, processState)
           if (processState.exitRequested) {
-            appendSystemDebugLog({
+            recordSystemDebugTimeline({
               layer: 'qjs',
               op: 'eval-exit',
               detail: instanceId,
               durationMs: Math.round(performance.now() - evalStartedAt),
-              force: true,
             })
             result = {
               ok: true,
@@ -806,12 +807,11 @@ while (promiseState.type === 'pending') {
                 // 已有 console/返回值时仍带回；超时记为失败以便 Agent 感知
                 result = makeFailure(idleError)
               } else {
-                appendSystemDebugLog({
+                recordSystemDebugTimeline({
                   layer: 'qjs',
                   op: 'eval-done',
                   detail: instanceId,
                   durationMs: Math.round(performance.now() - evalStartedAt),
-                  force: true,
                 })
                 result = {
                   ok: true,

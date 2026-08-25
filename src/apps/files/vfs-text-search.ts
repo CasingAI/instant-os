@@ -2,6 +2,7 @@
  * VFS 文本搜索（grep 等价能力）。
  * 供 instant.grep、VS Code 工作区搜索等复用。
  */
+import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import {
   filesList,
   filesListSubtreeFiles,
@@ -307,6 +308,7 @@ type ScanFileResult =
  * 在 VFS 指定根路径下搜索文本（目录递归；单文件只搜该文件）。
  */
 export async function searchVfsText(params: VfsTextSearchParams): Promise<VfsTextSearchResult> {
+  const searchStartAt = performance.now()
   const query = params.query.trim()
   if (!query) {
     return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
@@ -472,6 +474,12 @@ export async function searchVfsText(params: VfsTextSearchParams): Promise<VfsTex
     truncatedReason = capped
   }
 
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'text-search-done',
+    detail: `${rootPath} → ${matches.length} matches, scanned ${scannedFiles}/${filesToScan.length}${truncatedReason !== undefined ? ', truncated' : ''}`,
+    durationMs: Math.round(performance.now() - searchStartAt),
+  })
   return {
     matches,
     truncated: truncatedReason !== undefined,

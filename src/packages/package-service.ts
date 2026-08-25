@@ -1,3 +1,4 @@
+import { recordSystemDebugTimeline } from '../os/system-debug-log.ts'
 import {
   filesCreateText,
   filesReadText,
@@ -952,6 +953,12 @@ export async function installPackages(params: {
     clearProgress(task)
     log(task, 'info', `安装完成（node_modules → ${projectRoot}/node_modules）`)
     publishTask(task)
+    recordSystemDebugTimeline({
+      layer: 'npm',
+      op: 'install-done',
+      detail: `${params.packages?.length ?? 0} pkgs resolved=${counters.resolved} downloaded=${counters.downloaded} added=${counters.added}`,
+      durationMs: report.durationMs,
+    })
     return serializeTaskForEvent(task)
   } catch (error) {
     if (task.abortController.signal.aborted) {
@@ -970,6 +977,12 @@ export async function installPackages(params: {
       durationMs: Date.now() - startedAt,
       depChanges: [],
     }
+    recordSystemDebugTimeline({
+      layer: 'npm',
+      op: 'install-failed',
+      detail: `${task.error ?? 'error'}`.slice(0, 200),
+      durationMs: task.installReport.durationMs,
+    })
     if (lockForPersist && Object.keys(lockForPersist.packages).length > 0) {
       try {
         await writeLock(projectRootForLock, lockForPersist)
@@ -988,6 +1001,7 @@ export async function uninstallPackages(params: {
   projectRoot: string
   packages: string[]
 }): Promise<Omit<PackageTask, 'abortController'>> {
+  const uninstallStartAt = performance.now()
   const { filesRemove, filesStat } = await import('../apps/files/files-api.ts')
   const task: PackageTask = {
     id: newTaskId(),
@@ -1022,12 +1036,24 @@ export async function uninstallPackages(params: {
     await writeProjectPackageJson(params.projectRoot, pkgJson)
     task.status = 'succeeded'
     publishTask(task)
+    recordSystemDebugTimeline({
+      layer: 'npm',
+      op: 'uninstall-done',
+      detail: `${params.packages.length} pkgs`,
+      durationMs: Math.round(performance.now() - uninstallStartAt),
+    })
     return serializeTaskForEvent(task)
   } catch (error) {
     task.status = 'failed'
     task.error = error instanceof Error ? error.message : String(error)
     log(task, 'error', task.error)
     publishTask(task)
+    recordSystemDebugTimeline({
+      layer: 'npm',
+      op: 'uninstall-failed',
+      detail: `${(task.error ?? 'error').slice(0, 200)}`,
+      durationMs: Math.round(performance.now() - uninstallStartAt),
+    })
     return serializeTaskForEvent(task)
   }
 }

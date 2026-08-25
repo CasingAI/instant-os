@@ -65,13 +65,18 @@ export function SystemDeadlockDialog() {
     >
       <p class="window-modal__message">{SYSTEM_DEADLOCK_DIALOG_COPY.message}</p>
       <p class="system-deadlock-dialog__diag-hint">
-        若怀疑整页卡死，请新开标签页打开「事件日志 → 系统」查看上次会话残留；也可先复制最近 30 条诊断面包屑。
+        若怀疑整页卡死，请新开标签页打开「事件日志 → 系统」查看诊断库残留（独立 Worker 黑匣子已落盘）；当前标签还能点时也可先复制最近 30 条诊断面包屑。
       </p>
       <button
         type="button"
         class="system-deadlock-dialog__copy-diag"
         onClick={() => {
-          void navigator.clipboard.writeText(copyRecentSystemDebugLogs(30))
+          void copyRecentSystemDebugLogs(30).then((text) => {
+            if (text.length > 0) {
+              return navigator.clipboard.writeText(text)
+            }
+            return undefined
+          })
         }}
       >
         复制最近诊断（30 条）

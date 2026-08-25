@@ -5,6 +5,7 @@ import {
   loadVirtualMachineDisks,
   releaseVirtualMachineDiskImageOccupancy,
 } from './virtual-machine-disks.ts'
+import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { releaseVirtualMachineDiskStreams } from './virtual-machine-disk-stream-host.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
@@ -383,9 +384,15 @@ export function useVirtualMachineRuntime(
       setStats(undefined)
       setBootProgress(undefined)
       const timeoutMs = hasRemoteDisk(message) ? REMOTE_DISK_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS
-      console.log('[vm-boot] posting start', message.requestId, targetOrigin)
+      const startAt = performance.now()
       await request(message, collectStartTransfers(message), timeoutMs)
-      console.log('[vm-boot] start acknowledged', message.requestId)
+      // start ack（跨源 iframe 冷启动 v86 运行时）是「点了开机没反应」的关键观测点
+      recordSystemDebugTimeline({
+        layer: 'vm',
+        op: 'start-ack',
+        detail: message.requestId,
+        durationMs: Math.round(performance.now() - startAt),
+      })
     },
     [request, targetOrigin],
   )
@@ -447,12 +454,20 @@ export function useVirtualMachineRuntime(
   }, [])
 
   const saveState = useCallback(async (): Promise<ArrayBuffer> => {
+    const startAt = performance.now()
     const result = await request<InstantVmSaveStateResultMessage>(
       { type: INSTANT_VM_MESSAGE_TYPE.saveState, requestId: newVmRequestId() },
       [],
       REMOTE_DISK_REQUEST_TIMEOUT_MS,
       (value) => value as InstantVmSaveStateResultMessage,
     )
+    // 整个 VM 状态 ArrayBuffer 经结构化克隆回宿主：保存期间画面停顿
+    recordSystemDebugTimeline({
+      layer: 'vm',
+      op: 'save-state',
+      detail: `${result.state.byteLength}B`,
+      durationMs: Math.round(performance.now() - startAt),
+    })
     return result.state
   }, [request])
 
@@ -542,6 +557,11 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
       createDiskWriteFailedWatchdog({
         isRunning: (id) => runningIdsRef.current.has(id),
         onForceStop: (id) => {
+          recordSystemDebugTimeline({
+            layer: 'vm',
+            op: 'disk-write-force-stop',
+            detail: { id, hint: DISK_WRITE_FAILED_FORCE_STOP_HINT },
+          })
           void removeRunningId(id)
             .catch(() => undefined)
             .finally(() => {
@@ -583,6 +603,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
 
   const onGuestPoweredOff = useCallback(
     (id: string) => {
+      recordSystemDebugTimeline({ layer: 'vm', op: 'guest-powered-off', detail: id })
       void removeRunningId(id).catch(() => {
         setHints((current) => new Map(current).set(id, DISK_IMAGE_INCOMPLETE_HINT))
       })
@@ -591,6 +612,11 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
   )
 
   const onBootError = useCallback((id: string, message: string) => {
+    recordSystemDebugTimeline({
+      layer: 'vm',
+      op: 'boot-error',
+      detail: `${id}: ${message.slice(0, 200)}`,
+    })
     void removeRunningId(id)
       .catch(() => undefined)
       .finally(() => {
@@ -601,13 +627,13 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
   const boot = useCallback(
     async (machine: VirtualMachineRecord): Promise<void> => {
       const id = machine.id
+      const bootStartAt = performance.now()
       if (runningIdsRef.current.has(id)) {
-        console.log('[vm-boot] already running', id)
         return
       }
       addRunningId(id)
       setHints((current) => new Map(current).set(id, READING_DISK_IMAGE_HINT))
-      console.log('[vm-boot] loading disks', id)
+      recordSystemDebugTimeline({ layer: 'vm', op: 'boot-start', detail: id })
       let disks:
         | Awaited<ReturnType<typeof loadVirtualMachineDisks>>
         | undefined
@@ -618,16 +644,31 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
           DISK_LOAD_TIMEOUT_MS,
           '读取镜像',
         )
-        console.log('[vm-boot] disks loaded', id, diskPresence(disks))
+        recordSystemDebugTimeline({
+          layer: 'vm',
+          op: 'boot-disks-loaded',
+          detail: `${id} ${diskPresence(disks)}`,
+          durationMs: Math.round(performance.now() - bootStartAt),
+        })
         if (!runningIdsRef.current.has(id)) {
-          console.log('[vm-boot] machine stopped before start message built', id)
+          recordSystemDebugTimeline({
+            layer: 'vm',
+            op: 'boot-aborted-before-start',
+            detail: id,
+            durationMs: Math.round(performance.now() - bootStartAt),
+          })
           await releaseVirtualMachineDiskStreams(disks)
           releaseVirtualMachineDiskImageOccupancy(id)
           return
         }
         setHints((current) => new Map(current).set(id, STARTING_EMULATOR_HINT))
         const message = buildStartMessage(newVmRequestId(), machine, disks)
-        console.log('[vm-boot] built start message', id, message.requestId)
+        recordSystemDebugTimeline({
+          layer: 'vm',
+          op: 'boot-message-built',
+          detail: `${id} ${message.requestId}`,
+          durationMs: Math.round(performance.now() - bootStartAt),
+        })
         const nextMessages = new Map(startMessagesRef.current).set(id, message)
         startMessagesRef.current = nextMessages
         setStartMessages(nextMessages)
@@ -636,6 +677,12 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
         }
       } catch (error) {
         console.error('[vm-boot] failed', id, error)
+        recordSystemDebugTimeline({
+          layer: 'vm',
+          op: 'boot-failed',
+          detail: { id, error: error instanceof Error ? error.message : String(error) },
+          durationMs: Math.round(performance.now() - bootStartAt),
+        })
         if (disks && !startMessagesRef.current.has(id)) {
           try {
             await releaseVirtualMachineDiskStreams(disks)

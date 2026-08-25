@@ -1,3 +1,4 @@
+import { recordSystemDebugTimeline } from '../os/system-debug-log.ts'
 import { maxSatisfying } from './package-semver.ts'
 import type {
   PackageServiceConfig,
@@ -138,6 +139,7 @@ export async function downloadTarball(
   signal?: AbortSignal,
   onProgress?: (progress: DownloadTarballProgress) => void,
 ): Promise<Uint8Array> {
+  const downloadStartAt = performance.now()
   assertAllowedUrl(tarballUrl, config)
   const response = await fetchWithLimits(tarballUrl, config, signal)
   if (!response.ok) {
@@ -164,6 +166,12 @@ export async function downloadTarball(
       )
     }
     onProgress?.({ received: buffer.byteLength, total: buffer.byteLength })
+    recordSystemDebugTimeline({
+      layer: 'npm',
+      op: 'tarball-downloaded',
+      detail: `${buffer.byteLength}B (no-stream)`,
+      durationMs: Math.round(performance.now() - downloadStartAt),
+    })
     return buffer
   }
 
@@ -196,5 +204,12 @@ export async function downloadTarball(
     offset += chunk.byteLength
   }
   onProgress?.({ received: buffer.byteLength, total: buffer.byteLength })
+  // 主线程流读拼缓冲：npm install 下载阶段的主要占用
+  recordSystemDebugTimeline({
+    layer: 'npm',
+    op: 'tarball-downloaded',
+    detail: `${buffer.byteLength}B ${chunks.length} chunks`,
+    durationMs: Math.round(performance.now() - downloadStartAt),
+  })
   return buffer
 }

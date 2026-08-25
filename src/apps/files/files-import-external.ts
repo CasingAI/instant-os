@@ -8,6 +8,7 @@
  * （实测 Chromium 146 行为），故外部导入只走拖放 / 选择器。
  */
 
+import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { filesOpenStreamWrite } from './files-api.ts'
 import { filesLocationPathRoot, joinFilesAbsolutePath } from './files-path.ts'
 import {
@@ -176,6 +177,11 @@ export async function importExternalNodes(params: {
   if (isLocalTarget) {
     await assertAdditionalBytesAvailable(totalBytes)
   }
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'external-import-planned',
+    detail: `${steps.length} steps ${totalBytes}B`,
+  })
   return await runFilesOpWithProgress({
     kind: 'paste',
     totalWork: Math.max(1, totalBytes),

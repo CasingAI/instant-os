@@ -4,6 +4,7 @@
  *
  * 测试可切到内存后端（Node 无 OPFS）；生产走 navigator.storage.getDirectory。
  */
+import { countSystemDebugHot, recordSystemDebugHot } from '../../os/system-debug-log.ts'
 
 /** 新正文超过该大小进 OPFS；已在 OPFS 的保持，不因变短搬回 IndexedDB。 */
 export const OPFS_SPILL_THRESHOLD = 25 << 20
@@ -110,6 +111,7 @@ function memoryFile(blobId: string, create: boolean): MemoryFile | undefined {
 
 /** 整份覆盖正文（会截断到新长度）。 */
 export async function writeOpfsBlobBytes(blobId: string, data: Uint8Array): Promise<void> {
+  const startAt = performance.now()
   const bytes = copyArrayBuffer(data)
   if (memoryFiles !== undefined) {
     memoryFiles.set(opfsFileName(blobId), { bytes: new Uint8Array(bytes) })
@@ -128,6 +130,18 @@ export async function writeOpfsBlobBytes(blobId: string, data: Uint8Array): Prom
       // 已关闭
     }
     throw error
+  } finally {
+    const durationMs = performance.now() - startAt
+    if (bytes.byteLength > 4 * 1024 * 1024 || durationMs > 50) {
+      recordSystemDebugHot({
+        layer: 'files',
+        op: 'opfs-write-bytes',
+        detail: `${bytes.byteLength}B`,
+        durationMs,
+      })
+    } else {
+      countSystemDebugHot('files', 'opfs-write-bytes', durationMs)
+    }
   }
 }
 
@@ -152,15 +166,35 @@ export async function writeOpfsBlobRange(
 }
 
 export async function readOpfsBlobBytes(blobId: string): Promise<ArrayBuffer | undefined> {
-  if (memoryFiles !== undefined) {
-    const file = memoryFiles.get(opfsFileName(blobId))
-    if (!file) return undefined
-    return copyArrayBuffer(file.bytes)
+  const startAt = performance.now()
+  try {
+    if (memoryFiles !== undefined) {
+      const file = memoryFiles.get(opfsFileName(blobId))
+      if (!file) return undefined
+      return copyArrayBuffer(file.bytes)
+    }
+    const handle = await getNativeFileHandle(blobId, false)
+    if (!handle) return undefined
+    const file = await handle.getFile()
+    const bytes = await file.arrayBuffer()
+    const durationMs = performance.now() - startAt
+    if (bytes.byteLength > 4 * 1024 * 1024 || durationMs > 50) {
+      // Blob→ArrayBuffer 全量物化
+      recordSystemDebugHot({
+        layer: 'files',
+        op: 'opfs-read-bytes',
+        detail: `${bytes.byteLength}B`,
+        durationMs,
+      })
+    } else {
+      countSystemDebugHot('files', 'opfs-read-bytes', durationMs)
+    }
+    return bytes
+  } finally {
+    if (memoryFiles !== undefined) {
+      countSystemDebugHot('files', 'opfs-read-bytes', performance.now() - startAt)
+    }
   }
-  const handle = await getNativeFileHandle(blobId, false)
-  if (!handle) return undefined
-  const file = await handle.getFile()
-  return file.arrayBuffer()
 }
 
 export async function readOpfsBlobRange(

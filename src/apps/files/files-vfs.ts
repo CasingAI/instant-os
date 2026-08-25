@@ -1,5 +1,10 @@
 import { recordFilesIoByteEvent } from '../../os/files-io-metrics.ts'
-import { recordSlowVfsResolve } from '../../os/system-debug-log.ts'
+import {
+  countSystemDebugHot,
+  recordSystemDebugHot,
+  recordSystemDebugTimeline,
+  recordSlowVfsResolve,
+} from '../../os/system-debug-log.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import {
   assertAdditionalBytesAvailable,
@@ -979,10 +984,18 @@ export async function listSubtreeFiles(
     rootFolderId = rootNode.id
   }
 
+  const subtreeStartAt = performance.now()
   const { files, folders } = await listLocalVolumeSubtreeNodes(
     parsed.locationId,
     rootFolderId,
   )
+  // BFS 全子树枚举：搜索 / 打包 / npm store 统计共用入口
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'list-subtree-files',
+    detail: `${absolutePath} → ${files.length} files`,
+    durationMs: Math.round(performance.now() - subtreeStartAt),
+  })
 
   const buildRelativeSegments = (fileParentId: string | undefined, fileName: string): string[] => {
     const segments: string[] = [fileName]
@@ -1531,6 +1544,7 @@ async function estimateCopyWorkloadForNode(
   let byteSize = node.byteSize
   const children = await listDirectory(node.locationId, node.id)
   for (const child of children) {
+    countSystemDebugHot('files', 'estimate-walk')
     const sub = await estimateCopyWorkloadForNode(child)
     nodeCount += sub.nodeCount
     byteSize += sub.byteSize
@@ -1542,7 +1556,14 @@ export async function estimateDeleteWorkload(nodeId: string): Promise<FilesDelet
   if (isMountNodeId(nodeId) || isImageNodeId(nodeId)) {
     return { nodeCount: 1, byteSize: 0, totalUnits: 1 }
   }
+  const estimateStartAt = performance.now()
   const subtree = await collectSubtreeIds(nodeId)
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'estimate-delete-workload',
+    detail: `${subtree.nodeIds.length} nodes ${subtree.reclaimBytes}B`,
+    durationMs: Math.round(performance.now() - estimateStartAt),
+  })
   return {
     nodeCount: subtree.nodeIds.length,
     byteSize: subtree.reclaimBytes,
@@ -1554,12 +1575,19 @@ async function deleteLocalSubtreeWithProgress(
   subtree: Awaited<ReturnType<typeof collectSubtreeIds>>,
   onProgress?: (progress: FilesVfsOpProgress) => void,
 ): Promise<void> {
+  const deleteStartAt = performance.now()
   const total = filesWorkloadUnits(subtree.nodeIds.length, subtree.reclaimBytes)
   onProgress?.({ done: 0, total })
 
   if (subtree.nodeIds.length <= LARGE_SUBTREE_DELETE_THRESHOLD) {
     await deleteSubtree(subtree)
     onProgress?.({ done: total, total })
+    recordSystemDebugTimeline({
+      layer: 'files',
+      op: 'delete-subtree-done',
+      detail: `${subtree.nodeIds.length} nodes ${subtree.reclaimBytes}B`,
+      durationMs: Math.round(performance.now() - deleteStartAt),
+    })
     return
   }
 
@@ -1588,6 +1616,12 @@ async function deleteLocalSubtreeWithProgress(
     onProgress?.({ done, total })
   }
   onProgress?.({ done: total, total })
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'delete-subtree-batched-done',
+    detail: `${subtree.nodeIds.length} nodes ${subtree.reclaimBytes}B`,
+    durationMs: Math.round(performance.now() - deleteStartAt),
+  })
 }
 
 export async function removeNode(
@@ -1792,6 +1826,7 @@ export async function trashNode(
  * 原父目录已不存在时恢复到原卷根；原挂载卷已卸载时报错。
  */
 export async function restoreNode(id: string): Promise<FilesNode> {
+  const restoreStartAt = performance.now()
   const node = await getNodeOrThrow(id)
   if (!isTrashLocationId(node.locationId) || !node.trashOrigin) {
     throw new Error('该节点不在废纸篓中，无法恢复')
@@ -1838,6 +1873,11 @@ export async function restoreNode(id: string): Promise<FilesNode> {
   })
   const path = await resolveFilesAbsolutePath(restored)
   emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'restore-node-done',
+    durationMs: Math.round(performance.now() - restoreStartAt),
+  })
   return restored
 }
 
@@ -1845,6 +1885,7 @@ export async function restoreNode(id: string): Promise<FilesNode> {
 export async function emptyTrash(
   options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
 ): Promise<void> {
+  const trashStartAt = performance.now()
   const roots = await listDirectory('trash', undefined)
   let done = 0
   const total = roots.length
@@ -1855,6 +1896,12 @@ export async function emptyTrash(
     options?.onProgress?.({ done, total })
   }
   options?.onProgress?.({ done: total, total })
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'empty-trash-done',
+    detail: `${total} roots`,
+    durationMs: Math.round(performance.now() - trashStartAt),
+  })
 }
 
 async function removeNodeInner(
@@ -1890,6 +1937,7 @@ export async function removeNodesByPathsBatch(
   paths: readonly string[],
   options?: FilesRemoveBatchOptions,
 ): Promise<void> {
+  const batchStartAt = performance.now()
   if (paths.length === 0) return
   const skipMissing = options?.skipMissing ?? false
   const batchSize = options?.batchSize
@@ -1957,6 +2005,12 @@ export async function removeNodesByPathsBatch(
   if (deletedPaths.length > 0) {
     emitFilesVfsChanged(deletedPaths.map((path) => ({ kind: 'deleted' as const, path })))
   }
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'remove-paths-batch-done',
+    detail: `${paths.length} paths`,
+    durationMs: Math.round(performance.now() - batchStartAt),
+  })
 }
 
 export async function getNodeOrThrow(id: string): Promise<FilesNode> {
@@ -2160,8 +2214,21 @@ async function copyNodeTree(
       return created
     }
 
+    // 跨卷/不可共享 blob：整读进主线程再写回
+    const readStartAt = performance.now()
     const { node, blob } = await readFileBlobByNodeId(source.id)
     const bytes = await blob.arrayBuffer()
+    const readDurationMs = performance.now() - readStartAt
+    if (readDurationMs > 32) {
+      recordSystemDebugHot({
+        layer: 'files',
+        op: 'copy-file-fullread',
+        detail: `${source.name} ${bytes.byteLength}B`,
+        durationMs: readDurationMs,
+      })
+    } else {
+      countSystemDebugHot('files', 'copy-file-fullread', readDurationMs)
+    }
     const asBinary = isBinaryFile({
       fileName: source.name,
       mimeType: node.mimeType ?? source.mimeType ?? blob.type,
@@ -2209,6 +2276,7 @@ async function copyNodeTree(
   reportNodeDone(source)
   const children = await listDirectory(source.locationId, source.id)
   for (const child of children) {
+    countSystemDebugHot('files', 'copy-node')
     await copyNodeTree(child, destLocationId, folder.id, reportNodeDone)
   }
   return folder
@@ -2233,6 +2301,7 @@ export async function upsertFilesBatch(
   items: readonly FilesUpsertBatchItem[],
   options?: { batchSize?: number; maxBatchBytes?: number },
 ): Promise<FilesNode[]> {
+  const upsertStartAt = performance.now()
   if (items.length === 0) return []
   const batchSize = Math.max(1, options?.batchSize ?? FILES_BATCH_DEFAULT_SIZE)
   const maxBatchBytes = Math.max(1, options?.maxBatchBytes ?? FILES_BATCH_DEFAULT_MAX_BYTES)
@@ -2589,6 +2658,12 @@ export async function upsertFilesBatch(
       }
     }
   }
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'upsert-batch-done',
+    detail: `${items.length} items`,
+    durationMs: Math.round(performance.now() - upsertStartAt),
+  })
   return results
 }
 

@@ -3,6 +3,7 @@
  * - 压缩：递归收集选中节点（文件读 blob；文件夹递归列目录；跳过符号链接防环）→ Worker 打包
  * - 解压：Worker 解码（魔数自动识别 zip / tar.gz）→ 批量落盘到当前目录
  */
+import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { decodeArchiveInWorker, encodeArchiveInWorker } from '../../archive/archive-worker-client.ts'
 import { extractZipToDirectory } from '../../archive/archive-extract.ts'
 import type { FilesNode } from './files-types.ts'
@@ -113,6 +114,7 @@ export async function extractArchiveToDirectory(params: {
   onProgress?: (done: number, total: number) => void
 }): Promise<FilesExtractResult> {
   const { node, destRoot, onProgress } = params
+  const extractStartAt = performance.now()
   const { blob } = await readFileBlob(node.id)
   const bytes = new Uint8Array(await blob.arrayBuffer())
   const entries = await decodeArchiveInWorker({ bytes, format: 'auto', stripRoot: true })
@@ -129,5 +131,11 @@ export async function extractArchiveToDirectory(params: {
       onProgress?.(progress.done, progress.total),
   }
   const result = await extractZipToDirectory(shared)
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'extract-archive-done',
+    detail: `${node.name} → ${result.fileCount} files ${result.bytesWritten}B`,
+    durationMs: Math.round(performance.now() - extractStartAt),
+  })
   return { fileCount: result.fileCount, bytesWritten: result.bytesWritten }
 }

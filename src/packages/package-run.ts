@@ -23,7 +23,7 @@ import type {
   QuickJsEvalResult,
   QuickJsInstanceOptions,
 } from '../quickjs/quickjs-instance-types.ts'
-import { appendSystemDebugLog, shortenDebugPath } from '../os/system-debug-log.ts'
+import { recordSystemDebugTimeline, shortenDebugPath } from '../os/system-debug-log.ts'
 import { getPackageServiceConfig } from './package-service.ts'
 
 /** npm run / npx guest 堆上限（高于 Virtual JS 默认，便于读 node_modules 大文件）。 */
@@ -385,11 +385,10 @@ async function runParsedScriptCommand(params: {
   }
   entryFile = normalizeAbsolutePosix(entryFile)
 
-  appendSystemDebugLog({
+  recordSystemDebugTimeline({
     layer: 'npm',
     op: 'script-start',
     detail: `${params.scriptName} → ${shortenDebugPath(entryFile)}`,
-    force: true,
   })
 
   const source = await filesReadText(entryFile)
@@ -429,11 +428,10 @@ async function runParsedScriptCommand(params: {
     for (const line of result.consoleLines) {
       params.onConsole?.(line.level, line.text)
     }
-    appendSystemDebugLog({
+    recordSystemDebugTimeline({
       layer: 'npm',
       op: result.ok ? 'script-done' : 'script-fail',
-      detail: `${params.scriptName} ${result.ok ? 'ok' : result.error ?? 'error'}`,
-      force: true,
+      detail: `${params.scriptName} ${result.ok ? 'ok' : (result.error ?? 'error').slice(0, 200)}`,
     })
     return result
   } finally {
@@ -478,21 +476,19 @@ export async function runNpmScript(params: {
     throw new Error(`不支持的 script 命令（仅支持 node <file> / *.js / .bin 名）: ${command}`)
   }
 
-  appendSystemDebugLog({
+  recordSystemDebugTimeline({
     layer: 'npm',
     op: 'run-start',
     detail: `${params.scriptName} (${segments.length} segment${segments.length > 1 ? 's' : ''})`,
-    force: true,
   })
 
   let lastResult: QuickJsEvalResult | undefined
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i]!
-    appendSystemDebugLog({
+    recordSystemDebugTimeline({
       layer: 'npm',
       op: 'segment-start',
       detail: `${i + 1}/${segments.length} ${segment.slice(0, 120)}`,
-      force: true,
     })
     const parsed = parseScriptCommand(segment)
     if (parsed.kind === 'unsupported' || !parsed.target) {

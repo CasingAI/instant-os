@@ -1,4 +1,5 @@
 import { filesMkdir, filesOpenStreamWrite, filesStat } from '../files/files-api.ts'
+import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { createStorageDevice } from './virtual-machine-config.ts'
 import { VM_BLANK_DISK_DIR } from './virtual-machine-disks.ts'
 import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
@@ -96,12 +97,20 @@ export async function saveVirtualMachineSnapshot(
   machine: VirtualMachineRecord,
   state: ArrayBuffer,
 ): Promise<{ path: string; isNew: boolean }> {
+  const startAt = performance.now()
   const { path: rawPath, isNew } = resolveSnapshotTargetPath(machine)
   const path = isNew ? await findUniqueSnapshotPath(rawPath) : rawPath
   await writeStateBuffer(state, path)
   await updateVirtualMachine(machine.id, {
     ...machine,
     devices: replaceStateDevice(machine.devices, path),
+  })
+  // 分片顺序写整个快照（可达数百 MB）：保存期间画面停顿的完整链路终点
+  recordSystemDebugTimeline({
+    layer: 'vm',
+    op: 'snapshot-saved',
+    detail: `${state.byteLength}B`,
+    durationMs: Math.round(performance.now() - startAt),
   })
   return { path, isNew }
 }
