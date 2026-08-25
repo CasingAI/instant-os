@@ -7,6 +7,8 @@ const WRITE_BEHIND_DIRTY_BYTES = 256 * 1024
 export const SECTOR_CACHE_MAX_RESIDENT_BYTES = 32 * 1024 * 1024
 /** 长写入任务内的强制回刷水位：脏数据到点就在当前任务里落盘，低于常驻上限 */
 export const FAT_VOLUME_INLINE_FLUSH_DIRTY_BYTES = 4 * 1024 * 1024
+/** 已持有队列的长任务内的让出时间片：与回刷水位解耦，没到水位的同步段也不能卡住界面 */
+const FAT_VOLUME_HELD_YIELD_MS = 16
 const FAT_PARTITION_TYPES = new Set([
   0x01, 0x04, 0x06, 0x0b, 0x0c, 0x0e, 0x11, 0x14, 0x16, 0x1b, 0x1c,
 ])
@@ -30,6 +32,8 @@ type FatFileNode = {
   fstClus: number
   dirEntry: { FileSize: number }
 }
+
+type FatFileIo = NonNullable<ReturnType<FatFile['open']>>
 
 export function adaptFatFileNode(file: FatFile): {
   firstCluster: number
@@ -151,10 +155,20 @@ export class SectorCache {
   private readonly dirty = new Set<number>()
   private readonly capacity: number
   private readonly maxResidentSectors: number
+  private pinnedBelow = 0
 
   constructor(capacity: number, maxResidentBytes = SECTOR_CACHE_MAX_RESIDENT_BYTES) {
     this.capacity = capacity
     this.maxResidentSectors = Math.max(1, Math.floor(maxResidentBytes / SECTOR))
+  }
+
+  /**
+   * 钉住低于该扇区号（不含）的条目不参与驱逐：用于数据区之前的元数据
+   * （引导/保留/FAT/FAT12-16 根目录）。钉住量不超过常驻上限——FAT 表
+   * 大于上限时钉不全，缺页由单簇重试兜底。
+   */
+  pinSectorsBelow(countExclusive: number): void {
+    this.pinnedBelow = Math.max(this.pinnedBelow, Math.min(countExclusive, this.maxResidentSectors))
   }
 
   get residentSectorCount(): number {
@@ -188,6 +202,7 @@ export class SectorCache {
     for (const index of this.chunks.keys()) {
       if (this.chunks.size <= this.maxResidentSectors) return
       if (this.dirty.has(index)) continue
+      if (index < this.pinnedBelow) continue
       if (protectWindow && index >= protectFrom! && index <= protectTo!) {
         continue
       }
@@ -306,6 +321,28 @@ export class SectorCache {
   }
 }
 
+type RangeReadPlan =
+  | { kind: 'empty' }
+  | { kind: 'full'; io: FatFileIo }
+  | {
+      kind: 'ranged'
+      io: FatFileIo
+      clusterSize: number
+      startCluster: number
+      endCluster: number
+      sliceStart: number
+      want: number
+    }
+
+type RangeWritePlan = {
+  file?: FatFile
+  earlyEntry?: FatVolumeEntry
+  clusterSize: number
+  oldSize: number
+  newSize: number
+  chain: number[]
+}
+
 export type FatVolumeOptions = {
   /** 扇区缓存常驻上限；默认 32MB */
   maxResidentBytes?: number
@@ -333,6 +370,7 @@ export class FatImageVolume {
   private clusterSizes = new Map<string, number>()
   private readonly inlineFlushDirtyBytes: number
   private readonly writeBehindDirtyBytes: number
+  private lastHeldYieldAt = 0
 
   constructor(io: ImageDiskIo, options?: FatVolumeOptions) {
     this.io = io
@@ -400,6 +438,13 @@ export class FatImageVolume {
     if (this.mountedFileSystem) return this.mountedFileSystem
     const fs = this.resolveFileSystem(this.attach())
     this.mountedFileSystem = fs
+    // 数据区之前的元数据（引导/保留/FAT/FAT12-16 根目录）钉进缓存，
+    // 大文件预分配的数据簇不再把 FAT 挤出去；布局异常时跳过，靠单簇重试兜底
+    try {
+      this.cache.pinSectorsBelow(Math.floor(adaptFatClusterLayout(fs).contentOffset(2) / SECTOR))
+    } catch {
+      // 拿不到簇布局就不钉：正确性由单簇重试保证
+    }
     return fs
   }
 
@@ -499,6 +544,10 @@ export class FatImageVolume {
     return this.cache.residentSectorCount
   }
 
+  hasResidentSector(index: number): boolean {
+    return this.cache.hasSector(index)
+  }
+
   private async flushIfNeeded(): Promise<void> {
     if (!this.dirty && this.cache.dirtyBytes() === 0) return
     if (this.flushTimer !== undefined) {
@@ -547,7 +596,18 @@ export class FatImageVolume {
   private async maybeFlushHeld(): Promise<void> {
     if (this.cache.dirtyBytes() < this.inlineFlushDirtyBytes) return
     await this.flushHeld()
+    await this.yieldHeld()
+  }
+
+  /** 已持有队列的长任务内按时间片让出：与回刷水位解耦，没到水位也不长段占住主线程 */
+  private async maybeYieldHeld(): Promise<void> {
+    if (performance.now() - this.lastHeldYieldAt < FAT_VOLUME_HELD_YIELD_MS) return
+    await this.yieldHeld()
+  }
+
+  private async yieldHeld(): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    this.lastHeldYieldAt = performance.now()
   }
 
   async prepare(): Promise<void> {
@@ -615,7 +675,9 @@ export class FatImageVolume {
 
   async readFileRange(relativePath: string, offset: number, length: number): Promise<Uint8Array> {
     return this.enqueue(async () => {
-      return this.withSectors(async () => {
+      // 定位文件与打开句柄是短操作，整体一次重试即可；
+      // 之后的跳簇/读簇逐簇各自重试，读超过常驻上限的文件不会整段从零重跑
+      const plan = await this.withSectors((): RangeReadPlan => {
         const fs = this.ensureMounted()
         const root = fs.getRoot()
         const file = root.getFile(relativePath)
@@ -626,34 +688,42 @@ export class FatImageVolume {
         const clusterSize = fs.getSizeOfCluster()
         const start = Math.max(0, offset)
         const want = Math.max(0, Math.min(length, fileSize - start))
-        if (want <= 0) return new Uint8Array(0)
-
-        if (want >= fileSize) {
-          const io = file.open()
-          if (!io) throw new Error('无法读取文件')
-          return copyBytes(io.readData())
-        }
-
+        if (want <= 0) return { kind: 'empty' }
         const io = file.open()
         if (!io) throw new Error('无法读取文件')
+        if (want >= fileSize) {
+          return { kind: 'full', io }
+        }
         io.rewind()
-        const startCluster = Math.floor(start / clusterSize)
-        const endCluster = Math.floor((start + want - 1) / clusterSize)
-        for (let i = 0; i < startCluster; i += 1) {
-          if (io.skipClus() === 0) return new Uint8Array(0)
+        return {
+          kind: 'ranged',
+          io,
+          clusterSize,
+          startCluster: Math.floor(start / clusterSize),
+          endCluster: Math.floor((start + want - 1) / clusterSize),
+          sliceStart: start % clusterSize,
+          want,
         }
-        const out = new Uint8Array((endCluster - startCluster + 1) * clusterSize)
-        let cursor = 0
-        for (let i = startCluster; i <= endCluster; i += 1) {
-          const buf = new Uint8Array(clusterSize)
-          const n = io.readClus(buf)
-          if (n === 0) break
-          out.set(buf.subarray(0, n), cursor)
-          cursor += n
-        }
-        const sliceStart = start % clusterSize
-        return out.subarray(sliceStart, Math.min(sliceStart + want, cursor))
       })
+      if (plan.kind === 'empty') return new Uint8Array(0)
+      if (plan.kind === 'full') {
+        return copyBytes(await this.withSectors(() => plan.io.readData()))
+      }
+      for (let i = 0; i < plan.startCluster; i += 1) {
+        const skipped = await this.withSectors(() => plan.io.skipClus() !== 0)
+        if (!skipped) return new Uint8Array(0)
+      }
+      const out = new Uint8Array((plan.endCluster - plan.startCluster + 1) * plan.clusterSize)
+      let cursor = 0
+      for (let i = plan.startCluster; i <= plan.endCluster; i += 1) {
+        const buf = new Uint8Array(plan.clusterSize)
+        const n = await this.withSectors(() => plan.io.readClus(buf))
+        if (n === 0) break
+        out.set(buf.subarray(0, n), cursor)
+        cursor += n
+        await this.maybeYieldHeld()
+      }
+      return out.subarray(plan.sliceStart, Math.min(plan.sliceStart + plan.want, cursor))
     })
   }
 
@@ -703,7 +773,9 @@ export class FatImageVolume {
   async writeFileRange(relativePath: string, offset: number, data: Uint8Array): Promise<FatVolumeEntry> {
     return this.enqueue(async () => {
       try {
-        const entry = await this.withSectors(async () => {
+        // 定位文件、校验、算簇链是短操作，整体一次重试即可；
+        // 扩展簇链与覆盖簇逐簇各自重试：单簇缺页只重跑这一簇，已落盘进度不丢
+        const plan = await this.withSectors((): RangeWritePlan => {
           const fs = this.ensureMounted()
           const file = fs.getRoot().getFile(relativePath)
           if (!file?.isRegularFile()) {
@@ -716,56 +788,74 @@ export class FatImageVolume {
           }
           if (data.byteLength === 0) {
             file.setLastModified(new Date())
-            return this.toEntry(file)
+            return { clusterSize, oldSize, newSize: oldSize, chain: [], earlyEntry: this.toEntry(file) }
           }
-          const newSize = Math.max(oldSize, offset + data.byteLength)
-          const layout = this.clusterLayout()
-          let chain = this.getClusterChain(relativePath, file)
-          const allocatedBefore = chain.length
-          const neededClusters = Math.ceil(newSize / clusterSize)
-          const startCluster = Math.floor(offset / clusterSize)
-          const endCluster = Math.floor((offset + data.byteLength - 1) / clusterSize)
+          return {
+            file,
+            clusterSize,
+            oldSize,
+            newSize: Math.max(oldSize, offset + data.byteLength),
+            chain: this.getClusterChain(relativePath, file),
+          }
+        })
+        if (plan.earlyEntry) return plan.earlyEntry
+        const file = plan.file
+        if (!file) throw new Error('文件不存在')
+        const allocatedBefore = plan.chain.length
+        const neededClusters = Math.ceil(plan.newSize / plan.clusterSize)
+        const startCluster = Math.floor(offset / plan.clusterSize)
+        const endCluster = Math.floor((offset + data.byteLength - 1) / plan.clusterSize)
+        let chain = plan.chain
 
-          if (neededClusters > allocatedBefore) {
-            const io = file.open()
-            if (!io) {
+        if (neededClusters > allocatedBefore) {
+          const io = await this.withSectors(() => {
+            const opened = file.open()
+            if (!opened) {
               throw new Error('无法写入文件')
             }
-            io.rewind()
-            for (let i = 0; i < allocatedBefore; i += 1) {
-              io.skipClus()
-            }
-            for (let i = allocatedBefore; i < neededClusters; i += 1) {
-              const clusterBuf = new Uint8Array(clusterSize)
-              overlayRangeOnCluster(clusterBuf, i, clusterSize, offset, data)
-              const writeLen = Math.min(clusterSize, Math.max(1, newSize - i * clusterSize))
+            opened.rewind()
+            return opened
+          })
+          for (let i = 0; i < allocatedBefore; i += 1) {
+            await this.withSectors(() => io.skipClus())
+          }
+          for (let i = allocatedBefore; i < neededClusters; i += 1) {
+            const clusterBuf = new Uint8Array(plan.clusterSize)
+            overlayRangeOnCluster(clusterBuf, i, plan.clusterSize, offset, data)
+            const writeLen = Math.min(plan.clusterSize, Math.max(1, plan.newSize - i * plan.clusterSize))
+            await this.withSectors(() => {
               if (io.writeClus(clusterBuf.subarray(0, writeLen)) === 0) {
                 throw new Error('磁盘空间不足')
               }
-              await this.maybeFlushHeld()
-            }
-            this.invalidateClusterCache(relativePath)
-            chain = this.getClusterChain(relativePath, file)
-          }
-
-          const lastExisting = Math.min(endCluster, allocatedBefore - 1)
-          for (let i = startCluster; i <= lastExisting; i += 1) {
-            const clus = chain[i]
-            if (clus === undefined) break
-            const diskOffset = layout.contentOffset(clus)
-            const clusterBuf = new Uint8Array(clusterSize)
-            clusterBuf.set(this.driver.read(diskOffset, clusterSize))
-            overlayRangeOnCluster(clusterBuf, i, clusterSize, offset, data)
-            this.driver.write(diskOffset, clusterBuf)
+            })
             await this.maybeFlushHeld()
+            await this.maybeYieldHeld()
           }
+          this.invalidateClusterCache(relativePath)
+          chain = await this.withSectors(() => this.getClusterChain(relativePath, file))
+        }
 
-          if (newSize !== oldSize) {
-            adaptFatFileNode(file).setLength(newSize)
-          }
-          file.setLastModified(new Date())
-          return this.toEntry(file)
-        })
+        const layout = this.clusterLayout()
+        const lastExisting = Math.min(endCluster, allocatedBefore - 1)
+        for (let i = startCluster; i <= lastExisting; i += 1) {
+          const clus = chain[i]
+          if (clus === undefined) break
+          const diskOffset = layout.contentOffset(clus)
+          const clusterBuf = new Uint8Array(plan.clusterSize)
+          await this.withSectors(() => {
+            clusterBuf.set(this.driver.read(diskOffset, plan.clusterSize))
+            overlayRangeOnCluster(clusterBuf, i, plan.clusterSize, offset, data)
+            this.driver.write(diskOffset, clusterBuf)
+          })
+          await this.maybeFlushHeld()
+          await this.maybeYieldHeld()
+        }
+
+        if (plan.newSize !== plan.oldSize) {
+          await this.withSectors(() => adaptFatFileNode(file).setLength(plan.newSize))
+        }
+        await this.withSectors(() => file.setLastModified(new Date()))
+        const entry = await this.withSectors(() => this.toEntry(file))
         this.invalidateClusterCache(relativePath)
         return entry
       } finally {
@@ -780,10 +870,9 @@ export class FatImageVolume {
   ): Promise<{ write(chunk: Uint8Array): Promise<void>; close(): Promise<FatVolumeEntry>; abort(): Promise<void> }> {
     const isNew = options?.isNew === true
     const expectedSize = options?.expectedSize
-    type Opened = NonNullable<ReturnType<FatFile['open']>>
     const state: {
       file: FatFile | undefined
-      io: Opened | undefined
+      io: FatFileIo | undefined
       clusterSize: number
       pending: Uint8Array
       totalWritten: number
@@ -801,7 +890,10 @@ export class FatImageVolume {
 
     const start = async (): Promise<void> => {
       if (state.file && state.io) return
-      await this.withRoot(async (root) => {
+      // 建文件/覆盖截断/打开是短操作，整体一次重试即可；
+      // 预分配循环放在外面逐簇各自重试：单簇缺页只重跑这一簇，
+      // 已落盘的分配进度不会被打回从头，也不会重跑 makeFile
+      const opened = await this.withRoot(async (root) => {
         const file = root.makeFile(relativePath)
         if (!file) throw new Error('无法写入文件')
         if (!isNew) {
@@ -813,24 +905,28 @@ export class FatImageVolume {
         }
         const io = file.open()
         if (!io) throw new Error('无法写入文件')
-        const clusterSize = this.clusterSize()
-        if (expectedSize !== undefined && expectedSize > 0) {
-          const zeros = new Uint8Array(clusterSize)
-          const needed = Math.ceil(expectedSize / clusterSize)
-          for (let i = 0; i < needed; i += 1) {
-            const writeLen = Math.min(clusterSize, Math.max(1, expectedSize - i * clusterSize))
-            if (io.writeClus(zeros.subarray(0, writeLen)) === 0) {
+        return { file, io }
+      })
+      const clusterSize = this.clusterSize()
+      if (expectedSize !== undefined && expectedSize > 0) {
+        const zeros = new Uint8Array(clusterSize)
+        const needed = Math.ceil(expectedSize / clusterSize)
+        for (let i = 0; i < needed; i += 1) {
+          const writeLen = Math.min(clusterSize, Math.max(1, expectedSize - i * clusterSize))
+          await this.withSectors(() => {
+            if (opened.io.writeClus(zeros.subarray(0, writeLen)) === 0) {
               throw new Error('磁盘空间不足')
             }
-            // 预分配整份文件会远超任务内脏水位：逐簇检查、到点落盘并让出
-            await this.maybeFlushHeld()
-          }
-          io.rewind()
+          })
+          // 预分配整份文件会远超任务内脏水位：逐簇检查、到点落盘并按时间片让出
+          await this.maybeFlushHeld()
+          await this.maybeYieldHeld()
         }
-        state.file = file
-        state.io = io
-        state.clusterSize = clusterSize
-      })
+        await this.withSectors(() => opened.io.rewind())
+      }
+      state.file = opened.file
+      state.io = opened.io
+      state.clusterSize = clusterSize
       this.noteDirtyCache()
     }
 
@@ -843,22 +939,23 @@ export class FatImageVolume {
         this.enqueue(async () => {
           if (state.closed || state.aborted) return
           try {
-            await this.withSectors(async () => {
-              await start()
-              const io = state.io
-              if (!io) throw new Error('无法写入文件')
-              const combined = new Uint8Array(state.pending.byteLength + chunk.byteLength)
-              combined.set(state.pending)
-              combined.set(chunk, state.pending.byteLength)
-              state.pending = combined
-              while (state.pending.byteLength >= state.clusterSize) {
-                const full = state.pending.subarray(0, state.clusterSize)
+            await start()
+            const io = state.io
+            if (!io) throw new Error('无法写入文件')
+            const combined = new Uint8Array(state.pending.byteLength + chunk.byteLength)
+            combined.set(state.pending)
+            combined.set(chunk, state.pending.byteLength)
+            state.pending = combined
+            while (state.pending.byteLength >= state.clusterSize) {
+              const full = state.pending.subarray(0, state.clusterSize)
+              await this.withSectors(() => {
                 if (io.writeClus(full) === 0) throw new Error('磁盘空间不足')
-                state.totalWritten += state.clusterSize
-                state.pending = state.pending.subarray(state.clusterSize)
-                await this.maybeFlushHeld()
-              }
-            })
+              })
+              state.totalWritten += state.clusterSize
+              state.pending = state.pending.subarray(state.clusterSize)
+              await this.maybeFlushHeld()
+              await this.maybeYieldHeld()
+            }
           } finally {
             this.noteDirtyCache()
           }
@@ -871,19 +968,22 @@ export class FatImageVolume {
           }
           state.closed = true
           try {
-            await this.withSectors(async () => {
-              await start()
-              const file = state.file
-              const io = state.io
-              if (!file || !io) throw new Error('无法写入文件')
-              while (state.pending.byteLength > 0) {
-                const writeSize = Math.min(state.clusterSize, state.pending.byteLength)
-                const piece = state.pending.subarray(0, writeSize)
+            await start()
+            const file = state.file
+            const io = state.io
+            if (!file || !io) throw new Error('无法写入文件')
+            while (state.pending.byteLength > 0) {
+              const writeSize = Math.min(state.clusterSize, state.pending.byteLength)
+              const piece = state.pending.subarray(0, writeSize)
+              await this.withSectors(() => {
                 if (io.writeClus(piece) === 0) throw new Error('磁盘空间不足')
-                state.totalWritten += writeSize
-                state.pending = state.pending.subarray(writeSize)
-                await this.maybeFlushHeld()
-              }
+              })
+              state.totalWritten += writeSize
+              state.pending = state.pending.subarray(writeSize)
+              await this.maybeFlushHeld()
+              await this.maybeYieldHeld()
+            }
+            await this.withSectors(() => {
               adaptFatFileNode(file).setLength(state.totalWritten)
               file.setLastModified(new Date())
             })

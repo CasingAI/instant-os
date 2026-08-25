@@ -719,6 +719,61 @@ async function testInlineFlushFailureKeepsDirty(): Promise<void> {
   await volume.close()
 }
 
+async function testTinyResidentPreallocSurvivesMetadataEviction(): Promise<void> {
+  // 常驻 4KB（8 扇区）连元数据区都放不下：FAT/目录与数据簇互相挤。
+  // 256KB 文件（512 簇）的 FAT 链跨 2 个扇区，写循环走到第二段就会撞上
+  // 被挤出的 FAT 扇区——必须靠钉住 + 单簇重试走完，不得整段重跑
+  // （旧病：重跑满 80 次报「扇区预取次数过多」，或重跑重拼 pending 写坏内容）。
+  const image = createFat12Image(512 * 1024)
+  const tracer = tracingDisk(image)
+  const volume = new FatImageVolume(tracer.io, {
+    maxResidentBytes: 4 * 1024,
+    inlineFlushDirtyBytes: 2 * 1024,
+  })
+  await volume.prepare()
+  tracer.clear()
+
+  const total = 256 * 1024
+  const writer = await volume.streamWriteFile('tiny.bin', { isNew: true, expectedSize: total })
+  const chunkCount = total / 4096
+  for (let i = 0; i < chunkCount; i += 1) {
+    const chunk = new Uint8Array(4096)
+    chunk.fill(i & 0xff)
+    await writer.write(chunk)
+    assert.ok(volume.unflushedBytes <= 2 * 1024 + 2 * 512, `第 ${i} 块写入后脏数据失控`)
+  }
+  await writer.close()
+  await volume.flush()
+
+  // 用默认缓存的重新挂载卷读回：中途落盘的内容确实持久化且顺序正确
+  const remounted = new FatImageVolume(memoryDisk(image))
+  await remounted.prepare()
+  const got = await remounted.readFile('tiny.bin')
+  assert.equal(got.byteLength, total)
+  for (let i = 0; i < chunkCount; i += 1) {
+    assert.equal(got[i * 4096], i & 0xff)
+  }
+  await remounted.close()
+  await volume.close()
+}
+
+async function testBootSectorStaysPinnedUnderPressure(): Promise<void> {
+  // 写入远超常驻上限后，数据区之前的元数据（至少引导扇区）仍钉在缓存里不被挤出
+  const image = createFat12Image(512 * 1024)
+  const volume = new FatImageVolume(memoryDisk(image), {
+    maxResidentBytes: 4 * 1024,
+    inlineFlushDirtyBytes: 2 * 1024,
+  })
+  await volume.prepare()
+  const writer = await volume.streamWriteFile('pin.bin', { isNew: true, expectedSize: 64 * 1024 })
+  await writer.write(new Uint8Array(64 * 1024).fill(5))
+  await writer.close()
+  await volume.flush()
+  assert.equal(volume.hasResidentSector(0), true)
+  assert.ok(volume.residentSectorCount <= 9, '常驻未回落，驱逐没发生')
+  await volume.close()
+}
+
 await testInMemoryFatVolume()
 await testMountWriteUnmountRemount()
 await testVmOccupancyBlocksMount()
@@ -740,5 +795,7 @@ await testSectorCacheAllDirtyEvictionIsBounded()
 await testStreamPreallocBackpressure()
 await testLargeWriteFileStreamsBehindBackpressure()
 await testInlineFlushFailureKeepsDirty()
+await testTinyResidentPreallocSurvivesMetadataEviction()
+await testBootSectorStaysPinnedUnderPressure()
 await testFatInternalsAdapterRejectsBadShape()
 console.log('files-image-mount.test.ts ok')
