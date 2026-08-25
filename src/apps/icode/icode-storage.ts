@@ -1,9 +1,18 @@
+/**
+ * 旧「iCode 内部项目」注册表存储 —— 第一期迁移源（只读）。
+ *
+ * 第一期之后 iCode 不再自带平行项目数据库：一个 iCode 程序就是系统里的一个生成应用包
+ * （Versions 整数正式版 + Draft 草稿 + Developer 开发附属）。旧注册表字段 `projects`
+ * 仅作为一次性迁移（os/icode-managed-apps.ts）的输入存在；迁移完成后字段被删除。
+ */
+import { createAppRegistry } from '../../os/app-registry.ts'
 import { createRegistryStore } from '../../os/registry-store.ts'
-import { osNowMs } from '../../os/os-clock.ts'
-import { useEffect, useState } from 'preact/hooks'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
-import type { ICodeChatEditBlock, ICodeChatMessage, ICodeInternalProject } from './icode-types.ts'
+import type { ICodeInternalProject } from './icode-types.ts'
 
+const LEGACY_MIGRATED_FLAG = 'instant-os-icode-legacy-projects-migrated'
+
+// 保留原有注册表读取机制（含更早的 'store' 单键迁移），但只作为迁移输入。
 const registryStore = createRegistryStore<ICodeInternalProject[]>({
   appId: 'icode',
   defaultValue: () => [],
@@ -23,7 +32,6 @@ const registryStore = createRegistryStore<ICodeInternalProject[]>({
       },
     },
   ],
-  changedEventName: 'instant-os:icode-projects-changed',
 })
 
 void registryStore.hydrate()
@@ -36,161 +44,62 @@ function isStringRecord(value: unknown): value is GeneratedAppDataStore {
   return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string')
 }
 
-function isChatEditBlock(value: unknown): value is ICodeChatEditBlock {
-  if (typeof value !== 'object' || value === undefined) {
-    return false
-  }
-
-  const block = value as Record<string, unknown>
-  return typeof block.search === 'string' && typeof block.replace === 'string'
-}
-
-function isChatMessage(value: unknown): value is ICodeChatMessage {
-  if (typeof value !== 'object' || value === undefined) {
-    return false
-  }
-
-  const message = value as Record<string, unknown>
-  const edits = message.edits
-  return (
-    typeof message.id === 'string' &&
-    (message.role === 'user' || message.role === 'assistant') &&
-    typeof message.content === 'string' &&
-    typeof message.createdAt === 'number' &&
-    (message.reasoningText === undefined || typeof message.reasoningText === 'string') &&
-    (message.fullReply === undefined || typeof message.fullReply === 'string') &&
-    (message.outputText === undefined || typeof message.outputText === 'string') &&
-    (message.appliedEdits === undefined || typeof message.appliedEdits === 'number') &&
-    (edits === undefined || (Array.isArray(edits) && edits.every(isChatEditBlock)))
-  )
-}
-
 function isInternalProject(value: unknown): value is ICodeInternalProject {
-  if (typeof value !== 'object' || value === undefined) {
-    return false
-  }
-
+  if (typeof value !== 'object' || value === undefined) return false
   const project = value as Record<string, unknown>
-  return (
-    typeof project.id === 'string' &&
-    typeof project.name === 'string' &&
-    typeof project.description === 'string' &&
-    typeof project.category === 'string' &&
-    typeof project.iconEmoji === 'string' &&
-    typeof project.themeColor === 'string' &&
-    Array.isArray(project.tags) &&
-    typeof project.html === 'string' &&
-    isStringRecord(project.appData) &&
-    Array.isArray(project.chat) &&
-    project.chat.every(isChatMessage) &&
-    typeof project.createdAt === 'number' &&
-    typeof project.updatedAt === 'number' &&
-    (project.linkedAppId === undefined ||
-      (typeof project.linkedAppId === 'string' && project.linkedAppId.startsWith('gen:')))
-  )
-}
-
-export function subscribeInternalProjects(listener: () => void): () => void {
-  return registryStore.subscribe(listener)
-}
-
-export function loadInternalProjectsSync(): ICodeInternalProject[] {
-  return registryStore.readSync() ?? []
-}
-
-/** 订阅 iCode 内部项目列表；readSync 命中解析缓存时引用稳定。 */
-export function useInternalProjects(): ICodeInternalProject[] {
-  const [projects, setProjects] = useState(loadInternalProjectsSync)
-  useEffect(() => {
-    const sync = () => setProjects(loadInternalProjectsSync())
-    sync()
-    return subscribeInternalProjects(sync)
-  }, [])
-  return projects
-}
-
-export async function loadInternalProjects(): Promise<ICodeInternalProject[]> {
-  return registryStore.read()
-}
-
-export async function createInternalProject(
-  name: string,
-  description: string,
-): Promise<ICodeInternalProject> {
-  const now = osNowMs()
-  const id = `icode-${now}`
-  const project: ICodeInternalProject = {
-    id,
-    name: name.trim() || '未命名项目',
-    description: description.trim() || '在 iCode 中开发的内部微应用',
-    category: '内部开发',
-    iconEmoji: '🛠️',
-    themeColor: '#5856d6',
-    tags: [],
-    html: '',
-    appData: {},
-    chat: [],
-    linkedAppId: `gen:${id}`,
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  const projects = await loadInternalProjects()
-  await registryStore.write([...projects, project])
-  return project
-}
-
-export async function updateInternalProject(
-  projectId: string,
-  patch: Partial<
-    Pick<
-      ICodeInternalProject,
-      | 'name'
-      | 'description'
-      | 'html'
-      | 'appData'
-      | 'chat'
-      | 'tags'
-      | 'iconEmoji'
-      | 'themeColor'
-      | 'category'
-      | 'linkedAppId'
-    >
-  >,
-): Promise<ICodeInternalProject | undefined> {
-  const projects = await loadInternalProjects()
-  const index = projects.findIndex((project) => project.id === projectId)
-  if (index < 0) {
-    return undefined
-  }
-
-  const updated: ICodeInternalProject = {
-    ...projects[index],
-    ...patch,
-    updatedAt: osNowMs(),
-  }
-  const next = [...projects]
-  next[index] = updated
-  await registryStore.write(next)
-  return updated
-}
-
-export async function removeInternalProject(projectId: string): Promise<boolean> {
-  const projects = await loadInternalProjects()
-  const next = projects.filter((project) => project.id !== projectId)
-  if (next.length === projects.length) {
+  if (
+    typeof project.id !== 'string' ||
+    typeof project.name !== 'string' ||
+    typeof project.description !== 'string' ||
+    typeof project.category !== 'string' ||
+    typeof project.iconEmoji !== 'string' ||
+    typeof project.themeColor !== 'string' ||
+    typeof project.html !== 'string' ||
+    typeof project.createdAt !== 'number' ||
+    typeof project.updatedAt !== 'number'
+  ) {
     return false
   }
-  await registryStore.write(next)
+  if (project.linkedAppId !== undefined && !String(project.linkedAppId).startsWith('gen:')) {
+    return false
+  }
+  if (project.appData !== undefined && !isStringRecord(project.appData)) {
+    return false
+  }
+  if (project.chat !== undefined && !Array.isArray(project.chat)) {
+    return false
+  }
   return true
 }
 
-export async function getInternalProject(
-  projectId: string,
-): Promise<ICodeInternalProject | undefined> {
-  return (await loadInternalProjects()).find((project) => project.id === projectId)
+/** 读取旧内部项目列表（迁移输入）；键不存在或已清空时为空数组 */
+export async function loadLegacyInternalProjects(): Promise<ICodeInternalProject[]> {
+  await registryStore.hydrate()
+  return (await registryStore.read()) ?? []
 }
 
-export function previewAppIdForInternal(projectId: string): `gen:icode:${string}` {
-  return `gen:icode:${projectId}`
+/** 同步读取（未 hydrate 时为空） */
+export function loadLegacyInternalProjectsSync(): ICodeInternalProject[] {
+  return registryStore.readSync() ?? []
+}
+
+/** 旧内部项目是否已经迁移完成（一次性标记） */
+export function isLegacyInternalProjectsMigrated(): boolean {
+  try {
+    return localStorage.getItem(LEGACY_MIGRATED_FLAG) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** 迁移完成后：删除注册表字段并落一次性标记 */
+export async function clearLegacyInternalProjects(): Promise<void> {
+  const registry = createAppRegistry('icode')
+  await registry.removeItem('projects')
+  await registry.removeItem('store')
+  try {
+    localStorage.setItem(LEGACY_MIGRATED_FLAG, '1')
+  } catch {
+    // 标记写失败不致命：字段已删，下次读到空列表同样视为已迁移
+  }
 }

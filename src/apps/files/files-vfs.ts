@@ -133,10 +133,16 @@ import {
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
+  type FilesNodeAttributes,
   type ImageFilesLocationId,
   type MountFilesLocationId,
 } from './files-types.ts'
 import { filesWorkloadUnits } from './files-op-progress-policy.ts'
+import {
+  registerFilesWriteProgress,
+  removeFilesWriteProgress,
+  updateFilesWriteProgress,
+} from './files-write-progress.ts'
 import { isBinaryFile } from './is-binary-file.ts'
 import {
   ensureUserSpecialFolders,
@@ -363,7 +369,13 @@ async function assertCanCreateIn(
   locationId: FilesLocationId,
   parentId: string | undefined,
 ): Promise<void> {
-  assertLocationAllowsCreate(locationId)
+  // 应用程序卷：卷级只读，但包内草稿子树（Versions/Draft）真实节点可写——
+  // 创建权限交给父节点属性判定；卷根与包内只读目录仍一律拒绝。
+  if (locationId !== 'applications') {
+    assertLocationAllowsCreate(locationId)
+  } else if (parentId === undefined) {
+    throw new Error('此位置为只读，无法修改')
+  }
   if (locationId === 'dev') {
     const { reconcileGithubRepoAttributes } = await import(
       '../github-desktop/github-repo-attributes.ts'
@@ -385,6 +397,22 @@ async function assertCanCreateIn(
     throw new Error('父级位置不匹配')
   }
   assertNodeWritable(parent)
+}
+
+/** applications 卷内新建节点继承父节点属性（草稿子树可写；其余路径到不了创建这一步） */
+async function inheritParentAttributes(
+  locationId: FilesLocationId,
+  parentId: string | undefined,
+): Promise<FilesNodeAttributes> {
+  if (locationId !== 'applications' || parentId === undefined) {
+    return defaultFilesNodeAttributes(locationId)
+  }
+  try {
+    const parent = await getNodeOrThrow(parentId)
+    return parent.attributes
+  } catch {
+    return defaultFilesNodeAttributes(locationId)
+  }
 }
 
 async function siblingNames(
@@ -526,7 +554,7 @@ export async function mkdir(params: {
     byteSize: 0,
     createdAt: now,
     updatedAt: now,
-    attributes: defaultFilesNodeAttributes(params.locationId),
+    attributes: await inheritParentAttributes(params.locationId, params.parentId),
   }
   const created = await createFolderNode({
     node,
@@ -600,7 +628,7 @@ export async function createTextFile(params: {
     byteSize: 0,
     createdAt: now,
     updatedAt: now,
-    attributes: defaultFilesNodeAttributes(params.locationId),
+    attributes: await inheritParentAttributes(params.locationId, params.parentId),
   }
   const created = await createFileWithBlob({
     node,
@@ -681,7 +709,7 @@ export async function createBinaryFile(params: {
     byteSize: 0,
     createdAt: now,
     updatedAt: now,
-    attributes: defaultFilesNodeAttributes(params.locationId),
+    attributes: await inheritParentAttributes(params.locationId, params.parentId),
   }
   const created = await createFileWithBytes({
     node,
@@ -1427,31 +1455,44 @@ export async function openStreamWrite(params: {
     // 用 writer.node（实际占位节点）：unique-suffix 撞名后名称已变，须按最终名通知
     await emitNodeCreated(writer.node)
   }
+  // 写入中登记（行内小圆圈数据源）：新建与覆盖都算；close/abort 无论成败都要移除
+  registerFilesWriteProgress(writer.node.id, expectedSize)
+  let registryWritten = 0
   return {
     node: writer.node,
     write: async (chunk) => {
       const startedAt = performance.now()
       await writer.write(chunk)
+      registryWritten += chunk.byteLength
+      updateFilesWriteProgress(writer.node.id, registryWritten)
       recordFilesIoWrite(writer.node, chunk.byteLength, 'streamWrite', performance.now() - startedAt)
     },
     close: async () => {
-      const startedAt = performance.now()
-      const written = await writer.close()
-      await emitNodeModified(written)
-      recordFilesIoWrite(
-        written,
-        written.byteSize,
-        'streamWrite',
-        performance.now() - startedAt,
-      )
-      return written
+      try {
+        const startedAt = performance.now()
+        const written = await writer.close()
+        await emitNodeModified(written)
+        recordFilesIoWrite(
+          written,
+          written.byteSize,
+          'streamWrite',
+          performance.now() - startedAt,
+        )
+        return written
+      } finally {
+        removeFilesWriteProgress(writer.node.id)
+      }
     },
     abort: async () => {
-      await writer.abort()
-      if (isNew) {
-        // 新建文件回滚删除：通知 watch / 清路径缓存（按实际占位节点路径）
-        const path = await resolveFilesAbsolutePath(writer.node)
-        emitFilesVfsChanged({ kind: 'deleted', path })
+      try {
+        await writer.abort()
+        if (isNew) {
+          // 新建文件回滚删除：通知 watch / 清路径缓存（按实际占位节点路径）
+          const path = await resolveFilesAbsolutePath(writer.node)
+          emitFilesVfsChanged({ kind: 'deleted', path })
+        }
+      } finally {
+        removeFilesWriteProgress(writer.node.id)
       }
     },
   }

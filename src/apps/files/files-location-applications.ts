@@ -12,8 +12,13 @@ import {
 import {
   APP_DATA_DIR_NAME,
 } from './files-app-data-root.ts'
-import { APP_BUNDLE_SUFFIX } from './files-app-id.ts'
 import {
+  APP_BUNDLE_SUFFIX,
+  APP_DRAFT_DIR_NAME,
+  APP_VERSIONS_DIR_NAME,
+} from './files-app-id.ts'
+import {
+  getNode,
   listChildNodes,
   readBlobBytes,
   readBlobText,
@@ -55,16 +60,6 @@ async function resolveDataRealNode(
   return undefined
 }
 
-/** 解析 applications 卷下任意包子目录（Data / Contents / …）的真实节点 */
-async function resolveBundleSubdirRealNode(
-  bundlePath: string,
-  subdir: string,
-  relativePath: string,
-): Promise<FilesNode | undefined> {
-  const segments = bundleSubdirRealSegments(bundlePath, subdir, relativePath)
-  return resolveDataRealNode(segments)
-}
-
 /** 把 applications 卷真实节点重映射为 applications 卷合成 id 的只读节点 */
 function toApplicationsNode(node: FilesNode, applicationsPath: string): FilesNode {
   const parent = parentDirPath(applicationsPath)
@@ -80,6 +75,35 @@ function toApplicationsNode(node: FilesNode, applicationsPath: string): FilesNod
     updatedAt: node.updatedAt,
     attributes: READONLY_ATTRIBUTES,
   }
+}
+
+/**
+ * 生成应用包内草稿子树（`{bundle}/Versions/Draft/…`）：
+ * 文件管理器 / 终端允许改草稿（仍是草稿，不影响桌面），因此返回真实节点（真实 id、可写属性），
+ * 写路径直接落到 applications 卷真实存储；草稿之外的包内容一律合成只读节点。
+ */
+function isGeneratedDraftSubtreePath(bundlePath: string, fullPath: string): boolean {
+  const draftRoot = `${bundlePath}/${APP_VERSIONS_DIR_NAME}/${APP_DRAFT_DIR_NAME}`
+  return fullPath === draftRoot || fullPath.startsWith(`${draftRoot}/`)
+}
+
+/** 生成应用包子目录（Data / Contents / Versions / Developer / …）真身路径段 */
+function generatedBundleRealSegments(
+  bundlePath: string,
+  relativePath: string,
+): string[] {
+  return [
+    ...bundlePath.split('/').filter(Boolean),
+    ...(relativePath ? relativePath.split('/') : []),
+  ]
+}
+
+/** 解析生成应用包内任意真实子路径（相对 bundle 根）；不存在返回 undefined */
+function resolveGeneratedBundleRealNode(
+  bundlePath: string,
+  relativePath: string,
+): Promise<FilesNode | undefined> {
+  return resolveDataRealNode(generatedBundleRealSegments(bundlePath, relativePath))
 }
 
 /** Data 真身路径段（以 applications 卷根为基准）：`{bundlePath}/Data/{relative}` */
@@ -194,6 +218,14 @@ function contentsRelativePath(bundlePath: string, fullPath: string): string | un
   return fullPath.slice(prefix.length)
 }
 
+/** 相对 bundle 根的子路径（'' 表示 bundle 根本身；bundle 外返回 undefined） */
+function bundleRelativePath(bundlePath: string, fullPath: string): string | undefined {
+  if (fullPath === bundlePath) return ''
+  const prefix = `${bundlePath}/`
+  if (!fullPath.startsWith(prefix)) return undefined
+  return fullPath.slice(prefix.length)
+}
+
 function sourcePathForContents(entry: AppCatalogEntry, relativePath: string): string | undefined {
   if (entry.kind !== 'builtin' || !entry.sourceRootPath) return undefined
   if (!relativePath) return entry.sourceRootPath
@@ -261,10 +293,11 @@ async function isKnownApplicationsPath(path: string): Promise<boolean> {
   }
 
   if (entry.kind === 'generated') {
-    const relative = contentsRelativePath(entry.bundlePath, path)
-    if (relative !== undefined) {
+    // 版本文件夹布局之后，包内真实子树不限于 Contents（Versions / Developer / Dist / …）
+    const relative = bundleRelativePath(entry.bundlePath, path)
+    if (relative !== undefined && relative !== '') {
       return (
-        (await resolveBundleSubdirRealNode(entry.bundlePath, CONTENTS_DIR, relative)) !== undefined
+        (await resolveGeneratedBundleRealNode(entry.bundlePath, relative)) !== undefined
       )
     }
   }
@@ -367,6 +400,18 @@ export async function getApplicationsNode(id: string): Promise<FilesNode | undef
         if (realNode && realNode.kind === 'folder') return toApplicationsNode(realNode, dirPath)
         return undefined
       }
+      if (entry.kind === 'generated') {
+        // 包内任意真实目录（Versions / Developer / Dist / …）；草稿子树返回真实节点
+        const relative = bundleRelativePath(entry.bundlePath, dirPath)
+        if (relative !== undefined && relative !== '') {
+          const realNode = await resolveGeneratedBundleRealNode(entry.bundlePath, relative)
+          if (realNode && realNode.kind === 'folder') {
+            if (isGeneratedDraftSubtreePath(entry.bundlePath, dirPath)) return realNode
+            return toApplicationsNode(realNode, dirPath)
+          }
+          return undefined
+        }
+      }
     }
     return (await isKnownApplicationsPath(dirPath)) ? makeDirNode(dirPath) : undefined
   }
@@ -390,10 +435,13 @@ export async function getApplicationsNode(id: string): Promise<FilesNode | undef
   }
 
   if (entry.kind === 'generated') {
-    const relative = contentsRelativePath(entry.bundlePath, filePath)
-    if (relative !== undefined) {
-      const realNode = await resolveBundleSubdirRealNode(entry.bundlePath, CONTENTS_DIR, relative)
-      if (realNode && realNode.kind === 'file') return toApplicationsNode(realNode, filePath)
+    const relative = bundleRelativePath(entry.bundlePath, filePath)
+    if (relative !== undefined && relative !== '') {
+      const realNode = await resolveGeneratedBundleRealNode(entry.bundlePath, relative)
+      if (realNode && realNode.kind === 'file') {
+        if (isGeneratedDraftSubtreePath(entry.bundlePath, filePath)) return realNode
+        return toApplicationsNode(realNode, filePath)
+      }
       return undefined
     }
   }
@@ -404,6 +452,15 @@ export async function getApplicationsNode(id: string): Promise<FilesNode | undef
 }
 
 export async function listApplicationsDirectory(folderId: string | undefined): Promise<FilesNode[]> {
+  // 草稿子树的真实文件夹 id：直接列真实子节点（可写、真实 id）
+  if (folderId !== undefined && !folderId.startsWith('applications:d:')) {
+    const realNode = await getNode(folderId)
+    if (!realNode || realNode.locationId !== LOCATION_ID || realNode.kind !== 'folder') {
+      return []
+    }
+    return listChildNodes(LOCATION_ID, realNode.id)
+  }
+
   const prefix = folderId === undefined ? undefined : parseApplicationsDirPath(folderId)
   if (folderId !== undefined && prefix === undefined) return []
 
@@ -423,11 +480,23 @@ export async function listApplicationsDirectory(folderId: string | undefined): P
       (await sourcePathExists(entry.sourceRootPath))
     ) {
       children.push(makeDirNode(bundleContentsPath(entry.bundlePath)))
-    } else if (
-      entry.kind === 'generated' &&
-      (await resolveBundleSubdirRealNode(entry.bundlePath, CONTENTS_DIR, '')) !== undefined
-    ) {
-      children.push(makeDirNode(bundleContentsPath(entry.bundlePath)))
+    }
+    if (entry.kind === 'generated') {
+      // 包根：枚举全部真实子目录（Contents / Versions / Developer / …），Data 恒展示
+      const realChildren = await resolveDataRealNode(
+        generatedBundleRealSegments(entry.bundlePath, ''),
+      )
+      if (realChildren && realChildren.kind === 'folder') {
+        const realEntries = await listChildNodes(LOCATION_ID, realChildren.id)
+        for (const child of realEntries) {
+          if (child.name === APP_DATA_DIR_NAME) continue
+          if (isGeneratedDraftSubtreePath(entry.bundlePath, `${entry.bundlePath}/${child.name}`)) {
+            children.push(child)
+          } else {
+            children.push(toApplicationsNode(child, `${entry.bundlePath}/${child.name}`))
+          }
+        }
+      }
     }
     children.push(makeDirNode(`${entry.bundlePath}/${APP_DATA_DIR_NAME}`))
     children.push(
@@ -456,12 +525,18 @@ export async function listApplicationsDirectory(folderId: string | undefined): P
   }
 
   if (entry.kind === 'generated') {
-    const relative = contentsRelativePath(entry.bundlePath, prefix)
-    if (relative !== undefined) {
-      const realNode = await resolveBundleSubdirRealNode(entry.bundlePath, CONTENTS_DIR, relative)
+    const relative = bundleRelativePath(entry.bundlePath, prefix)
+    if (relative !== undefined && relative !== '') {
+      const realNode = await resolveGeneratedBundleRealNode(entry.bundlePath, relative)
       if (!realNode || realNode.kind !== 'folder') return []
       const children = await listChildNodes(LOCATION_ID, realNode.id)
-      return children.map((child) => toApplicationsNode(child, `${prefix}/${child.name}`))
+      return children.map((child) => {
+        const childPath = `${prefix}/${child.name}`
+        if (isGeneratedDraftSubtreePath(entry.bundlePath, childPath)) {
+          return child
+        }
+        return toApplicationsNode(child, childPath)
+      })
     }
   }
 
@@ -469,6 +544,17 @@ export async function listApplicationsDirectory(folderId: string | undefined): P
 }
 
 export async function resolveApplicationsPath(folderId: string | undefined): Promise<FilesNode[]> {
+  if (folderId !== undefined && !folderId.startsWith('applications:d:')) {
+    // 草稿子树真实节点：沿真实父链上行（名称与包内合成路径一致）
+    const chain: FilesNode[] = []
+    let current = await getNode(folderId)
+    while (current !== undefined) {
+      chain.unshift(current)
+      if (current.parentId === undefined) break
+      current = await getNode(current.parentId)
+    }
+    return chain
+  }
   if (folderId === undefined) return []
   const dirPath = parseApplicationsDirPath(folderId)
   if (dirPath === undefined || !(await isKnownApplicationsPath(dirPath))) return []
@@ -508,12 +594,17 @@ export async function readApplicationsText(id: string): Promise<{ node: FilesNod
   }
 
   if (entry.kind === 'generated') {
-    const relative = contentsRelativePath(entry.bundlePath, filePath)
-    if (relative !== undefined) {
-      const realNode = await resolveBundleSubdirRealNode(entry.bundlePath, CONTENTS_DIR, relative)
+    const relative = bundleRelativePath(entry.bundlePath, filePath)
+    if (relative !== undefined && relative !== '') {
+      const realNode = await resolveGeneratedBundleRealNode(entry.bundlePath, relative)
       if (!realNode || realNode.kind !== 'file') throw new Error('文件不存在')
       const text = await readBlobText(realNode.id)
-      return { node: toApplicationsNode(realNode, filePath), text }
+      return {
+        node: isGeneratedDraftSubtreePath(entry.bundlePath, filePath)
+          ? realNode
+          : toApplicationsNode(realNode, filePath),
+        text,
+      }
     }
   }
 
@@ -550,15 +641,17 @@ export async function readApplicationsBlob(id: string): Promise<{ node: FilesNod
     }
 
     if (entry.kind === 'generated') {
-      const relative = contentsRelativePath(entry.bundlePath, filePath)
-      if (relative !== undefined) {
-        const realNode = await resolveBundleSubdirRealNode(entry.bundlePath, CONTENTS_DIR, relative)
+      const relative = bundleRelativePath(entry.bundlePath, filePath)
+      if (relative !== undefined && relative !== '') {
+        const realNode = await resolveGeneratedBundleRealNode(entry.bundlePath, relative)
         if (!realNode || realNode.kind !== 'file') throw new Error('文件不存在')
         const bytes = await readBlobBytes(realNode.id)
         const mime = realNode.mimeType ?? FILES_TEXT_MIME
         if (bytes !== undefined) {
           return {
-            node: toApplicationsNode(realNode, filePath),
+            node: isGeneratedDraftSubtreePath(entry.bundlePath, filePath)
+              ? realNode
+              : toApplicationsNode(realNode, filePath),
             blob: new Blob([new Uint8Array(bytes) as BlobPart], { type: mime }),
           }
         }

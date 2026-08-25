@@ -170,9 +170,9 @@ export function buildBuiltinIconContextMenuItems(
 export function buildGeneratedIconContextMenuItems(options: {
   onOpen: () => void
   appSlug: string
-  icodeProjectId?: string
+  icodeAppId?: `gen:${string}`
   onViewInMarketplace: (slug: string) => void
-  onViewInIcode: (projectId: string) => void
+  onViewInIcode: (appId: `gen:${string}`) => void
   onUninstall?: () => void
   onForceQuit?: () => void
   forceQuitLabel?: string
@@ -182,11 +182,11 @@ export function buildGeneratedIconContextMenuItems(options: {
   onUnpinFromDock?: () => void
   windowSubmenu?: WindowSubmenuOptions
 }): IconContextMenuItem[] {
-  const externalViewItem: IconContextMenuItem = options.icodeProjectId
+  const externalViewItem: IconContextMenuItem = options.icodeAppId
     ? {
         type: 'action',
         label: '在 iCode 中打开',
-        onClick: () => options.onViewInIcode(options.icodeProjectId!),
+        onClick: () => options.onViewInIcode(options.icodeAppId!),
       }
     : {
         type: 'action',

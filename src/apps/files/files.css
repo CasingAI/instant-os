@@ -1624,3 +1624,32 @@ button.files__path-bar-segment:active {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* 写入中行内进度小圆圈（替换文件图标位，Finder 风格） */
+.files-write-progress {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.files-write-progress--list {
+  width: 22px;
+  height: 22px;
+}
+
+.files-write-progress--grid {
+  width: 52px;
+  height: 52px;
+}
+
+.files-write-progress__spin {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: files-write-progress-spin 0.9s linear infinite;
+}
+
+@keyframes files-write-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

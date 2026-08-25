@@ -1,9 +1,7 @@
 import type { AppCapabilityTag } from '../appstore/app-capability-tags.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
-import type { GrantableIcodeCapabilityTag } from './icode-capability-request.ts'
-
-export type ICodeProjectKind = 'internal' | 'formal'
+import type { VscodeAiInvestigation } from '../vscode/vscode-ai-agent.ts'
 
 export type ICodeChatEditBlock = {
   search: string
@@ -12,8 +10,11 @@ export type ICodeChatEditBlock = {
 
 export type ICodeChatCapabilityRequestStatus = 'pending' | 'granted' | 'dismissed'
 
+/**
+ * 旧引擎（SEARCH/REPLACE 时代）的聊天字段：历史原文只读保留，不再解析执行。
+ */
 export type ICodeChatCapabilityRequest = {
-  tag: GrantableIcodeCapabilityTag
+  tag: '3d' | 'ai' | 'files' | 'terminal'
   reason: string
   status: ICodeChatCapabilityRequestStatus
 }
@@ -25,15 +26,16 @@ export type ICodeChatMessage = {
   createdAt: number
   /** 助手消息：模型思考过程 */
   reasoningText?: string
-  /** 助手消息：折叠区内的完整自然语言回复（主气泡默认只显示末段） */
+  /** ---- 旧引擎字段（历史原文只读保留，不再解析执行） ---- */
   fullReply?: string
-  /** 助手消息：原始输出（含 SEARCH/REPLACE 块） */
   outputText?: string
-  /** 助手消息：成功应用的编辑块 */
   edits?: ICodeChatEditBlock[]
   appliedEdits?: number
-  /** 助手消息：请求用户授予的程序生成能力 */
   capabilityRequests?: ICodeChatCapabilityRequest[]
+  /** ---- 三期 agent 时间线（活动工具调用卡片等） ---- */
+  investigation?: VscodeAiInvestigation
+  /** 本轮被用户停止 */
+  stopped?: boolean
 }
 
 export const ICODE_CONSOLE_MESSAGE_TYPE = 'instant-os-icode-console' as const
@@ -55,6 +57,7 @@ export type ICodeConsoleEntry = {
   timestamp: number
 }
 
+/** 旧「内部项目」（第一期迁移源；迁移完成后不再产生新数据） */
 export type ICodeInternalProject = {
   id: string
   name: string
@@ -66,31 +69,19 @@ export type ICodeInternalProject = {
   html: string
   appData: GeneratedAppDataStore
   chat: ICodeChatMessage[]
-  /** 创建时写入，对应桌面应用 ID，发布时同步 */
   linkedAppId?: GeneratedAppId
   createdAt: number
   updatedAt: number
 }
 
-export type ICodeFormalProjectRef = {
-  kind: 'formal'
-  appId: GeneratedAppId
-}
-
-export type ICodeInternalProjectRef = {
-  kind: 'internal'
-  projectId: string
-}
-
-export type ICodeOpenProject = ICodeFormalProjectRef | ICodeInternalProjectRef
-
 export const ICODE_BUNDLE_FORMAT = 'instant-os-icode-bundle' as const
 export const ICODE_BUNDLE_VERSION = 1 as const
 
+/** 旧导出包格式（导入兼容：读入后转成版本布局包） */
 export type ICodeExportBundle = {
   format: typeof ICODE_BUNDLE_FORMAT
   version: typeof ICODE_BUNDLE_VERSION
-  kind: ICodeProjectKind
+  kind: 'internal' | 'formal'
   exportedAt: number
   project: ICodeInternalProject | {
     appId: GeneratedAppId
@@ -105,3 +96,5 @@ export type ICodeExportBundle = {
   }
   appData: GeneratedAppDataStore
 }
+
+export const ICODE_PACKAGE_BUNDLE_FORMAT = 'instant-os-icode-package' as const

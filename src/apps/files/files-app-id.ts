@@ -10,6 +10,16 @@ const GEN_PREFIX = 'gen:'
 const GEN_DIR_PREFIX = 'gen_'
 export const APP_BUNDLE_SUFFIX = '.app'
 
+/**
+ * 应用包内系统目录名（布局约定，供版本布局模块与 /Applications 投影共用）：
+ * Versions 放版本树（正整数正式版 + Draft 草稿）；Developer 放开发附属（聊天等）；
+ * Dist 是第四期约定的发布产物目录（保留名）。
+ */
+export const APP_VERSIONS_DIR_NAME = 'Versions'
+export const APP_DEVELOPER_DIR_NAME = 'Developer'
+export const APP_DIST_DIR_NAME = 'Dist'
+export const APP_DRAFT_DIR_NAME = 'Draft'
+
 /** appId 转为安全的文件系统目录段（唯一）。内置应用原样；`gen:` 前缀的冒号换成下划线。 */
 export function appDataDirName(appId: string): string {
   if (appId.startsWith(GEN_PREFIX)) {

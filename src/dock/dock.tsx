@@ -4,8 +4,6 @@ import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.t
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { ExtAppIcon } from '../apps/ext/ext-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
-import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
-import { useInternalProjects } from '../apps/icode/icode-storage.ts'
 import { DesktopFolderIcon, type FolderPreviewApp } from '../desktop/desktop-folder-icon.tsx'
 import { openDesktopFolder, toggleDesktopFolder, closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
@@ -192,8 +190,7 @@ export function Dock() {
     hideDesktopReveal,
   } = useOs()
   const { enterFlip3d, flip3dActive } = useFlip3dScene()
-  const internalProjects = useInternalProjects()
-  const { installedApps, openInstalledApp, openMarketplaceDetail, openIcodeProject, pendingUpdateCount } =
+  const { installedApps, openInstalledApp, openMarketplaceDetail, openIcodeApp, pendingUpdateCount } =
     useGeneratedApps()
   const { openSessionExtApp, removeSessionExtApp, getSessionExtApp } = useDevExtApps()
   const { showIconContextMenu } = useIconContextMenu()
@@ -541,7 +538,7 @@ export function Dock() {
 
     const isRunning = isAppRunning(app.id)
     const slug = generatedAppIdToSlug(app.id)
-    const icodeProjectId = resolveIcodeProjectId(app, internalProjects)
+    const icodeAppId = app.versionsLayout ? app.id : undefined
     const pinned = isPinnedToDock(app.id)
     const appWindows = listAppWindows(app.id)
 
@@ -574,9 +571,9 @@ export function Dock() {
               buildGeneratedIconContextMenuItems({
                 onOpen: handleOpen,
                 appSlug: slug,
-                icodeProjectId,
+                icodeAppId,
                 onViewInMarketplace: openMarketplaceDetail,
-                onViewInIcode: openIcodeProject,
+                onViewInIcode: openIcodeApp,
                 isPinnedToDock: pinned,
                 onPinToDock: () => pinToDock(app.id),
                 onUnpinFromDock: () => unpinFromDock(app.id),
@@ -822,7 +819,7 @@ export function Dock() {
     }
 
     const slug = generatedAppIdToSlug(app.id)
-    const icodeProjectId = resolveIcodeProjectId(app, internalProjects)
+    const icodeAppId = app.versionsLayout ? app.id : undefined
 
     return appWindows.map((appWindow) => {
       const label = dockLabelForWindow(app.name, appWindow)
@@ -846,9 +843,9 @@ export function Dock() {
               buildGeneratedIconContextMenuItems({
                 onOpen: handleOpen,
                 appSlug: slug,
-                icodeProjectId,
+                icodeAppId,
                 onViewInMarketplace: openMarketplaceDetail,
-                onViewInIcode: openIcodeProject,
+                onViewInIcode: openIcodeApp,
                 isPinnedToDock: false,
                 onPinToDock: () => pinToDock(app.id),
                 onForceQuit: () => closeWindowsForApp(app.id),

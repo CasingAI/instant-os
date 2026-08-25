@@ -30,6 +30,7 @@ import { installGeneratedAppAiHandler } from './install-generated-app-ai-handler
 import { installGeneratedAppFilesHandler } from './install-generated-app-files-handler.ts'
 import { installGeneratedAppTerminalHandler } from './install-generated-app-terminal-handler.ts'
 import { injectGeneratedAppHeartbeatBridge } from './inject-generated-app-heartbeat-bridge.ts'
+import { loadVersionSiteDocument } from './generated-app-site.ts'
 import { prepareGeneratedAppRuntimeHtml } from './prepare-generated-app-runtime-html.ts'
 import { useGeneratedHtmlIframe } from './use-generated-html-iframe.ts'
 import { APP_CAPABILITY_TAG_FILES, APP_CAPABILITY_TAG_TERMINAL, hasAppCapabilityTag } from '../appstore/app-capability-tags.ts'
@@ -136,15 +137,43 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     }
   }, [appId])
 
-  const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}-${processIsolated ? 'iso' : 'std'}`
+  const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}-${processIsolated ? 'iso' : 'std'}-${
+    app?.versionsLayout ? `v${app.activeVersion ?? 0}` : 'html'
+  }`
+
+  // 版本文件夹布局（iCode 管理）：桌面只跑当前最大正式号那棵树（按目录加载）；
+  // 无正式版 → 空白占位（占位/空态，跑的不是草稿）。
+  const [siteDocument, setSiteDocument] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (!app?.versionsLayout) {
+      setSiteDocument(undefined)
+      return
+    }
+    let alive = true
+    const version = app.activeVersion ?? 0
+    void (async () => {
+      const loaded = version > 0 ? await loadVersionSiteDocument(appId, version) : undefined
+      if (!alive) return
+      setSiteDocument(loaded ? loaded.html : '<!doctype html><html><body></body></html>')
+    })()
+    return () => {
+      alive = false
+    }
+  }, [appId, app?.versionsLayout, app?.activeVersion])
 
   const preparedHtml = useMemo(() => {
     if (!app || !registryHydrated) {
       return undefined
     }
+    if (app.versionsLayout) {
+      if (siteDocument === undefined) {
+        return undefined
+      }
+    }
 
     const initialData = loadGeneratedAppData(appId)
-    const runtimeHtml = prepareGeneratedAppRuntimeHtml(app.html, appId, initialData, {
+    const sourceHtml = app.versionsLayout ? siteDocument! : app.html
+    const runtimeHtml = prepareGeneratedAppRuntimeHtml(sourceHtml, appId, initialData, {
       processIsolated,
       enableFiles: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES),
       enableTerminal: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL),
@@ -154,7 +183,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
       },
     })
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, appId, windowId)
-  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, registryHydrated, storageLimitBytes, windowId])
+  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, registryHydrated, siteDocument, storageLimitBytes, windowId])
 
   const handleIframeReady = useCallback(() => {
     setHeartbeatContentWindow(windowId, iframeRef.current?.contentWindow ?? undefined)

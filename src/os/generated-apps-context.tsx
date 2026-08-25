@@ -2,13 +2,12 @@ import type { ComponentChildren } from 'preact'
 import { osNowMs } from './os-clock.ts'
 import { createContext } from 'preact'
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { nextAppVersion, normalizeAppVersion, DEFAULT_APP_VERSION } from '../apps/appstore/app-version.ts'
+import { nextAppVersion, normalizeAppVersion } from '../apps/appstore/app-version.ts'
 import {
   appendVersionSnapshot,
   canRollbackApp,
   getAppVersionCount,
   migrateAppRecord,
-  normalizeVersionSnapshots,
   pruneArchivedVersions,
   rollbackAppRecord,
 } from '../apps/appstore/generated-app-versions.ts'
@@ -29,17 +28,24 @@ import type {
   StoreListingDetail,
   StoreReview,
 } from '../apps/appstore/types.ts'
-import type { AppCapabilityTag } from '../apps/appstore/app-capability-tags.ts'
 import { DeviceStorageFullError } from './device-storage.ts'
 import { getDataCapacityBytes } from './device-data-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
-import {
-  clearGeneratedAppData,
-  saveGeneratedAppDataAsync,
-} from './generated-app-data-storage.ts'
-import type { GeneratedAppDataStore } from './generated-app-data-storage.ts'
+import { clearGeneratedAppData } from './generated-app-data-storage.ts'
 import { loadInstalledApps, saveInstalledApps } from './generated-apps-storage.ts'
-import { hydrateInstalledAppsFromFiles } from './generated-apps-store.ts'
+import { hydrateInstalledAppsFromFiles, rebuildVersionsLayoutRecord } from './generated-apps-store.ts'
+import {
+  copyInstalledAppToIcodePackage,
+  createIcodeManagedAppPackage,
+  migrateLegacyIcodeInternalProjectsOnce,
+  newIcodeAppId,
+  publishIcodeAppDraft,
+  type IcodeAppIdentity,
+} from './icode-managed-apps.ts'
+import {
+  createFormalVersionFrom,
+  removeFormalVersionTree,
+} from './generated-app-versions-layout.ts'
 import { invalidateAppCatalogCache } from './app-catalog.ts'
 import {
   loadLauncherLayout,
@@ -83,9 +89,9 @@ type GeneratedAppsContextValue = {
   openMarketplaceDetail: (slug: string) => void
   pendingMarketplaceDetailSlug: string | undefined
   clearPendingMarketplaceDetail: () => void
-  openIcodeProject: (projectId: string) => void
-  pendingIcodeProjectId: string | undefined
-  clearPendingIcodeProject: () => void
+  openIcodeApp: (appId: GeneratedAppId) => void
+  pendingIcodeAppId: GeneratedAppId | undefined
+  clearPendingIcodeApp: () => void
   installListing: (listing: StoreListing, detail?: Partial<StoreListingDetail>) => Promise<void>
   openInstalledApp: (appId: GeneratedAppId) => void
   uninstallApp: (appId: GeneratedAppId) => void
@@ -100,28 +106,25 @@ type GeneratedAppsContextValue = {
   dismissCompletedInstall: (appId: GeneratedAppId) => void
   clearDismissibleInstallNotifications: () => void
   pendingUpdateCount: number
-  updateInstalledAppFromIcode: (
+  /** 第一期：创建一个 iCode 管理的版本布局应用包并注册桌面记录（占位身份） */
+  createIcodeManagedApp: (input: {
+    identity: IcodeAppIdentity
+    icodeProjectId?: string
+    templateFiles?: Array<{ path: string; text: string }>
+  }) => Promise<GeneratedAppId | undefined>
+  /** 发布/治理/导入之后：从包内最大正式版清单重建运行时记录 */
+  refreshIcodeManagedApp: (appId: GeneratedAppId) => Promise<void>
+  /** 发布：草稿升格为新最大正式号（含立即再拷新草稿），刷新桌面记录 */
+  publishIcodeApp: (appId: GeneratedAppId) => Promise<number | undefined>
+  /** 从商店/已安装应用复制出新身份的 iCode 应用（只带当前在跑的那一版） */
+  copyInstalledAppToIcode: (appId: GeneratedAppId) => Promise<GeneratedAppId | undefined>
+  /** 第二期·删除非最大号旧档 */
+  deleteIcodeFormalVersion: (appId: GeneratedAppId, version: number) => Promise<boolean>
+  /** 第二期·基于某一正式版再接一档新的最大号 */
+  createIcodeAppVersionFrom: (
     appId: GeneratedAppId,
-    patch: { html: string; version: string },
-  ) => boolean
-  publishAppFromIcode: (input: {
-    appId: GeneratedAppId
-    listing: StoreListing
-    html: string
-    appData: GeneratedAppDataStore
-  }) => { version: string } | undefined
-  syncAppFromIcode: (input: {
-    appId: GeneratedAppId
-    icodeProjectId: string
-    name: string
-    description: string
-    category: string
-    iconEmoji: string
-    themeColor: string
-    tags?: AppCapabilityTag[]
-    html: string
-    appData: GeneratedAppDataStore
-  }) => boolean
+    baseVersion: number,
+  ) => Promise<number | undefined>
 }
 
 const GeneratedAppsContext = createContext<GeneratedAppsContextValue | undefined>(undefined)
@@ -190,15 +193,25 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const [pendingMarketplaceDetailSlug, setPendingMarketplaceDetailSlug] = useState<string | undefined>(
     undefined,
   )
-  const [pendingIcodeProjectId, setPendingIcodeProjectId] = useState<string | undefined>(undefined)
+  const [pendingIcodeAppId, setPendingIcodeAppId] = useState<GeneratedAppId | undefined>(undefined)
   const [appDataRevisions, setAppDataRevisions] = useState<Record<string, number>>({})
   const [storageRevision, setStorageRevision] = useState(0)
 
   // 启动 hydrate：从文件 Contents 载入完整记录到内存，同步 state 并失效 catalog 缓存。
   // boot 流程已先于 render hydrate，此 effect 作为兜底（失败/其他入口时重新载入）。
+  // 第一期：hydrate 之后顺带做旧「iCode 内部项目」一次性迁移（改写成版本布局包）。
   useEffect(() => {
     let cancelled = false
-    void hydrateInstalledAppsFromFiles().then(() => {
+    void (async () => {
+      await hydrateInstalledAppsFromFiles()
+      const migration = await migrateLegacyIcodeInternalProjectsOnce({
+        getInstalledApps: () => loadInstalledApps(),
+      })
+      if (migration.changed) {
+        for (const appId of migration.appIds) {
+          await rebuildVersionsLayoutRecord(appId)
+        }
+      }
       if (cancelled) return
       const fromCache = loadInstalledApps()
       setInstalledApps((current) =>
@@ -208,7 +221,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
           : fromCache,
       )
       invalidateAppCatalogCache()
-    })
+    })()
     return () => {
       cancelled = true
     }
@@ -781,170 +794,112 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     setPendingMarketplaceDetailSlug(undefined)
   }, [])
 
-  const openIcodeProject = useCallback(
-    (projectId: string) => {
+  const openIcodeApp = useCallback(
+    (appId: GeneratedAppId) => {
       openApp('icode')
-      setPendingIcodeProjectId(projectId)
+      setPendingIcodeAppId(appId)
     },
     [openApp],
   )
 
-  const clearPendingIcodeProject = useCallback(() => {
-    setPendingIcodeProjectId(undefined)
+  const clearPendingIcodeApp = useCallback(() => {
+    setPendingIcodeAppId(undefined)
   }, [])
 
-  const publishAppFromIcode = useCallback(
-    (input: {
-      appId: GeneratedAppId
-      listing: StoreListing
-      html: string
-      appData: GeneratedAppDataStore
-    }): { version: string } | undefined => {
-      const existing = installedApps.find((item) => item.id === input.appId)
-      const currentVersion = normalizeAppVersion(existing?.version)
-      const targetVersion = existing ? nextAppVersion(currentVersion) : currentVersion
-      const versions = appendVersionSnapshot(existing, targetVersion, input.html)
+  // ---- 第一期：iCode 管理的版本布局应用 ----
 
-      const record: GeneratedAppRecord = migrateAppRecord({
-        id: input.appId,
-        name: input.listing.name,
-        description: input.listing.description,
-        category: input.listing.category,
-        iconEmoji: input.listing.iconEmoji,
-        themeColor: input.listing.themeColor,
-        tags: input.listing.tags,
-        html: input.html,
-        version: targetVersion,
-        versions,
-        pendingUpdate: false,
-      })
+  const refreshIcodeManagedApp = useCallback(async (appId: GeneratedAppId) => {
+    const record = await rebuildVersionsLayoutRecord(appId)
+    if (!record) return
+    setInstalledApps((current) => {
+      const next = replaceInstalledApp(current, appId, record)
+      return next
+    })
+    invalidateAppCatalogCache()
+  }, [])
 
-      const nextApps = existing
-        ? replaceInstalledApp(installedApps, input.appId, record)
-        : [...installedApps, record]
+  const createIcodeManagedApp = useCallback(
+    async (input: {
+      identity: IcodeAppIdentity
+      icodeProjectId?: string
+      templateFiles?: Array<{ path: string; text: string }>
+    }): Promise<GeneratedAppId | undefined> => {
+      const appId = newIcodeAppId()
+      try {
+        await createIcodeManagedAppPackage({ appId, ...input })
+      } catch (error) {
+        console.error('[icode] 创建应用包失败', error)
+        return undefined
+      }
+      const record = await rebuildVersionsLayoutRecord(appId)
+      if (!record) return undefined
+      setInstalledApps((current) => [...current, record])
+      invalidateAppCatalogCache()
+      return appId
+    },
+    [],
+  )
 
-      void saveInstalledApps(nextApps).then((ok) => {
-        if (!ok) setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法发布应用。`)
-      })
+  const publishIcodeApp = useCallback(
+    async (appId: GeneratedAppId): Promise<number | undefined> => {
+      try {
+        const version = await publishIcodeAppDraft(appId)
+        await refreshIcodeManagedApp(appId)
+        return version
+      } catch (error) {
+        console.error('[icode] 发布失败', error)
+        return undefined
+      }
+    },
+    [refreshIcodeManagedApp],
+  )
 
-      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（数据空间总配额）
-      void saveGeneratedAppDataAsync(input.appId, input.appData).then((failures) => {
-        if (failures.length > 0) {
-          setListingsError('数据空间已满，无法保存应用数据。')
-        }
-      })
-
-      setInstalledApps(nextApps)
-
-      setListings((current) => {
-        const index = current.findIndex((listing) => listing.slug === input.listing.slug)
-        if (index < 0) {
-          return [...current, input.listing]
-        }
-
-        const next = [...current]
-        next[index] = input.listing
-        return next
-      })
-
-      return { version: targetVersion }
+  const copyInstalledAppToIcode = useCallback(
+    async (appId: GeneratedAppId): Promise<GeneratedAppId | undefined> => {
+      const record = installedApps.find((app) => app.id === appId)
+      if (!record) return undefined
+      const newAppId = newIcodeAppId()
+      try {
+        await copyInstalledAppToIcodePackage({ record, newAppId })
+      } catch (error) {
+        console.error('[icode] 复制应用失败', error)
+        return undefined
+      }
+      const newRecord = await rebuildVersionsLayoutRecord(newAppId)
+      if (!newRecord) return undefined
+      setInstalledApps((current) => [...current, newRecord])
+      invalidateAppCatalogCache()
+      return newAppId
     },
     [installedApps],
   )
 
-  const syncAppFromIcode = useCallback(
-    (input: {
-      appId: GeneratedAppId
-      icodeProjectId: string
-      name: string
-      description: string
-      category: string
-      iconEmoji: string
-      themeColor: string
-      tags?: AppCapabilityTag[]
-      html: string
-      appData: GeneratedAppDataStore
-    }): boolean => {
-      const existing = installedApps.find((item) => item.id === input.appId)
-      const html = input.html.trim() || existing?.html || ''
-
-      const record: GeneratedAppRecord = existing
-        ? migrateAppRecord({
-            ...existing,
-            name: input.name,
-            description: input.description,
-            category: input.category,
-            iconEmoji: input.iconEmoji,
-            themeColor: input.themeColor,
-            tags: input.tags,
-            html,
-            icodeProjectId: input.icodeProjectId,
-            versions: normalizeVersionSnapshots(existing).map((snapshot, index, snapshots) =>
-              index === snapshots.length - 1 ? { ...snapshot, html } : snapshot,
-            ),
-          })
-        : migrateAppRecord({
-            id: input.appId,
-            name: input.name,
-            description: input.description,
-            category: input.category,
-            iconEmoji: input.iconEmoji,
-            themeColor: input.themeColor,
-            tags: input.tags,
-            html,
-            version: DEFAULT_APP_VERSION,
-            icodeProjectId: input.icodeProjectId,
-            pendingUpdate: false,
-            versions: [{ version: DEFAULT_APP_VERSION, html, savedAt: osNowMs() }],
-          })
-
-      const nextApps = existing
-        ? replaceInstalledApp(installedApps, input.appId, record)
-        : [...installedApps, record]
-
-      void saveInstalledApps(nextApps).then((ok) => {
-        if (!ok) setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法同步应用。`)
-      })
-
-      // 应用数据写入注册表（异步）；失败时通过 listingsError 提示（数据空间总配额）
-      void saveGeneratedAppDataAsync(input.appId, input.appData).then((failures) => {
-        if (failures.length > 0) {
-          setListingsError('数据空间已满，无法保存应用数据。')
-        }
-      })
-
-      setInstalledApps(nextApps)
-      setStorageRevision((revision) => revision + 1)
-      return true
-    },
-    [installedApps],
-  )
-
-  const updateInstalledAppFromIcode = useCallback(
-    (appId: GeneratedAppId, patch: { html: string; version: string }): boolean => {
-      const app = installedApps.find((item) => item.id === appId)
-      if (!app) {
+  const deleteIcodeFormalVersion = useCallback(
+    async (appId: GeneratedAppId, version: number): Promise<boolean> => {
+      try {
+        await removeFormalVersionTree(appId, version)
+        await refreshIcodeManagedApp(appId)
+        return true
+      } catch (error) {
+        console.error('[icode] 删除旧档失败', error)
         return false
       }
-
-      const versions = appendVersionSnapshot(app, patch.version, patch.html)
-      const record: GeneratedAppRecord = migrateAppRecord({
-        ...app,
-        html: patch.html,
-        version: patch.version,
-        versions,
-        pendingUpdate: false,
-      })
-
-      const nextApps = replaceInstalledApp(installedApps, appId, record)
-      void saveInstalledApps(nextApps).then((ok) => {
-        if (!ok) setListingsError(`数据空间已满（${formatStorageSize(getDataCapacityBytes())} 上限），无法保存应用。`)
-      })
-
-      setInstalledApps(nextApps)
-      return true
     },
-    [installedApps],
+    [refreshIcodeManagedApp],
+  )
+
+  const createIcodeAppVersionFrom = useCallback(
+    async (appId: GeneratedAppId, baseVersion: number): Promise<number | undefined> => {
+      try {
+        const version = await createFormalVersionFrom(appId, baseVersion)
+        await refreshIcodeManagedApp(appId)
+        return version
+      } catch (error) {
+        console.error('[icode] 基于旧档接新号失败', error)
+        return undefined
+      }
+    },
+    [refreshIcodeManagedApp],
   )
 
   const value = useMemo(
@@ -972,9 +927,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       openMarketplaceDetail,
       pendingMarketplaceDetailSlug,
       clearPendingMarketplaceDetail,
-      openIcodeProject,
-      pendingIcodeProjectId,
-      clearPendingIcodeProject,
+      openIcodeApp,
+      pendingIcodeAppId,
+      clearPendingIcodeApp,
       installListing,
       openInstalledApp,
       uninstallApp,
@@ -989,9 +944,12 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       dismissCompletedInstall,
       clearDismissibleInstallNotifications,
       pendingUpdateCount,
-      updateInstalledAppFromIcode,
-      publishAppFromIcode,
-      syncAppFromIcode,
+      createIcodeManagedApp,
+      refreshIcodeManagedApp,
+      publishIcodeApp,
+      copyInstalledAppToIcode,
+      deleteIcodeFormalVersion,
+      createIcodeAppVersionFrom,
     }),
     [
       listings,
@@ -1017,9 +975,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       openMarketplaceDetail,
       pendingMarketplaceDetailSlug,
       clearPendingMarketplaceDetail,
-      openIcodeProject,
-      pendingIcodeProjectId,
-      clearPendingIcodeProject,
+      openIcodeApp,
+      pendingIcodeAppId,
+      clearPendingIcodeApp,
       installListing,
       openInstalledApp,
       uninstallApp,
@@ -1034,9 +992,12 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       dismissCompletedInstall,
       clearDismissibleInstallNotifications,
       pendingUpdateCount,
-      updateInstalledAppFromIcode,
-      publishAppFromIcode,
-      syncAppFromIcode,
+      createIcodeManagedApp,
+      refreshIcodeManagedApp,
+      publishIcodeApp,
+      copyInstalledAppToIcode,
+      deleteIcodeFormalVersion,
+      createIcodeAppVersionFrom,
     ],
   )
 

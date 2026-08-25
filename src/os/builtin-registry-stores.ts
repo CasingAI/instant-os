@@ -19,7 +19,7 @@ import { readNewsStore } from '../apps/news/news-storage.ts'
 import { readCatGptStore } from '../apps/catgpt/catgpt-storage.ts'
 import { readProdudeStore } from '../apps/produde/produde-storage.ts'
 import { readBooksStore } from '../apps/books/books-storage.ts'
-import { loadInternalProjects } from '../apps/icode/icode-storage.ts'
+import { loadLegacyInternalProjects } from '../apps/icode/icode-storage.ts'
 
 const BUILTIN_STORE_READERS: Array<{ appId: string; read: () => Promise<unknown> }> = [
   { appId: 'weather', read: readWeatherStore },
@@ -31,7 +31,7 @@ const BUILTIN_STORE_READERS: Array<{ appId: string; read: () => Promise<unknown>
   { appId: 'catgpt', read: readCatGptStore },
   { appId: 'produde', read: readProdudeStore },
   { appId: 'books', read: readBooksStore },
-  { appId: 'icode', read: loadInternalProjects },
+  { appId: 'icode', read: loadLegacyInternalProjects },
 ]
 
 export async function hydrateAllBuiltinRegistryStores(): Promise<void> {

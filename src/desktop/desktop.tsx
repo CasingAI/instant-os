@@ -3,9 +3,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { ExtAppIcon } from '../apps/ext/ext-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
-import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
-import { useInternalProjects } from '../apps/icode/icode-storage.ts'
-import type { ICodeInternalProject } from '../apps/icode/icode-types.ts'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
 import { APP_REGISTRY } from '../os/app-registry.tsx'
 import {
@@ -197,7 +194,6 @@ type GeneratedDesktopIconProps = {
   mergeTarget?: boolean
   didSwipeRef: { current: boolean }
   reorder: DesktopReorderController
-  internalProjects: readonly ICodeInternalProject[]
 }
 
 function GeneratedDesktopIcon({
@@ -211,18 +207,15 @@ function GeneratedDesktopIcon({
   globalIndex,
   didSwipeRef,
   reorder,
-  internalProjects,
 }: GeneratedDesktopIconProps) {
-  const { openInstalledApp, openMarketplaceDetail, openIcodeProject, uninstallApp, getInstalledApp } = useGeneratedApps()
+  const { openInstalledApp, openMarketplaceDetail, openIcodeApp, uninstallApp, getInstalledApp } = useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
   const { isPinnedToDock, pinToDock, unpinFromDock } = useLauncherLayout()
   const [uninstallConfirmOpen, setUninstallConfirmOpen] = useState(false)
   const downloading = progress !== undefined && progress < 100
   const slug = generatedAppIdToSlug(appId)
   const installedApp = getInstalledApp(appId)
-  const icodeProjectId = installedApp
-    ? resolveIcodeProjectId(installedApp, internalProjects)
-    : undefined
+  const icodeAppId = installedApp?.versionsLayout ? appId : undefined
   const canUninstall = !downloading
 
   const handleOpen = () => {
@@ -262,9 +255,9 @@ function GeneratedDesktopIcon({
             buildGeneratedIconContextMenuItems({
               onOpen: handleOpen,
               appSlug: slug,
-              icodeProjectId,
+              icodeAppId,
               onViewInMarketplace: openMarketplaceDetail,
-              onViewInIcode: openIcodeProject,
+              onViewInIcode: openIcodeApp,
               onUninstall: canUninstall ? () => setUninstallConfirmOpen(true) : undefined,
               openDisabled: downloading,
               isPinnedToDock: pinned,
@@ -441,7 +434,6 @@ function renderDesktopEntry(
   didSwipeRef: { current: boolean },
   reorder: DesktopReorderController,
   onOpenFolder: (folderId: DesktopFolderId) => void,
-  internalProjects: readonly ICodeInternalProject[],
 ) {
   if (entry.kind === 'folder') {
     return (
@@ -502,7 +494,6 @@ function renderDesktopEntry(
       mergeTarget={mergeTarget}
       didSwipeRef={didSwipeRef}
       reorder={reorder}
-      internalProjects={internalProjects}
     />
   )
 }
@@ -568,7 +559,6 @@ export function Desktop() {
   const { windows, activeWindowId, desktopRevealed, toggleDesktopReveal, hideDesktopReveal } =
     useOs()
   const { enterFlip3d, flip3dActive, flip3dRestoring } = useFlip3dScene()
-  const internalProjects = useInternalProjects()
   const { installedApps, pendingInstalls, pendingUpdateCount } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
   const {
@@ -1295,7 +1285,6 @@ export function Desktop() {
                               didSwipeRef,
                               reorderController,
                               setOpenFolderId,
-                              internalProjects,
                             )}
                         </div>
                       )

@@ -23,6 +23,10 @@ export function normalizeVersionSnapshots(
 }
 
 export function migrateAppRecord(record: GeneratedAppRecord): GeneratedAppRecord {
+  // 版本文件夹布局（iCode 管理）：html/versions 快照栈不是真相，不做快照规整
+  if (record.versionsLayout) {
+    return record
+  }
   const versions = normalizeVersionSnapshots(record)
   const active = versions[versions.length - 1]
 

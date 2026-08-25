@@ -2,7 +2,6 @@ import type { ComponentType } from 'preact'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import type { GeneratedAppRecord } from '../appstore/types.ts'
-import { loadInternalProjectsSync } from '../icode/icode-storage.ts'
 import { normalizeVersionSnapshots } from '../appstore/generated-app-versions.ts'
 import { getAppDataBytesByApp } from '../files/files-app-data-quota.ts'
 import { getInstalledAppsStorageBytes } from '../../os/generated-apps-storage.ts'
@@ -176,12 +175,6 @@ export function buildManagedAppList(
   installedApps: GeneratedAppRecord[],
   registryBytesByApp: Record<string, number>,
 ): ManagedAppEntry[] {
-  const icodeProjectIds = new Set(
-    loadInternalProjectsSync()
-      .map((project) => project.linkedAppId)
-      .filter((appId): appId is GeneratedAppId => appId !== undefined),
-  )
-
   const builtins: ManagedAppEntry[] = APP_REGISTRY.map((app) => ({
     id: app.id,
     kind: 'builtin',
@@ -212,7 +205,7 @@ export function buildManagedAppList(
       appDirectoryBytes: 0,
       versionHistoryBytes,
       removable: true,
-      icodeManaged: app.icodeProjectId !== undefined || icodeProjectIds.has(app.id),
+      icodeManaged: app.versionsLayout === true,
     }
   })
 

@@ -134,6 +134,12 @@ import { reconcileGithubRepoAttributes } from '../github-desktop/github-repo-att
 import { encodeInfoDocumentId, encodeVolumeInfoDocumentId } from '../file-info/info-document-id.ts'
 import { FilesPathBar, type FilesPathBarSegment } from './files-path-bar.tsx'
 import { FilesFolderTemplateIcon, FilesNodeIcon, FilesTxtTemplateIcon } from './files-node-icon.tsx'
+import { FilesWriteProgressGlyph } from './files-write-progress-icon.tsx'
+import {
+  getFilesWriteProgressSnapshot,
+  subscribeFilesWriteProgress,
+  type FilesWriteProgressEntry,
+} from './files-write-progress.ts'
 import '../../ui/ios-check-toggle.css'
 import '../../ui/ios-nav-back.css'
 import './files.css'
@@ -692,6 +698,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     readFilesNameDisplayMode(),
   )
   const [metaResolvedIds, setMetaResolvedIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [writeProgress, setWriteProgress] = useState<ReadonlyMap<string, FilesWriteProgressEntry>>(
+    () => getFilesWriteProgressSnapshot(),
+  )
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [selectNonce, setSelectNonce] = useState(0)
   const [pendingSelectName, setPendingSelectName] = useState<string | undefined>(undefined)
@@ -1445,6 +1454,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     }
   }, [refresh, refreshLocationBytes])
 
+  // 写入中行内进度：登记表自带 ~100ms 节流通知，快照每次新 Map 触发行重渲染
+  useEffect(
+    () => subscribeFilesWriteProgress(() => setWriteProgress(getFilesWriteProgressSnapshot())),
+    [],
+  )
+
   useEffect(() => {
     if (!isMountLocationId(locationId)) return
     const softRefresh = () => {
@@ -2061,6 +2076,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const handleTrash = useCallback(
     async (nodes: readonly FilesNode[], permanent: boolean) => {
       if (nodes.length === 0) return
+      // 写入中的文件禁止删除：close 会回写 node 行，删了也会被复活
+      if (nodes.some((node) => getFilesWriteProgressSnapshot().has(node.id))) {
+        showToast('文件正在写入中，无法删除')
+        return
+      }
       closeTransientMenus()
       const single = nodes.length === 1 ? nodes[0]! : undefined
       const removedIds = new Set(nodes.map((node) => node.id))
@@ -2332,6 +2352,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const handleRename = useCallback(
     async (node: FilesNode) => {
       if (!canRenameOrDeleteFilesNode(node)) return
+      // 写入中的流（close 会回写 node 行，中途改名/删除会复活或错位）
+      if (getFilesWriteProgressSnapshot().has(node.id)) {
+        showToast('文件正在写入中，稍后再试')
+        return
+      }
       closeTransientMenus()
       const name = await modal.prompt({
         title: '重新命名',
@@ -2350,7 +2375,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         await modal.alert({ title: '无法重命名', message: formatError(err), themeColor: THEME })
       }
     },
-    [closeTransientMenus, modal, refresh, setItems, sort],
+    [closeTransientMenus, modal, refresh, setItems, showToast, sort],
   )
 
   const handleShowInfo = useCallback(
@@ -3742,6 +3767,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 {items.map((node) => {
                   const selected = selectedIds.has(node.id)
                   const isDropTarget = dropTarget?.kind === 'node' && dropTarget.id === node.id
+                  const writingEntry = writeProgress.get(node.id)
                   const itemClass =
                     viewMode === 'list'
                       ? `files__list-item${selected ? ' files__list-item--selected' : ''}${isDropTarget ? ' files__list-item--drop-target' : ''}`
@@ -3797,7 +3823,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                       {viewMode === 'list' ? (
                         <>
                           <span class="files__list-icon">
-                            <FilesNodeIcon node={node} size="list" />
+                            {writingEntry ? (
+                              <FilesWriteProgressGlyph entry={writingEntry} size="list" />
+                            ) : (
+                              <FilesNodeIcon node={node} size="list" />
+                            )}
                           </span>
                           <span class="files__list-main">
                             <span class="files__list-name">
@@ -3823,7 +3853,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                       ) : (
                         <>
                           <span class="files__item-icon">
-                            <FilesNodeIcon node={node} size="grid" />
+                            {writingEntry ? (
+                              <FilesWriteProgressGlyph entry={writingEntry} size="grid" />
+                            ) : (
+                              <FilesNodeIcon node={node} size="grid" />
+                            )}
                           </span>
                           <span class="files__item-name">
                             {formatFilesDisplayName(

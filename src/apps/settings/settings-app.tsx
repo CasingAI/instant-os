@@ -1083,6 +1083,8 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
     app.appSizeBytes + app.documentsBytes + app.dataBytes + app.versionHistoryBytes
   const versionCount = isGeneratedAppId(app.id) ? getAppVersionCount(generatedAppIdToSlug(app.id)) : 0
   const archivedVersionCount = Math.max(0, versionCount - 1)
+  // 版本文件夹布局（iCode 管理）：版本治理入口在 iCode，不在设置里删正式版
+  const versionsGovernedInIcode = app.icodeManaged
   const [newsStore, setNewsStore] = useState<NewsStore | undefined>(undefined)
   const [newsCommentStats, setNewsCommentStats] = useState<NewsCommentStats | undefined>(undefined)
   const newsTokenUsage = app.id === 'news' ? loadNewsTokenUsage() : undefined
@@ -1262,7 +1264,15 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
           </section>
         ) : undefined}
 
-        {app.removable && archivedVersionCount > 0 ? (
+        {app.removable && versionsGovernedInIcode ? (
+          <section class="settings__section">
+            <p class="settings__section-footnote">
+              此应用由 iCode 管理：源码按版本存放在应用包的 Versions 文件夹里。要查看或删除历史正式版，请前往 iCode 的「版本」页。
+            </p>
+          </section>
+        ) : undefined}
+
+        {app.removable && archivedVersionCount > 0 && !versionsGovernedInIcode ? (
           <section class="settings__section">
             <div class="settings__list">
               <button

@@ -1,9 +1,6 @@
 import type { ComponentType } from 'preact'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
-import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
-import { useInternalProjects } from '../apps/icode/icode-storage.ts'
-import type { ICodeInternalProject } from '../apps/icode/icode-types.ts'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import {
   buildBuiltinIconContextMenuItems,
@@ -96,7 +93,6 @@ export function DesktopFolderOverlay({
   onContinueDragOnDesktop,
   onFinishDragOnDesktop,
 }: DesktopFolderOverlayProps) {
-  const internalProjects = useInternalProjects()
   const { renameDesktopFolder, updateFolderAppOrder, moveAppOutOfFolder } = useLauncherLayout()
   const { mounted, exiting } = useOverlayPresence(open, FOLDER_OVERLAY_EXIT_MS)
   const snapshotRef = useRef({ folderId, folderName, apps })
@@ -406,7 +402,6 @@ export function DesktopFolderOverlay({
                 didSwipeRef={didSwipeRef}
                 reorder={reorderController}
                 onClose={onClose}
-                internalProjects={internalProjects}
               />
             ))}
           </div>
@@ -438,7 +433,6 @@ type FolderAppIconProps = {
   didSwipeRef: { current: boolean }
   reorder: FolderReorderController
   onClose: () => void
-  internalProjects: readonly ICodeInternalProject[]
 }
 
 function FolderAppIcon({
@@ -449,10 +443,9 @@ function FolderAppIcon({
   didSwipeRef,
   reorder,
   onClose,
-  internalProjects,
 }: FolderAppIconProps) {
   const { openApp } = useOs()
-  const { openInstalledApp, openMarketplaceDetail, openIcodeProject, getInstalledApp } = useGeneratedApps()
+  const { openInstalledApp, openMarketplaceDetail, openIcodeApp, getInstalledApp } = useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
   const { isPinnedToDock, pinToDock, unpinFromDock, moveAppOutOfFolder } = useLauncherLayout()
 
@@ -511,18 +504,16 @@ function FolderAppIcon({
 
     const slug = generatedAppIdToSlug(app.appId)
     const installedApp = getInstalledApp(app.appId)
-    const icodeProjectId = installedApp
-      ? resolveIcodeProjectId(installedApp, internalProjects)
-      : undefined
+    const icodeAppId = installedApp?.versionsLayout ? app.appId : undefined
     showIconContextMenu(
       event,
       [
         ...buildGeneratedIconContextMenuItems({
           onOpen: handleOpen,
           appSlug: slug,
-          icodeProjectId,
+          icodeAppId,
           onViewInMarketplace: openMarketplaceDetail,
-          onViewInIcode: openIcodeProject,
+          onViewInIcode: openIcodeApp,
           isPinnedToDock: pinned,
           onPinToDock: () => pinToDock(app.appId),
           onUnpinFromDock: () => unpinFromDock(app.appId),

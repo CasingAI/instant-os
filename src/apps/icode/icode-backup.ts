@@ -1,141 +1,174 @@
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { osNowMs } from '../../os/os-clock.ts'
-import type { GeneratedAppRecord } from '../appstore/types.ts'
-import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
-import { loadGeneratedAppData } from '../../os/generated-app-data-storage.ts'
+/**
+ * iCode 程序包导入导出（第一期 §4.9 之后的整包形态）。
+ *
+ * 新格式（instant-os-icode-package）：能带的都带——全部正式版、当时若存在的草稿、
+ * 聊天、用户数据、每版本清单。导入到另一台设备后打开 iCode 看到与导出端相同的东西；
+ * 目标机已有同一应用或同名应用 → 做成副本（新身份、新名字）。
+ *
+ * 旧格式（instant-os-icode-bundle，SEARCH/REPLACE 时代的 internal/formal 包）仍可读入：
+ * 读入后转成版本布局包再注册。
+ */
+import { zipSync, strFromU8, strToU8, unzipSync } from 'fflate'
 import type { GeneratedAppId } from '../../os/types.ts'
+import { osNowMs } from '../../os/os-clock.ts'
+import { loadGeneratedAppData } from '../../os/generated-app-data-storage.ts'
+import type { ICodeExportBundle, ICodeInternalProject } from './icode-types.ts'
 import {
-  ICODE_BUNDLE_FORMAT,
-  ICODE_BUNDLE_VERSION,
-  type ICodeExportBundle,
-  type ICodeInternalProject,
-  type ICodeProjectKind,
-} from './icode-types.ts'
+  buildIcodePackageBundle,
+  importIcodePackageBundle,
+  loadIcodeChat,
+  newIcodeAppId,
+  type IcodePackageBundle,
+} from '../../os/icode-managed-apps.ts'
 
-const MANIFEST_NAME = 'manifest.json'
+const PACKAGE_MANIFEST_ENTRY = 'manifest.json'
 
-function sanitizeFilename(name: string): string {
-  const trimmed = name.trim() || 'icode-project'
-  return trimmed.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80)
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === undefined || value === null) return false
+  return Object.values(value).every((entry) => typeof entry === 'string')
 }
 
-function parseBundle(raw: string): ICodeExportBundle | undefined {
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === undefined) {
-      return undefined
-    }
+// ---- 新格式：版本布局整包 ----
 
-    const bundle = parsed as Record<string, unknown>
-    if (
-      bundle.format !== ICODE_BUNDLE_FORMAT ||
-      bundle.version !== ICODE_BUNDLE_VERSION ||
-      (bundle.kind !== 'internal' && bundle.kind !== 'formal') ||
-      typeof bundle.exportedAt !== 'number' ||
-      typeof bundle.project !== 'object' ||
-      bundle.project === undefined ||
-      typeof bundle.appData !== 'object' ||
-      bundle.appData === undefined
-    ) {
-      return undefined
-    }
-
-    return bundle as ICodeExportBundle
-  } catch {
-    return undefined
-  }
+export async function exportIcodePackageToZip(appId: GeneratedAppId): Promise<Blob> {
+  const chat = await loadIcodeChat(appId)
+  const appData = loadGeneratedAppData(appId)
+  const bundle = await buildIcodePackageBundle({ appId, chat, appData })
+  const data = strToU8(JSON.stringify(bundle, null, 2))
+  return new Blob([data as BlobPart], { type: 'application/zip' })
 }
 
-function isStringRecord(value: unknown): value is GeneratedAppDataStore {
-  if (typeof value !== 'object' || value === undefined) {
-    return false
-  }
-
-  return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string')
-}
-
-export function buildExportBundleFromInternal(project: ICodeInternalProject): ICodeExportBundle {
-  return {
-    format: ICODE_BUNDLE_FORMAT,
-    version: ICODE_BUNDLE_VERSION,
-    kind: 'internal',
-    exportedAt: osNowMs(),
-    project,
-    appData: project.appData,
-  }
-}
-
-export function buildExportBundleFromFormal(
-  record: GeneratedAppRecord,
-  appData: GeneratedAppDataStore,
-): ICodeExportBundle {
-  return {
-    format: ICODE_BUNDLE_FORMAT,
-    version: ICODE_BUNDLE_VERSION,
-    kind: 'formal',
-    exportedAt: osNowMs(),
-    project: {
-      appId: record.id,
-      name: record.name,
-      description: record.description,
-      category: record.category,
-      iconEmoji: record.iconEmoji,
-      themeColor: record.themeColor,
-      tags: record.tags,
-      html: record.html,
-      version: record.version,
-    },
-    appData,
-  }
-}
-
-export function exportBundleToZip(bundle: ICodeExportBundle): Blob {
-  const manifest = JSON.stringify(bundle, undefined, 2)
-  const zipped = zipSync({
-    [MANIFEST_NAME]: strToU8(manifest),
-  })
-  return new Blob([zipped], { type: 'application/zip' })
-}
-
-export function downloadBundleZip(bundle: ICodeExportBundle): void {
-  const blob = exportBundleToZip(bundle)
+export function downloadIcodePackageZip(blob: Blob, appName: string): void {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
-  const kindLabel = bundle.kind === 'internal' ? 'internal' : 'formal'
-  const projectName =
-    bundle.kind === 'internal'
-      ? bundle.project.name
-      : (bundle.project as { name: string }).name
   anchor.href = url
-  anchor.download = `${sanitizeFilename(projectName)}-${kindLabel}-icode.zip`
+  anchor.download = `${appName.replace(/[\\/:*?"<>|]/g, '_') || 'icode-app'}-icode-package.zip`
   anchor.click()
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
-export async function readBundleFromZipFile(file: File): Promise<ICodeExportBundle> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  const unzipped = unzipSync(bytes)
-  const manifestBytes = unzipped[MANIFEST_NAME]
-  if (!manifestBytes) {
-    throw new Error('程序包中未找到 manifest.json')
+export async function readPackageBundleFromZipFile(file: File): Promise<IcodePackageBundle> {
+  const buffer = await file.arrayBuffer()
+  const entries = unzipSync(new Uint8Array(buffer))
+  const manifest = entries[PACKAGE_MANIFEST_ENTRY]
+  if (!manifest) {
+    throw new Error('程序包缺少 manifest.json')
   }
-
-  const bundle = parseBundle(strFromU8(manifestBytes))
-  if (!bundle) {
-    throw new Error('无效的 iCode 项目程序包')
+  const parsed: unknown = JSON.parse(strFromU8(manifest))
+  if (!isIcodePackageBundle(parsed)) {
+    throw new Error('不是有效的 iCode 程序包')
   }
-
-  if (!isStringRecord(bundle.appData)) {
-    throw new Error('程序包中的存储数据格式无效')
-  }
-
-  return bundle
+  return parsed
 }
 
-export function bundleKindLabel(kind: ICodeProjectKind): string {
-  return kind === 'internal' ? '内部应用' : '正式应用'
+export function isIcodePackageBundle(value: unknown): value is IcodePackageBundle {
+  if (typeof value !== 'object' || value === undefined) return false
+  const bundle = value as Record<string, unknown>
+  return (
+    bundle.format === 'instant-os-icode-package' &&
+    bundle.version === 1 &&
+    Array.isArray(bundle.versions)
+  )
 }
 
-export function loadFormalAppData(appId: GeneratedAppId): GeneratedAppDataStore {
-  return loadGeneratedAppData(appId)
+/** 导入整包（新格式）：返回新 appId；renameTo 用于副本名。 */
+export async function importIcodePackageFromBundle(input: {
+  bundle: IcodePackageBundle
+  renameTo?: string
+}): Promise<GeneratedAppId> {
+  const newAppId = newIcodeAppId()
+  await importIcodePackageBundle({ bundle: input.bundle, newAppId, renameTo: input.renameTo })
+  return newAppId
+}
+
+// ---- 旧格式兼容（读入后转版本布局包） ----
+
+function isLegacyBundle(value: unknown): value is ICodeExportBundle {
+  if (typeof value !== 'object' || value === undefined) return false
+  const bundle = value as Record<string, unknown>
+  return (
+    bundle.format === 'instant-os-icode-bundle' &&
+    bundle.version === 1 &&
+    (bundle.kind === 'internal' || bundle.kind === 'formal')
+  )
+}
+
+export async function readLegacyBundleFromZipFile(file: File): Promise<ICodeExportBundle> {
+  const buffer = await file.arrayBuffer()
+  const entries = unzipSync(new Uint8Array(buffer))
+  const manifest = entries[PACKAGE_MANIFEST_ENTRY]
+  if (!manifest) {
+    throw new Error('程序包缺少 manifest.json')
+  }
+  const parsed: unknown = JSON.parse(strFromU8(manifest))
+  if (!isLegacyBundle(parsed)) {
+    throw new Error('不是有效的 iCode 程序包')
+  }
+  if (parsed.appData !== undefined && !isStringRecord(parsed.appData)) {
+    throw new Error('程序包数据格式无效')
+  }
+  return parsed
+}
+
+/** 旧包 → 版本布局整包（供统一导入路径） */
+export function legacyBundleToPackageBundle(bundle: ICodeExportBundle): IcodePackageBundle {
+  const project = bundle.project as Partial<ICodeInternalProject> & {
+    appId?: GeneratedAppId
+    name: string
+    description: string
+    category: string
+    iconEmoji: string
+    themeColor: string
+    tags?: ICodeInternalProject['tags']
+    html: string
+  }
+
+  const identity = {
+    name: project.name,
+    description: project.description,
+    category: project.category,
+    iconEmoji: project.iconEmoji,
+    themeColor: project.themeColor,
+    createdAt: osNowMs(),
+  }
+
+  return {
+    format: 'instant-os-icode-package',
+    version: 1,
+    exportedAt: osNowMs(),
+    appId: project.appId ?? 'gen:legacy',
+    index: { placeholder: identity },
+    versions: project.html
+      ? [
+          {
+            number: 1,
+            manifest: {
+              format: 'instant-os-generated-app-version',
+              name: project.name,
+              description: project.description,
+              category: project.category,
+              iconEmoji: project.iconEmoji,
+              themeColor: project.themeColor,
+              tags: project.tags ?? [],
+            },
+            files: [{ path: 'index.html', text: project.html }],
+          },
+        ]
+      : [],
+    draft: null,
+    chat: bundle.kind === 'internal' ? (project.chat ?? []) : [],
+    appData: bundle.appData ?? {},
+  }
+}
+
+// ---- 供测试 ----
+
+export function packageBundleToZipBytes(bundle: IcodePackageBundle): Uint8Array {
+  return zipSync({
+    [PACKAGE_MANIFEST_ENTRY]: strToU8(JSON.stringify(bundle, null, 2)),
+  })
+}
+
+export function legacyLoadFormalAppData(appId: GeneratedAppId): Promise<Record<string, string>> {
+  return Promise.resolve(loadGeneratedAppData(appId))
 }

@@ -10,6 +10,9 @@ import {
   writeLocalStorageItem,
 } from './device-storage.ts'
 import type {
+  AppCapabilityTag,
+} from '../apps/appstore/app-capability-tags.ts'
+import type {
   GeneratedAppRecord,
   GeneratedAppVersionSnapshot,
 } from '../apps/appstore/types.ts'
@@ -27,6 +30,12 @@ import {
   writeGeneratedAppManifest,
   type GeneratedAppManifest,
 } from './generated-apps-files.ts'
+import {
+  getMaxFormalVersionNumber,
+  readVersionManifest,
+  readVersionsPackageIndex,
+  removeGeneratedAppBundle,
+} from './generated-app-versions-layout.ts'
 
 const INDEX_KEY = DEVICE_STORAGE_KEYS.generatedAppsIndex
 const LEGACY_KEY = DEVICE_STORAGE_KEYS.generatedApps
@@ -96,6 +105,9 @@ function manifestFromRecord(
 
 /** 把单个应用 record 全量落盘到 Contents（差分写版本 html）。 */
 async function persistAppContents(record: GeneratedAppRecord): Promise<void> {
+  // 版本文件夹布局（iCode 管理）：本体由版本布局模块管理，这里只保留索引注册
+  if (record.versionsLayout) return
+
   const prev = cache.get(record.id)
   const prevVersions = prev ? manifestVersions(prev) : []
   const versions = manifestVersions(record)
@@ -116,10 +128,58 @@ async function persistAppContents(record: GeneratedAppRecord): Promise<void> {
   await writeGeneratedAppManifest(record.id, manifestFromRecord(record, versions))
 }
 
+/**
+ * 版本文件夹布局（iCode 管理）：从包内重建运行时记录。
+ * 桌面身份只认当前最大正式版文件夹里那份清单；尚无正式版时用包级出生占位身份。
+ */
+async function loadVersionsLayoutRecord(
+  appId: string,
+): Promise<GeneratedAppRecord | undefined> {
+  const index = await readVersionsPackageIndex(appId)
+  const max = await getMaxFormalVersionNumber(appId)
+  const manifest = max === undefined ? undefined : await readVersionManifest(appId, max)
+
+  if (max === undefined && !index?.placeholder) {
+    return undefined
+  }
+
+  const identity =
+    manifest ??
+    (index?.placeholder
+      ? {
+          name: index.placeholder.name,
+          description: index.placeholder.description,
+          category: index.placeholder.category,
+          iconEmoji: index.placeholder.iconEmoji,
+          themeColor: index.placeholder.themeColor,
+          tags: [] as AppCapabilityTag[],
+        }
+      : undefined)
+
+  return {
+    id: appId as `gen:${string}`,
+    name: identity?.name ?? index?.placeholder?.name ?? '未命名应用',
+    description: identity?.description ?? '',
+    category: identity?.category ?? '实用工具',
+    iconEmoji: identity?.iconEmoji ?? '📦',
+    themeColor: identity?.themeColor ?? '#5856d6',
+    tags: identity?.tags ?? [],
+    html: '',
+    version: max === undefined ? '1' : String(max),
+    icodeProjectId: index?.icodeProjectId,
+    versionsLayout: true,
+    activeVersion: max ?? 0,
+  }
+}
+
 /** 从 Contents 读取单个应用完整 record；缺失返回 undefined */
 async function loadAppContents(appId: string): Promise<GeneratedAppRecord | undefined> {
   const manifest = await readGeneratedAppManifest(appId)
-  if (!manifest) return undefined
+  if (!manifest) {
+    // 包级索引（极轻、无 name 等字段，过不了完整清单校验）或索引损坏：
+    // 按版本文件夹布局识别（readVersionsPackageIndex 自己解析 Contents/manifest.json）
+    return loadVersionsLayoutRecord(appId)
+  }
 
   const versions: GeneratedAppVersionSnapshot[] = []
   for (const item of manifest.versions) {
@@ -262,7 +322,12 @@ export async function saveInstalledAppsToFiles(apps: GeneratedAppRecord[]): Prom
     }
     for (const prevId of prevIds) {
       if (!nextIds.has(prevId)) {
-        await removeGeneratedAppContents(prevId)
+        // 版本文件夹布局的应用卸载时删整包（Versions / Developer / Data / Contents）
+        if (cache.get(prevId)?.versionsLayout) {
+          await removeGeneratedAppBundle(prevId)
+        } else {
+          await removeGeneratedAppContents(prevId)
+        }
       }
     }
     if (!writeIndex([...nextIds])) return false
@@ -289,4 +354,18 @@ export async function getGeneratedAppBodiesBytes(): Promise<Record<string, numbe
 export function __resetGeneratedAppStoreForTest(): void {
   cache = new Map()
   hydrated = false
+}
+
+/**
+ * 版本文件夹布局应用：从包内重建运行时记录（读最大正式版清单）并更新内存缓存。
+ * 发布 / 治理 / 导入后由 context 调用，随后随 saveInstalledApps 落索引。
+ */
+export async function rebuildVersionsLayoutRecord(
+  appId: string,
+): Promise<GeneratedAppRecord | undefined> {
+  const record = await loadVersionsLayoutRecord(appId)
+  if (record) {
+    cache.set(appId, record)
+  }
+  return record
 }
