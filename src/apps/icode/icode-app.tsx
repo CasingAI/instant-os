@@ -13,6 +13,11 @@ import {
   detectProjectEntry,
 } from './icode-project-build.ts'
 import { readVersionFileBytes } from '../../os/generated-app-versions-layout.ts'
+import {
+  runIcodeTypeCheck,
+  type IcodeTypeCheckDiagnostic,
+} from './icode-type-check.ts'
+import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from '../../os/experimental-settings-storage.ts'
 import {
   isGeneratedAppStorageMessage,
@@ -356,6 +361,8 @@ export function ICodeApp() {
   >()
   const [newFilePath, setNewFilePath] = useState('')
   const [addingFile, setAddingFile] = useState(false)
+  const [typeDiagnostics, setTypeDiagnostics] = useState<IcodeTypeCheckDiagnostic[] | undefined>(undefined)
+  const [typeCheckRunning, setTypeCheckRunning] = useState(false)
   const closeIntentRef = useRef<IcodeNavigationIntent>({ type: 'list' })
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -579,6 +586,39 @@ export function ICodeApp() {
           session.binaryFiles.some((file) => file.path === path),
       )
     : undefined
+
+  // 五期：旁路类型检查——一轮草稿写入结束或用户明确要求时查一次；失败不挡任何关键路径
+  const typeCheckGenerationRef = useRef(0)
+  const runTypeCheckForFiles = useCallback(
+    async (files: readonly IcodeDraftFile[], entry: string | undefined) => {
+      if (!entry) {
+        setTypeDiagnostics(undefined)
+        return
+      }
+      const generation = ++typeCheckGenerationRef.current
+      setTypeCheckRunning(true)
+      try {
+        const record: Record<string, string> = {}
+        for (const file of files) {
+          record[file.path] = file.text
+        }
+        const diagnostics = await runIcodeTypeCheck({ files: record, entryPath: entry })
+        if (generation === typeCheckGenerationRef.current) {
+          setTypeDiagnostics(diagnostics)
+        }
+      } catch (checkError) {
+        if (generation === typeCheckGenerationRef.current) {
+          console.error('[icode] 类型检查失败', checkError)
+          setTypeDiagnostics(undefined)
+        }
+      } finally {
+        if (generation === typeCheckGenerationRef.current) {
+          setTypeCheckRunning(false)
+        }
+      }
+    },
+    [],
+  )
 
   const [projectPreviewDoc, setProjectPreviewDoc] = useState<string | undefined>(undefined)
   useEffect(() => {
@@ -904,6 +944,7 @@ export function ICodeApp() {
   useEffect(() => {
     setVisitedEditorTabs({ chat: true })
     setEditorTab('chat')
+    setTypeDiagnostics(undefined)
   }, [session?.appId])
 
   useEffect(() => {
@@ -1100,8 +1141,15 @@ export function ICodeApp() {
     )
     setPreviewEpoch((epoch) => epoch + 1)
     void listIcodeFormalVersions(appId).then(setFormalVersions)
+    // 一轮写入结束：旁路类型检查查一次（诊断给源码页与下一轮 agent 上下文）
+    if (snapshot.files.some((file) => file.path === 'main.tsx')) {
+      void runTypeCheckForFiles(
+        snapshot.files,
+        snapshot.manifest.entry ?? 'main.tsx',
+      )
+    }
     return next
-  }, [])
+  }, [runTypeCheckForFiles])
 
   const runAgentRound = useCallback(
     async (instruction: string, activeSession: EditorSession) => {
@@ -1176,10 +1224,24 @@ export function ICodeApp() {
       }
 
       try {
+        const agentProblems: MonacoProblem[] = (typeDiagnostics ?? []).map((diagnostic) => ({
+          id: `${diagnostic.file}:${diagnostic.line}:${diagnostic.column}`,
+          path: diagnostic.file,
+          resourceLabel: diagnostic.file,
+          message: diagnostic.message,
+          severity: diagnostic.category,
+          source: 'ts',
+          code: diagnostic.code === undefined ? undefined : String(diagnostic.code),
+          startLineNumber: diagnostic.line,
+          startColumn: diagnostic.column,
+          endLineNumber: diagnostic.line,
+          endColumn: diagnostic.column + 1,
+        }))
         const result = await runIcodeAgent({
           appId: activeSession.appId,
           appName: activeSession.manifest.name,
           draftRoot,
+          problems: agentProblems,
           fileManifest: draftFiles.map((file) => file.path),
           grantedCapabilities: toIcodeCapabilityTags(activeSession.manifest.tags ?? []),
           chatSessionId,
@@ -1234,7 +1296,7 @@ export function ICodeApp() {
         }
       }
     },
-    [draftFiles, generating, reloadAfterAgentRound],
+    [draftFiles, generating, reloadAfterAgentRound, typeDiagnostics],
   )
 
   const onCancelGeneration = useCallback(() => {
@@ -2096,6 +2158,20 @@ export function ICodeApp() {
                   {filesDirty && (
                     <span class="icode__run-hint">源码已修改，点击「运行」更新左侧预览</span>
                   )}
+                  {projectEntryPath && (
+                    <button
+                      type="button"
+                      class="icode__panel-action"
+                      disabled={typeCheckRunning || generating}
+                      onClick={() =>
+                        void runTypeCheckForFiles(draftFiles, projectEntryPath)
+                      }
+                    >
+                      {typeCheckRunning
+                        ? '检查中…'
+                        : `类型检查${typeDiagnostics && typeDiagnostics.length > 0 ? `（${typeDiagnostics.length}）` : ''}`}
+                    </button>
+                  )}
                   <button
                     type="button"
                     class="icode__panel-action"
@@ -2146,6 +2222,30 @@ export function ICodeApp() {
                     >
                       取消
                     </button>
+                  </div>
+                )}
+                {projectEntryPath && typeDiagnostics !== undefined && (
+                  <div class="icode__type-diagnostics">
+                    {typeDiagnostics.length === 0 ? (
+                      <p class="icode__type-diagnostics-ok">类型检查通过，无诊断。</p>
+                    ) : (
+                      typeDiagnostics.slice(0, 50).map((diagnostic, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          class={`icode__type-diagnostic icode__type-diagnostic--${diagnostic.category}`}
+                          onClick={() => setActiveFilePath(diagnostic.file)}
+                          title={diagnostic.message}
+                        >
+                          <span class="icode__type-diagnostic-pos">
+                            {diagnostic.file}:{diagnostic.line}:{diagnostic.column}
+                          </span>
+                          <span class="icode__type-diagnostic-message">
+                            {diagnostic.message}
+                          </span>
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
                 <div class="icode__source-split">

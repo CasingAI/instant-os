@@ -45,7 +45,8 @@
     "typecheck": "tsc -b --noEmit",
     "prepare": "simple-git-hooks",
     "test:icode-versions": "node --experimental-strip-types src/os/generated-app-versions-layout.test.ts && node --experimental-strip-types src/apps/generated/generated-app-site-html.test.ts",
-    "test:icode-project-build": "node --experimental-strip-types src/apps/icode/icode-project-build.test.ts && node --experimental-strip-types src/os/icode-managed-apps-publish.test.ts"
+    "test:icode-project-build": "node --experimental-strip-types src/apps/icode/icode-project-build.test.ts && node --experimental-strip-types src/os/icode-managed-apps-publish.test.ts",
+    "test:icode-type-check": "node --experimental-strip-types src/apps/icode/icode-type-check.test.ts"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm typecheck"

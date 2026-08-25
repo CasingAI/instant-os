@@ -32,6 +32,7 @@ import type { VscodeAiToolsHost } from '../vscode/vscode-ai-tools.ts'
 import { VSCODE_AI_SYSTEM_REMINDER_PREAMBLE } from '../vscode/vscode-ai-system-reminder.ts'
 import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
 import type { ProdudeTerminalHostApi } from '../produde/produde-terminal-host.tsx'
+import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 
 export type IcodeCapabilityTag = '3d' | 'ai' | 'files' | 'terminal'
 
@@ -98,6 +99,7 @@ export function buildIcodeAgentContext(
   draftRoot: string,
   terminalApi: ProdudeTerminalHostApi | null,
   chatSessionId: string,
+  problems: readonly MonacoProblem[] = [],
 ): VscodeAiContextInput {
   return {
     workspaceFolder: draftRoot,
@@ -109,7 +111,8 @@ export function buildIcodeAgentContext(
       cursorColumn: 1,
       selectionText: undefined,
     },
-    problems: [],
+    // 五期：旁路类型诊断进入 agent 上下文，模型能读到并改草稿自修
+    problems,
     aiTerminalKind: 'agent',
     aiTerminal: terminalApi?.getAiTerminalSnapshot('agent', chatSessionId) ?? { status: 'none' },
   }
@@ -245,13 +248,19 @@ export type RunIcodeAgentOptions = {
   terminalApi: ProdudeTerminalHostApi
   runCommandHost: VscodeAiRunCommandHost
   requestCapability: (tag: IcodeCapabilityTag, reason: string) => Promise<boolean>
+  problems?: readonly MonacoProblem[]
   onProgress?: (progress: VscodeAiAgentProgress) => void
 }
 
 export async function runIcodeAgent(options: RunIcodeAgentOptions): Promise<VscodeAiAgentResult> {
   const toolsHost: VscodeAiToolsHost = {
     getContext: () =>
-      buildIcodeAgentContext(options.draftRoot, options.terminalApi, options.chatSessionId),
+      buildIcodeAgentContext(
+        options.draftRoot,
+        options.terminalApi,
+        options.chatSessionId,
+        options.problems,
+      ),
     runCommandHost: options.runCommandHost,
     chatSessionId: options.chatSessionId,
     ensureAiTerminal: (terminalKind, ownerId, title) =>
@@ -271,6 +280,7 @@ export async function runIcodeAgent(options: RunIcodeAgentOptions): Promise<Vsco
       options.draftRoot,
       options.terminalApi,
       options.chatSessionId,
+      options.problems,
     ),
     toolsHost,
     history: options.history,
