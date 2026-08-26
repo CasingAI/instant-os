@@ -1,3 +1,4 @@
+import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren, ComponentType, JSX } from 'preact'
 import { getAppDefinition } from '../../os/app-registry.tsx'
@@ -19,6 +20,7 @@ import {
   type AdaptiveActionMenuLeafItem,
   type AdaptiveActionMenuItem,
 } from '../../ui/adaptive-action-menu.tsx'
+import { getFloatingOverlayRoot } from '../../ui/floating-overlay-root.ts'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
@@ -536,7 +538,9 @@ function FilesContextMenu({
     menu.style.top = `${Math.max(8, Math.min(y, maxY))}px`
   }, [x, y])
 
-  return (
+  // 传送到 document.body 的浮层根：祖先 .files__main 带 translate3d，会把
+  // position:fixed 的包含块劫持成自身，导致 clientX/Y 被错误解释为相对它定位
+  return createPortal(
     <div
       ref={menuRef}
       class={className}
@@ -545,7 +549,8 @@ function FilesContextMenu({
       onClick={(event) => event.stopPropagation()}
     >
       {children}
-    </div>
+    </div>,
+    getFloatingOverlayRoot(),
   )
 }
 
@@ -4002,17 +4007,20 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               </ul>
             </>
           )}
-          {marqueeRect ? (
-            <div
-              class="files__marquee"
-              style={{
-                left: `${Math.min(marqueeRect.left, marqueeRect.right)}px`,
-                top: `${Math.min(marqueeRect.top, marqueeRect.bottom)}px`,
-                width: `${Math.abs(marqueeRect.right - marqueeRect.left)}px`,
-                height: `${Math.abs(marqueeRect.bottom - marqueeRect.top)}px`,
-              }}
-            />
-          ) : undefined}
+          {marqueeRect
+            ? createPortal(
+                <div
+                  class="files__marquee"
+                  style={{
+                    left: `${Math.min(marqueeRect.left, marqueeRect.right)}px`,
+                    top: `${Math.min(marqueeRect.top, marqueeRect.bottom)}px`,
+                    width: `${Math.abs(marqueeRect.right - marqueeRect.left)}px`,
+                    height: `${Math.abs(marqueeRect.bottom - marqueeRect.top)}px`,
+                  }}
+                />,
+                getFloatingOverlayRoot(),
+              )
+            : undefined}
         </div>
 
         <FilesPathBar

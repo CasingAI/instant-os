@@ -1565,14 +1565,17 @@ button.files__path-bar-segment:active {
 
 /* ── 多选 / 框选 / 拖放落点 ─────────────────────────────────────── */
 
-/* 框选拖拽层：视口坐标 + fixed，避免受滚动/边距影响 */
+/* 框选拖拽层：视口坐标，传送进 floating-overlay-root 渲染，
+   避免被带 transform 的 .files__main 劫持成 fixed 包含块 */
 .files__marquee {
   position: fixed;
   z-index: 40;
   border: 1px solid rgba(138, 106, 56, 0.75);
   border-radius: 3px;
   background: rgba(232, 197, 106, 0.18);
-  pointer-events: none;
+  /* 压过 .floating-overlay-root > * 的 pe:auto：那条规则随懒加载分包注入，
+     同优先级下可能反超，令橡皮筋挡住拖拽路径上的点击 */
+  pointer-events: none !important;
 }
 
 /* 拖放落点高亮 */
