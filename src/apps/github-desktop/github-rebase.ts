@@ -10,10 +10,7 @@ import {
   persistBaselineFromFiles,
   writeBaselineBlobIfMissing,
 } from './github-baseline.ts'
-import {
-  detectGithubChanges,
-  stampFileIndexRevisionIdsFromWorkingTree,
-} from './github-changes.ts'
+import { detectGithubChanges } from './github-changes.ts'
 import type { GithubProgress } from './github-progress.ts'
 import {
   currentBranchPushedSha,
@@ -30,7 +27,6 @@ import {
   type GithubLocalCommit,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
-import { diffFileIndexes } from './github-file-index-diff.ts'
 import { syncWorkingTreeToFileIndex, unzipGithubZipball } from './github-working-tree.ts'
 
 /** 变更文件数超过此阈值时回退整包 zip */
@@ -188,9 +184,8 @@ export async function rematerializeBranchFromZip(params: {
   const zip = await githubDownloadZipball(meta.owner, meta.repo, params.ref, onProgress)
   const files = await unzipGithubZipball(zip)
   onProgress?.('写入基线快照…')
-  let fileIndex = await persistBaselineFromFiles(files)
+  const fileIndex = await persistBaselineFromFiles(files)
   const fromIndex = currentFileIndex(meta)
-  const writtenPaths = new Set(diffFileIndexes(fromIndex, fileIndex).map((op) => op.path))
   onProgress?.('增量同步工作区…')
   await syncWorkingTreeToFileIndex(
     meta.owner,
@@ -198,13 +193,6 @@ export async function rematerializeBranchFromZip(params: {
     fromIndex,
     fileIndex,
     onProgress,
-  )
-  // 只 stamp 实际写入的路径，避免把无关 WIP 的 revisionId 写进 tip
-  fileIndex = await stampFileIndexRevisionIdsFromWorkingTree(
-    meta.owner,
-    meta.repo,
-    fileIndex,
-    writtenPaths,
   )
   const next = withBranchSnapshot(
     meta,
@@ -261,7 +249,6 @@ async function fastForwardToRemoteTip(params: {
     remoteSha,
     onProgress,
   })
-  const writtenPaths = new Set(diffFileIndexes(fromIndex, nextIndex).map((op) => op.path))
   onProgress?.('同步工作区…')
   await syncWorkingTreeToFileIndex(
     meta.owner,
@@ -270,16 +257,10 @@ async function fastForwardToRemoteTip(params: {
     nextIndex,
     onProgress,
   )
-  const stampedIndex = await stampFileIndexRevisionIdsFromWorkingTree(
-    meta.owner,
-    meta.repo,
-    nextIndex,
-    writtenPaths,
-  )
   const next = withRemoteBranchTip(
     withBranchSnapshot(meta, meta.currentBranch, {
       tipSha: remoteSha,
-      fileIndex: stampedIndex,
+      fileIndex: nextIndex,
       baselineComplete: true,
       pushedTipSha: remoteSha,
     }),
@@ -354,7 +335,6 @@ async function rebaseUnpushedChain(params: {
 
   const tipSha = rewritten[rewritten.length - 1]!.sha
   const fromIndex = currentFileIndex(meta)
-  const writtenPaths = new Set(diffFileIndexes(fromIndex, tipFileIndex).map((op) => op.path))
   onProgress?.('同步工作区…')
   await syncWorkingTreeToFileIndex(
     meta.owner,
@@ -363,23 +343,17 @@ async function rebaseUnpushedChain(params: {
     tipFileIndex,
     onProgress,
   )
-  const stampedIndex = await stampFileIndexRevisionIdsFromWorkingTree(
-    meta.owner,
-    meta.repo,
-    tipFileIndex,
-    writtenPaths,
-  )
-  const stampedRewritten = rewritten.map((commit, index) => {
+  const rewrittenWithTipIndex = rewritten.map((commit, index) => {
     if (index !== rewritten.length - 1) return commit
-    return { ...commit, fileIndexAfter: stampedIndex }
+    return { ...commit, fileIndexAfter: tipFileIndex }
   })
 
-  await replaceUnpushedLocalCommits(meta.owner, meta.repo, stampedRewritten)
+  await replaceUnpushedLocalCommits(meta.owner, meta.repo, rewrittenWithTipIndex)
 
   const next = withRemoteBranchTip(
     withBranchSnapshot(meta, meta.currentBranch, {
       tipSha,
-      fileIndex: stampedIndex,
+      fileIndex: tipFileIndex,
       baselineComplete: true,
       pushedTipSha: remoteSha,
     }),

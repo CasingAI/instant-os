@@ -4,7 +4,6 @@ import { filesRemoveBatch } from '../files/files-api.ts'
 import { readBaselineBytes, writeBaselineBlobIfMissing } from './github-baseline.ts'
 import {
   detectGithubChanges,
-  stampFileIndexRevisionIdsFromWorkingTree,
 } from './github-changes.ts'
 import { discardGithubChanges } from './github-discard.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
@@ -146,16 +145,11 @@ export async function stashPopGithubChanges(params: {
 
   await removeGithubStashEntry(meta.owner, meta.repo, stash.id)
 
-  // tip 不变；仅对齐 revisionId，避免误报
+  // tip 不变；工作区内容已与基线 hash 一致，纯 hash 检测不会误报
   const fileIndex = currentFileIndex(meta)
-  const stamped = await stampFileIndexRevisionIdsFromWorkingTree(
-    meta.owner,
-    meta.repo,
-    fileIndex,
-  )
   const next = withBranchSnapshot(meta, meta.currentBranch, {
     tipSha: currentHeadSha(meta),
-    fileIndex: stamped,
+    fileIndex,
     baselineComplete: meta.branches[meta.currentBranch]?.baselineComplete,
     pushedTipSha: meta.branches[meta.currentBranch]?.pushedTipSha,
   })

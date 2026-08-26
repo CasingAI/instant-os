@@ -4,7 +4,6 @@ import {
   readBaselineBytes,
 } from './github-baseline.ts'
 import type { GithubChange } from './github-changes.ts'
-import { stampFileIndexRevisionIdsFromWorkingTree } from './github-changes.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
 import {
   currentFileIndex,
@@ -57,12 +56,10 @@ export async function discardGithubChanges(params: {
     params.discardAll ? '正在还原工作区…' : `丢弃 ${changes.length} 处更改…`,
   )
 
-  const touchedPaths = new Set<string>()
   const addedPaths: string[] = []
   const restoreChanges: GithubChange[] = []
 
   for (const change of changes) {
-    touchedPaths.add(change.path)
     if (change.kind === 'added') {
       addedPaths.push(change.absolutePath)
     } else {
@@ -110,16 +107,10 @@ export async function discardGithubChanges(params: {
     }
   }
 
-  // 写回 tip 后节点 revisionId 已变，必须同步到 fileIndex，否则会误报 modified
-  const reconciled = await stampFileIndexRevisionIdsFromWorkingTree(
-    meta.owner,
-    meta.repo,
-    fileIndex,
-    params.discardAll ? undefined : touchedPaths,
-  )
+  // 写回 tip 内容与基线 hash 一致，纯 hash 检测不会误报
   const next = withBranchSnapshot(meta, meta.currentBranch, {
     tipSha: currentHeadSha(meta),
-    fileIndex: reconciled,
+    fileIndex,
   })
   next.updatedAt = osNowMs()
   await saveGithubRepoMeta(next)

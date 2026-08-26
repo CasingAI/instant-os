@@ -4,32 +4,27 @@ import { githubDownloadZipball } from './github-api.ts'
 import {
   baselineBlobExists,
   baselineBlobsAbsentForIndex,
+  persistBaselineFromFiles,
   readBaselineBytes,
   readBaselineTextForPath,
   writeBaselineBlob,
   writeBaselineBlobIfMissing,
 } from './github-baseline.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
-import { diffRevisionSnapshot, fileIndexHasAnyRevisionId } from './github-revision-diff.ts'
 import {
   buildFileIndex,
-  buildFileIndexFromRevisionSnapshot,
-  currentBranchSnapshot,
   currentFileIndex,
   currentHeadSha,
   hashBytes,
-  reconcileFileIndexRevisionIds,
   saveGithubRepoMeta,
   withBranchSnapshot,
   type GithubFileIndexEntry,
   type GithubRepoSyncMeta,
-  type GithubRevisionSnapshotEntry,
 } from './github-sync-meta.ts'
 import type { GithubProgress } from './github-progress.ts'
 import {
   collectWorkingTreeFiles,
   collectWorkingTreeFileStats,
-  collectWorkingTreeRevisionSnapshot,
   isProbablyTextBytes,
   readWorkingTreeBytes,
   unzipGithubZipball,
@@ -54,103 +49,62 @@ export type GithubChangePreview = {
 export {
   collectWorkingTreeFiles,
   collectWorkingTreeFileStats,
-  collectWorkingTreeRevisionSnapshot,
   readWorkingTreeBytes,
 }
 
+/**
+ * 纯 hash 检测（第十期后）：byteSize 不同直接判 modified；
+ * 大小相同才读正文算 hash 与基线比对。输出与旧版一致。
+ */
 export async function detectGithubChanges(
   meta: GithubRepoSyncMeta,
 ): Promise<GithubChange[]> {
   const root = githubRepoRootPath(meta.owner, meta.repo)
-  const snapshot = await collectWorkingTreeRevisionSnapshot(meta.owner, meta.repo)
+  const working = await collectWorkingTreeFileStats(meta.owner, meta.repo)
   const fileIndex = currentFileIndex(meta)
-  const provisional = diffRevisionSnapshot(fileIndex, snapshot, root)
   const changes: GithubChange[] = []
-  /** revision/元数据提示变更但内容 hash 与基线相同 → 对齐 fileIndex，避免幽灵变更 */
-  const healPaths = new Set<string>()
 
-  for (const item of provisional) {
-    if (!item.needsHashCheck) {
-      changes.push({
-        path: item.path,
-        kind: item.kind,
-        absolutePath: item.absolutePath,
-      })
-      continue
-    }
-
-    // revision 不等或缺 revisionId：回退 size / hash
-    const previous = fileIndex[item.path]
+  for (const [path, stat] of working) {
+    const previous = fileIndex[path]
     if (!previous) {
-      changes.push({
-        path: item.path,
-        kind: 'added',
-        absolutePath: item.absolutePath,
-      })
+      changes.push({ path, kind: 'added', absolutePath: stat.absolutePath })
       continue
     }
-    if (previous.byteSize !== item.byteSize) {
-      changes.push({
-        path: item.path,
-        kind: 'modified',
-        absolutePath: item.absolutePath,
-      })
+    if (previous.byteSize !== stat.byteSize) {
+      changes.push({ path, kind: 'modified', absolutePath: stat.absolutePath })
       continue
     }
-    const bytes = await readWorkingTreeBytes(item.absolutePath)
+    const bytes = await readWorkingTreeBytes(stat.absolutePath)
     const hash = await hashBytes(bytes)
     if (previous.hash !== hash) {
-      changes.push({
-        path: item.path,
-        kind: 'modified',
-        absolutePath: item.absolutePath,
-      })
-      continue
-    }
-    if (item.contentRevisionId !== undefined) {
-      healPaths.add(item.path)
+      changes.push({ path, kind: 'modified', absolutePath: stat.absolutePath })
     }
   }
 
-  if (healPaths.size > 0) {
-    const reconciled = reconcileFileIndexRevisionIds(fileIndex, snapshot, healPaths)
-    const branch = currentBranchSnapshot(meta)
-    const next = withBranchSnapshot(meta, meta.currentBranch, {
-      ...branch,
-      fileIndex: reconciled,
-    })
-    next.updatedAt = osNowMs()
-    await saveGithubRepoMeta(next)
+  for (const path of Object.keys(fileIndex)) {
+    if (working.has(path)) continue
+    const absolutePath = root.endsWith('/') ? `${root}${path}` : `${root}/${path}`
+    changes.push({ path, kind: 'deleted', absolutePath })
   }
 
+  changes.sort((a, b) => a.path.localeCompare(b.path))
   return changes
 }
 
-/**
- * 从当前工作区构建 fileIndex（含 revisionId），并写入缺失的 baseline blob。
- * hash 优先复用 previousIndex 中 revisionId 未变的路径。
- */
+/** 从当前工作区重建基线：逐文件算 hash、写缺失 blob、产出全新 fileIndex */
 export async function persistBaselineFromWorkingTree(
   owner: string,
   repo: string,
-  previousIndex?: Record<string, GithubFileIndexEntry>,
+  _previousIndex?: Record<string, GithubFileIndexEntry>,
 ): Promise<Record<string, GithubFileIndexEntry>> {
-  const snapshot = await collectWorkingTreeRevisionSnapshot(owner, repo)
-  return buildFileIndexFromRevisionSnapshot(snapshot, {
-    previousIndex,
-    hashPath: async (absolutePath) => {
-      const bytes = await readWorkingTreeBytes(absolutePath)
-      const hash = await hashBytes(bytes)
-      await writeBaselineBlobIfMissing(hash, bytes)
-      return { hash, byteSize: bytes.byteLength }
-    },
-  })
+  const working = await collectWorkingTreeFiles(owner, repo)
+  return persistBaselineFromFiles(working)
 }
 
 /** 分次提交：仅把本次已提交路径写入基线索引，未提交路径保持原基线以便继续出现在变更列表 */
 export async function persistBaselineForCommittedChanges(
-  owner: string,
-  repo: string,
+  _owner: string,
+  _repo: string,
   committedChanges: readonly GithubChange[],
   previousIndex: Record<string, GithubFileIndexEntry>,
 ): Promise<Record<string, GithubFileIndexEntry>> {
@@ -165,36 +119,12 @@ export async function persistBaselineForCommittedChanges(
     await writeBaselineBlobIfMissing(hash, bytes)
     nextIndex[change.path] = { hash, byteSize: bytes.byteLength }
   }
-  if (committedChanges.length === 0) {
-    return nextIndex
-  }
-  return stampFileIndexRevisionIdsFromWorkingTree(
-    owner,
-    repo,
-    nextIndex,
-    new Set(committedChanges.map((change) => change.path)),
-  )
+  return nextIndex
 }
 
 /**
- * 将已有 fileIndex 的 revisionId 与当前工作区节点对齐（discard / zip 物化后）。
- */
-export async function stampFileIndexRevisionIdsFromWorkingTree(
-  owner: string,
-  repo: string,
-  fileIndex: Record<string, GithubFileIndexEntry>,
-  paths?: ReadonlySet<string>,
-): Promise<Record<string, GithubFileIndexEntry>> {
-  const snapshot = await collectWorkingTreeRevisionSnapshot(owner, repo)
-  return reconcileFileIndexRevisionIds(fileIndex, snapshot, paths)
-}
-
-export { reconcileFileIndexRevisionIds }
-export type { GithubRevisionSnapshotEntry }
-
-/**
- * 打开仓库时：补齐节点 contentRevisionId；若工作区干净且 fileIndex 缺 revisionId，则写入 fileIndex。
- * 有本地变更时不 stamp fileIndex，继续靠 hash 回退直到 commit/discard。
+ * 打开仓库时：补齐节点 contentRevisionId（VFS 自身一致性 backfill）。
+ * 第十期后 fileIndex 不再持有 revisionId，这里只剩 backfill 一步。
  */
 export async function ensureGithubRevisionIdsReady(
   meta: GithubRepoSyncMeta,
@@ -206,30 +136,8 @@ export async function ensureGithubRevisionIdsReady(
     await filesBackfillSubtreeContentRevisionIds(root)
   } catch {
     // 根目录不存在等：跳过
-    return meta
   }
-
-  const fileIndex = currentFileIndex(meta)
-  if (Object.keys(fileIndex).length === 0) return meta
-  if (fileIndexHasAnyRevisionId(fileIndex)) return meta
-
-  // fileIndex 全无 revisionId：先用 hash 检测是否干净
-  const changes = await detectGithubChanges(meta)
-  if (changes.length > 0) return meta
-
-  onProgress?.('同步版本戳到索引…')
-  const stamped = await stampFileIndexRevisionIdsFromWorkingTree(
-    meta.owner,
-    meta.repo,
-    fileIndex,
-  )
-  const next = withBranchSnapshot(meta, meta.currentBranch, {
-    tipSha: currentHeadSha(meta),
-    fileIndex: stamped,
-  })
-  next.updatedAt = osNowMs()
-  await saveGithubRepoMeta(next)
-  return next
+  return meta
 }
 
 export type RebuildBaselineResult =

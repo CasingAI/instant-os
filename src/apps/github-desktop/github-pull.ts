@@ -1,7 +1,7 @@
 import { osNowMs } from '../../os/os-clock.ts'
 import { githubGetBranchTip } from './github-api.ts'
 import { baselineBlobsAbsentForIndex } from './github-baseline.ts'
-import { detectGithubChanges, stampFileIndexRevisionIdsFromWorkingTree } from './github-changes.ts'
+import { detectGithubChanges } from './github-changes.ts'
 import type { GithubProgress } from './github-progress.ts'
 import {
   rebaseUnpushedOntoRemoteTip,
@@ -69,16 +69,11 @@ export async function switchGithubBranch(params: {
       cached.fileIndex,
       params.onProgress,
     )
-    const stampedIndex = await stampFileIndexRevisionIdsFromWorkingTree(
-      params.meta.owner,
-      params.meta.repo,
-      cached.fileIndex,
-    )
     const next = touchRecentBranch(
       withBranchSnapshot(
         params.meta,
         branch,
-        { tipSha: cached.tipSha, fileIndex: stampedIndex, baselineComplete: true },
+        { tipSha: cached.tipSha, fileIndex: cached.fileIndex, baselineComplete: true },
         { currentBranch: branch },
       ),
       branch,
