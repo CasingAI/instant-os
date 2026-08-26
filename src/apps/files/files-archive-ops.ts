@@ -14,7 +14,11 @@ import {
   estimateFilesOpDurationMs,
   filesWorkloadUnits,
 } from './files-op-progress-policy.ts'
-import { runFilesOpWithProgress, type FilesOpProgressUiState } from './files-run-with-op-progress.ts'
+import {
+  isFilesOpCancelledError,
+  runFilesOpWithProgress,
+  type FilesOpProgressUiState,
+} from './files-run-with-op-progress.ts'
 import { createBinaryFile } from './files-vfs.ts'
 import type { FilesLocationId, FilesNode } from './files-types.ts'
 
@@ -40,16 +44,28 @@ export async function compressNodesToArchiveOp(
   try {
     const { entries, fileCount, byteCount } = await planCompressNodesToArchive(nodes)
     const totalWork = filesWorkloadUnits(fileCount, byteCount)
+    const controller = new AbortController()
 
     const result = await runFilesOpWithProgress({
       kind: 'compress',
       totalWork,
       estimatedTotalMs: estimateFilesOpDurationMs(totalWork),
       onUiChange: context.setOpProgressUi,
-      task: async (report) =>
-        compressEntriesToArchive(entries, format, ({ doneBytes }) => {
-          report({ done: filesWorkloadUnits(fileCount, doneBytes), total: totalWork })
-        }),
+      signal: controller.signal,
+      cancel: () => controller.abort(),
+      task: async (report, signal) =>
+        compressEntriesToArchive(
+          entries,
+          format,
+          ({ doneFiles, totalFiles, doneBytes }) => {
+            report({
+              done: filesWorkloadUnits(fileCount, doneBytes),
+              total: totalWork,
+              detailLabel: `${doneFiles} / ${totalFiles} 个文件`,
+            })
+          },
+          signal,
+        ),
     })
 
     const baseName = nodes.length === 1 ? nodes[0]!.name : '归档'
@@ -74,6 +90,10 @@ export async function compressNodesToArchiveOp(
     context.showToast(`已压缩 ${result.entryCount} 个文件`)
     await context.refresh({ quiet: true })
   } catch (error) {
+    if (isFilesOpCancelledError(error)) {
+      context.showToast('已取消')
+      return
+    }
     await context.alertError('无法压缩', error)
   }
 }
@@ -85,16 +105,21 @@ export async function extractArchiveToDirectoryOp(
 ): Promise<void> {
   if (!context.canCreateHere || !isArchiveFileName(node.name)) return
   try {
+    const controller = new AbortController()
     const result = await runFilesOpWithProgress({
       kind: 'extract',
       totalWork: 1,
       estimatedTotalMs: estimateFilesOpDurationMs(1),
       onUiChange: context.setOpProgressUi,
-      task: async (report) =>
+      signal: controller.signal,
+      cancel: () => controller.abort(),
+      task: async (report, signal) =>
         extractArchiveToDirectory({
           node,
           destRoot: context.destRoot,
-          onProgress: (done, total) => report({ done, total }),
+          signal,
+          onProgress: (done, total) =>
+            report({ done, total, detailLabel: `${done} / ${total} 项` }),
         }),
     })
     const targetSuffix = result.destinationName ? `到「${result.destinationName}」` : ''
@@ -103,6 +128,10 @@ export async function extractArchiveToDirectoryOp(
     )
     await context.refresh()
   } catch (error) {
+    if (isFilesOpCancelledError(error)) {
+      context.showToast('已取消')
+      return
+    }
     await context.alertError('无法解压', error)
   }
 }

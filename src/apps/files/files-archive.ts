@@ -84,11 +84,13 @@ export type FilesCompressProgress = {
 /**
  * 读取 + 编码阶段：按扫描结果读取 blob 并交给 Worker 打包。
  * onProgress 回调返回文件数与字节数，方便调用方映射为统一工作量单位。
+ * signal 每文件检查一次；Worker 编码阶段透传给 worker client（terminate 取消）。
  */
 export async function compressEntriesToArchive(
   entries: readonly FilesCompressPlanEntry[],
   format: FilesArchiveFormat,
   onProgress?: (progress: FilesCompressProgress) => void,
+  signal?: AbortSignal,
 ): Promise<FilesCompressResult> {
   const codecEntries: { path: string; bytes: ArrayBuffer }[] = []
   const totalBytes = entries.reduce((sum, entry) => sum + entry.node.byteSize, 0)
@@ -96,6 +98,7 @@ export async function compressEntriesToArchive(
   let doneBytes = 0
 
   for (const { path, node } of entries) {
+    signal?.throwIfAborted?.()
     const { blob } = await readFileBlob(node.id)
     const bytes = await blob.arrayBuffer()
     codecEntries.push({ path, bytes })
@@ -104,7 +107,7 @@ export async function compressEntriesToArchive(
     onProgress?.({ doneFiles, totalFiles: entries.length, doneBytes, totalBytes })
   }
 
-  const bytes = await encodeArchiveInWorker({ entries: codecEntries, format })
+  const bytes = await encodeArchiveInWorker({ entries: codecEntries, format, signal })
   return { bytes, entryCount: codecEntries.length }
 }
 
@@ -113,9 +116,10 @@ export async function compressNodesToArchive(
   nodes: readonly FilesNode[],
   format: FilesArchiveFormat,
   onProgress?: (progress: FilesCompressProgress) => void,
+  signal?: AbortSignal,
 ): Promise<FilesCompressResult> {
   const { entries } = await planCompressNodesToArchive(nodes)
-  return compressEntriesToArchive(entries, format, onProgress)
+  return compressEntriesToArchive(entries, format, onProgress, signal)
 }
 
 export type FilesExtractResult = {
@@ -136,14 +140,16 @@ export async function extractArchiveToDirectory(params: {
   node: FilesNode
   destRoot: string
   onProgress?: (done: number, total: number) => void
+  /** 取消信号：解码/落盘阶段检查（Worker 阶段 terminate 打断） */
+  signal?: AbortSignal
 }): Promise<FilesExtractResult> {
-  const { node, destRoot, onProgress } = params
+  const { node, destRoot, onProgress, signal } = params
   const extractStartAt = performance.now()
   const { blob } = await readFileBlob(node.id)
   const bytes = new Uint8Array(await blob.arrayBuffer())
 
   if (isBareGzipFileName(node.name)) {
-    const decoded = await decodeArchiveInWorker({ bytes, format: 'gzip-file' })
+    const decoded = await decodeArchiveInWorker({ bytes, format: 'gzip-file', signal })
     const inflated = decoded.get('data')
     if (!inflated) throw new Error('无法解压该 gzip 文件（文件可能已损坏）')
     const desiredName = stripArchiveExtension(node.name) || '解压文件'
@@ -151,6 +157,7 @@ export async function extractArchiveToDirectory(params: {
     const written = await materializeArchiveEntries({
       destRoot,
       entries: [{ relativePath: outName, bytes: inflated }],
+      signal,
       onProgress: (progress) => onProgress?.(progress.done, progress.total),
     })
     return {
@@ -160,7 +167,7 @@ export async function extractArchiveToDirectory(params: {
     }
   }
 
-  const entries = await decodeArchiveInWorker({ bytes, format: 'auto', stripRoot: false })
+  const entries = await decodeArchiveInWorker({ bytes, format: 'auto', stripRoot: false, signal })
   if (entries.size === 0) {
     return { fileCount: 0, bytesWritten: 0 }
   }
@@ -182,6 +189,7 @@ export async function extractArchiveToDirectory(params: {
     destRoot,
     zip: bytes,
     entries: finalEntries,
+    signal,
     onProgress: (progress: { done: number; total: number }) =>
       onProgress?.(progress.done, progress.total),
   }

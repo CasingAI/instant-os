@@ -29,8 +29,11 @@ import {
   importExternalNodes,
   type ExternalImportNode,
 } from '../apps/files/files-import-external.ts'
-import { FilesOpProgressDialog } from '../apps/files/files-op-progress-dialog.tsx'
-import type { FilesOpProgressUiState } from '../apps/files/files-run-with-op-progress.ts'
+import { FilesOpProgressWindow } from '../apps/files/files-op-progress-window.tsx'
+import {
+  isFilesOpCancelledError,
+  type FilesOpProgressUiState,
+} from '../apps/files/files-run-with-op-progress.ts'
 import {
   createBinaryFile,
   createTextFile,
@@ -655,10 +658,13 @@ function SystemOpenDialogBrowser({
         async (nodes) => {
           try {
             if (nodes.length === 0) return
+            const importController = new AbortController()
             await importExternalNodes({
               nodes,
               dest: { destLocationId: locationId, destParentId: folderId },
               onUiChange: setOpProgressUi,
+              signal: importController.signal,
+              cancel: () => importController.abort(),
             })
             await refresh()
             const { total, incompatible } = countImportedIncompatibleNodes(nodes, accept)
@@ -670,6 +676,7 @@ function SystemOpenDialogBrowser({
               })
             }
           } catch (err) {
+            if (isFilesOpCancelledError(err)) return
             await modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
           } finally {
             setBusy(false)
@@ -1034,13 +1041,7 @@ function SystemOpenDialogBrowser({
         </div>
       ) : undefined}
 
-      <FilesOpProgressDialog
-        open={opProgressUi !== undefined}
-        title={opProgressUi?.title ?? ''}
-        remainingLabel={opProgressUi?.remainingLabel ?? ''}
-        fraction={opProgressUi?.fraction ?? 0}
-        themeColor={THEME}
-      />
+      <FilesOpProgressWindow state={opProgressUi} themeColor={THEME} />
     </div>
   )
 }

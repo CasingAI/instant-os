@@ -126,6 +126,13 @@ export async function runFilesOpWithProgress<T>(params: {
 
   try {
     return await params.task(report, params.signal)
+  } catch (error) {
+    // 任何取消源（VFS/归档检查点的 throwIfAborted 等）统一转成 FilesOpCancelledError，
+    // 调用方用 isFilesOpCancelledError 识别为「已取消」而不是报错弹窗
+    if (params.signal?.aborted && !(error instanceof FilesOpCancelledError)) {
+      throw new FilesOpCancelledError()
+    }
+    throw error
   } finally {
     clearTimers()
     params.onUiChange(undefined)

@@ -16,6 +16,7 @@ import {
   filesWorkloadUnits,
 } from './files-op-progress-policy.ts'
 import {
+  FilesOpCancelledError,
   runFilesOpWithProgress,
   type FilesOpProgressUiState,
 } from './files-run-with-op-progress.ts'
@@ -163,8 +164,12 @@ export async function importExternalNodes(params: {
   nodes: readonly ExternalImportNode[]
   dest: { destLocationId: FilesLocationId; destParentId: string | undefined }
   onUiChange: (state: FilesOpProgressUiState | undefined) => void
+  /** 取消信号：切片写入循环在检查点检查并抛 FilesOpCancelledError */
+  signal?: AbortSignal
+  /** ✕ 取消回调（通常 abort 调用方自己的 AbortController） */
+  cancel?: () => void
 }): Promise<ExternalImportResult> {
-  const { nodes, dest, onUiChange } = params
+  const { nodes, dest, onUiChange, signal, cancel } = params
   if (nodes.length === 0) return { fileCount: 0, byteCount: 0 }
   const steps = planExternalImport(nodes)
   if (steps.length === 0) return { fileCount: 0, byteCount: 0 }
@@ -187,8 +192,15 @@ export async function importExternalNodes(params: {
     totalWork: Math.max(1, totalBytes),
     estimatedTotalMs: estimateFilesOpDurationMs(units),
     onUiChange,
-    task: async (report) => {
+    signal,
+    cancel,
+    task: async (report, taskSignal) => {
+      const aborted = () => {
+        if (taskSignal?.aborted) throw new FilesOpCancelledError()
+      }
       let written = 0
+      let stepsDone = 0
+      const stepTotal = steps.length
       // 目标目录绝对路径（文件夹 id → 路径；卷根 → 卷前缀）
       let dirPath = filesLocationPathRoot(dest.destLocationId)
       if (dest.destParentId !== undefined) {
@@ -204,6 +216,7 @@ export async function importExternalNodes(params: {
       for (const step of steps) {
         const current = dirStack[dirStack.length - 1]!
         if (step.op === 'mkdir') {
+          aborted()
           const created = await mkdir({
             locationId: dest.destLocationId,
             parentId: current.id,
@@ -211,6 +224,7 @@ export async function importExternalNodes(params: {
           })
           const actualPath = await resolveFilesAbsolutePath(created)
           dirStack.push({ path: actualPath, id: created.id })
+          stepsDone += 1
           continue
         }
         // 内部卷：直接按计划名打开，写入事务内查重加后缀（不依赖会过期的目录缓存）；
@@ -233,12 +247,17 @@ export async function importExternalNodes(params: {
         const sliceSize = 1024 * 1024
         try {
           for (let offset = 0; offset < step.file.size; ) {
+            aborted()
             const end = Math.min(offset + sliceSize, step.file.size)
             const buf = await step.file.slice(offset, end).arrayBuffer()
             const bytes = new Uint8Array(buf)
             await writer.write(bytes)
             written += bytes.byteLength
-            report({ done: written, total: Math.max(1, totalBytes) })
+            report({
+              done: written,
+              total: Math.max(1, totalBytes),
+              detailLabel: `${stepsDone + 1} / ${stepTotal} 项`,
+            })
             offset = end
           }
           await writer.close()
@@ -247,6 +266,7 @@ export async function importExternalNodes(params: {
           await writer.abort().catch(() => undefined)
           throw error
         }
+        stepsDone += 1
       }
       return { fileCount, byteCount: written }
     },

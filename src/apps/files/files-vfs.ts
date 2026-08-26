@@ -1924,7 +1924,7 @@ export async function restoreNode(id: string): Promise<FilesNode> {
 
 /** 清空废纸篓：永久删除其中全部内容（释放容量，带进度） */
 export async function emptyTrash(
-  options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
+  options?: { onProgress?: (progress: FilesVfsOpProgress) => void; signal?: AbortSignal },
 ): Promise<void> {
   const trashStartAt = performance.now()
   const roots = await listDirectory('trash', undefined)
@@ -1932,6 +1932,7 @@ export async function emptyTrash(
   const total = roots.length
   options?.onProgress?.({ done: 0, total })
   for (const root of roots) {
+    options?.signal?.throwIfAborted?.()
     await removeNodeForced(root.id)
     done += 1
     options?.onProgress?.({ done, total })

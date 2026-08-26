@@ -69,9 +69,10 @@ import {
 } from './files-types.ts'
 import { isUserSpecialFolderNode } from './files-user-special.ts'
 import { marqueeSelection, rangeSelection, toggleInSet } from './files-selection.ts'
-import { FilesOpProgressDialog } from './files-op-progress-dialog.tsx'
+import { FilesOpProgressWindow } from './files-op-progress-window.tsx'
 import { estimateFilesOpDurationMs } from './files-op-progress-policy.ts'
 import {
+  isFilesOpCancelledError,
   runFilesOpWithProgress,
   type FilesOpProgressUiState,
 } from './files-run-with-op-progress.ts'
@@ -2012,14 +2013,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       const cutSourceIds =
         entry.mode === 'cut' ? new Set(entry.entries.map((item) => item.nodeId)) : undefined
       const createdNodes: FilesNode[] = []
+      const pasteController = new AbortController()
       await runFilesOpWithProgress({
         kind: 'paste',
         totalWork: totalUnits,
         estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
         onUiChange: setOpProgressUi,
-        task: async (report) => {
+        signal: pasteController.signal,
+        cancel: () => pasteController.abort(),
+        task: async (report, signal) => {
           let done = 0
           for (let index = 0; index < entry.entries.length; index += 1) {
+            signal?.throwIfAborted?.()
             const item = entry.entries[index]!
             const itemWorkload = workloads[index]?.totalUnits ?? 1
             const copied = await copyNodeTo({
@@ -2030,6 +2035,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 report({
                   done: done + Math.round(progress.done * (itemWorkload / totalUnits)),
                   total: totalUnits,
+                  detailLabel: `${index + 1} / ${entry.entries.length} 项`,
                 })
               },
             })
@@ -2052,9 +2058,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       })
       refresh({ quiet: true })
     } catch (err) {
+      if (isFilesOpCancelledError(err)) {
+        showToast('已取消')
+        return
+      }
       await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
     }
-  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, setItems, sort])
+  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, setItems, showToast, sort])
 
   /** 删除选中项：默认移入废纸篓；permanent（按住 ⌥）时永久删除 */
   const handleTrash = useCallback(
@@ -2084,19 +2094,27 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             nodes.map((node) => estimateDeleteWorkload(node.id).catch(() => undefined)),
           )
           const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+          const deleteController = new AbortController()
           await runFilesOpWithProgress({
             kind: 'delete',
             totalWork: totalUnits,
             estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
             onUiChange: setOpProgressUi,
-            task: async (report) => {
+            signal: deleteController.signal,
+            cancel: () => deleteController.abort(),
+            task: async (report, signal) => {
               let done = 0
               for (let index = 0; index < nodes.length; index += 1) {
+                signal?.throwIfAborted?.()
                 const node = nodes[index]!
                 const units = workloads[index]?.totalUnits ?? 1
                 await removeNode(node.id, {
                   onProgress: (progress) => {
-                    report({ done: done + progress.done, total: totalUnits })
+                    report({
+                      done: done + progress.done,
+                      total: totalUnits,
+                      detailLabel: `${index + 1} / ${nodes.length} 项`,
+                    })
                   },
                 })
                 done += units
@@ -2105,6 +2123,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           })
           setItems((prev) => applyLocalItemsChange(prev, { kind: 'remove', ids: removedIds }, sort))
         } catch (err) {
+          if (isFilesOpCancelledError(err)) {
+            showToast('已取消')
+            return
+          }
           await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
         }
         clearSelection()
@@ -2122,19 +2144,27 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           ),
         )
         const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+        const trashController = new AbortController()
         await runFilesOpWithProgress({
           kind: 'delete',
           totalWork: totalUnits,
           estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
           onUiChange: setOpProgressUi,
-          task: async (report) => {
+          signal: trashController.signal,
+          cancel: () => trashController.abort(),
+          task: async (report, signal) => {
             let done = 0
             for (let index = 0; index < nodes.length; index += 1) {
+              signal?.throwIfAborted?.()
               const node = nodes[index]!
               const units = workloads[index]?.totalUnits ?? 1
               await trashNode(node.id, {
                 onProgress: (progress) => {
-                  report({ done: done + progress.done, total: totalUnits })
+                  report({
+                    done: done + progress.done,
+                    total: totalUnits,
+                    detailLabel: `${index + 1} / ${nodes.length} 项`,
+                  })
                 },
               })
               done += units
@@ -2143,6 +2173,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         })
         setItems((prev) => applyLocalItemsChange(prev, { kind: 'remove', ids: removedIds }, sort))
       } catch (err) {
+        if (isFilesOpCancelledError(err)) {
+          showToast('已取消')
+          return
+        }
         await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
       }
       showToast(nodes.length > 1 ? `已将 ${nodes.length} 项移入废纸篓` : '已移入废纸篓')
@@ -2244,16 +2278,30 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     })
     if (!ok) return
     try {
+      const emptyController = new AbortController()
       await runFilesOpWithProgress({
         kind: 'delete',
         totalWork: Math.max(1, itemsRef.current.length),
         estimatedTotalMs: estimateFilesOpDurationMs(Math.max(1, itemsRef.current.length)),
         onUiChange: setOpProgressUi,
-        task: async (report) => {
-          await emptyTrash({ onProgress: report })
+        signal: emptyController.signal,
+        cancel: () => emptyController.abort(),
+        task: async (report, signal) => {
+          await emptyTrash({
+            signal,
+            onProgress: (progress) =>
+              report({
+                ...progress,
+                detailLabel: `${progress.done} / ${progress.total} 项`,
+              }),
+          })
         },
       })
     } catch (err) {
+      if (isFilesOpCancelledError(err)) {
+        showToast('已取消')
+        return
+      }
       await modal.alert({ title: '无法清空', message: formatError(err), themeColor: THEME })
     }
     clearSelection()
@@ -2596,18 +2644,22 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (ids.length === 0) return
       const copyMode = event.altKey
       try {
+        const dropController = new AbortController()
         await runFilesOpWithProgress({
           kind: 'paste',
           totalWork: ids.length,
           estimatedTotalMs: estimateFilesOpDurationMs(ids.length),
           onUiChange: setOpProgressUi,
-          task: async (report) => {
+          signal: dropController.signal,
+          cancel: () => dropController.abort(),
+          task: async (report, signal) => {
             let done = 0
             for (const id of ids) {
+              signal?.throwIfAborted?.()
               const node = await getNodeOrThrow(id).catch(() => undefined)
               if (!node) {
                 done += 1
-                report({ done, total: ids.length })
+                report({ done, total: ids.length, detailLabel: `${done} / ${ids.length} 项` })
                 continue
               }
               const shouldMove = !copyMode && node.locationId === dest.destLocationId
@@ -2621,11 +2673,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 })
               }
               done += 1
-              report({ done, total: ids.length })
+              report({ done, total: ids.length, detailLabel: `${done} / ${ids.length} 项` })
             }
           },
         })
       } catch (err) {
+        if (isFilesOpCancelledError(err)) {
+          showToast('已取消')
+          return
+        }
         await modal.alert({ title: '无法移动', message: formatError(err), themeColor: THEME })
       }
       clearSelection()
@@ -2638,7 +2694,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
       }
     },
-    [clearSelection, folderId, modal, refresh],
+    [clearSelection, folderId, modal, refresh, showToast],
   )
 
   /** 导入系统外部文件（拖放 / 选择器）：写入由公共 importExternalNodes 完成 */
@@ -2649,7 +2705,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     ) => {
       if (nodes.length === 0) return
       try {
-        const { fileCount } = await importExternalNodes({ nodes, dest, onUiChange: setOpProgressUi })
+        const importController = new AbortController()
+        const { fileCount } = await importExternalNodes({
+          nodes,
+          dest,
+          onUiChange: setOpProgressUi,
+          signal: importController.signal,
+          cancel: () => importController.abort(),
+        })
         clearSelection()
         const importedCount = fileCount
         if (importedCount === 1) {
@@ -2669,6 +2732,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
         }
       } catch (err) {
+        if (isFilesOpCancelledError(err)) {
+          showToast('已取消')
+          return
+        }
         await modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
       }
     },
@@ -4057,13 +4124,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         ) : undefined}
       </WindowModal>
 
-      <FilesOpProgressDialog
-        open={opProgressUi !== undefined}
-        title={opProgressUi?.title ?? ''}
-        remainingLabel={opProgressUi?.remainingLabel ?? ''}
-        fraction={opProgressUi?.fraction ?? 0}
-        themeColor={THEME}
-      />
+      <FilesOpProgressWindow state={opProgressUi} themeColor={THEME} />
     </div>
   )
 }
