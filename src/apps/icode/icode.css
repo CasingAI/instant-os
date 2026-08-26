@@ -1511,7 +1511,7 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 24px;
+  height: 26px;
   padding: 4px 9px;
   border-bottom: 1px solid #ececec;
   font: inherit;
@@ -2246,7 +2246,7 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 24px;
+  height: 26px;
   padding: 4px 8px;
   border-bottom: 1px solid #ececec;
   background: #fff;
