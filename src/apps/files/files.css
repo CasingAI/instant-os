@@ -599,6 +599,12 @@
   overflow: auto;
   padding: 20px 18px 28px;
   box-sizing: border-box;
+  transition: opacity 0.16s ease;
+}
+
+/* 刷新进行中旧列表保持可见，仅轻微降低透明度提示正在重读 */
+.files__browser--refreshing {
+  opacity: 0.6;
 }
 
 .files__browser:focus-visible {

@@ -157,9 +157,10 @@ const SORT_STORAGE_KEY = 'files.sort'
 const VIEWPORT_META_DEBOUNCE_MS = 100
 const VIEWPORT_META_CONCURRENCY = 8
 const VIEWPORT_META_ROOT_MARGIN = '96px'
-/** 目录拉取超过此时长才显示加载卡片，避免快请求闪一下 */
-const LOADING_SHOW_DELAY_MS = 200
-/** 加载卡片一旦出现，至少展示此时长 */
+/**
+ * 加载占位只在无内容可显示时出现（首次挂载、空目录）；已有列表的刷新保持旧列表可见，
+ * 数据到位后原地替换。卡片一旦出现至少展示此时长，避免快请求闪一下。
+ */
 const LOADING_MIN_VISIBLE_MS = 300
 
 type FilesViewMode = 'grid' | 'list'
@@ -740,7 +741,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const lastPointerTypeRef = useRef<string>('mouse')
   const actionSheetOpenedByLongPressRef = useRef(false)
   const refreshGenRef = useRef(0)
-  const loadingShowDelayRef = useRef<number | undefined>(undefined)
   const loadingHideDelayRef = useRef<number | undefined>(undefined)
   const loadingCardShownAtRef = useRef<number | undefined>(undefined)
   const viewportMetaGenRef = useRef(0)
@@ -1010,10 +1010,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   )
 
   const clearLoadingTimers = useCallback(() => {
-    if (loadingShowDelayRef.current !== undefined) {
-      window.clearTimeout(loadingShowDelayRef.current)
-      loadingShowDelayRef.current = undefined
-    }
     if (loadingHideDelayRef.current !== undefined) {
       window.clearTimeout(loadingHideDelayRef.current)
       loadingHideDelayRef.current = undefined
@@ -1025,23 +1021,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       clearLoadingTimers()
       loadingCardShownAtRef.current = undefined
       setRefreshing(true)
-      setShowLoadingCard(false)
-
-      const revealCard = () => {
-        if (gen !== refreshGenRef.current) return
-        loadingCardShownAtRef.current = Date.now()
-        setShowLoadingCard(true)
-      }
-
-      if (itemsRef.current.length === 0) {
-        revealCard()
-        return
-      }
-
-      loadingShowDelayRef.current = window.setTimeout(() => {
-        loadingShowDelayRef.current = undefined
-        revealCard()
-      }, LOADING_SHOW_DELAY_MS)
+      // 已有列表时不出加载占位，保持旧列表可见（⌘R 静默重载），仅标记 refreshing
+      if (itemsRef.current.length > 0) return
+      if (gen !== refreshGenRef.current) return
+      loadingCardShownAtRef.current = Date.now()
+      setShowLoadingCard(true)
     },
     [clearLoadingTimers],
   )
@@ -2931,6 +2915,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (windowId && activeWindowId !== appWindow?.id) return
+      const meta = event.metaKey || event.ctrlKey
+      // ⌘R 在输入框聚焦时也要拦截：放行会穿透成浏览器整页刷新，重载整个 OS
+      if (meta && event.key.toLowerCase() === 'r') {
+        event.preventDefault()
+        handleRefresh()
+        return
+      }
       const target = event.target as HTMLElement | null
       if (
         target &&
@@ -2940,7 +2931,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       ) {
         return
       }
-      const meta = event.metaKey || event.ctrlKey
       const alt = event.altKey
       const key = event.key
 
@@ -2967,11 +2957,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (meta && key === 'ArrowUp') {
         event.preventDefault()
         goBackInPath()
-        return
-      }
-      if (meta && key.toLowerCase() === 'r') {
-        event.preventDefault()
-        handleRefresh()
         return
       }
       if (key === 'Delete' || (meta && key === 'Backspace')) {
@@ -3656,6 +3641,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             folderMotion === 'push' ? 'files__browser--push' : '',
             folderMotion === 'pop' ? 'files__browser--pop' : '',
             backgroundDropActive ? 'files__browser--drop-active' : '',
+            refreshing && !showLoadingCard ? 'files__browser--refreshing' : '',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -3706,7 +3692,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           }}
         >
           {error && !imageUnreadableReason ? <div class="files__banner files__banner--error">{error}</div> : undefined}
-          {showLoadingCard ? (
+          {showLoadingCard && items.length === 0 ? (
             <div class="files__empty">正在加载…</div>
           ) : imageUnreadableReason ? (
             <div class="files__empty">
