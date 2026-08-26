@@ -56,6 +56,7 @@ export const VM_COMBO_KEY_PRESETS: readonly VmSendKeyPreset[] = [
   },
   { id: 'alt-tab', label: 'Alt+Tab', steps: [VM_KEYS.alt, VM_KEYS.tab] },
   { id: 'ctrl-esc', label: 'Ctrl+Esc', steps: [VM_KEYS.control, VM_KEYS.escape] },
+  { id: 'esc', label: 'Esc', steps: [VM_KEYS.escape] },
   { id: 'meta', label: 'Win 键', steps: [VM_KEYS.meta] },
   { id: 'meta-d', label: 'Win+D', steps: [VM_KEYS.meta, VM_KEYS.keyD] },
   { id: 'meta-e', label: 'Win+E', steps: [VM_KEYS.meta, VM_KEYS.keyE] },
