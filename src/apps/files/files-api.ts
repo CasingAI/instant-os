@@ -818,7 +818,7 @@ export function filesWatch(
 
 /**
  * 将节点移入废纸篓（可恢复）。
- * 返回废纸篓中的新节点；内部卷为零拷贝移动，挂载卷为复制进废纸篓。
+ * 仅内部卷支持：零拷贝移动；磁盘镜像 / 挂载文件夹等外接卷不支持（抛错，请用 filesRemove）。
  */
 export async function filesTrash(sourcePath: string): Promise<FilesApiEntry> {
   const sourceAbs = assertAbsolutePath(sourcePath)

@@ -36,7 +36,6 @@ import {
   readBlobText,
   renameNodeRecord,
   moveNodeRecord,
-  FilesStorageFullError,
   normalizeFilesNameKey,
   uniqueNameAmong,
   writeBlobBytes,
@@ -1824,10 +1823,7 @@ export async function moveNodeTo(
  * 仅内部卷支持：元数据级移动（零拷贝零容量）。
  * 磁盘镜像 / 挂载文件夹等外接卷没有系统盘废纸篓可回退，须走永久删除（removeNode）。
  */
-export async function trashNode(
-  id: string,
-  options?: FilesMoveNodeToOptions,
-): Promise<FilesNode> {
+export async function trashNode(id: string): Promise<FilesNode> {
   const node = await getNodeOrThrow(id)
   if (isTrashLocationId(node.locationId)) {
     throw new Error('该节点已在废纸篓中')

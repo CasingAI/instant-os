@@ -126,6 +126,11 @@ export function isImageLocationId(id: string): id is ImageFilesLocationId {
   return /^image:[^:]+$/.test(id)
 }
 
+/** 是否支持移入废纸篓；外接存储（磁盘镜像 / 挂载文件夹）没有可回退的原件，只能永久删除 */
+export function locationSupportsTrash(locationId: FilesLocationId): boolean {
+  return !isMountLocationId(locationId) && !isImageLocationId(locationId)
+}
+
 export function isImageNodeId(id: string): boolean {
   return /^image:[^:]+:[df]:/.test(id)
 }

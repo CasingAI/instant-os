@@ -65,7 +65,6 @@ import {
   isFilesNodeWritable,
   isImageLocationId,
   isMountLocationId,
-  isMountNodeId,
   isTrashLocationId,
   locationSupportsTrash,
   type FilesLocation,
@@ -2218,15 +2217,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               const node = nodes[index]!
               const units = workloads[index]?.totalUnits ?? 1
               if (!permanent && locationSupportsTrash(node.locationId)) {
-                await trashNode(node.id, {
-                  onProgress: (progress) => {
-                    report({
-                      done: done + progress.done,
-                      total: totalUnits,
-                      detailLabel: `${index + 1} / ${nodes.length} 项`,
-                    })
-                  },
-                })
+                // 内部卷软删为元数据级移动，瞬时完成，无需进度回报
+                await trashNode(node.id)
               } else {
                 await removeNode(node.id, {
                   onProgress: (progress) => {
