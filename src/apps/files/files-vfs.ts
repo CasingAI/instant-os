@@ -1681,6 +1681,7 @@ export async function estimateDeleteWorkload(nodeId: string): Promise<FilesDelet
 async function deleteLocalSubtreeWithProgress(
   subtree: Awaited<ReturnType<typeof collectSubtreeIds>>,
   onProgress?: (progress: FilesVfsOpProgress) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const deleteStartAt = performance.now()
   const total = filesWorkloadUnits(subtree.nodeIds.length, subtree.reclaimBytes)
@@ -1715,6 +1716,8 @@ async function deleteLocalSubtreeWithProgress(
       total,
       Math.round((deletedNodes / subtree.nodeIds.length) * total),
     )
+    // 破坏性删除按批为取消粒度：已删的批不回滚，剩余批在此停下
+    signal?.throwIfAborted?.()
     await deleteSubtree({
       nodeIds: nodeChunk,
       fileIds: fileChunk,
@@ -1733,7 +1736,7 @@ async function deleteLocalSubtreeWithProgress(
 
 export async function removeNode(
   id: string,
-  options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
+  options?: { onProgress?: (progress: FilesVfsOpProgress) => void; signal?: AbortSignal },
 ): Promise<void> {
   const node = await getNodeOrThrow(id)
   if (isUserSpecialFolderNode(node)) {
@@ -1746,7 +1749,7 @@ export async function removeNode(
 /** 系统层删除（绕过节点 writable 检查），供 PackageService 清理只读 store 等。 */
 export async function removeNodeForced(
   id: string,
-  options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
+  options?: { onProgress?: (progress: FilesVfsOpProgress) => void; signal?: AbortSignal },
 ): Promise<void> {
   const node = await getNodeOrThrow(id)
   await removeNodeInner(node, options)
@@ -1763,6 +1766,8 @@ function canMoveNodeMetadataOnly(source: FilesNode, destLocationId: FilesLocatio
 
 export type FilesMoveNodeToOptions = {
   onProgress?: (progress: FilesVfsOpProgress) => void
+  /** 协作取消：跨卷移动的复制阶段透传；复制一旦完成，配对的删除源必做（条目间粒度） */
+  signal?: AbortSignal
 }
 
 /**
@@ -1813,7 +1818,9 @@ export async function moveNodeTo(
     destLocationId,
     destParentId,
     onProgress: options?.onProgress,
+    signal: options?.signal,
   })
+  // 复制已完整提交：无论 signal 是否已触发都先删源，避免「拷完未移走」的重复状态
   await removeNode(sourceId)
   return copied
 }
@@ -1958,6 +1965,7 @@ export async function emptyTrash(
   for (const { node, units } of workloads) {
     options?.signal?.throwIfAborted?.()
     await removeNodeForced(node.id, {
+      signal: options?.signal,
       onProgress: (progress) => options?.onProgress?.({ done: done + progress.done, total }),
     })
     done += units
@@ -1974,7 +1982,7 @@ export async function emptyTrash(
 
 async function removeNodeInner(
   node: FilesNode,
-  options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
+  options?: { onProgress?: (progress: FilesVfsOpProgress) => void; signal?: AbortSignal },
 ): Promise<void> {
   const id = node.id
   const path = await resolveFilesAbsolutePath(node)
@@ -1993,7 +2001,7 @@ async function removeNodeInner(
     return
   }
   const subtree = await collectSubtreeIds(id)
-  await deleteLocalSubtreeWithProgress(subtree, options?.onProgress)
+  await deleteLocalSubtreeWithProgress(subtree, options?.onProgress, options?.signal)
   emitFilesVfsChanged({ kind: 'deleted', path })
 }
 
@@ -2189,6 +2197,8 @@ export async function copyNodeTo(params: {
   destLocationId: FilesLocationId
   destParentId: string | undefined
   onProgress?: (progress: FilesVfsOpProgress) => void
+  /** 协作取消：树内文件之间为检查点；取消时 best-effort 清掉已建的目的子树 */
+  signal?: AbortSignal
 }): Promise<FilesNode> {
   const source = await getNodeOrThrow(params.sourceId)
   if (isTrashLocationId(params.destLocationId)) {
@@ -2221,7 +2231,7 @@ export async function copyNodeTo(params: {
     params.onProgress?.({ done: progressState.done, total })
   }
 
-  const result = await copyNodeTree(source, params.destLocationId, params.destParentId, reportNodeDone)
+  const result = await copyNodeTree(source, params.destLocationId, params.destParentId, reportNodeDone, params.signal)
   params.onProgress?.({ done: total, total })
   return result
 }
@@ -2274,7 +2284,10 @@ async function copyNodeTree(
   destLocationId: FilesLocationId,
   destParentId: string | undefined,
   reportNodeDone: (node: FilesNode) => void,
+  signal?: AbortSignal,
 ): Promise<FilesNode> {
+  // 取消粒度=文件之间：当前节点保持原子提交，下一个节点开工前才检查
+  signal?.throwIfAborted?.()
   if (source.kind === 'file') {
     if (canShareBlobOnCopy(source, destLocationId)) {
       const created = await cloneSharedLocalFile(source, destLocationId, destParentId)
@@ -2343,9 +2356,17 @@ async function copyNodeTree(
   })
   reportNodeDone(source)
   const children = await listDirectory(source.locationId, source.id)
-  for (const child of children) {
-    countSystemDebugHot('files', 'copy-node')
-    await copyNodeTree(child, destLocationId, folder.id, reportNodeDone)
+  try {
+    for (const child of children) {
+      countSystemDebugHot('files', 'copy-node')
+      await copyNodeTree(child, destLocationId, folder.id, reportNodeDone, signal)
+    }
+  } catch (err) {
+    if (signal?.aborted) {
+      // 取消：best-effort 清掉本层已建的目的目录；逐层上抛时整棵半成品子树被清空
+      await removeNodeForced(folder.id).catch(() => undefined)
+    }
+    throw err
   }
   return folder
 }

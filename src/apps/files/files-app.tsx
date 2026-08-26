@@ -2122,6 +2122,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               sourceId: item.nodeId,
               destLocationId: locationId,
               destParentId: folderId,
+              signal,
               onProgress: (progress) => {
                 report({
                   done: done + Math.round(progress.done * (itemWorkload / totalUnits)),
@@ -2221,6 +2222,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 await trashNode(node.id)
               } else {
                 await removeNode(node.id, {
+                  signal,
                   onProgress: (progress) => {
                     report({
                       done: done + progress.done,
@@ -2734,12 +2736,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               }
               const shouldMove = !copyMode && node.locationId === dest.destLocationId
               if (shouldMove) {
-                await moveNodeTo(id, dest.destLocationId, dest.destParentId)
+                await moveNodeTo(id, dest.destLocationId, dest.destParentId, { signal })
               } else {
                 await copyNodeTo({
                   sourceId: id,
                   destLocationId: dest.destLocationId,
                   destParentId: dest.destParentId,
+                  signal,
                 })
               }
               done += 1
