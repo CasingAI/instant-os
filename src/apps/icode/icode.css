@@ -1916,6 +1916,59 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
+/* ── Legacy import result（与 generated-app-error-details 卡片同款） ── */
+
+.icode__legacy-failures {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.icode__legacy-failure {
+  padding: 8px 10px;
+  border: 1px solid rgba(161, 38, 34, 0.28);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff 0%, #f6efee 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.icode__legacy-failure-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #a12622;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.icode__legacy-failure-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #a12622;
+  background: rgba(227, 75, 63, 0.12);
+}
+
+.icode__legacy-failure-message {
+  margin: 4px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .icode__config {
   flex: 1;
   min-height: 0;

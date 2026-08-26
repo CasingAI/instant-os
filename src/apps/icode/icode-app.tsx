@@ -1775,22 +1775,22 @@ export function ICodeApp() {
               >
                 新建应用
               </button>
-                <button
-                  type="button"
-                  class="icode__button icode__button--secondary"
-                  onClick={() => setShowImportPicker(true)}
-                  disabled={storeApps.length === 0}
-                >
-                  从已安装应用复制…
-                </button>
-                <button
-                  type="button"
-                  class="icode__button icode__button--secondary"
-                  onClick={() => void onImportLegacyProjects()}
-                  disabled={legacyImportWorking}
-                >
-                  {legacyImportWorking ? '导入中…' : '导入旧版应用…'}
-                </button>
+              <button
+                type="button"
+                class="icode__button icode__button--secondary"
+                onClick={() => setShowImportPicker(true)}
+                disabled={storeApps.length === 0}
+              >
+                从已安装应用复制…
+              </button>
+              <button
+                type="button"
+                class="icode__button icode__button--secondary"
+                onClick={() => void onImportLegacyProjects()}
+                disabled={legacyImportWorking}
+              >
+                {legacyImportWorking ? '导入中…' : '导入旧版应用…'}
+              </button>
               <button
                 type="button"
                 class="icode__button icode__button--secondary"
@@ -1875,11 +1875,7 @@ export function ICodeApp() {
           <p class="window-modal__message">
             将复制出独立的新 iCode 应用（只带当前正在跑的那一版内容），原应用不受影响、不带其历史版本与用户数据。
           </p>
-          {copyError && (
-            <p class="icode__error" style={{ marginTop: '0.5rem' }}>
-              {copyError}
-            </p>
-          )}
+          {copyError && <p class="window-modal__error">{copyError}</p>}
           <div class="icode__list">
             {storeApps.map((app) => (
               <button
@@ -1910,6 +1906,7 @@ export function ICodeApp() {
         <WindowModal
           open={legacyImportResult !== undefined}
           title="导入旧版 iCode 项目"
+          scrollBody
           themeColor={modalTheme}
           onClose={() => setLegacyImportResult(undefined)}
           actions={[
@@ -1923,25 +1920,29 @@ export function ICodeApp() {
         >
           {legacyImportResult && (
             <>
-              <p class="window-modal__message">
-                成功导入 {legacyImportResult.imported} 个旧项目。导入后的应用会出现在「iCode 应用」列表里。
-              </p>
-              {legacyImportResult.failures.length > 0 && (
+              {legacyImportResult.failures.length > 0 ? (
                 <>
-                  <p class="icode__error" style={{ marginTop: '0.5rem' }}>
-                    以下项目导入失败（请把错误信息反馈给开发者）：
+                  <p class="window-modal__message">
+                    成功导入 {legacyImportResult.imported} 个旧项目，以下项目导入失败
+                    （请把错误信息反馈给开发者）：
                   </p>
-                  <ul class="icode__list" style={{ marginTop: '0.5rem' }}>
+                  <ul class="icode__legacy-failures">
                     {legacyImportResult.failures.map((failure) => (
-                      <li key={failure.name} class="icode__row" style={{ display: 'block' }}>
-                        <strong>{failure.name}</strong>
-                        <p class="icode__row-desc">{failure.message}</p>
+                      <li key={failure.name} class="icode__legacy-failure">
+                        <span class="icode__legacy-failure-name">
+                          <span class="icode__legacy-failure-badge">失败</span>
+                          {failure.name}
+                        </span>
+                        <p class="icode__legacy-failure-message">{failure.message}</p>
                       </li>
                     ))}
                   </ul>
                 </>
-              )}
-              {legacyImportResult.imported === 0 && legacyImportResult.failures.length === 0 && (
+              ) : legacyImportResult.imported > 0 ? (
+                <p class="window-modal__message">
+                  成功导入 {legacyImportResult.imported} 个旧项目。导入后的应用会出现在「iCode 应用」列表里。
+                </p>
+              ) : (
                 <p class="window-modal__message">没有发现旧版 iCode 内部项目，或已全部导入过。</p>
               )}
             </>
