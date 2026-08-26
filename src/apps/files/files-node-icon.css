@@ -86,6 +86,7 @@
 .files-node-icon--docx .files-node-icon__glyph--file,
 .files-node-icon--archive .files-node-icon__glyph--file,
 .files-node-icon--iso-disc .files-node-icon__glyph--file,
+.files-node-icon--hdd .files-node-icon__glyph--file,
 .files-node-icon--code .files-node-icon__glyph--file {
   position: absolute;
   top: 50%;
@@ -103,6 +104,12 @@
 
 /* ISO 光盘：正圆略小于纸面高度，避免圆形视觉体量过大 */
 .files-node-icon--iso-disc .files-node-icon__glyph--file {
+  aspect-ratio: 1 / 1;
+  height: 92%;
+}
+
+/* HDD 磁盘镜像：方形 viewBox，与 ISO 光盘保持相近的占位比例 */
+.files-node-icon--hdd .files-node-icon__glyph--file {
   aspect-ratio: 1 / 1;
   height: 92%;
 }

@@ -8,6 +8,7 @@ import {
 import { isApplicationsBundleRootNode } from './files-location-applications.ts'
 import { FilesAppBundleIcon } from './files-app-bundle-icon.tsx'
 import { resolveArchiveUtilityFormat } from '../archive-utility/archive-utility-format.ts'
+import { isDiskImageFileName } from './files-disk-image-name.ts'
 import { MUSIC_AUDIO_EXTENSIONS, MUSIC_LYRICS_EXTENSIONS } from '../music/music-storage.ts'
 import { VSCODE_OPEN_EXTENSIONS } from '../vscode/vscode-tabs.ts'
 import type { FilesNode } from './files-types.ts'
@@ -1528,6 +1529,111 @@ function IsoDiscIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/**
+ * 硬盘镜像：金属外壳 + 盘片 + 磁头臂 + 指示灯。
+ * 方形构图，独立 48×48 viewBox（不沿用折角纸模板）。
+ */
+function HddDiscGlyph({ className }: { className: string }) {
+  const rawId = useId()
+  const uid = rawId.replace(/[^a-zA-Z0-9_-]/g, '')
+  const caseGrad = `hdd-case-${uid}`
+  const platterGrad = `hdd-platter-${uid}`
+  const armGrad = `hdd-arm-${uid}`
+  return (
+    <svg
+      class={className}
+      viewBox="0 0 48 48"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={caseGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#9aa4b2" />
+          <stop offset="18%" stop-color="#c4cbd4" />
+          <stop offset="52%" stop-color="#8a94a3" />
+          <stop offset="100%" stop-color="#5e6878" />
+        </linearGradient>
+        <radialGradient id={platterGrad} cx="40%" cy="35%" r="72%">
+          <stop offset="0%" stop-color="#e8ecf1" />
+          <stop offset="55%" stop-color="#b8c0cc" />
+          <stop offset="100%" stop-color="#7a8494" />
+        </radialGradient>
+        <linearGradient id={armGrad} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#7a8494" />
+          <stop offset="50%" stop-color="#a4aebc" />
+          <stop offset="100%" stop-color="#6a7484" />
+        </linearGradient>
+      </defs>
+      {/* 落地阴影 */}
+      <ellipse cx="24" cy="44.6" rx="16" ry="2.1" fill="rgba(24, 32, 44, 0.22)" />
+      {/* 外壳 */}
+      <rect
+        x="4.5"
+        y="8.5"
+        width="39"
+        height="31"
+        rx="4"
+        fill={`url(#${caseGrad})`}
+        stroke="#5e6878"
+        stroke-width="1"
+      />
+      {/* 内凹面板 */}
+      <rect
+        x="7"
+        y="11"
+        width="34"
+        height="26"
+        rx="2.5"
+        fill="#2a3038"
+        stroke="#4a5462"
+        stroke-width="0.8"
+      />
+      {/* 盘片 */}
+      <circle
+        cx="21"
+        cy="24"
+        r="10.5"
+        fill={`url(#${platterGrad})`}
+        stroke="#6a7484"
+        stroke-width="0.7"
+      />
+      {/* 盘片同心环 */}
+      <circle cx="21" cy="24" r="7.5" fill="none" stroke="#8a94a3" stroke-width="0.5" opacity="0.6" />
+      <circle cx="21" cy="24" r="4.5" fill="none" stroke="#8a94a3" stroke-width="0.5" opacity="0.5" />
+      {/* 磁头臂 */}
+      <path
+        d="M32 32 L39 15"
+        stroke={`url(#${armGrad})`}
+        stroke-width="3"
+        stroke-linecap="round"
+      />
+      <circle cx="39" cy="15" r="2.6" fill="#5e6878" />
+      <circle cx="32" cy="32" r="2.4" fill="#7a8494" />
+      {/* 状态指示灯 */}
+      <circle cx="38" cy="32.5" r="2.2" fill="#34d399" opacity="0.9" />
+      {/* 顶面高光 */}
+      <path
+        d="M8 12 Q24 10 40 12"
+        fill="none"
+        stroke="rgba(255,255,255,0.45)"
+        stroke-width="1.2"
+        stroke-linecap="round"
+      />
+    </svg>
+  )
+}
+
+function HddFileIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--hdd`}
+      aria-hidden="true"
+    >
+      <HddDiscGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
+
 /** 「新建文件夹」等无节点场景的静态文件夹图标 */
 export function FilesFolderTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
   return (
@@ -1638,6 +1744,10 @@ export function FilesNodeIcon({
 
   if (extension === 'iso') {
     return <IsoDiscIcon size={size} />
+  }
+
+  if (isDiskImageFileName(node.name)) {
+    return <HddFileIcon size={size} />
   }
 
   if (resolveArchiveUtilityFormat(node.name)) {
