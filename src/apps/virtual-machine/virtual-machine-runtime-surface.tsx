@@ -21,6 +21,7 @@ export type VmRuntimeSurfaceProps = {
   onStarted: (machineId: string) => void
   onGuestPoweredOff: (machineId: string) => void
   onBootError: (machineId: string, message: string) => void
+  onIframeLoadFailed: (machineId: string, detail: string) => void
   onDiskWriteFailed: (machineId: string, message: string) => void
   onCaptureKeyboard: () => void
   isDisplayed: boolean
@@ -41,6 +42,7 @@ export function VmRuntimeSurface({
   onStarted,
   onGuestPoweredOff,
   onBootError,
+  onIframeLoadFailed,
   onDiskWriteFailed,
   onCaptureKeyboard,
   isDisplayed,
@@ -51,6 +53,9 @@ export function VmRuntimeSurface({
     ready,
     stats,
     bootProgress,
+    iframeStatus,
+    handleIframeLoad,
+    handleIframeError,
     start,
     stop,
     reset,
@@ -65,6 +70,7 @@ export function VmRuntimeSurface({
     () => onGuestPoweredOff(machineId),
     (message) => onDiskWriteFailed(machineId, message),
     (message) => onBootError(machineId, message),
+    (detail) => onIframeLoadFailed(machineId, detail),
   )
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 
@@ -97,8 +103,8 @@ export function VmRuntimeSurface({
   ])
 
   useEffect(() => {
-    onStateChange(machineId, { ready, stats, bootProgress })
-  }, [machineId, onStateChange, ready, stats, bootProgress])
+    onStateChange(machineId, { ready, stats, bootProgress, iframeStatus })
+  }, [machineId, onStateChange, ready, stats, bootProgress, iframeStatus])
 
   useEffect(() => {
     if (!ready || !startMessage) {
@@ -142,26 +148,45 @@ export function VmRuntimeSurface({
     return null
   }
 
+  // ready 之前把 iframe 藏起来：服务器没起等情况下 Chrome 会在 iframe 里画原生
+  // 错误页，藏住后用户只会看到宿主的「正在连接模拟器…」，超时后走错误清场。
+  const failed = iframeStatus === 'error'
+  const frameClass =
+    iframeStatus === 'ready'
+      ? 'virtual-machine__frame'
+      : 'virtual-machine__frame virtual-machine__frame--idle'
+
   return (
-    <iframe
-      ref={iframeRef}
-      class="virtual-machine__frame"
-      title={`虚拟机显示器 ${machineId}`}
-      src={resolvedOrigin}
-      tabIndex={-1}
-      referrerPolicy="origin"
-      sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
-      allow="autoplay; fullscreen; pointer-lock"
-      onFocus={() => {
-        // 点进跨域 iframe 时焦点会落到 iframe 上，宿主窗口就再也收不到按键。
-        // 立刻交还宿主，改走 postMessage 注入。
-        captureKeyboard()
-        onCaptureKeyboard()
-      }}
-      onPointerDown={() => {
-        captureKeyboard()
-        onCaptureKeyboard()
-      }}
-    />
+    <>
+      {failed ? null : (
+        <iframe
+          ref={iframeRef}
+          class={frameClass}
+          title={`虚拟机显示器 ${machineId}`}
+          src={resolvedOrigin}
+          tabIndex={-1}
+          referrerPolicy="origin"
+          sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
+          allow="autoplay; fullscreen; pointer-lock"
+          onLoad={handleIframeLoad}
+          onError={handleIframeError}
+          onFocus={() => {
+            // 点进跨域 iframe 时焦点会落到 iframe 上，宿主窗口就再也收不到按键。
+            // 立刻交还宿主，改走 postMessage 注入。
+            captureKeyboard()
+            onCaptureKeyboard()
+          }}
+          onPointerDown={() => {
+            captureKeyboard()
+            onCaptureKeyboard()
+          }}
+        />
+      )}
+      {failed ? (
+        <div class="virtual-machine__screen-message virtual-machine__iframe-error" role="alert">
+          虚拟机运行时未响应（{resolvedOrigin}）
+        </div>
+      ) : null}
+    </>
   )
 }

@@ -64,6 +64,9 @@ function diskPresence(disks: Partial<InstantVmStartMessage>): {
 const REQUEST_TIMEOUT_MS = 60_000
 const REMOTE_DISK_REQUEST_TIMEOUT_MS = 180_000
 const DISK_LOAD_TIMEOUT_MS = 120_000
+// 运行时页面加载完成后会立刻发 ready 消息；超过这个时间还没来，
+// 基本可以断定 iframe 里是浏览器的网络错误页（服务器没起 / 不可达）。
+const RUNTIME_READY_TIMEOUT_MS = 8_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -196,10 +199,17 @@ export type VmRuntimeApi = {
   releaseKeyboard(): void
 }
 
+/**
+ * iframe 文档级加载状态。`loading` 是默认值；`ready` 表示文档至少 load 完毕；
+ * `error` 表示后端不可达、跨域被拒等导致 iframe 渲染了浏览器错误页。
+ */
+export type VmIframeStatus = 'loading' | 'ready' | 'error'
+
 export type VmRuntimeSnapshot = {
   ready: boolean
   stats: InstantVmStatsSnapshot | undefined
   bootProgress: string | undefined
+  iframeStatus: VmIframeStatus
 }
 
 /**
@@ -211,6 +221,7 @@ export function useVirtualMachineRuntime(
   onGuestPoweredOff?: () => void,
   onDiskWriteFailed?: (message: string) => void,
   onRuntimeError?: (message: string) => void,
+  onIframeLoadFailed?: (detail: string) => void,
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
@@ -220,9 +231,13 @@ export function useVirtualMachineRuntime(
   onDiskWriteFailedRef.current = onDiskWriteFailed
   const onRuntimeErrorRef = useRef(onRuntimeError)
   onRuntimeErrorRef.current = onRuntimeError
+  const onIframeLoadFailedRef = useRef(onIframeLoadFailed)
+  onIframeLoadFailedRef.current = onIframeLoadFailed
   const [ready, setReady] = useState(false)
+  const readyRef = useRef(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
   const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
+  const [iframeStatus, setIframeStatus] = useState<VmIframeStatus>('loading')
 
   // iframe src 可能带 ?v86= 参数，但 postMessage 的 event.origin 只包含 scheme/host/port。
   const targetOrigin = useMemo(
@@ -239,8 +254,10 @@ export function useVirtualMachineRuntime(
 
   useEffect(() => {
     setReady(false)
+    readyRef.current = false
     setStats(undefined)
     setBootProgress(undefined)
+    setIframeStatus('loading')
     failAll(new Error('运行时已重新加载'))
   }, [failAll, targetOrigin])
 
@@ -262,7 +279,9 @@ export function useVirtualMachineRuntime(
 
       const message = event.data
       if (message.type === INSTANT_VM_MESSAGE_TYPE.ready) {
+        readyRef.current = true
         setReady(true)
+        setIframeStatus((current) => (current === 'error' ? current : 'ready'))
         return
       }
 
@@ -326,6 +345,25 @@ export function useVirtualMachineRuntime(
       window.removeEventListener('message', onMessage)
       failAll(new Error('运行时已卸载'))
     }
+  }, [failAll, targetOrigin])
+
+  // iframe 的 error 事件在 Chrome 里对网络失败并不可靠（连接被拒时经常既不触发
+  // load 也不触发 error，浏览器直接渲染自己的错误页），所以用 ready 消息超时兜底。
+  useEffect(() => {
+    if (!targetOrigin) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      if (readyRef.current) {
+        return
+      }
+      setIframeStatus('error')
+      failAll(new Error('运行时加载超时'))
+      onIframeLoadFailedRef.current?.(
+        `虚拟机运行时在 ${RUNTIME_READY_TIMEOUT_MS / 1000} 秒内未就绪：${targetOrigin}`,
+      )
+    }, RUNTIME_READY_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
   }, [failAll, targetOrigin])
 
   const post = useCallback(
@@ -453,6 +491,20 @@ export function useVirtualMachineRuntime(
     iframeRef.current?.blur()
   }, [])
 
+  // 注意：Chrome 对「连接被拒」也会用内置错误页完成一次文档加载，iframe 的 load
+  // 事件照样触发，所以 load 不能作为「运行时可用」的依据；唯一可信信号是 ready 消息。
+  const handleIframeLoad = useCallback(() => {
+    recordSystemDebugTimeline({ layer: 'vm', op: 'iframe-doc-loaded' })
+  }, [])
+
+  // iframe 文档级 error：通常是后端不可达 / 跨域被拒 / 协议不对，
+  // Chrome 会渲染原生错误页。让 UI 自己接管提示，并把开机按钮禁掉。
+  const handleIframeError = useCallback(() => {
+    setIframeStatus('error')
+    const detail = origin ? `无法加载虚拟机运行时：${origin}` : '无法加载虚拟机运行时'
+    onIframeLoadFailedRef.current?.(detail)
+  }, [origin])
+
   const saveState = useCallback(async (): Promise<ArrayBuffer> => {
     const startAt = performance.now()
     const result = await request<InstantVmSaveStateResultMessage>(
@@ -476,6 +528,9 @@ export function useVirtualMachineRuntime(
     ready,
     stats,
     bootProgress,
+    iframeStatus,
+    handleIframeLoad,
+    handleIframeError,
     start,
     stop,
     reset,

@@ -115,6 +115,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [powerBusy, setPowerBusy] = useState(false)
   const [powerHint, setPowerHint] = useState<string | undefined>(undefined)
+  // 运行时存活：true=已就绪；false=未响应；undefined=探测中。
+  // 点开机之前 iframe 还不存在，没人能发 postMessage，只能由宿主发请求确认。
+  const [runtimeAlive, setRuntimeAlive] = useState<boolean | undefined>(undefined)
+  const runtimeAliveRef = useRef<boolean | undefined>(undefined)
   const [ready, setReady] = useState(false)
   const [settingsSession, setSettingsSession] = useState<SettingsSession | undefined>(undefined)
   const [inspectorOpen, setInspectorOpen] = useState(false)
@@ -160,6 +164,57 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     return () => window.clearTimeout(timer)
   }, [powerBusy, powerHint])
 
+  // 运行时存活探测：未就绪期间每 2 秒重试，服务器慢启动也能自动恢复为可点；
+  // 一旦就绪就停止重试（正常运行零后台流量），只在窗口聚焦时复查一次。
+  const probeRuntimeAlive = useCallback(async (): Promise<boolean> => {
+    if (!runtimeOrigin) {
+      return false
+    }
+    try {
+      await fetch(runtimeOrigin, {
+        mode: 'no-cors',
+        cache: 'no-store',
+        signal: AbortSignal.timeout(4_000),
+      })
+      runtimeAliveRef.current = true
+      setRuntimeAlive(true)
+      return true
+    } catch {
+      runtimeAliveRef.current = false
+      setRuntimeAlive(false)
+      return false
+    }
+  }, [runtimeOrigin])
+
+  useEffect(() => {
+    runtimeAliveRef.current = undefined
+    setRuntimeAlive(undefined)
+    let cancelled = false
+    let inFlight = false
+    const probe = () => {
+      if (inFlight) {
+        return
+      }
+      inFlight = true
+      void probeRuntimeAlive().finally(() => {
+        inFlight = false
+      })
+    }
+    probe()
+    const interval = window.setInterval(() => {
+      if (!cancelled && runtimeAliveRef.current !== true) {
+        probe()
+      }
+    }, 2_000)
+    const onFocus = () => probe()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [probeRuntimeAlive])
+
   const selected = useMemo(
     () => machines.find((machine) => machine.id === selectedId),
     [machines, selectedId],
@@ -170,18 +225,22 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [machines, pool.runningIds],
   )
   const selectedRunning = Boolean(selected && pool.runningIds.includes(selected.id))
+  // 只陈述事实的提示，不带「请启动」之类的操作指令；只在屏幕中央显示，不进顶部工具栏。
+  const runtimeUnreachableHint = `虚拟机运行时未响应（${runtimeOrigin}）`
   const selectedHint = selected ? pool.hints.get(selected.id) : undefined
   const statusHint = powerHint ?? selectedHint
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
   settingsOpenRef.current = settingsOpen
   inspectorOpenRef.current = inspectorOpen
+  // 开机按钮只看运行时就绪状态：探测中 / 未响应都不可点。
   const canStart = Boolean(
     hasSelection &&
       !powerBusy &&
       !selectedRunning &&
       selectedBackend?.available &&
-      Boolean(runtimeOrigin),
+      Boolean(runtimeOrigin) &&
+      runtimeAlive === true,
   )
   const canStop = Boolean(hasSelection && selectedRunning && !powerBusy)
   const canReset = canStop
@@ -465,6 +524,23 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [pool, showVmError],
   )
 
+  const handleIframeLoadFailed = useCallback(
+    (machineId: string, detail: string) => {
+      recordSystemDebugTimeline({
+        layer: 'vm',
+        op: 'iframe-load-failed',
+        detail: `${machineId}: ${detail.slice(0, 200)}`,
+      })
+      // ready 超时说明运行时实际不可用：打回未就绪状态，按钮随即禁用并恢复重试。
+      runtimeAliveRef.current = false
+      setRuntimeAlive(false)
+      // 从运行列表移除：surface 连同 iframe 一起卸载，浏览器画的错误页随之消失；
+      // hint 落到状态栏，屏幕回到「已关机。点开机启动。」
+      pool.onBootError(machineId, detail)
+    },
+    [pool],
+  )
+
   const handleDiskWriteFailed = useCallback(
     (machineId: string, detail: string) => {
       recordSystemDebugTimeline({
@@ -619,11 +695,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     ? '正在加载…'
     : !runtimeOrigin
       ? '未配置虚拟机运行时'
-      : !selected
-        ? '选择左侧的虚拟机，或新建一台。'
-        : displayedId === undefined
-          ? '已关机。点开机启动。'
-          : undefined
+      : runtimeAlive === undefined
+        ? '正在连接虚拟机运行时…'
+        : runtimeAlive === false
+          ? runtimeUnreachableHint
+          : !selected
+            ? '选择左侧的虚拟机，或新建一台。'
+            : displayedId === undefined
+              ? '已关机。点开机启动。'
+              : undefined
 
   const focusMachine = useCallback(
     (machineId: string) => {
@@ -766,6 +846,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     onStarted={pool.onStarted}
                     onGuestPoweredOff={pool.onGuestPoweredOff}
                     onBootError={handleBootError}
+                    onIframeLoadFailed={handleIframeLoadFailed}
                     onDiskWriteFailed={handleDiskWriteFailed}
                     onCaptureKeyboard={captureGuestKeyboard}
                     isDisplayed={isDisplayed}

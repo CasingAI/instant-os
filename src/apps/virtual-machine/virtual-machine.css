@@ -39,6 +39,10 @@
 
 .virtual-machine__status {
   margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 11px;
   color: var(--vm-muted);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
@@ -282,6 +286,16 @@
   letter-spacing: 0.03em;
   text-align: center;
   pointer-events: none;
+}
+
+.virtual-machine__iframe-error {
+  flex-direction: column;
+  gap: 4px;
+  color: #d6d8df;
+  background: linear-gradient(180deg, rgba(20, 22, 28, 0.92), rgba(8, 9, 12, 0.96));
+  font-size: 13px;
+  line-height: 1.6;
+  pointer-events: auto;
 }
 
 .virtual-machine__activity {
