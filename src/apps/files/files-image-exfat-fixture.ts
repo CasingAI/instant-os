@@ -23,6 +23,14 @@ export type ExfatFixtureFile = {
   noFatChain?: boolean
 }
 
+export type ExfatFixtureDirectory = {
+  name: string
+  /** 预置簇数；默认 1 */
+  clusterCount?: number
+  /** true：在目录簇之后占住下一簇（放一个 1 簇文件的位图/FAT 记录），迫使目录无法连续扩展 */
+  blockNextCluster?: boolean
+}
+
 export type ExfatFixtureOptions = {
   /** 卷大小（不含 MBR 前置区）；默认 2MB */
   sizeBytes?: number
@@ -32,6 +40,14 @@ export type ExfatFixtureOptions = {
   partitioned?: boolean
   label?: string
   files?: ExfatFixtureFile[]
+  /** 预置 NoFatChain 子目录（目录项写入根目录，簇置零并标记占用） */
+  directories?: ExfatFixtureDirectory[]
+  /** FAT 份数：1 或 2；两份内容始终一致（引导区校验和按实际份数重算） */
+  numberOfFats?: number
+  /** VolFlags ActiveFat 位（0=首份 FAT）；置 1 时读取走第二份 FAT */
+  activeFat?: number
+  /** true 且 numberOfFats=2 时，把未被 ActiveFat 选中的那份 FAT 整区清零（模拟陈旧/损坏的另一份） */
+  corruptInactiveFat?: boolean
 }
 
 function w16le(data: Uint8Array, offset: number, value: number): void {
@@ -65,17 +81,23 @@ function bootChecksum(image: Uint8Array, baseSector: number): number {
   return sum >>> 0
 }
 
-function serializeFixtureFileSet(file: ExfatFixtureFile, firstCluster: number): Uint8Array {
+function serializeFixtureFileSet(
+  file: ExfatFixtureFile,
+  firstCluster: number,
+  attributes = 0x0020,
+  lengthOverride?: number,
+): Uint8Array {
   const name = file.name
   const units: number[] = []
   for (let i = 0; i < name.length; i += 1) units.push(name.charCodeAt(i))
   const nameEntryCount = Math.max(1, Math.ceil(units.length / 15))
   const slotCount = 2 + nameEntryCount
   const buf = new Uint8Array(slotCount * 32)
+  const dataLength = lengthOverride ?? file.data?.byteLength ?? 0
   const created = { date: ((2026 - 1980) << 9) | (8 << 5) | 1, time: (12 << 11) | (34 << 5) | 10, centis: 56 }
   buf[0] = 0x85
   buf[1] = 1 + nameEntryCount
-  w16le(buf, 4, 0x0020) // ARCHIVE
+  w16le(buf, 4, attributes)
   w16le(buf, 8, created.time)
   w16le(buf, 10, created.date)
   w16le(buf, 12, created.time)
@@ -89,9 +111,9 @@ function serializeFixtureFileSet(file: ExfatFixtureFile, firstCluster: number): 
   buf[streamBase + 1] = 0x01 | (file.noFatChain ? 0x02 : 0)
   buf[streamBase + 3] = units.length
   w16le(buf, streamBase + 4, computeExfatNameHash(name))
-  w64le(buf, streamBase + 8, file.data?.byteLength ?? 0)
+  w64le(buf, streamBase + 8, dataLength)
   w32le(buf, streamBase + 20, firstCluster)
-  w64le(buf, streamBase + 24, file.data?.byteLength ?? 0)
+  w64le(buf, streamBase + 24, dataLength)
   for (let i = 0; i < nameEntryCount; i += 1) {
     const nameBase = (2 + i) * 32
     buf[nameBase] = 0xc1
@@ -109,23 +131,25 @@ export function createExfatImage(options?: ExfatFixtureOptions): Uint8Array {
   const volumeSectors = Math.floor((options?.sizeBytes ?? 2 * 1024 * 1024) / SECTOR)
   const clusterShift = options?.sectorsPerClusterShift ?? 3
   const sectorsPerCluster = 1 << clusterShift
+  const numberOfFats = options?.numberOfFats === 2 ? 2 : 1
+  const activeFat = options?.activeFat === 1 ? 1 : 0
   const partitionStart = options?.partitioned ? MBR_PARTITION_START_SECTOR : 0
   const totalSectors = partitionStart + volumeSectors
   const image = new Uint8Array(totalSectors * SECTOR)
   const volumeBase = partitionStart * SECTOR
 
-  // 迭代解出 FAT 长度：簇数依赖堆偏移，堆偏移依赖 FAT 长度
+  // 迭代解出 FAT 长度：簇数依赖堆偏移，堆偏移依赖 FAT 长度（含全部 FAT 份数）
   const fatStart = BOOT_REGION_SECTORS
   let fatSectors = 1
   let clusterCount = 0
   for (;;) {
-    const heapStart = fatStart + fatSectors
+    const heapStart = fatStart + fatSectors * numberOfFats
     clusterCount = Math.floor((volumeSectors - heapStart) / sectorsPerCluster)
     const needed = Math.ceil(((clusterCount + 2) * 4) / SECTOR)
     if (needed <= fatSectors) break
     fatSectors = needed
   }
-  const heapStart = fatStart + fatSectors
+  const heapStart = fatStart + fatSectors * numberOfFats
   clusterCount = Math.floor((volumeSectors - heapStart) / sectorsPerCluster)
 
   const clusterSize = SECTOR * sectorsPerCluster
@@ -148,10 +172,10 @@ export function createExfatImage(options?: ExfatFixtureOptions): Uint8Array {
   w32le(vbr, 100, 0x1234abcd)
   vbr[104] = 0x00
   vbr[105] = 0x01 // 规范版本 1.00
-  w16le(vbr, 106, 0x0000)
+  w16le(vbr, 106, activeFat)
   vbr[108] = 9 // 512 字节扇区
   vbr[109] = clusterShift
-  vbr[110] = 1 // 单份 FAT
+  vbr[110] = numberOfFats
   vbr[111] = 0x80
   vbr[112] = 0
   vbr[510] = 0x55
@@ -177,10 +201,13 @@ export function createExfatImage(options?: ExfatFixtureOptions): Uint8Array {
     w32le(image, (partitionStart + 23) * SECTOR + i * 4, checksum)
   }
 
-  /* ── FAT ── */
-  const fatBase = volumeBase + fatStart * SECTOR
+  /* ── FAT（全部份数内容一致）── */
+  const fatBases: number[] = []
+  for (let fat = 0; fat < numberOfFats; fat += 1) {
+    fatBases.push(volumeBase + (fatStart + fat * fatSectors) * SECTOR)
+  }
   const writeFat = (cluster: number, value: number): void => {
-    w32le(image, fatBase + cluster * 4, value)
+    for (const base of fatBases) w32le(image, base + cluster * 4, value)
   }
   writeFat(0, 0xfffffff8)
   writeFat(1, 0xffffffff)
@@ -218,6 +245,34 @@ export function createExfatImage(options?: ExfatFixtureOptions): Uint8Array {
     fileSets.push(serializeFixtureFileSet(file, firstCluster))
   }
 
+  /* ── 预置 NoFatChain 子目录（紧跟文件之后；blockNextCluster 时占住后续簇）── */
+  const dirSets: Uint8Array[] = []
+  for (const dir of options?.directories ?? []) {
+    const count = Math.max(1, dir.clusterCount ?? 1)
+    const firstCluster = nextCluster
+    for (let i = 0; i < count; i += 1) {
+      const clu = nextCluster + i
+      markUsed(clu)
+      writeFat(clu, CLUSTER_EOC) // NoFatChain 目录：FAT 项置 EOC，驱动按连续簇读取
+      image.fill(0, clusterOffset(clu), clusterOffset(clu) + clusterSize)
+    }
+    nextCluster += count
+    if (dir.blockNextCluster) {
+      const blk = nextCluster
+      markUsed(blk)
+      writeFat(blk, CLUSTER_EOC)
+      nextCluster += 1
+    }
+    dirSets.push(
+      serializeFixtureFileSet(
+        { name: dir.name, noFatChain: true },
+        firstCluster,
+        0x10, // ATTR_DIRECTORY
+        count * clusterSize,
+      ),
+    )
+  }
+
   /* ── 位图数据（簇 3）── */
   image.set(bitmap, clusterOffset(3))
 
@@ -243,7 +298,14 @@ export function createExfatImage(options?: ExfatFixtureOptions): Uint8Array {
   cursor += 32
   for (const set of fileSets) {
     if (cursor + set.byteLength > clusterSize) {
-      throw new Error('fixture 预置文件过多，超出单个根目录簇；请减少文件或加大簇')
+      throw new Error('fixture 预置文件/目录过多，超出单个根目录簇；请减少条目或加大簇')
+    }
+    root.set(set, cursor)
+    cursor += set.byteLength
+  }
+  for (const set of dirSets) {
+    if (cursor + set.byteLength > clusterSize) {
+      throw new Error('fixture 预置文件/目录过多，超出单个根目录簇；请减少条目或加大簇')
     }
     root.set(set, cursor)
     cursor += set.byteLength
@@ -259,6 +321,13 @@ export function createExfatImage(options?: ExfatFixtureOptions): Uint8Array {
     w32le(mbr, 446 + 12, volumeSectors)
     mbr[510] = 0x55
     mbr[511] = 0xaa
+  }
+
+  /* ── 模拟陈旧/损坏的非活动 FAT ── */
+  if (numberOfFats === 2 && options?.corruptInactiveFat) {
+    const inactive = activeFat === 1 ? 0 : 1
+    const base = fatBases[inactive]!
+    image.fill(0, base, base + fatSectors * SECTOR)
   }
 
   return image

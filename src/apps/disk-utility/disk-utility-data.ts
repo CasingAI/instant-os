@@ -439,13 +439,15 @@ async function inspectImageVolume(
         }
         imageRoot.fat = imageRoot.children.find((child) => child.fat)?.fat
       } else {
-        const fat = parseFatBootSector(sector0)
-        if (fat) {
-          imageRoot.fat = fat
+        // exFAT 签名判定是决定性的；FAT 解析接受度较宽，可能把 exFAT 引导区误判成 FAT 垃圾值，
+        // 必须先试 exFAT（与挂载层的探测分流一致）
+        const sb = parseExfatSuperblock(sector0)
+        if (sb) {
+          imageRoot.fat = await inspectExfatVolume(record.imagePath, 0, sb)
         } else {
-          const sb = parseExfatSuperblock(sector0)
-          if (sb) {
-            imageRoot.fat = await inspectExfatVolume(record.imagePath, 0, sb)
+          const fat = parseFatBootSector(sector0)
+          if (fat) {
+            imageRoot.fat = fat
           }
         }
       }

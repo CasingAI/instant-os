@@ -126,7 +126,7 @@ MBR 分区类型 `0x07` 同时表示 NTFS/HPFS/exFAT，不能仅靠分区类型�
 - [x] 创建/删除/重命名文件和目录、覆盖写入文件、范围读写、流式写（未采用外部库，自研实现，见下）。
 - [x] FAT12/16/32 镜像行为完全不变（回归：files-image-mount / files-location-mount-range / disk-utility 全绿）。
 - [x] 磁盘工具能识别 exFAT 分区并展示基本信息（卷标、簇大小、簇总数、容量、空闲簇、序列号）。
-- [x] 单元测试覆盖 exFAT fixture 的读写操作（`pnpm test:files-image`，11 组用例）。
+- [x] 单元测试覆盖 exFAT fixture 的读写操作（`pnpm test:files-image`，20 组用例，见 6.2 边界补测）。
 
 ## 6.1 实施纪要（2026-08-25）
 
@@ -150,6 +150,24 @@ MBR 分区类型 `0x07` 同时表示 NTFS/HPFS/exFAT，不能仅靠分区类型�
 2. 名字哈希按大写化 UTF-16 的**小端字节流逐字节**累加（macOS/Linux 实测口径），规范伪代码按码元读会算错；
 3. 原地补丁目录项（流扩展项 / 修改时间）后必须重算 SetChecksum，否则 fsck 判损坏；
 4. 目录项回收槽位判断要区分 0x85（在用）与 0x05（已删除）——仅差 bit7，不能按掩码类型匹配。
+
+## 6.2 边界补测（2026-08-25，另增 9 组用例 = 20 组）
+
+针对实施时未覆盖的边界路径补充测试，全部落在 `files-image-exfat.test.ts` 与 fixture 扩展 `files-image-exfat-fixture.ts`：
+
+| 用例 | 覆盖点 | 关键结论 |
+|---|---|---|
+| 双 FAT 镜像写 + ActiveFat 读取 | `numberOfFats=2`、写入镜像到两份 FAT、ActiveFat 位翻转后重挂载 | 驱动 `writeFatEntry` 把**新表项**写入全部 FAT 份数；ActiveFat 只影响读取选择 |
+| ActiveFat=1 + 陈旧副本 | VolFlags 置位、非活动 FAT 整区清零 | 读取完全依赖活动副本；镜像写不整体重建陈旧副本——这是 ActiveFat 的本意（崩溃安全），不是缺陷 |
+| 512B 簇长链 | shift=0，1MB 文件 = 2048 簇，FAT 表跨 16+ 扇区 | 长链分配/遍历/范围改写无环、无断裂 |
+| 256KB 簇 | shift=9 几何 + 单簇读写冒烟 | 几何推导正确 |
+| TB 级卷 VBR | 手工构造 16.7M 簇 + 8.6e9 扇区卷长 | u32 簇数 / u64 卷长在 JS 数值范围无溢出；非法几何拒绝 |
+| NoFatChain 目录连续扩容 | 目录后簇空闲 + 空文件（不占数据簇） | 保持 NoFatChain，新簇 FAT 表项为 EOC smear；要点：非空文件的数据簇会抢占目录后的簇，导致"无 blocker 也转链" |
+| NoFatChain 目录被迫转链 | 目录后紧跟占位簇 | 转 FAT 链后 Stream 标志清零、链完整、集合校验和重算有效 |
+| DOS 时间戳边界 | 1980-01-01 / 2107-12-31 23:59:58、越界钳制、百分秒精度 | 编解码往返一致；访问时间无百分秒 |
+| 磁盘工具展示 | mount → `loadDiskTree` 端到端：卷标/簇大小/簇数/序列号/容量/空闲簇 | **发现并修复真实 bug**：超软盘分支 `parseFatBootSector` 接受度过宽，把 exFAT 引导区误判成 FAT12 垃圾值 → 改为先试 exFAT 签名（与挂载层探测分流一致） |
+
+**仍不测的一项**：掉电中断恢复。SectorCache 抽象没有"部分落盘"的中间点——镜像只在 flush 时整体变更，浏览器 VFS 里不存在"写一半断电"的原子性语义可供测试；真机掉电后的一致性要靠 `fsck_exfat` 修复，超出本驱动单测范围（真实镜像互操作已用 fsck 验证过修复路径可用）。
 
 ---
 

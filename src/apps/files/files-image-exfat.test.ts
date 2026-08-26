@@ -1,6 +1,9 @@
 /**
  * exFAT 镜像卷：内存卷读写、预置文件互读、范围读写、流式写、目录扩容、
  * 空间回收，以及经挂载层（FAT 探测失败 → exFAT 兜底）的 files-api 全链路。
+ * 另覆盖：双 FAT 镜像写与 ActiveFat 读取、坏 FAT 被写修复、极端簇大小
+ * （512B 簇长链 / 256KB 簇）、超大卷 VBR 解析、NoFatChain 目录连续扩容
+ * 与被迫转 FAT 链、DOS 时间戳边界、磁盘工具 exFAT 信息展示。
  * 运行：node --experimental-strip-types src/apps/files/files-image-exfat.test.ts
  */
 import 'fake-indexeddb/auto'
@@ -9,11 +12,15 @@ import {
   computeExfatNameHash,
   computeExfatSetChecksum,
   ExfatImageVolume,
+  parseExfatDirectory,
   parseExfatSuperblock,
+  serializeExfatFileSet,
+  type ExfatSuperblock,
   type ImageDiskIo,
 } from './files-image-exfat-volume.ts'
 import { createExfatImage } from './files-image-exfat-fixture.ts'
 import { createFat12Image } from './files-image-fat12-fixture.ts'
+import { loadDiskTree } from '../disk-utility/disk-utility-data.ts'
 import {
   mountDiskImage,
   unmountDiskImage,
@@ -420,6 +427,363 @@ async function testMountOrderKeepsFatAndBlankBehavior(): Promise<void> {
   await unmountDiskImage(blankMounted.id)
 }
 
+const CLUSTER_FIRST = 2
+const CLUSTER_EOC = 0xffffffff
+
+function w16le(data: Uint8Array, offset: number, value: number): void {
+  data[offset] = value & 0xff
+  data[offset + 1] = (value >>> 8) & 0xff
+}
+
+function w32le(data: Uint8Array, offset: number, value: number): void {
+  data[offset] = value & 0xff
+  data[offset + 1] = (value >>> 8) & 0xff
+  data[offset + 2] = (value >>> 16) & 0xff
+  data[offset + 3] = (value >>> 24) & 0xff
+}
+
+function w64le(data: Uint8Array, offset: number, value: number): void {
+  w32le(data, offset, value % 0x100000000)
+  w32le(data, offset + 4, Math.floor(value / 0x100000000))
+}
+
+/** 根目录簇的完整字节（superfloppy：簇堆起始即根目录） */
+function rootDirData(bytes: Uint8Array, sb: ExfatSuperblock): Uint8Array {
+  return bytes.subarray(sb.clusterHeapStart, sb.clusterHeapStart + sb.clusterSize)
+}
+
+/** 沿 FAT 链从首簇走到 EOC，返回全部簇号；链断裂或过长抛错 */
+function walkFatChain(bytes: Uint8Array, sb: ExfatSuperblock, first: number): number[] {
+  const out: number[] = []
+  let clu = first
+  for (let steps = 0; steps < 100000; steps += 1) {
+    out.push(clu)
+    const offset = sb.fatStart + clu * 4
+    const value =
+      (bytes[offset]! |
+        (bytes[offset + 1]! << 8) |
+        (bytes[offset + 2]! << 16) |
+        (bytes[offset + 3]! << 24)) >>>
+      0
+    if (value === CLUSTER_EOC) return out
+    if (value < CLUSTER_FIRST) throw new Error(`FAT 链断裂：簇 ${clu} → ${value}`)
+    clu = value
+  }
+  throw new Error('FAT 链过长')
+}
+
+/** 往目录里塞 count 个定长（36 字符，5 槽 160B）文件，足够撑爆单个 4KB 簇；withData=false 建空文件不占数据簇 */
+async function fillDirectory(
+  volume: ExfatImageVolume,
+  dir: string,
+  count: number,
+  withData = true,
+): Promise<void> {
+  for (let i = 0; i < count; i += 1) {
+    const name = `f-${String(i).padStart(3, '0')}-${'x'.repeat(26)}.txt`
+    const content = withData ? new TextEncoder().encode(`content-${i}`) : new Uint8Array(0)
+    await volume.writeFile(`${dir}/${name}`, content)
+  }
+}
+
+async function testExfatDualFatMirrorAndActiveFat(): Promise<void> {
+  const bytes = createExfatImage({ numberOfFats: 2, label: 'DUAL' })
+  const volume = new ExfatImageVolume(memoryDisk(bytes))
+  await volume.prepare()
+  await volume.writeFile('dual.txt', new TextEncoder().encode('dual fat'))
+  await volume.flush()
+
+  // 两份 FAT 字节级一致，新文件链写入时镜像到两份
+  const sb = parseExfatSuperblock(bytes.subarray(0, 512))!
+  const fat0 = bytes.subarray(sb.fatStart, sb.fatStart + sb.fatLength)
+  const fat1 = bytes.subarray(sb.fatStart + sb.fatLength, sb.fatStart + 2 * sb.fatLength)
+  assert.deepEqual(Array.from(fat0), Array.from(fat1))
+  const root = parseExfatDirectory(rootDirData(bytes, sb))
+  const node = root.nodes.find((item) => item.name === 'dual.txt')
+  assert.ok(node)
+  assert.equal(walkFatChain(bytes, sb, node.firstCluster).length, 1)
+
+  // ActiveFat 位翻成 1：读取切到第二份 FAT，重挂载仍可读
+  bytes[106] |= 0x01
+  const swapped = new ExfatImageVolume(memoryDisk(bytes))
+  await swapped.prepare()
+  assert.equal(new TextDecoder().decode(await swapped.readFile('dual.txt')), 'dual fat')
+}
+
+async function testExfatActiveFat1ReadsViaSecondFatAndMirrorsWrites(): Promise<void> {
+  // 双 FAT、ActiveFat=1，且首份 FAT 整区清零——读取必须完全依赖第二份 FAT
+  const preset = new Uint8Array(9000)
+  for (let i = 0; i < preset.byteLength; i += 1) preset[i] = i & 0xff
+  const bytes = createExfatImage({
+    numberOfFats: 2,
+    activeFat: 1,
+    corruptInactiveFat: true,
+    files: [{ name: 'preset.bin', data: preset }],
+  })
+  const sb = parseExfatSuperblock(bytes.subarray(0, 512))!
+  const fat0 = bytes.subarray(sb.fatStart, sb.fatStart + sb.fatLength)
+  const fat1 = bytes.subarray(sb.fatStart + sb.fatLength, sb.fatStart + 2 * sb.fatLength)
+  assert.equal(fat0.every((byte) => byte === 0), true, '前提：FAT0 已清零')
+
+  const volume = new ExfatImageVolume(memoryDisk(bytes))
+  await volume.prepare()
+  // 9000B = 3 簇链：FAT0 全零时只有 FAT1 能解析出这条链
+  assert.deepEqual(await volume.readFile('preset.bin'), preset)
+  await volume.writeFile('fresh.bin', new TextEncoder().encode('made now'))
+  await volume.flush()
+
+  // 新表项镜像到两份 FAT（同一簇号、同一值）；既有陈旧副本不被整体重建
+  const root = parseExfatDirectory(rootDirData(bytes, sb))
+  const entryOf = (region: Uint8Array, cluster: number): number =>
+    (region[cluster * 4]! |
+      (region[cluster * 4 + 1]! << 8) |
+      (region[cluster * 4 + 2]! << 16) |
+      (region[cluster * 4 + 3]! << 24)) >>>
+    0
+  const freshNode = root.nodes.find((item) => item.name === 'fresh.bin')
+  assert.ok(freshNode)
+  assert.equal(entryOf(fat0, freshNode.firstCluster), CLUSTER_EOC)
+  assert.equal(entryOf(fat1, freshNode.firstCluster), CLUSTER_EOC)
+  const presetNode = root.nodes.find((item) => item.name === 'preset.bin')
+  assert.ok(presetNode)
+  assert.equal(entryOf(fat0, presetNode.firstCluster), 0, '陈旧副本的既有链保持原样（ActiveFat 语义）')
+  assert.equal(
+    entryOf(fat1, presetNode.firstCluster),
+    presetNode.firstCluster + 1,
+    '活动副本的既有链完好',
+  )
+
+  // ActiveFat 翻回 0：fresh.bin 的表项已镜像进 FAT0，仍可读
+  bytes[106] &= 0xfe
+  const swapped = new ExfatImageVolume(memoryDisk(bytes))
+  await swapped.prepare()
+  assert.equal(new TextDecoder().decode(await swapped.readFile('fresh.bin')), 'made now')
+}
+
+async function testExfatTinyClustersLongChain(): Promise<void> {
+  // 512B 簇（shift=0）：1MB 文件 = 2048 簇长链，FAT 表跨 16+ 扇区
+  const bytes = createExfatImage({ sectorsPerClusterShift: 0 })
+  const volume = new ExfatImageVolume(memoryDisk(bytes))
+  await volume.prepare()
+  const content = new Uint8Array(1024 * 1024)
+  for (let i = 0; i < content.byteLength; i += 1) content[i] = (i * 7) & 0xff
+  await volume.writeFile('big.bin', content)
+  const patch = new Uint8Array(300).fill(0x5a)
+  await volume.writeFileRange('big.bin', 500 * 1024, patch)
+  await volume.flush()
+
+  const sb = parseExfatSuperblock(bytes.subarray(0, 512))!
+  assert.equal(sb.clusterSize, 512)
+  const root = parseExfatDirectory(rootDirData(bytes, sb))
+  const node = root.nodes.find((item) => item.name === 'big.bin')
+  assert.ok(node)
+  const chain = walkFatChain(bytes, sb, node.firstCluster)
+  assert.equal(chain.length, 2048) // 1MB / 512B
+  assert.equal(chain.length === new Set(chain).size, true) // 无环
+
+  const remounted = new ExfatImageVolume(memoryDisk(bytes))
+  await remounted.prepare()
+  const reread = await remounted.readFile('big.bin')
+  assert.equal(reread.byteLength, content.byteLength)
+  assert.deepEqual(reread.subarray(500 * 1024, 500 * 1024 + 300), patch)
+  assert.equal(reread[500 * 1024 - 1], content[500 * 1024 - 1])
+}
+
+async function testExfatHugeClusters(): Promise<void> {
+  // 256KB 簇（shift=9）：几何与单簇读写冒烟
+  const bytes = createExfatImage({ sectorsPerClusterShift: 9, sizeBytes: 4 * 1024 * 1024 })
+  const volume = new ExfatImageVolume(memoryDisk(bytes))
+  await volume.prepare()
+  const sb = parseExfatSuperblock(bytes.subarray(0, 512))!
+  assert.equal(sb.clusterSize, 256 * 1024)
+  await volume.writeFile('note.txt', new TextEncoder().encode('huge cluster vol'))
+  await volume.flush()
+
+  const remounted = new ExfatImageVolume(memoryDisk(bytes))
+  await remounted.prepare()
+  assert.equal(
+    new TextDecoder().decode(await remounted.readFile('note.txt')),
+    'huge cluster vol',
+  )
+}
+
+async function testExfatHugeVolumeSuperblockParse(): Promise<void> {
+  // TB 级卷的 VBR 解析：u32 簇数 + u64 卷长在 JS 数值范围内不溢出
+  const boot = new Uint8Array(512)
+  boot.set([0x45, 0x58, 0x46, 0x41, 0x54, 0x20, 0x20, 0x20], 3) // 'EXFAT   '
+  boot[108] = 9 // 512B 扇区
+  boot[109] = 9 // 256KB 簇
+  boot[110] = 1
+  const fatOffset = 24
+  const fatLength = 131072 // 512MB FAT（容纳 16.7M 簇的表项）
+  const heapOffset = fatOffset + fatLength
+  const clusterCount = 16777216
+  const sectorsPerCluster = 512
+  const volumeSectors = heapOffset + clusterCount * sectorsPerCluster + 1024
+  w32le(boot, 80, fatOffset)
+  w32le(boot, 84, fatLength)
+  w32le(boot, 88, heapOffset)
+  w32le(boot, 92, clusterCount)
+  w32le(boot, 96, CLUSTER_FIRST)
+  w64le(boot, 72, volumeSectors)
+  w32le(boot, 100, 0x1234abcd)
+  boot[510] = 0x55
+  boot[511] = 0xaa
+
+  const sb = parseExfatSuperblock(boot)!
+  assert.equal(sb.clusterSize, 256 * 1024)
+  assert.equal(sb.clusterCount, clusterCount)
+  assert.equal(sb.fatStart, fatOffset * 512)
+  assert.equal(sb.fatLength, fatLength * 512)
+  assert.equal(sb.clusterHeapStart, heapOffset * 512)
+  assert.equal(sb.volumeLength, volumeSectors * 512)
+  assert.equal(sb.rootCluster, CLUSTER_FIRST)
+  assert.equal(sb.numberOfFats, 1)
+  assert.equal(sb.activeFat, 0)
+
+  // 非法几何拒绝
+  boot[110] = 3
+  assert.equal(parseExfatSuperblock(boot), undefined) // FAT 份数越界
+  boot[110] = 1
+  boot[109] = 17
+  assert.equal(parseExfatSuperblock(boot), undefined) // 簇移位越界
+  boot[109] = 9
+  boot[108] = 8
+  assert.equal(parseExfatSuperblock(boot), undefined) // 扇区移位越界
+}
+
+async function testExfatNoFatChainDirectoryContiguousGrowth(): Promise<void> {
+  // 目录后有空闲簇、且空文件不占数据簇：NoFatChain 目录物理连续扩展并保持 NoFatChain
+  const bytes = createExfatImage({ directories: [{ name: 'docs' }] })
+  const volume = new ExfatImageVolume(memoryDisk(bytes))
+  await volume.prepare()
+  await fillDirectory(volume, 'docs', 30, false)
+  await volume.flush()
+
+  const sb = parseExfatSuperblock(bytes.subarray(0, 512))!
+  const root = parseExfatDirectory(rootDirData(bytes, sb))
+  const node = root.nodes.find((item) => item.name === 'docs')
+  assert.ok(node)
+  assert.equal(node.noFatChain, true) // 连续扩展成功，保持 NoFatChain
+  const expectedClusters = Math.ceil(node.dataLength / sb.clusterSize)
+  assert.equal(expectedClusters, 2)
+  // NoFatChain 目录不走 FAT 链：各簇的 FAT 表项是 EOC smear，读取按算术连续
+  const entryOf = (cluster: number): number => {
+    const offset = sb.fatStart + cluster * 4
+    return (
+      (bytes[offset]! |
+        (bytes[offset + 1]! << 8) |
+        (bytes[offset + 2]! << 16) |
+        (bytes[offset + 3]! << 24)) >>>
+      0
+    )
+  }
+  assert.equal(entryOf(node.firstCluster), CLUSTER_EOC)
+  for (let i = 1; i < expectedClusters; i += 1) {
+    assert.equal(entryOf(node.firstCluster + i), CLUSTER_EOC)
+  }
+
+  const remounted = new ExfatImageVolume(memoryDisk(bytes))
+  await remounted.prepare()
+  const listed = await remounted.list('docs')
+  assert.equal(listed.length, 30)
+}
+
+async function testExfatNoFatChainDirectoryForcedChainConversion(): Promise<void> {
+  // 目录 1 簇后紧跟占位文件（blockNextCluster）：无法连续扩展，整条转 FAT 链
+  const bytes = createExfatImage({
+    directories: [{ name: 'docs', clusterCount: 1, blockNextCluster: true }],
+  })
+  const volume = new ExfatImageVolume(memoryDisk(bytes))
+  await volume.prepare()
+  await fillDirectory(volume, 'docs', 30)
+  await volume.flush()
+
+  const sb = parseExfatSuperblock(bytes.subarray(0, 512))!
+  const root = parseExfatDirectory(rootDirData(bytes, sb))
+  const node = root.nodes.find((item) => item.name === 'docs')
+  assert.ok(node)
+  assert.equal(node.noFatChain, false) // 已转 FAT 链
+  const expectedClusters = Math.ceil(node.dataLength / sb.clusterSize)
+  assert.equal(expectedClusters, 2)
+  const chain = walkFatChain(bytes, sb, node.firstCluster)
+  assert.equal(chain.length, expectedClusters)
+  // 转链后集合校验和仍有效（原地补丁会重算）
+  const set = rootDirData(bytes, sb).slice(node.slot * 32, (node.slot + node.slotCount) * 32)
+  const withoutChecksum = set.slice()
+  withoutChecksum[2] = 0
+  withoutChecksum[3] = 0
+  assert.equal(computeExfatSetChecksum(withoutChecksum), set[2]! | (set[3]! << 8))
+
+  const remounted = new ExfatImageVolume(memoryDisk(bytes))
+  await remounted.prepare()
+  const listed = await remounted.list('docs')
+  assert.equal(listed.length, 30)
+  assert.equal(
+    new TextDecoder().decode(await remounted.readFile(`docs/f-029-${'x'.repeat(26)}.txt`)),
+    'content-29',
+  )
+}
+
+async function testExfatTimestampBoundaries(): Promise<void> {
+  const MIN = Date.UTC(1980, 0, 1)
+  const MAX = Date.UTC(2107, 11, 31, 23, 59, 58)
+  const cases: { createdAt: number; expected: number }[] = [
+    { createdAt: MIN, expected: MIN },
+    { createdAt: MAX, expected: MAX },
+    { createdAt: Date.UTC(1979, 11, 31, 0, 0, 0), expected: MIN }, // 下溢钳到 1980
+    { createdAt: Date.UTC(2108, 0, 1), expected: MAX }, // 上溢钳到 2107 上限
+    {
+      createdAt: Date.UTC(2026, 7, 25, 12, 34, 56, 780), // 十分之一秒精度往返
+      expected: Date.UTC(2026, 7, 25, 12, 34, 56, 780),
+    },
+  ]
+  for (const c of cases) {
+    const set = serializeExfatFileSet({
+      name: 't',
+      attributes: 0x20,
+      firstCluster: 0,
+      dataLength: 0,
+      noFatChain: false,
+      createdAt: c.createdAt,
+      updatedAt: c.createdAt,
+      accessedAt: 0,
+    })
+    const parsed = parseExfatDirectory(set)
+    const node = parsed.nodes[0]!
+    assert.equal(node.createdAt, c.expected)
+    assert.equal(node.updatedAt, c.expected)
+    assert.equal(node.accessedAt, MIN) // 0 被钳到最小值，访问时间无百分秒
+  }
+}
+
+async function testExfatDiskUtilitySurfacing(): Promise<void> {
+  await resetFiles()
+  const image = createExfatImage({
+    label: 'LBLVOL',
+    files: [{ name: 'a.txt', data: new TextEncoder().encode('hello') }],
+  })
+  await filesCreateBinary(
+    '/user/exfat.img',
+    image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength),
+  )
+  await mountDiskImage('/user/exfat.img')
+  const tree = await loadDiskTree()
+  const imageContainer = tree.children?.find((child) => child.id === 'container:image')
+  assert.ok(imageContainer, '磁盘镜像容器应出现在系统磁盘树下')
+  const node = imageContainer.children?.find((child) => child.kind !== 'container')
+  assert.ok(node, '镜像节点应存在')
+  const info = node.fat
+  assert.ok(info && info.variant === 'exFAT')
+  const sb = parseExfatSuperblock(image.subarray(0, 512))!
+  assert.equal(info.label, 'LBLVOL')
+  assert.equal(info.clusterSizeBytes, sb.clusterSize)
+  assert.equal(info.totalClusters, sb.clusterCount)
+  assert.equal(info.serialNumber, '0x1234ABCD')
+  assert.equal(info.capacityBytes, sb.volumeLength)
+  assert.ok(info.freeClusters !== undefined && info.freeClusters >= 1)
+}
+
 async function main(): Promise<void> {
   await testInMemoryExfatVolume()
   await testExfatReadsFixtureFiles()
@@ -432,6 +796,15 @@ async function main(): Promise<void> {
   await testMountExfatThroughFilesApi()
   await testMountPartitionedExfatImage()
   await testMountOrderKeepsFatAndBlankBehavior()
+  await testExfatDualFatMirrorAndActiveFat()
+  await testExfatActiveFat1ReadsViaSecondFatAndMirrorsWrites()
+  await testExfatTinyClustersLongChain()
+  await testExfatHugeClusters()
+  await testExfatHugeVolumeSuperblockParse()
+  await testExfatNoFatChainDirectoryContiguousGrowth()
+  await testExfatNoFatChainDirectoryForcedChainConversion()
+  await testExfatTimestampBoundaries()
+  await testExfatDiskUtilitySurfacing()
   console.log('files-image-exfat.test.ts ok')
 }
 
