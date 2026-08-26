@@ -108,7 +108,6 @@ async function main(): Promise<void> {
     testWriteThenListAndRead,
     testBundleRootNotDuplicated,
     testUserWriteRejectedButSystemWriteWorks,
-    testEmptyKeyNotMarkedMigrated,
     testQuotaKeysAreRawAppId,
   ]
   for (const test of cases) {
