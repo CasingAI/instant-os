@@ -42,6 +42,11 @@ export type FilesNode = {
    */
   contentRevisionId?: string
   /**
+   * 机会压缩偏好：开启后尽量以稀疏分块存储（缺席块 = 全零，写零打洞）。
+   * 仅文件有意义；旧数据缺省为未开启。
+   */
+  sparse?: boolean
+  /**
    * 符号链接目标（相对或绝对路径字符串）。
    * 仅 `kind === 'symlink'` 有意义；无独立 blob。
    */

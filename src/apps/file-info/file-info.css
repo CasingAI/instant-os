@@ -115,6 +115,39 @@
   word-break: break-all;
 }
 
+.file-info-app__info-checkbox {
+  width: auto;
+  margin: 2px 0 0;
+  accent-color: #8a6a3c;
+}
+
+.file-info-app__info-checkbox:disabled {
+  opacity: 0.55;
+}
+
+.file-info-app__info-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: rgba(90, 67, 40, 0.14);
+  color: #7a6348;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.file-info-app__info-busy {
+  margin-left: 6px;
+  color: #7a6348;
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .file-info-app__multi {
   display: flex;
   flex-direction: column;

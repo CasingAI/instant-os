@@ -61,6 +61,8 @@ export type FilesNodeRecord = {
   updatedAt: number
   /** 内容版本戳；旧记录 / 文件夹可能缺失 */
   contentRevisionId?: string
+  /** 机会压缩偏好；旧记录缺省为未开启 */
+  sparse?: boolean
   /**
    * 指向 blobs 表条目。缺省兼容旧数据：等同 node.id。
    * 仅 kind=file 有意义；clone 共享时多个节点可指向同一 blobId。
@@ -914,6 +916,9 @@ export function recordToNode(record: FilesNodeRecord): FilesNode {
   if (record.contentRevisionId !== undefined) {
     node.contentRevisionId = record.contentRevisionId
   }
+  if (record.sparse !== undefined) {
+    node.sparse = record.sparse
+  }
   if (record.target !== undefined) {
     node.target = record.target
   }
@@ -947,6 +952,9 @@ function nodeToRecord(node: FilesNode, blobId?: string): FilesNodeRecord {
   }
   if (node.contentRevisionId !== undefined) {
     record.contentRevisionId = node.contentRevisionId
+  }
+  if (node.sparse !== undefined) {
+    record.sparse = node.sparse
   }
   if (node.target !== undefined) {
     record.target = node.target
@@ -1630,6 +1638,307 @@ export async function createSparseFile(params: {
   await waitForTransaction(tx)
   emitFilesDataStorageChanged()
   return finalNode
+}
+
+/** 机会压缩分块大小（等分槽）。对齐全项目磁盘镜像的 1MiB 槽。 */
+export const SPARSE_DEFAULT_CHUNK_SIZE = 1024 * 1024
+
+/** 稀疏化逻辑大小硬上限：超过拒绝（IDB 分块路径代价过高）。4 GiB（避免位运算溢出，用乘法）。 */
+export const SPARSE_MAX_LOGICAL_BYTES = 4 * 1024 * 1024 * 1024
+
+/** 转换过程中每批落库的块数（每块最多 1MiB，批内峰值 ≈64MiB） */
+const SPARSE_CONVERT_BATCH_CHUNKS = 64
+
+export type SetNodeSparseOptions = {
+  /** 等分槽大小；默认 1MiB */
+  chunkSize?: number
+  onProgress?: (done: number, total: number) => void
+}
+
+/**
+ * 机会压缩开关：把已有内部文件在「稀疏分块」与「普通存储」之间转换。
+ * - sparse=true：按 block 分块扫描，全零块不落库（缺席槽 = 全零）；已是稀疏分块则只更新标志。
+ * - sparse=false：缺席槽物化为全零；已是普通存储则只更新标志。
+ * 内容字节不变：contentRevisionId / 时间戳原样保留。正文以新 blobId 重建，
+ * 旧 blob 按引用释放（共享内容不影响其他节点副本）。
+ */
+export async function setNodeSparse(
+  nodeId: string,
+  sparse: boolean,
+  options?: SetNodeSparseOptions,
+): Promise<FilesNode> {
+  const db = await openFilesDb()
+  const readTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const nodeRecord = await requestToPromise(
+    readTx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  if (!nodeRecord || nodeRecord.kind !== 'file') {
+    await waitForTransaction(readTx)
+    throw new Error('文件不存在')
+  }
+  const blobId = resolveNodeBlobId(nodeRecord)
+  const blob = await requestToPromise(
+    readTx.objectStore(FILES_BLOBS_STORE).get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+  )
+  await waitForTransaction(readTx)
+  if (!blob) {
+    throw new Error('文件内容不存在')
+  }
+
+  const alreadySparseFormat = blob.chunked === true
+  if (sparse) {
+    if (nodeRecord.sparse === true && alreadySparseFormat) {
+      return recordToNode(nodeRecord)
+    }
+    if (alreadySparseFormat) {
+      // 已是稀疏分块格式（如空白磁盘镜像）但标志未开：只落标志，不整份重写
+      return commitSparseFlagOnly(db, nodeRecord, true)
+    }
+    return convertNodeBlobToSparse(db, nodeRecord, blob, options)
+  }
+  if (nodeRecord.sparse === false && !alreadySparseFormat) {
+    return recordToNode(nodeRecord)
+  }
+  if (!alreadySparseFormat) {
+    return commitSparseFlagOnly(db, nodeRecord, false)
+  }
+  return convertNodeBlobToDense(db, nodeRecord, blob, options)
+}
+
+/** 仅更新节点稀疏标志（内容与 blob 不动）。 */
+async function commitSparseFlagOnly(
+  db: IDBDatabase,
+  nodeRecord: FilesNodeRecord,
+  sparse: boolean,
+): Promise<FilesNode> {
+  const updated: FilesNodeRecord = {
+    ...nodeRecord,
+    sparse,
+    attributes: normalizeFilesNodeAttributes(nodeRecord.locationId, nodeRecord.attributes),
+  }
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
+  tx.objectStore(FILES_NODES_STORE).put(updated)
+  await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
+  return recordToNode(updated)
+}
+
+/** 整份读一块 [offset, offset+length)；源缺失时按全零返回（不应发生，防御）。 */
+async function readNodeRangeOrZero(nodeId: string, offset: number, length: number): Promise<Uint8Array> {
+  const buf = await readBlobBytesRange(nodeId, offset, length)
+  if (buf) return new Uint8Array(buf)
+  return new Uint8Array(length)
+}
+
+/** 按槽扫描并分批落库到新 blob；返回实占字节。skipZero 时全零槽跳过。 */
+async function writeNodeChunkBatches(
+  db: IDBDatabase,
+  nodeId: string,
+  logicalSize: number,
+  chunkSize: number,
+  newBlobId: string,
+  skipZero: boolean,
+  onProgress?: (done: number, total: number) => void,
+): Promise<number> {
+  const chunkCount = logicalSize === 0 ? 0 : Math.ceil(logicalSize / chunkSize)
+  let storedByteSize = 0
+  for (let base = 0; base < chunkCount; base += SPARSE_CONVERT_BATCH_CHUNKS) {
+    const end = Math.min(chunkCount, base + SPARSE_CONVERT_BATCH_CHUNKS)
+    const batch: { index: number; bytes: ArrayBuffer }[] = []
+    for (let i = base; i < end; i++) {
+      const offset = i * chunkSize
+      const length = Math.min(chunkSize, logicalSize - offset)
+      const bytes = await readNodeRangeOrZero(nodeId, offset, length)
+      if (skipZero && isAllZeros(bytes)) continue
+      storedByteSize += bytes.byteLength
+      batch.push({ index: i, bytes: copyUint8ToArrayBuffer(bytes) })
+    }
+    onProgress?.(Math.min(logicalSize, end * chunkSize), logicalSize)
+    if (batch.length === 0) continue
+    const writeTx = beginIdbTransaction(db, FILES_CHUNKS_STORE, 'readwrite')
+    const chunks = writeTx.objectStore(FILES_CHUNKS_STORE)
+    for (const item of batch) {
+      chunks.put({
+        blobId: newBlobId,
+        chunkIndex: item.index,
+        bytes: item.bytes,
+      } satisfies FilesChunkRecord)
+    }
+    await waitForTransaction(writeTx)
+  }
+  return storedByteSize
+}
+
+/** 转换失败时回收已登记的新 blob（分块记录 + 索引），避免孤儿内容。 */
+async function rollbackNewBlob(db: IDBDatabase, newBlobId: string): Promise<void> {
+  const tx = beginIdbTransaction(db, [FILES_BLOBS_STORE, FILES_CHUNKS_STORE], 'readwrite')
+  tx.objectStore(FILES_BLOBS_STORE).delete(newBlobId)
+  await deleteBlobChunksInTx(tx, newBlobId)
+  await waitForTransaction(tx)
+}
+
+/** 把 contentRevisionId / 时间戳原样保留，仅换 blob 指向与 sparse 标志。 */
+function buildNodeSwapRecord(
+  nodeRecord: FilesNodeRecord,
+  newBlobId: string,
+  sparse: boolean,
+): FilesNodeRecord {
+  return {
+    ...nodeRecord,
+    blobId: newBlobId,
+    sparse,
+    attributes: normalizeFilesNodeAttributes(nodeRecord.locationId, nodeRecord.attributes),
+  }
+}
+
+/** 提交节点换柄：登记新 blob 余额、节点指过去、旧 blob 释放引用、配额按实占差修正。 */
+async function commitNodeBlobSwap(
+  db: IDBDatabase,
+  nodeRecord: FilesNodeRecord,
+  oldBlob: FilesBlobRecord,
+  newBlob: FilesBlobRecord,
+  newBlobStored: number,
+  sparse: boolean,
+): Promise<FilesNode> {
+  const oldStored = blobPayloadBytes(oldBlob)
+  const capacityDelta = newBlobStored - oldStored
+  const updated = buildNodeSwapRecord(nodeRecord, newBlob.id, sparse)
+  const writeTx = beginIdbTransaction(
+    db,
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  writeTx.objectStore(FILES_BLOBS_STORE).put({
+    ...newBlob,
+    storedByteSize: newBlobStored,
+  } satisfies FilesBlobRecord)
+  writeTx.objectStore(FILES_NODES_STORE).put(updated)
+  const releasedOpfs = await releaseBlobRefInTx(writeTx, resolveNodeBlobId(nodeRecord), oldBlob)
+  await adjustByteTotal(writeTx, capacityDelta)
+  await waitForTransaction(writeTx)
+  await deleteOpfsBlobs([releasedOpfs])
+  emitFilesDataStorageChanged()
+  return recordToNode(updated)
+}
+
+async function convertNodeBlobToSparse(
+  db: IDBDatabase,
+  nodeRecord: FilesNodeRecord,
+  blob: FilesBlobRecord,
+  options?: SetNodeSparseOptions,
+): Promise<FilesNode> {
+  const logicalSize = nodeRecord.byteSize ?? 0
+  if (logicalSize > SPARSE_MAX_LOGICAL_BYTES) {
+    throw new Error('文件过大，无法转为稀疏存储')
+  }
+  const chunkSize = options?.chunkSize ?? SPARSE_DEFAULT_CHUNK_SIZE
+  const chunkCount = logicalSize === 0 ? 0 : Math.ceil(logicalSize / chunkSize)
+  const newBlobId = newFilesBlobId()
+
+  // 先登记新 blob（实占 0），后续批次写分块；失败时整体回滚，不留孤儿内容
+  const seedTx = beginIdbTransaction(db, FILES_BLOBS_STORE, 'readwrite')
+  seedTx.objectStore(FILES_BLOBS_STORE).put({
+    id: newBlobId,
+    refCount: 1,
+    chunked: true,
+    byteSize: logicalSize,
+    chunkCount,
+    uniformChunkSize: chunkSize,
+    storedByteSize: 0,
+  } satisfies FilesBlobRecord)
+  await waitForTransaction(seedTx)
+
+  let storedByteSize: number
+  try {
+    storedByteSize = await writeNodeChunkBatches(
+      db,
+      nodeRecord.id,
+      logicalSize,
+      chunkSize,
+      newBlobId,
+      true,
+      options?.onProgress,
+    )
+  } catch (error) {
+    await rollbackNewBlob(db, newBlobId)
+    throw error
+  }
+
+  return commitNodeBlobSwap(db, nodeRecord, blob, {
+    id: newBlobId,
+    refCount: 1,
+    chunked: true,
+    byteSize: logicalSize,
+    chunkCount,
+    uniformChunkSize: chunkSize,
+    storedByteSize,
+  }, storedByteSize, true)
+}
+
+async function convertNodeBlobToDense(
+  db: IDBDatabase,
+  nodeRecord: FilesNodeRecord,
+  blob: FilesBlobRecord,
+  options?: SetNodeSparseOptions,
+): Promise<FilesNode> {
+  const logicalSize = nodeRecord.byteSize ?? 0
+  const newBlobId = newFilesBlobId()
+
+  let newBlob: FilesBlobRecord
+  let storedByteSize: number
+  try {
+    if (logicalSize <= BYTES_TO_CHUNK_THRESHOLD) {
+      // 小文件：整份物化进单条 bytes（缺席槽补零）
+      const full = (await readBlobBytes(nodeRecord.id)) ?? new ArrayBuffer(0)
+      storedByteSize = full.byteLength
+      newBlob = { id: newBlobId, refCount: 1, bytes: full, storedByteSize }
+    } else if (shouldSpillToOpfs(logicalSize)) {
+      // 大文件：逐块物化进 OPFS（含零也写，不产生洞）
+      const writer = await openOpfsBlobWriter(newBlobId)
+      try {
+        for (let offset = 0; offset < logicalSize; offset += SPARSE_DEFAULT_CHUNK_SIZE) {
+          const length = Math.min(SPARSE_DEFAULT_CHUNK_SIZE, logicalSize - offset)
+          const bytes = await readNodeRangeOrZero(nodeRecord.id, offset, length)
+          await writer.writeAt(offset, bytes)
+          options?.onProgress?.(offset + length, logicalSize)
+        }
+        await writer.close()
+      } catch (error) {
+        await writer.abort()
+        throw error
+      }
+      storedByteSize = logicalSize
+      newBlob = opfsBlobIndexRecord(newBlobId, logicalSize)
+    } else {
+      // 无 OPFS 可用且过大：IDB 分块全量落库（零块也写，物化）
+      const chunkSize = SPARSE_DEFAULT_CHUNK_SIZE
+      const chunkCount = Math.ceil(logicalSize / chunkSize)
+      storedByteSize = await writeNodeChunkBatches(
+        db,
+        nodeRecord.id,
+        logicalSize,
+        chunkSize,
+        newBlobId,
+        false,
+        options?.onProgress,
+      )
+      newBlob = {
+        id: newBlobId,
+        refCount: 1,
+        chunked: true,
+        byteSize: logicalSize,
+        chunkCount,
+        uniformChunkSize: chunkSize,
+        storedByteSize,
+      }
+    }
+  } catch (error) {
+    await rollbackNewBlob(db, newBlobId)
+    await deleteOpfsBlobs([newBlobId])
+    throw error
+  }
+
+  return commitNodeBlobSwap(db, nodeRecord, blob, newBlob, storedByteSize, false)
 }
 
 /**
@@ -2623,6 +2932,28 @@ function applySparseSlotPatch(
   }
 }
 
+/**
+ * 整文件覆盖的稀疏切槽计划（纯计算，不落库）：按等长槽切分内容，全零槽缺席，
+ * 非零槽记录槽号与数据视图（尾槽按实际长度）。用于保存路径在开事务前估算配额。
+ */
+function planSparseSlots(
+  bytes: Uint8Array,
+  slotSize: number,
+): { slots: { index: number; bytes: Uint8Array }[]; storedByteSize: number; chunkCount: number } {
+  const chunkCount = bytes.byteLength === 0 ? 0 : Math.ceil(bytes.byteLength / slotSize)
+  const slots: { index: number; bytes: Uint8Array }[] = []
+  let storedByteSize = 0
+  for (let index = 0; index < chunkCount; index++) {
+    const start = index * slotSize
+    const end = Math.min(start + slotSize, bytes.byteLength)
+    const slotBytes = bytes.subarray(start, end)
+    if (isAllZeros(slotBytes)) continue
+    slots.push({ index, bytes: slotBytes })
+    storedByteSize += slotBytes.byteLength
+  }
+  return { slots, storedByteSize, chunkCount }
+}
+
 /** 在事务内写入 chunk 列表；根据大小自动选择整块或分块格式 */
 function putChunksInTx(
   tx: IDBTransaction,
@@ -2697,13 +3028,27 @@ async function writeFileContentCow(params: {
 
   const refCount = oldBlob ? resolveBlobRefCount(oldBlob) : 1
   const shared = refCount > 1
-  const needed = shared
-    ? params.contentByteSize + params.nameMetaDelta
-    : params.contentByteSize - params.previousByteSize + params.nameMetaDelta
-  const total = await assertCapacity(needed)
+  // 旧 blob 为稀疏格式（等长分槽）时，整文件覆盖保存也按槽级切分落库：
+  // 全零槽缺席、非零槽落库，保存后仍保持稀疏。稀疏格式禁止卸到 OPFS
+  // （有洞文件不卸），权重高于 spill 判断；内容超上限时回退全量 dense。
+  const sparseSlotSize =
+    oldBlob?.chunked === true ? oldBlob.uniformChunkSize : undefined
+  const sparsePlan =
+    sparseSlotSize !== undefined && params.bytes.byteLength <= SPARSE_MAX_LOGICAL_BYTES
+      ? planSparseSlots(new Uint8Array(params.bytes), sparseSlotSize)
+      : undefined
+  const stayOnOpfs = !sparsePlan && isOpfsBlob(oldBlob) && !shared
+  const useOpfs = !sparsePlan && (stayOnOpfs || shouldSpillToOpfs(params.bytes.byteLength))
+  const storedDelta = sparsePlan
+    ? sparsePlan.storedByteSize - (oldBlob ? blobPayloadBytes(oldBlob) : 0)
+    : 0
+  const quotaDelta = sparsePlan
+    ? storedDelta
+    : shared
+      ? params.contentByteSize + params.nameMetaDelta
+      : params.contentByteSize - params.previousByteSize + params.nameMetaDelta
+  const total = await assertCapacity(Math.max(0, quotaDelta))
 
-  const stayOnOpfs = isOpfsBlob(oldBlob) && !shared
-  const useOpfs = stayOnOpfs || shouldSpillToOpfs(params.bytes.byteLength)
   const targetBlobId = shared ? newFilesBlobId() : oldBlobId
   if (useOpfs) {
     await writeOpfsBlobBytes(targetBlobId, new Uint8Array(params.bytes))
@@ -2730,7 +3075,25 @@ async function writeFileContentCow(params: {
     await deleteBlobChunksInTx(writeTx, oldBlobId)
   }
 
-  if (useOpfs) {
+  if (sparsePlan && sparseSlotSize !== undefined) {
+    const chunks = writeTx.objectStore(FILES_CHUNKS_STORE)
+    for (const slot of sparsePlan.slots) {
+      chunks.put({
+        blobId: targetBlobId,
+        chunkIndex: slot.index,
+        bytes: copyUint8ToArrayBuffer(slot.bytes),
+      } satisfies FilesChunkRecord)
+    }
+    blobs.put({
+      id: targetBlobId,
+      refCount: exclusiveRef,
+      chunked: true,
+      byteSize: params.bytes.byteLength,
+      chunkCount: sparsePlan.chunkCount,
+      uniformChunkSize: sparseSlotSize,
+      storedByteSize: sparsePlan.storedByteSize,
+    } satisfies FilesBlobRecord)
+  } else if (useOpfs) {
     blobs.put(opfsBlobIndexRecord(targetBlobId, params.contentByteSize, exclusiveRef))
   } else {
     putBlobContentInTx(writeTx, targetBlobId, params.bytes, exclusiveRef)
@@ -2744,7 +3107,7 @@ async function writeFileContentCow(params: {
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
   writeTx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
-    totalBytes: Math.max(0, total + needed),
+    totalBytes: Math.max(0, total + quotaDelta),
   } satisfies FilesMetaRecord)
   await waitForTransaction(writeTx)
   await deleteOpfsBlobs([releasedOpfs])

@@ -186,7 +186,7 @@ async function testOverwriteChunkedCleansOldChunks(): Promise<void> {
     nameMetaDelta: 0,
   })
   assert.equal(await readBlobText(closed.id), 'second')
-  assert.equal(await countChunks(firstRef.blobId), 0, '旧 chunk 应被清理')
+  assert.equal(await countChunks(firstRef.blobId), 1, '旧槽被替换为新槽，无孤儿')
   console.log('ok: whole write over chunked file cleans old chunks')
 }
 

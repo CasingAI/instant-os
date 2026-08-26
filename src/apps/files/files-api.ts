@@ -22,7 +22,14 @@ import {
   type FilesLocationId,
   type FilesNode,
 } from './files-types.ts'
-import { estimateNodeMetaBytes, FilesPathExistsError, newFilesNodeId, type FilesNodeNameMode } from './files-storage.ts'
+import {
+  DATA_SPACE_FILE_LOCATIONS,
+  estimateNodeMetaBytes,
+  FilesPathExistsError,
+  newFilesNodeId,
+  setNodeSparse,
+  type FilesNodeNameMode,
+} from './files-storage.ts'
 import {
   copyNodeTo,
   createBinaryFile,
@@ -53,6 +60,7 @@ import {
   writeBinaryFile,
   writeFileBytesRange,
   writeTextFile,
+  emitFilesVfsPathModified,
   type FilesSubtreeFileEntry,
   type FilesUpsertBatchItem,
   type FilesRemoveBatchOptions,
@@ -83,6 +91,8 @@ export type FilesApiEntry = {
   byteSize: number
   createdAt: number
   updatedAt: number
+  /** 机会压缩偏好；仅文件有意义，旧文件可能缺省 */
+  sparse?: boolean
   /** 内容版本戳；仅文件有意义，旧记录可能缺省 */
   contentRevisionId?: string
   /** 符号链接目标；仅 kind=symlink 时由 lstat 等暴露 */
@@ -114,6 +124,9 @@ async function toEntry(node: FilesNode, pathOverride?: string): Promise<FilesApi
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     writable: isFilesNodeWritable(node),
+  }
+  if (node.sparse !== undefined) {
+    entry.sparse = node.sparse
   }
   if (node.contentRevisionId !== undefined) {
     entry.contentRevisionId = node.contentRevisionId
@@ -464,6 +477,36 @@ export async function filesCreateSparseBinary(
     nameMode: 'exact',
   })
   return toEntry(node)
+}
+
+/**
+ * 机会压缩开关（稀疏存储）：把已有内部卷文件在稀疏分块与普通存储间转换。
+ * 内容字节不变；大文件转换可通过 onProgress 回报进度（单位：字节）。
+ * 仅 local / dev / tmp 数据卷支持；挂载卷与投影卷拒绝。
+ */
+export async function filesSetSparse(
+  path: string,
+  sparse: boolean,
+  options?: {
+    chunkSize?: number
+    onProgress?: (done: number, total: number) => void
+  },
+): Promise<FilesApiEntry> {
+  const absolutePath = assertAbsolutePath(path)
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
+  if (!node || node.kind !== 'file') {
+    throw new Error('文件不存在')
+  }
+  if (!DATA_SPACE_FILE_LOCATIONS.includes(node.locationId)) {
+    throw new Error('只有内部卷文件支持机会压缩')
+  }
+  const updated = await setNodeSparse(node.id, sparse, {
+    chunkSize: options?.chunkSize,
+    onProgress: options?.onProgress,
+  })
+  // 内容/元数据已变：清 VFS 路径缓存并通知订阅者（sparse 不经过目录结构操作）
+  emitFilesVfsPathModified(absolutePath)
+  return toEntry(updated)
 }
 
 /**

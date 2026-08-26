@@ -10,7 +10,7 @@ import {
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import type { FilesVfsOpProgress } from './files-vfs.ts'
 
-export type FilesOpProgressKind = 'import' | 'paste' | 'delete' | 'compress' | 'extract'
+export type FilesOpProgressKind = 'import' | 'paste' | 'delete' | 'compress' | 'extract' | 'sparse'
 
 /** 用户取消长操作的哨兵：调用方应吞掉（toast「已取消」），不走错误弹窗路径。 */
 export class FilesOpCancelledError extends Error {
@@ -44,11 +44,14 @@ function titleForKind(kind: FilesOpProgressKind): string {
   if (kind === 'paste') return '正在粘贴…'
   if (kind === 'compress') return '正在压缩…'
   if (kind === 'extract') return '正在解压…'
+  if (kind === 'sparse') return '正在稀疏化…'
   return '正在删除…'
 }
 
 export async function runFilesOpWithProgress<T>(params: {
   kind: FilesOpProgressKind
+  /** 覆盖默认标题（如物化方向与 kind 默认文案不一致时） */
+  titleOverride?: string
   totalWork: number
   estimatedTotalMs?: number
   onUiChange: (state: FilesOpProgressUiState | undefined) => void
@@ -82,7 +85,7 @@ export async function runFilesOpWithProgress<T>(params: {
     if (!dialogShown) return
     const remaining = estimateRemainingMs(snapshot())
     params.onUiChange({
-      title: titleForKind(params.kind),
+      title: params.titleOverride ?? titleForKind(params.kind),
       remainingLabel: formatFilesOpRemainingLabel(remaining),
       fraction: filesOpProgressFraction(done, total),
       ...(detailLabel !== undefined ? { detailLabel } : {}),

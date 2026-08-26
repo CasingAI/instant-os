@@ -3,8 +3,19 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesNodeIcon } from '../files/files-node-icon.tsx'
+import { filesSetSparse } from '../files/files-api.ts'
+import { FilesOpProgressWindow } from '../files/files-op-progress-window.tsx'
+import {
+  runFilesOpWithProgress,
+  type FilesOpProgressUiState,
+} from '../files/files-run-with-op-progress.ts'
 import { getFileBlobStorageInfo, getNode, type FilesBlobStorageInfo } from '../files/files-storage.ts'
+import {
+  getFilesWriteProgressSnapshot,
+  subscribeFilesWriteProgress,
+} from '../files/files-write-progress.ts'
 import {
   filesLocationPathRoot,
   formatFilesByteSize,
@@ -355,6 +366,7 @@ function isIndexedDbManagedFile(node: FilesNode): boolean {
 }
 
 function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
+  const modal = useWindowModal()
   const [folderStats, setFolderStats] = useState<FolderStats | undefined>(undefined)
   const [folderStatsState, setFolderStatsState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
     'idle',
@@ -365,6 +377,28 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
   const [blobStorageState, setBlobStorageState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
     'idle',
   )
+  const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
+  const [sparseBusy, setSparseBusy] = useState(false)
+  const [sparseEnabled, setSparseEnabled] = useState(node.sparse === true)
+  const [writeProgress, setWriteProgress] = useState(() => getFilesWriteProgressSnapshot())
+
+  useEffect(() => subscribeFilesWriteProgress(() => setWriteProgress(getFilesWriteProgressSnapshot())), [])
+
+  useEffect(() => {
+    setSparseEnabled(node.sparse === true)
+  }, [node.id, node.sparse])
+
+  const isWriting = writeProgress.has(node.id)
+
+  const loadBlobStorage = useCallback(async (nodeId: string) => {
+    try {
+      const info = await getFileBlobStorageInfo(nodeId)
+      setBlobStorage(info)
+      setBlobStorageState('ready')
+    } catch {
+      setBlobStorageState('error')
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -498,12 +532,77 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
     return '—'
   })()
 
+  const handleSparseToggle = useCallback(
+    async (checked: boolean) => {
+      if (sparseBusy || blobStorageState !== 'ready' || !blobStorage) return
+      // 高代价转换先确认：OPFS 大文件读回内部卷，或物化需要补大量零块
+      if (
+        checked &&
+        blobStorage.bodyStore === 'OPFS' &&
+        node.byteSize > 256 * 1024 * 1024
+      ) {
+        const ok = await modal.confirm({
+          title: '转为稀疏存储？',
+          message: '该文件正文已在本机 OPFS，稀疏化需要整份读回内部卷重新分块，期间可能较慢。继续吗？',
+          confirmLabel: '继续',
+        })
+        if (!ok) return
+      }
+      if (
+        !checked &&
+        blobStorage.storedByteSize < blobStorage.byteSize &&
+        node.byteSize - blobStorage.storedByteSize > 64 * 1024 * 1024
+      ) {
+        const ok = await modal.confirm({
+          title: '取消稀疏存储？',
+          message: `将把缺席的全零块落库，额外占用约 ${formatFilesByteSize(node.byteSize - blobStorage.storedByteSize)}。继续吗？`,
+          confirmLabel: '继续',
+        })
+        if (!ok) return
+      }
+      setSparseBusy(true)
+      try {
+        await runFilesOpWithProgress({
+          kind: 'sparse',
+          titleOverride: checked ? undefined : '正在物化…',
+          totalWork: Math.max(1, node.byteSize),
+          onUiChange: setOpProgressUi,
+          task: async (report) => {
+            const updated = await filesSetSparse(path, checked, {
+              onProgress: (done, total) => report({ done, total }),
+            })
+            setSparseEnabled(updated.sparse === true)
+            await loadBlobStorage(node.id)
+          },
+        })
+      } catch (error) {
+        await modal.alert({
+          title: checked ? '无法转为稀疏存储' : '无法物化',
+          message: error instanceof Error && error.message ? error.message : '操作失败',
+        })
+      } finally {
+        setSparseBusy(false)
+      }
+    },
+    [
+      blobStorage,
+      blobStorageState,
+      loadBlobStorage,
+      modal,
+      node.byteSize,
+      node.id,
+      path,
+      sparseBusy,
+    ],
+  )
+
   return (
-    <div class="file-info-app__single">
-      <div class="file-info-app__hero">
-        <FilesNodeIcon node={node} />
-        <h2 class="file-info-app__hero-name">{node.name}</h2>
-      </div>
+    <>
+      <div class="file-info-app__single">
+        <div class="file-info-app__hero">
+          <FilesNodeIcon node={node} />
+          <h2 class="file-info-app__hero-name">{node.name}</h2>
+        </div>
 
       <details class="file-info-app__section" open>
         <summary class="file-info-app__section-summary">通用</summary>
@@ -513,7 +612,7 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
             <dd>{kindLabel}</dd>
           </div>
           <div class="file-info-app__info-row">
-            <dt>大小</dt>
+            <dt>{node.kind === 'file' ? '逻辑大小' : '大小'}</dt>
             <dd>{sizeLabel}</dd>
           </div>
           <div class="file-info-app__info-row file-info-app__info-row--path">
@@ -609,12 +708,33 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
                         : blobStorage.bodyStore}
                   </dd>
                 </div>
-                {blobStorage && blobStorage.storedByteSize < blobStorage.byteSize ? (
+                {blobStorageState === 'ready' && blobStorage ? (
                   <div class="file-info-app__info-row">
                     <dt>占用</dt>
                     <dd>{formatFilesByteSize(blobStorage.storedByteSize)}</dd>
                   </div>
                 ) : undefined}
+                <div class="file-info-app__info-row">
+                  <dt>
+                    机会压缩
+                    <span class="file-info-app__info-hint" title="开启后尽量以稀疏分块存储：缺席的全零块不落库，写入全零自动打洞">
+                      ？
+                    </span>
+                  </dt>
+                  <dd>
+                    <input
+                      class="file-info-app__info-checkbox"
+                      type="checkbox"
+                      checked={sparseBusy ? !sparseEnabled : sparseEnabled}
+                      disabled={sparseBusy || blobStorageState !== 'ready' || isWriting}
+                      onChange={(event) => void handleSparseToggle(event.currentTarget.checked)}
+                      aria-label="机会压缩（稀疏存储）"
+                    />
+                    {sparseBusy ? (
+                      <span class="file-info-app__info-busy">处理中…</span>
+                    ) : undefined}
+                  </dd>
+                </div>
               </>
             ) : (
               <div class="file-info-app__info-row">
@@ -634,7 +754,9 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
           path={path}
         />
       ))}
-    </div>
+      </div>
+      <FilesOpProgressWindow state={opProgressUi} />
+    </>
   )
 }
 
