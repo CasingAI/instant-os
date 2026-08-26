@@ -800,6 +800,16 @@
   display: none !important;
 }
 
+/* ── 第十二期：对话页 = vscode AI 面板（自带拟物外壳，占满 tab） ── */
+
+.icode__ai-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ── Chat ── */
 
 .icode__chat-messages {

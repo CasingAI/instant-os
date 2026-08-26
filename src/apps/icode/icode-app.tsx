@@ -43,8 +43,6 @@ import {
   ensureIcodeDraftSnapshot,
   getIcodeMaxFormalVersion,
   listIcodeFormalVersions,
-  loadIcodeChat,
-  saveIcodeChat,
   saveIcodeDraftSnapshot,
   type IcodeDraftFile,
 } from '../../os/icode-managed-apps.ts'
@@ -65,22 +63,10 @@ import {
   isIcodeManagedApp,
   resolveUniqueCopyName,
 } from './icode-publish.ts'
-import {
-  createIcodeRunCommandHost,
-  icodeChatSessionId,
-  icodeChatTitle,
-  ICODE_CAPABILITY_TAG_LABELS,
-  newIcodeMessageId,
-  runIcodeAgent,
-  toIcodeCapabilityTags,
-  type IcodeCapabilityTag,
-} from './icode-agent.ts'
-import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
-import type { VscodeAiLastChangeSource } from '../vscode/vscode-ai-run-command.ts'
-import type { VscodeAiAgentProgress } from '../vscode/vscode-ai-agent.ts'
+import { toIcodeCapabilityTags, type IcodeCapabilityTag } from './icode-agent.ts'
+import { IcodeAiChatPanel } from './icode-ai-chat-panel.tsx'
 import { ProdudeTerminalHost } from '../produde/produde-terminal-host.tsx'
 import type { ProdudeTerminalHostApi } from '../produde/produde-terminal-host.tsx'
-import { resolveVscodeAiModelKey } from '../vscode/vscode-ai-models.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
 import { installGeneratedAppFilesHandler } from '../generated/install-generated-app-files-handler.ts'
 import { installGeneratedAppTerminalHandler } from '../generated/install-generated-app-terminal-handler.ts'
@@ -94,7 +80,6 @@ import {
 } from '../generated/generated-app-runtime-errors.ts'
 import {
   ICODE_CONSOLE_MESSAGE_TYPE,
-  type ICodeChatMessage,
   type ICodeConsoleEntry,
 } from './icode-types.ts'
 import { useIcodeNarrowLayout } from './icode-layout.ts'
@@ -156,38 +141,6 @@ const EmojiPickerPopover = createDeferredComponent(
   () => import('../../ui/emoji-picker-popover.tsx').then((module) => module.EmojiPickerPopover),
   <span class="icode__config-note">加载表情选择器…</span>,
 )
-const loadIcodeChatMessages = () => import('./icode-chat-message.tsx')
-
-function IcodeDeferredGate<T>({
-  load,
-  fallback,
-  children,
-}: {
-  load: () => Promise<T>
-  fallback: ComponentChildren
-  children: (mod: T) => ComponentChildren
-}) {
-  const [mod, setMod] = useState<T | undefined>(undefined)
-
-  useEffect(() => {
-    let cancelled = false
-    void load()
-      .then((loaded) => {
-        if (!cancelled) {
-          setMod(() => loaded)
-        }
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [load])
-
-  if (!mod) {
-    return fallback
-  }
-  return children(mod)
-}
 
 type EditorTab = 'chat' | 'source' | 'config' | 'versions' | 'data' | 'console'
 type MobileEditorPane = 'preview' | 'edit'
@@ -229,7 +182,6 @@ type EditorSession = {
   manifest: GeneratedAppVersionManifest
   files: IcodeDraftFile[]
   binaryFiles: Array<{ path: string; byteSize: number }>
-  chat: ICodeChatMessage[]
   publishedVersion: number
 }
 
@@ -258,15 +210,6 @@ function manifestMetaEqual(
   )
 }
 
-function chatMessagesEqual(left: ICodeChatMessage[], right: ICodeChatMessage[]): boolean {
-  if (left === right) return true
-  if (left.length !== right.length) return false
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index] !== right[index]) return false
-  }
-  return true
-}
-
 function filesToResources(files: readonly IcodeDraftFile[]): Map<string, Uint8Array> {
   const encoder = new TextEncoder()
   const resources = new Map<string, Uint8Array>()
@@ -286,20 +229,6 @@ function previewAppIdForSession(session: EditorSession): GeneratedAppId {
 
 function icodePreviewHeartbeatWindowId(appId: GeneratedAppId): string {
   return `icode-preview:${appId}`
-}
-
-function buildAgentHistory(messages: readonly ICodeChatMessage[]): {
-  role: 'user' | 'assistant'
-  content: string
-}[] {
-  const history: { role: 'user' | 'assistant'; content: string }[] = []
-  for (const message of messages) {
-    if (message.stopped) continue
-    const content = message.content.trim()
-    if (!content) continue
-    history.push({ role: message.role, content })
-  }
-  return history
 }
 
 export function ICodeApp() {
@@ -324,16 +253,11 @@ export function ICodeApp() {
   const [activeFilePath, setActiveFilePath] = useState<string | undefined>()
   const [savedFiles, setSavedFiles] = useState<IcodeDraftFile[]>([])
   const [savedManifest, setSavedManifest] = useState<GeneratedAppVersionManifest | undefined>()
-  const [savedChat, setSavedChat] = useState<ICodeChatMessage[] | undefined>()
   const [editorTab, setEditorTab] = useState<EditorTab>('chat')
   const [visitedEditorTabs, setVisitedEditorTabs] = useState<Partial<Record<EditorTab, true>>>({
     chat: true,
   })
   const [mobilePane, setMobilePane] = useState<MobileEditorPane>('edit')
-  const [prompt, setPrompt] = useState('')
-  const [generating, setGenerating] = useState(false)
-  const [generationStatus, setGenerationStatus] = useState('')
-  const [liveProgress, setLiveProgress] = useState<VscodeAiAgentProgress | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [importAlert, setImportAlert] = useState<{ title: string; message: string } | undefined>()
   const [showNewProject, setShowNewProject] = useState(false)
@@ -357,10 +281,6 @@ export function ICodeApp() {
   const [consoleLogs, setConsoleLogs] = useState<ICodeConsoleEntry[]>([])
   const [closePromptOpen, setClosePromptOpen] = useState(false)
   const [closePromptMode, setClosePromptMode] = useState<'close' | 'switch'>('close')
-  const [clearChatPromptOpen, setClearChatPromptOpen] = useState(false)
-  const [capabilityPrompt, setCapabilityPrompt] = useState<
-    { tag: IcodeCapabilityTag; reason: string; resolve: (granted: boolean) => void } | undefined
-  >()
   const [formalVersions, setFormalVersions] = useState<number[]>([])
   const [versionBusy, setVersionBusy] = useState(false)
   const [createFromVersionTarget, setCreateFromVersionTarget] = useState<
@@ -370,19 +290,15 @@ export function ICodeApp() {
   const [addingFile, setAddingFile] = useState(false)
   const [typeDiagnostics, setTypeDiagnostics] = useState<IcodeTypeCheckDiagnostic[] | undefined>(undefined)
   const [typeCheckRunning, setTypeCheckRunning] = useState(false)
+  // 第十二期：agent 面板绑定的受控终端宿主 API（ref 保稳定引用，state 驱动渲染）
+  const [terminalApi, setTerminalApi] = useState<ProdudeTerminalHostApi | null>(null)
   const closeIntentRef = useRef<IcodeNavigationIntent>({ type: 'list' })
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const previewWindowRef = useRef<Window | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const terminalApiRef = useRef<ProdudeTerminalHostApi | null>(null)
-  const generationRunRef = useRef<{
-    abortController: AbortController
-    nextChat: ICodeChatMessage[]
-    stopped: boolean
-  } | undefined>()
   const consoleListRef = useRef<HTMLDivElement>(null)
-  const chatListRef = useRef<HTMLDivElement>(null)
   const previewBootstrapDataRef = useRef<Record<string, string>>({})
   const previewFrozenLoggedRef = useRef(false)
   const savingRef = useRef(false)
@@ -409,9 +325,7 @@ export function ICodeApp() {
     session !== undefined &&
     savedManifest !== undefined &&
     !manifestMetaEqual(session.manifest, savedManifest)
-  const chatDirty =
-    session !== undefined && savedChat !== undefined && !chatMessagesEqual(session.chat, savedChat)
-  const hasDraftToSave = filesDirty || metaDirty || chatDirty
+  const hasDraftToSave = filesDirty || metaDirty
   const dataDirty = Boolean(session && !appDataRecordsEqual(draftAppData, loadGeneratedAppData(session.appId)))
   const currentSavedFiles = session ? savedFiles : []
   const saveDirty = Boolean(
@@ -453,20 +367,17 @@ export function ICodeApp() {
     async (appId: GeneratedAppId): Promise<void> => {
       try {
         const snapshot = await ensureIcodeDraftSnapshot(appId)
-        const chat = await loadIcodeChat(appId)
         const publishedVersion = (await getIcodeMaxFormalVersion(appId)) ?? 0
         const nextSession: EditorSession = {
           appId,
           manifest: snapshot.manifest,
           files: snapshot.files,
           binaryFiles: snapshot.binaryFiles,
-          chat,
           publishedVersion,
         }
         setSession(nextSession)
         setSavedFiles(snapshot.files.map((file) => ({ ...file })))
         setSavedManifest(snapshot.manifest)
-        setSavedChat(chat)
         setDraftFiles(snapshot.files.map((file) => ({ ...file })))
         setActiveFilePath(
           snapshot.files.find((file) => file.path === (snapshot.manifest.entry ?? SITE_ENTRY_FILE))
@@ -524,10 +435,8 @@ export function ICodeApp() {
         manifest: next.manifest,
         files: draftFiles,
       })
-      await saveIcodeChat(next.appId, next.chat)
       setSavedFiles(draftFiles.map((file) => ({ ...file })))
       setSavedManifest(next.manifest)
-      setSavedChat(next.chat)
       return true
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '保存草稿失败，请检查存储空间')
@@ -549,7 +458,7 @@ export function ICodeApp() {
   }, [draftFiles, saveDraftInternal, session])
 
   const onPublish = useCallback(async () => {
-    if (!session || generating) {
+    if (!session) {
       return
     }
     if (!(await saveDraftInternal(session))) {
@@ -563,7 +472,7 @@ export function ICodeApp() {
     // 发布后当前 iCode 窗口切到新草稿继续改；桌面改跑新最大号
     await openAppSession(session.appId)
     setError(undefined)
-  }, [generating, openAppSession, publishIcodeApp, saveDraftInternal, session])
+  }, [openAppSession, publishIcodeApp, saveDraftInternal, session])
 
   // ---- 预览 ----
 
@@ -931,6 +840,10 @@ export function ICodeApp() {
                 : snapshot.files[0]?.path,
             )
             setPreviewEpoch((epoch) => epoch + 1)
+            // 一轮外部写入结束：旁路类型检查查一次（诊断给源码页与下一轮 agent 上下文）
+            if (snapshot.files.some((file) => file.path === 'main.tsx')) {
+              void runTypeCheckForFiles(snapshot.files, snapshot.manifest.entry ?? 'main.tsx')
+            }
           } catch {
             // 读取失败忽略，等待下一次变更
           }
@@ -938,7 +851,7 @@ export function ICodeApp() {
       }, 600)
     }
     return subscribeFilesWatch(draftRoot, schedule)
-  }, [session?.appId])
+  }, [runTypeCheckForFiles, session?.appId])
 
   // ---- 编辑器页签行为 ----
 
@@ -977,48 +890,6 @@ export function ICodeApp() {
     return () => window.cancelAnimationFrame(frame)
   }, [consoleLogs, editorTab])
 
-  const chatPinnedToBottomRef = useRef(true)
-
-  useEffect(() => {
-    const container = chatListRef.current
-    if (!container || editorTab !== 'chat') {
-      return
-    }
-    const isNearBottom = (threshold = 48) =>
-      container.scrollHeight - container.scrollTop - container.clientHeight <= threshold
-    const scrollToBottom = () => {
-      container.scrollTop = container.scrollHeight
-      chatPinnedToBottomRef.current = true
-    }
-    const scrollToBottomIfPinned = () => {
-      if (chatPinnedToBottomRef.current || isNearBottom()) {
-        scrollToBottom()
-      }
-    }
-    const onScroll = () => {
-      chatPinnedToBottomRef.current = isNearBottom()
-    }
-    container.addEventListener('scroll', onScroll, { passive: true })
-    scrollToBottom()
-    const resizeObserver = new ResizeObserver(() => {
-      window.requestAnimationFrame(scrollToBottomIfPinned)
-    })
-    resizeObserver.observe(container)
-    const mutationObserver = new MutationObserver(() => {
-      window.requestAnimationFrame(scrollToBottomIfPinned)
-    })
-    mutationObserver.observe(container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    })
-    return () => {
-      container.removeEventListener('scroll', onScroll)
-      resizeObserver.disconnect()
-      mutationObserver.disconnect()
-    }
-  }, [editorTab, session?.chat, session?.appId, generating])
-
   // ---- 关闭守卫 ----
 
   const resetEditorUi = useCallback(() => {
@@ -1026,15 +897,11 @@ export function ICodeApp() {
     setDraftFiles([])
     setSavedFiles([])
     setSavedManifest(undefined)
-    setSavedChat(undefined)
     setActiveFilePath(undefined)
     setDraftAppData({})
     setDataEditInvalid(false)
     dataDraftEditedRef.current = false
-    setPrompt('')
     setError(undefined)
-    setGenerationStatus('')
-    setLiveProgress(undefined)
     setFormalVersions([])
     setClosePromptOpen(false)
     setEditorTab('chat')
@@ -1125,234 +992,67 @@ export function ICodeApp() {
     [closePromptMode, completePendingNavigation, confirmCloseSaveDraft, dismissNavigateAwayPrompt],
   )
 
-  // ---- Agent 轮（编辑引擎） ----
+  // ---- 第十二期：agent 面板宿主回调（能力授予 / 发起轮前落盘工作副本） ----
 
-  const reloadAfterAgentRound = useCallback(async (appId: GeneratedAppId): Promise<EditorSession | undefined> => {
-    const snapshot = await ensureIcodeDraftSnapshot(appId)
-    let next: EditorSession | undefined
+  const grantedCapabilities = useMemo(
+    () => (session ? toIcodeCapabilityTags(session.manifest.tags ?? []) : []),
+    [session],
+  )
+
+  /** 面板横幅「授予能力」同意后：写清单标签并刷预览；「保存」随草稿清单持久化 */
+  const onGrantCapability = useCallback((tag: IcodeCapabilityTag) => {
     setSession((current) => {
       if (!current) {
         return current
       }
-      next = {
-        ...current,
-        manifest: snapshot.manifest,
-        files: snapshot.files,
-        binaryFiles: snapshot.binaryFiles,
-      }
-      return next
+      const tags = filterAppCapabilityTags(current.manifest.tags ?? [])
+      const nextTags = tags.includes(tag as AppCapabilityTag)
+        ? tags
+        : [...tags, tag as AppCapabilityTag]
+      return { ...current, manifest: { ...current.manifest, tags: nextTags } }
     })
-    setDraftFiles(snapshot.files.map((file) => ({ ...file })))
-    setActiveFilePath((prev) =>
-      prev && snapshot.files.some((file) => file.path === prev) ? prev : snapshot.files[0]?.path,
-    )
     setPreviewEpoch((epoch) => epoch + 1)
-    void listIcodeFormalVersions(appId).then(setFormalVersions)
-    // 一轮写入结束：旁路类型检查查一次（诊断给源码页与下一轮 agent 上下文）
-    if (snapshot.files.some((file) => file.path === 'main.tsx')) {
-      void runTypeCheckForFiles(
-        snapshot.files,
-        snapshot.manifest.entry ?? 'main.tsx',
-      )
-    }
-    return next
-  }, [runTypeCheckForFiles])
-
-  const runAgentRound = useCallback(
-    async (instruction: string, activeSession: EditorSession) => {
-      const trimmedInstruction = instruction.trim()
-      if (!trimmedInstruction || generating) {
-        return
-      }
-
-      generationRunRef.current?.abortController.abort()
-      const abortController = new AbortController()
-      const userMessage: ICodeChatMessage = {
-        id: newIcodeMessageId('user'),
-        role: 'user',
-        content: trimmedInstruction,
-        createdAt: osNowMs(),
-      }
-      const nextChat = [...activeSession.chat, userMessage]
-      const run = { abortController, nextChat, stopped: false }
-      generationRunRef.current = run
-
-      // 发起前先把工作副本落盘，agent 才能读到最新内容
-      await saveIcodeDraftSnapshot(activeSession.appId, {
-        manifest: activeSession.manifest,
-        files: draftFiles,
-      })
-      setSavedFiles(draftFiles.map((file) => ({ ...file })))
-      setSavedManifest(activeSession.manifest)
-      setSession({ ...activeSession, files: draftFiles.map((file) => ({ ...file })), chat: nextChat })
-      setGenerating(true)
-      setGenerationStatus('连接 AI…')
-      setLiveProgress(undefined)
-      setError(undefined)
-
-      const terminalApi = terminalApiRef.current
-      if (!terminalApi) {
-        setGenerating(false)
-        setError('开发终端不可用，无法编辑')
-        return
-      }
-
-      const chatSessionId = icodeChatSessionId(activeSession.appId)
-      const chatTitle = icodeChatTitle(activeSession.manifest.name)
-      const draftRoot = appVersionDirPath(activeSession.appId, 'Draft')
-      const npmLastChanges: { current: TerminalChangeSet | undefined } = { current: undefined }
-      const lastChangeSource: { current: VscodeAiLastChangeSource | undefined } = {
-        current: undefined,
-      }
-      const turnChangeSessions: { current: TerminalChangeSet[] } = { current: [] }
-      const runCommandHost = createIcodeRunCommandHost({
-        draftRoot,
-        chatSessionId,
-        chatTitle,
-        terminalApi,
-        npmLastChanges,
-        lastChangeSource,
-        turnChangeSessions,
-      })
-
-      const finalize = async (assistantMessage: ICodeChatMessage | undefined) => {
-        const finalChat = assistantMessage ? [...nextChat, assistantMessage] : nextChat
-        try {
-          await saveIcodeChat(activeSession.appId, finalChat)
-        } catch {
-          // 聊天保存失败不阻塞会话
-        }
-        setSavedChat(finalChat)
-        setSession((current) => (current ? { ...current, chat: finalChat } : current))
-        await reloadAfterAgentRound(activeSession.appId)
-        setGenerating(false)
-        setGenerationStatus('')
-        setLiveProgress(undefined)
-      }
-
-      try {
-        const agentProblems: MonacoProblem[] = (typeDiagnostics ?? []).map((diagnostic) => ({
-          id: `${diagnostic.file}:${diagnostic.line}:${diagnostic.column}`,
-          path: diagnostic.file,
-          resourceLabel: diagnostic.file,
-          message: diagnostic.message,
-          severity: diagnostic.category,
-          source: 'ts',
-          code: diagnostic.code === undefined ? undefined : String(diagnostic.code),
-          startLineNumber: diagnostic.line,
-          startColumn: diagnostic.column,
-          endLineNumber: diagnostic.line,
-          endColumn: diagnostic.column + 1,
-        }))
-        const result = await runIcodeAgent({
-          appId: activeSession.appId,
-          appName: activeSession.manifest.name,
-          draftRoot,
-          problems: agentProblems,
-          fileManifest: draftFiles.map((file) => file.path),
-          grantedCapabilities: toIcodeCapabilityTags(activeSession.manifest.tags ?? []),
-          chatSessionId,
-          chatTitle,
-          userMessage: trimmedInstruction,
-          modelKey: resolveVscodeAiModelKey(),
-          history: buildAgentHistory(activeSession.chat),
-          signal: abortController.signal,
-          terminalApi,
-          runCommandHost,
-          requestCapability: (tag, reason) =>
-            new Promise<boolean>((resolve) => {
-              setCapabilityPrompt({ tag, reason, resolve })
-            }),
-          onProgress: (progress) => {
-            setLiveProgress(progress)
-            setGenerationStatus(
-              progress.timeline.length > 0 ? '处理中…' : '等待响应',
-            )
-          },
-        })
-
-        await finalize({
-          id: newIcodeMessageId('assistant'),
-          role: 'assistant',
-          content: result.text,
-          createdAt: osNowMs(),
-          investigation: result.investigation,
-        })
-      } catch (agentError) {
-        if (run.stopped || abortController.signal.aborted) {
-          const snapshot = liveProgress
-          await finalize({
-            id: newIcodeMessageId('assistant'),
-            role: 'assistant',
-            content: snapshot?.answerText?.trim()
-              ? `${snapshot.answerText.trim()}\n\n（已停止）`
-              : '（已停止）',
-            createdAt: osNowMs(),
-            investigation: snapshot ? undefined : undefined,
-            stopped: true,
-          })
-        } else {
-          setError(agentError instanceof Error ? agentError.message : '生成失败')
-          setGenerating(false)
-          setGenerationStatus('')
-          setLiveProgress(undefined)
-        }
-      } finally {
-        if (generationRunRef.current === run) {
-          generationRunRef.current = undefined
-        }
-      }
-    },
-    [draftFiles, generating, reloadAfterAgentRound, typeDiagnostics],
-  )
-
-  const onCancelGeneration = useCallback(() => {
-    const run = generationRunRef.current
-    if (!run || run.stopped) {
-      return
-    }
-    run.stopped = true
-    run.abortController.abort()
   }, [])
 
-  const onSendPrompt = useCallback(async () => {
-    const instruction = prompt.trim()
-    if (!instruction || !session) {
+  /** 一轮开始前把源码页工作副本落盘，agent 才能读到最新内容 */
+  const onBeforeAgentTurn = useCallback(async () => {
+    const active = sessionRef.current
+    if (!active || !draftFiles.length || savingRef.current) {
       return
     }
-    setPrompt('')
-    await runAgentRound(instruction, session)
-  }, [prompt, runAgentRound, session])
+    savingRef.current = true
+    try {
+      await saveIcodeDraftSnapshot(active.appId, {
+        manifest: active.manifest,
+        files: draftFiles,
+      })
+    } finally {
+      savingRef.current = false
+    }
+    setSavedFiles(draftFiles.map((file) => ({ ...file })))
+    setSavedManifest(active.manifest)
+    setSession({ ...active, files: draftFiles.map((file) => ({ ...file })) })
+  }, [draftFiles])
 
-  // ---- 能力请求对话框（独立工具的宿主确认） ----
-
-  const grantCapabilityPrompt = useCallback(
-    (granted: boolean) => {
-      const request = capabilityPrompt
-      if (!request) {
-        return
-      }
-      setCapabilityPrompt(undefined)
-      if (granted) {
-        setSession((current) => {
-          if (!current) {
-            return current
-          }
-          const tags = filterAppCapabilityTags(current.manifest.tags ?? [])
-          const nextTags = tags.includes(request.tag as AppCapabilityTag)
-            ? tags
-            : [...tags, request.tag as AppCapabilityTag]
-          return {
-            ...current,
-            manifest: { ...current.manifest, tags: nextTags },
-          }
-        })
-        setPreviewEpoch((epoch) => epoch + 1)
-      }
-      request.resolve(granted)
-    },
-    [capabilityPrompt],
+  // 五期补强：旁路类型诊断折叠成面板 problems 入参
+  const monacoProblems = useMemo<MonacoProblem[]>(
+    () =>
+      (typeDiagnostics ?? []).map((diagnostic) => ({
+        id: `${diagnostic.file}:${diagnostic.line}:${diagnostic.column}`,
+        path: diagnostic.file,
+        resourceLabel: diagnostic.file,
+        message: diagnostic.message,
+        severity: diagnostic.category,
+        source: 'ts',
+        code: diagnostic.code === undefined ? undefined : String(diagnostic.code),
+        startLineNumber: diagnostic.line,
+        startColumn: diagnostic.column,
+        endLineNumber: diagnostic.line,
+        endColumn: diagnostic.column + 1,
+      })),
+    [typeDiagnostics],
   )
+
 
   // ---- 源码页：草稿树文件编辑 ----
 
@@ -1443,23 +1143,6 @@ export function ICodeApp() {
     setDraftAppData(value)
   }, [])
 
-  // ---- 清空对话 ----
-
-  const requestClearChat = useCallback(() => {
-    if (!session || session.chat.length === 0 || generating) {
-      return
-    }
-    setClearChatPromptOpen(true)
-  }, [generating, session])
-
-  const confirmClearChat = useCallback(() => {
-    if (!session) {
-      setClearChatPromptOpen(false)
-      return
-    }
-    setSession({ ...session, chat: [] })
-    setClearChatPromptOpen(false)
-  }, [session])
 
   // ---- 版本治理（第二期） ----
 
@@ -1693,12 +1376,6 @@ export function ICodeApp() {
   }, [exportCurrentApp, onPublish, onSaveDraft, requestCloseEditor, session])
 
   useAppMenuBar('icode', menuBar)
-
-  useEffect(() => {
-    return () => {
-      generationRunRef.current?.abortController.abort()
-    }
-  }, [])
 
   // ---- 渲染 ----
 
@@ -2044,59 +1721,46 @@ export function ICodeApp() {
         workspaceFolder={appVersionDirPath(session.appId, 'Draft')}
         onApiChange={(api) => {
           terminalApiRef.current = api
+          setTerminalApi(api)
         }}
       />
 
       <div class="icode__editor">
         <nav class="icode__nav">
           <IosNavBackButton class="icode__nav-back" label="应用" onClick={requestCloseEditor} />
-          <p class="icode__nav-hint" title={generationStatus || undefined}>
-            {generating
-              ? generationStatus || '处理中…'
-              : hasDraftToSave
-                ? '草稿有未保存修改'
-                : session.publishedVersion > 0
-                  ? `正式版 ${session.publishedVersion} · 草稿已同步`
-                  : '尚未发布'}
+          <p class="icode__nav-hint">
+            {hasDraftToSave
+              ? '草稿有未保存修改'
+              : session.publishedVersion > 0
+                ? `正式版 ${session.publishedVersion} · 草稿已同步`
+                : '尚未发布'}
           </p>
           <div class="icode__nav-actions">
-            {generating ? (
+            <button
+              type="button"
+              class="icode__button icode__button--secondary icode__nav-save"
+              disabled={!hasDraftToSave}
+              onClick={() => void onSaveDraft()}
+            >
+              保存
+            </button>
+            <button
+              type="button"
+              class="icode__button icode__button--primary icode__nav-publish"
+              disabled={!publishDirty && session.publishedVersion > 0}
+              onClick={() => void onPublish()}
+            >
+              发布
+            </button>
+            {filesDirty && (
               <button
                 type="button"
-                class="icode__button icode__button--secondary icode__nav-stop"
-                onClick={onCancelGeneration}
+                class="icode__button icode__button--run icode__nav-run"
+                disabled={draftFiles.length === 0}
+                onClick={onRunDraft}
               >
-                停止
+                运行
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  class="icode__button icode__button--secondary icode__nav-save"
-                  disabled={!hasDraftToSave}
-                  onClick={() => void onSaveDraft()}
-                >
-                  保存
-                </button>
-                <button
-                  type="button"
-                  class="icode__button icode__button--primary icode__nav-publish"
-                  disabled={!publishDirty && session.publishedVersion > 0}
-                  onClick={() => void onPublish()}
-                >
-                  发布
-                </button>
-                {filesDirty && (
-                  <button
-                    type="button"
-                    class="icode__button icode__button--run icode__nav-run"
-                    disabled={draftFiles.length === 0}
-                    onClick={onRunDraft}
-                  >
-                    运行
-                  </button>
-                )}
-              </>
             )}
             <span class="icode__kind-pill">iCode</span>
           </div>
@@ -2108,7 +1772,7 @@ export function ICodeApp() {
           <div class="icode__preview">
             <p class="icode__preview-label">应用预览</p>
             <div class={`icode__preview-screen${previewFrozen ? ' icode__preview-screen--unresponsive' : ''}`}>
-              {!hasPreviewContent && !generating && (
+              {!hasPreviewContent && (
                 <div class="icode__preview-empty">
                   <span class="icode__preview-empty-icon" aria-hidden="true">
                     💬
@@ -2119,9 +1783,6 @@ export function ICodeApp() {
                     让 AI 生成或修改此应用。
                   </span>
                 </div>
-              )}
-              {generating && !liveProgress && (
-                <div class="icode__preview-overlay">{generationStatus || '连接 AI…'}</div>
               )}
               <iframe
                 ref={iframeRef}
@@ -2160,86 +1821,20 @@ export function ICodeApp() {
 
             <div class="icode__tab-body">
               <div class="icode__tab-pane" hidden={editorTab !== 'chat'}>
-                <div class="icode__panel-toolbar">
-                  <span>
-                    {session.chat.length} 条消息
-                    {generating ? ' · 生成中…' : ''}
-                  </span>
-                  <button
-                    type="button"
-                    class="icode__panel-action"
-                    disabled={session.chat.length === 0 || generating}
-                    onClick={requestClearChat}
-                  >
-                    清空对话
-                  </button>
-                </div>
-                <div ref={chatListRef} class="icode__chat-messages">
-                  {session.chat.length === 0 && !generating ? (
-                    <p class="icode__chat-empty">
-                      输入提示词开始生成。
-                      <br />
-                      AI 会通过开发终端直接修改草稿树里的文件，改完预览自动刷新。
-                    </p>
-                  ) : (
-                    <IcodeDeferredGate
-                      load={loadIcodeChatMessages}
-                      fallback={<IcodeHeavyFallback label="正在加载对话…" />}
-                    >
-                      {(mod) => (
-                        <>
-                          {session.chat.map((message) => (
-                            <mod.IcodeChatMessageView key={message.id} message={message} />
-                          ))}
-                          {generating && (
-                            <mod.IcodeChatLiveTurn
-                              progress={liveProgress}
-                              statusLabel={generationStatus || '连接 AI…'}
-                            />
-                          )}
-                        </>
-                      )}
-                    </IcodeDeferredGate>
-                  )}
-                </div>
-                <div class="icode__chat-compose">
-                  <textarea
-                    class="icode__chat-input"
-                    value={prompt}
-                    placeholder="描述要生成或修改的内容…"
-                    disabled={generating}
-                    onInput={(event) =>
-                      setPrompt((event.currentTarget as HTMLTextAreaElement).value)
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                        event.preventDefault()
-                        void onSendPrompt()
-                      }
-                    }}
-                  />
-                  <div class="icode__chat-compose-actions">
-                    {generating ? (
-                      <button
-                        type="button"
-                        class="icode__button icode__button--secondary icode__chat-send icode__chat-stop"
-                        onClick={onCancelGeneration}
-                      >
-                        停止
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        class="icode__button icode__button--primary icode__chat-send"
-                        disabled={!prompt.trim()}
-                        onClick={() => void onSendPrompt()}
-                      >
-                        发送
-                      </button>
-                    )}
-                    <p class="icode__chat-hint">{generating ? '生成中…' : '⌘↵ 发送'}</p>
-                  </div>
-                </div>
+                {/* 第十二期：对话外壳换成 vscode AI 面板（引擎仍走受控终端 agent 循环） */}
+                <IcodeAiChatPanel
+                  key={session.appId}
+                  appId={session.appId}
+                  appName={session.manifest.name}
+                  draftRoot={appVersionDirPath(session.appId, 'Draft')}
+                  draftFiles={draftFiles}
+                  binaryPaths={session.binaryFiles.map((file) => file.path)}
+                  grantedCapabilities={grantedCapabilities}
+                  onGrantCapability={onGrantCapability}
+                  problems={monacoProblems}
+                  terminalApi={terminalApi}
+                  onBeforeAgentTurn={() => void onBeforeAgentTurn()}
+                />
               </div>
 
               <div class="icode__tab-pane" hidden={editorTab !== 'source'}>
@@ -2252,7 +1847,7 @@ export function ICodeApp() {
                     <button
                       type="button"
                       class="icode__panel-action"
-                      disabled={typeCheckRunning || generating}
+                      disabled={typeCheckRunning}
                       onClick={() =>
                         void runTypeCheckForFiles(draftFiles, projectEntryPath)
                       }
@@ -2265,7 +1860,6 @@ export function ICodeApp() {
                   <button
                     type="button"
                     class="icode__panel-action"
-                    disabled={generating}
                     onClick={() => setAddingFile(true)}
                   >
                     新建文件
@@ -2273,7 +1867,7 @@ export function ICodeApp() {
                   <button
                     type="button"
                     class="icode__button icode__button--run icode__run-button"
-                    disabled={!filesDirty || draftFiles.length === 0 || generating}
+                    disabled={!filesDirty || draftFiles.length === 0}
                     onClick={onRunDraft}
                   >
                     运行
@@ -2626,7 +2220,7 @@ export function ICodeApp() {
                   <button
                     type="button"
                     class="icode__button icode__button--run icode__run-button"
-                    disabled={!dataDirty || dataEditInvalid || generating}
+                    disabled={!dataDirty || dataEditInvalid}
                     onClick={() => void onApplyAppData()}
                   >
                     应用
@@ -2702,32 +2296,6 @@ export function ICodeApp() {
       {deleteAppModal}
 
       <WindowModal
-        open={clearChatPromptOpen}
-        title="清空对话"
-        role="alertdialog"
-        themeColor={modalTheme}
-        onClose={() => setClearChatPromptOpen(false)}
-        actions={[
-          {
-            key: 'cancel',
-            label: '取消',
-            tone: 'secondary',
-            onClick: () => setClearChatPromptOpen(false),
-          },
-          {
-            key: 'clear',
-            label: '清空',
-            tone: 'danger',
-            onClick: confirmClearChat,
-          },
-        ]}
-      >
-        <p class="window-modal__message">
-          确定清空当前应用的对话记录吗？此操作不修改源码；保存草稿后才会永久生效。
-        </p>
-      </WindowModal>
-
-      <WindowModal
         open={closePromptOpen}
         title={closePromptMode === 'switch' ? '切换应用' : '关闭应用'}
         role="alertdialog"
@@ -2736,42 +2304,6 @@ export function ICodeApp() {
         actions={closePromptActions}
       >
         <p class="window-modal__message">当前草稿有未保存的修改。</p>
-      </WindowModal>
-
-      <WindowModal
-        open={!!capabilityPrompt}
-        title="能力请求"
-        role="alertdialog"
-        themeColor={modalTheme}
-        onClose={() => grantCapabilityPrompt(false)}
-        actions={[
-          {
-            key: 'deny',
-            label: '暂不授予',
-            tone: 'secondary',
-            onClick: () => grantCapabilityPrompt(false),
-          },
-          {
-            key: 'grant',
-            label: '授予能力',
-            tone: 'primary',
-            onClick: () => grantCapabilityPrompt(true),
-          },
-        ]}
-      >
-        {capabilityPrompt && (
-          <div class="icode__capability-request">
-            <p class="window-modal__message">
-              AI 请求为「{session.manifest.name}」授予
-              <strong>{ICODE_CAPABILITY_TAG_LABELS[capabilityPrompt.tag]}</strong>。
-            </p>
-            {capabilityPrompt.reason && (
-              <p class="window-modal__message icode__capability-reason-text">
-                {capabilityPrompt.reason}
-              </p>
-            )}
-          </div>
-        )}
       </WindowModal>
 
       <WindowModal

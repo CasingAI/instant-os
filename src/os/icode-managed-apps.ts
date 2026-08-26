@@ -14,8 +14,10 @@ import type { GeneratedAppId } from './types.ts'
 import type { GeneratedAppRecord } from '../apps/appstore/types.ts'
 import type { AppCapabilityTag } from '../apps/appstore/app-capability-tags.ts'
 import type { ICodeChatMessage } from '../apps/icode/icode-types.ts'
+import type { VscodeAiChatSession } from '../apps/vscode/vscode-ai-chat-storage.ts'
 import {
   ensureDraftTree,
+  appAiSessionsFilePath,
   appChatFilePath,
   getMaxFormalVersionNumber,
   hasVersionsLayout,
@@ -358,6 +360,103 @@ export function icodeChatPath(appId: GeneratedAppId): string {
   return appChatFilePath(appId)
 }
 
+// ---- 第十二期：AI 面板会话与模型偏好（Developer/ 下；每应用一个会话，版本树之外） ----
+
+/** Developer/ai-sessions.json 的形态：复用 vscode AI 会话结构，单开一个会话 */
+export type IcodeAiSessionsFile = {
+  version: 1
+  openSessions: VscodeAiChatSession[]
+  activeSessionId?: string
+}
+
+export async function loadIcodeAiSessions(
+  appId: GeneratedAppId,
+): Promise<IcodeAiSessionsFile> {
+  const raw = await readDeveloperTextFile(appId, 'ai-sessions.json')
+  if (raw === undefined) return { version: 1, openSessions: [] }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === undefined) {
+      return { version: 1, openSessions: [] }
+    }
+    const candidate = parsed as { openSessions?: unknown; activeSessionId?: unknown }
+    if (!Array.isArray(candidate.openSessions)) {
+      return { version: 1, openSessions: [] }
+    }
+    const openSessions = candidate.openSessions.filter(
+      (item): item is VscodeAiChatSession =>
+        typeof item === 'object' &&
+        item !== undefined &&
+        typeof (item as { id?: unknown }).id === 'string',
+    )
+    return {
+      version: 1,
+      openSessions,
+      activeSessionId:
+        typeof candidate.activeSessionId === 'string' ? candidate.activeSessionId : undefined,
+    }
+  } catch {
+    return { version: 1, openSessions: [] }
+  }
+}
+
+export async function saveIcodeAiSessions(
+  appId: GeneratedAppId,
+  sessions: Pick<IcodeAiSessionsFile, 'openSessions' | 'activeSessionId'>,
+): Promise<void> {
+  const file: IcodeAiSessionsFile = { version: 1, ...sessions }
+  await writeDeveloperTextFile({
+    appId,
+    relativePath: 'ai-sessions.json',
+    text: `${JSON.stringify(file, null, 2)}\n`,
+  })
+}
+
+export function icodesAiSessionsPath(appId: GeneratedAppId): string {
+  return appAiSessionsFilePath(appId)
+}
+
+/** Developer/ai-prefs.json：iCode 自己的模型偏好（不读 vscode 偏好） */
+export type IcodeAiPrefsFile = {
+  version: 1
+  aiModelSource?: string
+  aiModelKey?: string
+  /** 每模型的选项覆盖（思考开关 / 深度 / 上下文窗口）；键为模型 key */
+  aiModelOptions?: Record<string, Record<string, unknown>>
+}
+
+export async function loadIcodeAiPrefs(appId: GeneratedAppId): Promise<IcodeAiPrefsFile> {
+  const raw = await readDeveloperTextFile(appId, 'ai-prefs.json')
+  if (raw === undefined) return { version: 1 }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === undefined) return { version: 1 }
+    const value = parsed as Partial<IcodeAiPrefsFile>
+    return {
+      version: 1,
+      aiModelSource: typeof value.aiModelSource === 'string' ? value.aiModelSource : undefined,
+      aiModelKey: typeof value.aiModelKey === 'string' ? value.aiModelKey : undefined,
+      aiModelOptions:
+        typeof value.aiModelOptions === 'object' && value.aiModelOptions !== undefined
+          ? value.aiModelOptions
+          : undefined,
+    }
+  } catch {
+    return { version: 1 }
+  }
+}
+
+export async function saveIcodeAiPrefs(
+  appId: GeneratedAppId,
+  prefs: Omit<IcodeAiPrefsFile, 'version'>,
+): Promise<void> {
+  await writeDeveloperTextFile({
+    appId,
+    relativePath: 'ai-prefs.json',
+    text: `${JSON.stringify({ version: 1, ...prefs } satisfies IcodeAiPrefsFile, null, 2)}\n`,
+  })
+}
+
 // ---- 桌面记录刷新 ----
 
 /** 发布 / 治理后由存储层重建运行时记录（读最大正式版清单）并更新内存缓存。 */
@@ -409,6 +508,8 @@ export type IcodePackageBundle = {
   versions: IcodePackageBundleVersion[]
   draft: { manifest: GeneratedAppVersionManifest; files: IcodePackageBundleFile[] } | null
   chat: ICodeChatMessage[]
+  /** 第十二期：新对话面板的会话（Developer/ai-sessions.json）；旧包无此字段 */
+  aiSessions?: IcodeAiSessionsFile | null
   appData: Record<string, string>
 }
 
@@ -453,10 +554,11 @@ async function collectVersionForBundle(
   return { manifest, files }
 }
 
-/** 导出端快照：全部正式版 + 当时若存在的草稿 + 聊天 + 用户数据 + 每版本清单 */
+/** 导出端快照：全部正式版 + 当时若存在的草稿 + 聊天 + AI 会话 + 用户数据 + 每版本清单 */
 export async function buildIcodePackageBundle(input: {
   appId: GeneratedAppId
   chat: ICodeChatMessage[]
+  aiSessions?: IcodeAiSessionsFile | null
   appData: Record<string, string>
 }): Promise<IcodePackageBundle> {
   const appId = input.appId
@@ -490,6 +592,7 @@ export async function buildIcodePackageBundle(input: {
     versions,
     draft,
     chat: input.chat,
+    aiSessions: input.aiSessions ?? null,
     appData: input.appData,
   }
 }
@@ -563,6 +666,12 @@ export async function importIcodePackageBundle(input: {
 
   if (bundle.chat.length > 0) {
     await saveIcodeChat(newAppId, bundle.chat)
+  }
+  if (bundle.aiSessions && bundle.aiSessions.openSessions.length > 0) {
+    await saveIcodeAiSessions(newAppId, {
+      openSessions: bundle.aiSessions.openSessions,
+      activeSessionId: bundle.aiSessions.activeSessionId,
+    })
   }
   void maxNumber
 }

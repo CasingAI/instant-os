@@ -141,6 +141,17 @@ export type VscodeAiToolsHost = {
   }) => Promise<'approved' | 'denied'>
   /** 同意切换后写入目标模式，供续跑循环读取 */
   setPendingModeSwitch?: (target: VscodeAiMode | undefined) => void
+  /**
+   * 第十二期：通用「请求用户拍板」——面板内嵌横幅，30 秒超时默认拒绝。
+   * 模式切换是它的一个用法（requestModeSwitch 内部走同一套 UI）；
+   * iCode 的能力请求等自定义确认也从这个入口走。
+   */
+  requestChange?: (input: {
+    title: string
+    message?: string
+    confirmLabel?: string
+    cancelLabel?: string
+  }) => Promise<'approved' | 'denied'>
 }
 
 export function createVscodeAiTools(

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { RefObject, VNode } from 'preact'
 import type OpenAI from 'openai'
+import type { AgentTool } from '../../ai/agent-tool.ts'
+import type { AiUsageContext } from '../../ai/ai-usage-context.ts'
 import { useSpeechDictation } from '../../ai/use-speech-dictation.ts'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { playSystemSound } from '../../os/system-sounds.ts'
@@ -740,6 +742,17 @@ export type VscodeAiPanelProps = {
   aiPlayCompletionSound?: boolean
   /** Debug：展示本轮注入的 system-reminder */
   aiDebugSystemReminder?: boolean
+  /**
+   * 覆盖默认工具集构建（第十二期）：未传用 VS Code 工具集；
+   * iCode 传入后在默认工具上追加 request_capability 等私有工具。
+   */
+  agentCreateTools?: (mode: VscodeAiMode, toolsHost: VscodeAiToolsHost) => AgentTool[]
+  /** 覆盖默认系统提示（第十二期）；未传用 VS Code 提示。返回完整 system 文本。 */
+  agentBuildSystemPrompt?: (mode: VscodeAiMode) => string
+  /** 覆默认 AI 用量上下文（iCode 用 actor='icode'）；未传按 vscode 记账 */
+  agentUsageContext?: AiUsageContext
+  /** 第十二期（iCode）：无变更确认流程——本轮 ChangeSet 直接置 kept，审查条不出现 */
+  autoKeepTerminalChanges?: boolean
   dark?: boolean
   workspaceFolder: string | undefined
   /** 上一轮发送时的终端快照（持久化在 chat session） */
@@ -995,6 +1008,76 @@ function ModeSwitchBar({
   )
 }
 
+/** 通用「请求用户拍板」横幅内容（能力请求等）；30 秒超时默认拒绝 */
+type GenericApprovalPendingUi = {
+  title: string
+  message?: string
+  confirmLabel?: string
+  cancelLabel?: string
+  expiresAt: number
+}
+
+function GenericApprovalBar({
+  pending,
+  onApprove,
+  onReject,
+}: {
+  pending: GenericApprovalPendingUi
+  onApprove: () => void
+  onReject: () => void
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000)),
+  )
+  const [progress, setProgress] = useState(() =>
+    Math.max(0, Math.min(1, (pending.expiresAt - Date.now()) / MODE_SWITCH_TIMEOUT_MS)),
+  )
+
+  useEffect(() => {
+    let frame = 0
+    const tick = () => {
+      const remainingMs = pending.expiresAt - Date.now()
+      setSecondsLeft(Math.max(0, Math.ceil(remainingMs / 1000)))
+      setProgress(Math.max(0, Math.min(1, remainingMs / MODE_SWITCH_TIMEOUT_MS)))
+      if (remainingMs > 0) {
+        frame = window.requestAnimationFrame(tick)
+      }
+    }
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
+  }, [pending.expiresAt])
+
+  const reason = pending.message?.trim()
+  const title = pending.title
+
+  return (
+    <div
+      class="vscode-ai__banner vscode-ai__banner--mode-switch"
+      role="alertdialog"
+      aria-label={title}
+      style={{ ['--mode-switch-progress' as string]: String(progress) }}
+    >
+      <span class="vscode-ai__banner-label" title={title}>
+        {title}
+        {reason ? <span class="vscode-ai__banner-progress"> · {reason}</span> : undefined}
+        <span class="vscode-ai__banner-progress"> · 剩余 {secondsLeft}s</span>
+      </span>
+      <div class="vscode-ai__banner-actions">
+        <button type="button" class="vscode-ai__plan-bar-btn" onClick={onReject}>
+          {pending.cancelLabel?.trim() || '拒绝'}
+        </button>
+        <button
+          type="button"
+          class="vscode-ai__plan-bar-btn vscode-ai__plan-bar-btn--primary"
+          onClick={onApprove}
+        >
+          {pending.confirmLabel?.trim() || '同意'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function VscodeAiPanel({
   sessionId,
   messages,
@@ -1016,6 +1099,10 @@ export function VscodeAiPanel({
   aiIdleRetryCount = 10,
   aiPlayCompletionSound = true,
   aiDebugSystemReminder = false,
+  agentCreateTools,
+  agentBuildSystemPrompt,
+  agentUsageContext,
+  autoKeepTerminalChanges = false,
   dark,
   workspaceFolder,
   lastSentTerminal,
@@ -1398,6 +1485,9 @@ export function VscodeAiPanel({
       target: VscodeAiMode
       explanation?: string
     }): Promise<'approved' | 'denied'> => {
+      if (pendingApprovalSessionRef.current) {
+        settleApproval('denied')
+      }
       if (pendingModeSwitchSessionRef.current) {
         settleModeSwitch('denied')
       }
@@ -1446,6 +1536,84 @@ export function VscodeAiPanel({
     settleModeSwitch('denied')
   }, [settleModeSwitch])
 
+  // ---- 通用「请求用户拍板」（第十二期）：与模式切换同一套横幅 / 超时语义 ----
+  const pendingApprovalSessionRef = useRef<{
+    resolve: (decision: 'approved' | 'denied') => void
+    timerId: number
+    onAbort: () => void
+    signal?: AbortSignal
+  } | null>(null)
+  const [pendingApproval, setPendingApproval] = useState<GenericApprovalPendingUi | null>(null)
+
+  const settleApproval = useCallback((decision: 'approved' | 'denied') => {
+    const session = pendingApprovalSessionRef.current
+    if (!session) return
+    pendingApprovalSessionRef.current = null
+    window.clearTimeout(session.timerId)
+    if (session.signal) {
+      session.signal.removeEventListener('abort', session.onAbort)
+    }
+    setPendingApproval(null)
+    session.resolve(decision)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      const session = pendingApprovalSessionRef.current
+      if (!session) return
+      pendingApprovalSessionRef.current = null
+      window.clearTimeout(session.timerId)
+      if (session.signal) {
+        session.signal.removeEventListener('abort', session.onAbort)
+      }
+      session.resolve('denied')
+    }
+  }, [])
+
+  const requestChange = useCallback(
+    (input: {
+      title: string
+      message?: string
+      confirmLabel?: string
+      cancelLabel?: string
+    }): Promise<'approved' | 'denied'> => {
+      // 一块横幅位：新的请求顶掉旧的（两种先到先拒）
+      if (pendingModeSwitchSessionRef.current) settleModeSwitch('denied')
+      const expiresAt = Date.now() + MODE_SWITCH_TIMEOUT_MS
+      const signal = abortRef.current?.signal
+      return new Promise((resolve) => {
+        const onAbort = () => settleApproval('denied')
+        const timerId = window.setTimeout(() => {
+          settleApproval('denied')
+        }, MODE_SWITCH_TIMEOUT_MS)
+        pendingApprovalSessionRef.current = { resolve, timerId, onAbort, signal }
+        setPendingApproval({
+          title: input.title,
+          message: input.message?.trim() || undefined,
+          confirmLabel: input.confirmLabel?.trim() || undefined,
+          cancelLabel: input.cancelLabel?.trim() || undefined,
+          expiresAt,
+        })
+        if (signal) {
+          if (signal.aborted) {
+            settleApproval('denied')
+            return
+          }
+          signal.addEventListener('abort', onAbort, { once: true })
+        }
+      })
+    },
+    [settleApproval, settleModeSwitch],
+  )
+
+  const approvePendingApproval = useCallback(() => {
+    settleApproval('approved')
+  }, [settleApproval])
+
+  const rejectPendingApproval = useCallback(() => {
+    settleApproval('denied')
+  }, [settleApproval])
+
   const toolsHost = useMemo<VscodeAiToolsHost>(
     () => ({
       getContext: contextWithTerminal,
@@ -1457,6 +1625,7 @@ export function VscodeAiPanel({
       getAiTerminalSnapshot,
       closeAiTerminal,
       requestModeSwitch,
+      requestChange,
     }),
     [
       closeAiTerminal,
@@ -1465,6 +1634,7 @@ export function VscodeAiPanel({
       getAiTerminalHandle,
       getAiTerminalSnapshot,
       openPlanFile,
+      requestChange,
       requestModeSwitch,
       runCommandHost,
       sessionId,
@@ -1754,9 +1924,10 @@ export function VscodeAiPanel({
     return {
       changeSessionIds: sessions.map((session) => session.sessionId),
       changePaths: collectPathsFromChangeSets(sessions),
-      reviewStatus: 'pending' as const,
+      // iCode（第十二期）：写完即落草稿，无确认流程 → 直接置 kept，审查条不出现
+      reviewStatus: autoKeepTerminalChanges ? ('kept' as const) : ('pending' as const),
     }
-  }, [runCommandHost])
+  }, [autoKeepTerminalChanges, runCommandHost])
 
   const applyMessages = useCallback(
     (
@@ -2091,6 +2262,9 @@ export function VscodeAiPanel({
           idleTimeoutMs: Math.max(5, aiIdleTimeoutSeconds) * 1000,
           idleRetryCount: aiIdleRetryCount,
           imageAttachments: turnAttachments,
+          createTools: agentCreateTools,
+          buildSystemPrompt: agentBuildSystemPrompt,
+          usageContext: agentUsageContext,
           subAgentConfig: buildVscodeSubAgentHostConfig(
             {
               subAgentsEnabled,
@@ -2881,10 +3055,11 @@ export function VscodeAiPanel({
                   livePlanMeta.planPath && liveAssistantId,
                 )
                 const showModeSwitchBanner = Boolean(pendingModeSwitch)
+                const showApprovalBanner = Boolean(pendingApproval)
                 return (
                   <div
                     class={`help-app__message help-app__message--assistant${
-                      showLivePlanBanner || showModeSwitchBanner
+                      showLivePlanBanner || showModeSwitchBanner || showApprovalBanner
                         ? ' help-app__message--with-banner'
                         : ''
                     }`}
@@ -2914,6 +3089,13 @@ export function VscodeAiPanel({
                         </div>
                       </div>
                     </div>
+                    {pendingApproval ? (
+                      <GenericApprovalBar
+                        pending={pendingApproval}
+                        onApprove={approvePendingApproval}
+                        onReject={rejectPendingApproval}
+                      />
+                    ) : undefined}
                     {pendingModeSwitch ? (
                       <ModeSwitchBar
                         pending={pendingModeSwitch}

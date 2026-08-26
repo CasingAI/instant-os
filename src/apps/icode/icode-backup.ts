@@ -16,6 +16,7 @@ import type { ICodeExportBundle, ICodeInternalProject } from './icode-types.ts'
 import {
   buildIcodePackageBundle,
   importIcodePackageBundle,
+  loadIcodeAiSessions,
   loadIcodeChat,
   newIcodeAppId,
   type IcodePackageBundle,
@@ -32,8 +33,9 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 export async function exportIcodePackageToZip(appId: GeneratedAppId): Promise<Blob> {
   const chat = await loadIcodeChat(appId)
+  const aiSessions = await loadIcodeAiSessions(appId)
   const appData = loadGeneratedAppData(appId)
-  const bundle = await buildIcodePackageBundle({ appId, chat, appData })
+  const bundle = await buildIcodePackageBundle({ appId, chat, aiSessions, appData })
   const data = strToU8(JSON.stringify(bundle, null, 2))
   return new Blob([data as BlobPart], { type: 'application/zip' })
 }

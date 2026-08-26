@@ -120,6 +120,16 @@ export function appChatFilePath(appId: string): string {
   return `${appDeveloperRootPath(appId)}/chat.json`
 }
 
+/** 第十二期：AI 面板会话文件（Developer/ai-sessions.json） */
+export function appAiSessionsFilePath(appId: string): string {
+  return `${appDeveloperRootPath(appId)}/ai-sessions.json`
+}
+
+/** 第十二期：AI 模型偏好文件（Developer/ai-prefs.json） */
+export function appAiPrefsFilePath(appId: string): string {
+  return `${appDeveloperRootPath(appId)}/ai-prefs.json`
+}
+
 function emitSystemVfsChange(path: string, kind: FilesWatchChangeKind): void {
   invalidateFilesVfsPathCaches()
   notifyFilesWatch({ kind, path })
