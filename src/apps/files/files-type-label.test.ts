@@ -30,6 +30,8 @@ function testExtensionCategories(): void {
   assert.equal(filesTypeLabel('file', '角色.glb'), '3D 模型')
   assert.equal(filesTypeLabel('file', '备份.zip'), '压缩包')
   assert.equal(filesTypeLabel('file', '归档.tar.gz'), '压缩包')
+  assert.equal(filesTypeLabel('file', 'setup.exe'), '可执行文件')
+  assert.equal(filesTypeLabel('file', 'TOOL.EXE'), '可执行文件')
   assert.equal(filesTypeLabel('file', '首页.html'), '网页')
   assert.equal(filesTypeLabel('file', '备忘.txt'), '文本')
   assert.equal(filesTypeLabel('file', '说明.md'), 'Markdown')

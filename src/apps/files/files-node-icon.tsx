@@ -1866,6 +1866,207 @@ function HddFileIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/**
+ * Windows 可执行文件：仿 Mac 上经典 EXE 图标——
+ * 深色圆角瓷砖内嵌蓝色渐变卡片（上部亮条以横线分隔），
+ * 右侧一条贯穿上下的拉链（安装包隐喻），滑块压在分隔线上，拉片垂下。
+ */
+function ExeExecutableGlyph({ className }: { className: string }) {
+  const rawId = useId()
+  const uid = rawId.replace(/[^a-zA-Z0-9_-]/g, '')
+  const tileGrad = `exe-tile-${uid}`
+  const faceGrad = `exe-face-${uid}`
+  const glossGrad = `exe-gloss-${uid}`
+  const metalGrad = `exe-metal-${uid}`
+  const faceClip = `exe-face-clip-${uid}`
+  // 蓝卡与拉链的关键坐标：卡片 x 8.5–39.5；拉链中轴靠右，给左下角 EXE 字留出空间
+  const zipX = 33.1
+  const teeth: number[] = []
+  for (let y = 9.4; y <= 38.4; y += 2.64) teeth.push(y)
+
+  return (
+    <svg
+      class={className}
+      viewBox="0 0 48 48"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={tileGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#4c4c54" />
+          <stop offset="100%" stop-color="#212126" />
+        </linearGradient>
+        <linearGradient id={faceGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#74bcf7" />
+          <stop offset="45%" stop-color="#3a88dc" />
+          <stop offset="100%" stop-color="#1460ae" />
+        </linearGradient>
+        <linearGradient id={glossGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.5)" />
+          <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+        </linearGradient>
+        <linearGradient id={metalGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#f4f6f9" />
+          <stop offset="100%" stop-color="#96a0ab" />
+        </linearGradient>
+        <clipPath id={faceClip}>
+          <rect x="8.5" y="8.5" width="31" height="31" rx="4.5" />
+        </clipPath>
+      </defs>
+
+      {/* 落地阴影 */}
+      <ellipse cx="24" cy="45.6" rx="15.5" ry="1.6" fill="rgba(15, 20, 30, 0.24)" />
+
+      {/* 深色圆角瓷砖 */}
+      <rect
+        x="3.5"
+        y="3.5"
+        width="41"
+        height="41"
+        rx="9"
+        fill={`url(#${tileGrad})`}
+        stroke="rgba(10,10,14,0.6)"
+        stroke-width="0.9"
+      />
+      <path
+        fill="none"
+        stroke="rgba(255,255,255,0.08)"
+        stroke-width="0.9"
+        stroke-linecap="round"
+        d="M12.5 4.4h23"
+      />
+
+      {/* 蓝色渐变卡片 */}
+      <rect
+        x="8.5"
+        y="8.5"
+        width="31"
+        height="31"
+        rx="4.5"
+        fill={`url(#${faceGrad})`}
+        stroke="rgba(5,38,76,0.55)"
+        stroke-width="0.9"
+      />
+      <g clip-path={`url(#${faceClip})`}>
+        {/* 整面斜向釉光 */}
+        <rect
+          x="8.5"
+          y="8.5"
+          width="31"
+          height="16"
+          fill={`url(#${glossGrad})`}
+          opacity="0.55"
+        />
+        {/* 上部亮条：略提亮，底缘横线 + 下缘窄阴影压出「标题栏」层次 */}
+        <rect x="8.5" y="8.5" width="31" height="8.5" fill="rgba(255,255,255,0.14)" />
+        <rect x="8.5" y="17" width="31" height="1.1" fill="rgba(9,42,82,0.16)" />
+        <path
+          fill="none"
+          stroke="rgba(255,255,255,0.6)"
+          stroke-width="0.85"
+          stroke-linecap="round"
+          d="M9.4 17h29.2"
+        />
+
+        {/* 拉链带两侧缝线 */}
+        <path
+          fill="none"
+          stroke="rgba(8,40,78,0.3)"
+          stroke-width="0.9"
+          d={`M${zipX - 3.5} 8.5V39.5`}
+        />
+        <path
+          fill="none"
+          stroke="rgba(8,40,78,0.3)"
+          stroke-width="0.9"
+          d={`M${zipX + 3.5} 8.5V39.5`}
+        />
+        {/* 中轴合缝 */}
+        <path
+          fill="none"
+          stroke="rgba(12,48,90,0.45)"
+          stroke-width="0.8"
+          d={`M${zipX} 8.5V39.5`}
+        />
+        {/* 拉链齿：左右成对咬合 */}
+        <g fill="#d9dee5" stroke="rgba(66,76,88,0.55)" stroke-width="0.35">
+          {teeth.flatMap((y) => [
+            <rect key={`l-${y}`} x={zipX - 3.35} y={y} width="3.1" height="1.66" rx="0.38" />,
+            <rect key={`r-${y}`} x={zipX + 0.25} y={y} width="3.1" height="1.66" rx="0.38" />,
+          ])}
+        </g>
+
+        {/* 滑块主体（跨在亮条分隔线上） */}
+        <rect
+          x={zipX - 3.9}
+          y="11.4"
+          width="7.8"
+          height="5.6"
+          rx="1.6"
+          fill={`url(#${metalGrad})`}
+          stroke="#4d5661"
+          stroke-width="0.7"
+        />
+        <rect
+          x={zipX - 1.15}
+          y="12.5"
+          width="2.3"
+          height="1.7"
+          rx="0.5"
+          fill="rgba(40,48,58,0.35)"
+        />
+        {/* 拉片：垂到主区，带穿孔 */}
+        <rect
+          x={zipX - 1.55}
+          y="16.7"
+          width="3.1"
+          height="4.8"
+          rx="1.35"
+          fill={`url(#${metalGrad})`}
+          stroke="#4d5661"
+          stroke-width="0.6"
+        />
+        <ellipse cx={zipX} cy="20.1" rx="0.85" ry="1.3" fill="rgba(30,38,46,0.4)" />
+
+        {/* 左下角 EXE 字：深衬 + 白面 */}
+        <text
+          x="11.2"
+          y="35.9"
+          font-family="ui-rounded, system-ui, -apple-system, 'Segoe UI', sans-serif"
+          font-size="8.4"
+          font-weight="800"
+          letter-spacing="0.35"
+          fill="rgba(7,32,64,0.4)"
+        >
+          EXE
+        </text>
+        <text
+          x="11.2"
+          y="35.4"
+          font-family="ui-rounded, system-ui, -apple-system, 'Segoe UI', sans-serif"
+          font-size="8.4"
+          font-weight="800"
+          letter-spacing="0.35"
+          fill="#ffffff"
+        >
+          EXE
+        </text>
+      </g>
+    </svg>
+  )
+}
+
+function ExeFileIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--exe`}
+      aria-hidden="true"
+    >
+      <ExeExecutableGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
+
 /** 「新建文件夹」等无节点场景的静态文件夹图标 */
 export function FilesFolderTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
   return (
@@ -1972,6 +2173,10 @@ export function FilesNodeIcon({
 
   if (isDocxFileExtension(extension)) {
     return <DocxFileIcon size={size} />
+  }
+
+  if (extension === 'exe') {
+    return <ExeFileIcon size={size} />
   }
 
   if (extension === 'iso') {

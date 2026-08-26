@@ -48,6 +48,7 @@ export function filesTypeLabel(kind: FilesNodeKind, name: string): string {
   if (AUDIO_TYPE_EXTENSIONS.has(extension)) return '音频'
   if (VIDEO_TYPE_EXTENSIONS.has(extension)) return '视频'
   if (MODEL3D_TYPE_EXTENSIONS.has(extension)) return '3D 模型'
+  if (extension === 'exe') return '可执行文件'
   if (ARCHIVE_TYPE_EXTENSIONS.has(extension)) return '压缩包'
   if (WEBPAGE_TYPE_EXTENSIONS.has(extension)) return '网页'
   if (extension === 'txt') return '文本'

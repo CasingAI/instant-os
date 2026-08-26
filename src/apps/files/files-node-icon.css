@@ -87,6 +87,7 @@
 .files-node-icon--archive .files-node-icon__glyph--file,
 .files-node-icon--iso-disc .files-node-icon__glyph--file,
 .files-node-icon--hdd .files-node-icon__glyph--file,
+.files-node-icon--exe .files-node-icon__glyph--file,
 .files-node-icon--code .files-node-icon__glyph--file {
   position: absolute;
   top: 50%;
@@ -110,6 +111,12 @@
 
 /* HDD 磁盘镜像：方形 viewBox，与 ISO 光盘保持相近的占位比例 */
 .files-node-icon--hdd .files-node-icon__glyph--file {
+  aspect-ratio: 1 / 1;
+  height: 92%;
+}
+
+/* EXE：方形深色瓷砖构图，与 ISO/HDD 相近的占位比例 */
+.files-node-icon--exe .files-node-icon__glyph--file {
   aspect-ratio: 1 / 1;
   height: 92%;
 }
