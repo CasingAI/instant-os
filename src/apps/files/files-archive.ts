@@ -1,12 +1,22 @@
 /**
  * 文件 App 的压缩 / 解压封装：
  * - 压缩：递归收集选中节点（文件读 blob；文件夹递归列目录；跳过符号链接防环）→ Worker 打包
- * - 解压：Worker 解码（魔数自动识别 zip / tar.gz）→ 批量落盘到当前目录
+ * - 解压：Worker 解码（魔数自动识别；裸 .gz 走单文件分支）→ macOS 式布局
+ *   （单顶层直接解出该条目，多顶层套同名文件夹）→ 冲突加「 2」后缀不覆盖 → 批量落盘
  */
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { decodeArchiveInWorker, encodeArchiveInWorker } from '../../archive/archive-worker-client.ts'
 import { extractZipToDirectory } from '../../archive/archive-extract.ts'
+import { materializeArchiveEntries } from '../../archive/archive-materialize.ts'
+import {
+  allocateUniqueFileName,
+  remapEntriesAwayFromExisting,
+  uniqueSiblingName,
+} from '../archive-utility/archive-utility-conflict.ts'
+import { stripArchiveExtension } from '../archive-utility/archive-utility-format.ts'
+import { isBareGzipFileName, topLevelNames, wrapEntriesInFolder } from './files-extract-layout.ts'
 import type { FilesNode } from './files-types.ts'
+import { filesList } from './files-api.ts'
 import { listDirectory, readFileBlob } from './files-vfs.ts'
 
 export type FilesArchiveFormat = 'zip' | 'gzip-tar' | 'iso'
@@ -108,9 +118,20 @@ export async function compressNodesToArchive(
   return compressEntriesToArchive(entries, format, onProgress)
 }
 
-export type FilesExtractResult = { fileCount: number; bytesWritten: number }
+export type FilesExtractResult = {
+  fileCount: number
+  bytesWritten: number
+  /** 实际落点名（当前目录下）：多顶层时为包裹文件夹名，单顶层/裸 gz 时为解出的条目名 */
+  destinationName?: string
+}
 
-/** 解压归档到目标绝对路径；返回写入的文件数与字节数 */
+/**
+ * 解压归档到目标目录（macOS 归档实用工具语义，不摊平、不覆盖已有内容）：
+ * - 归档内只有单个顶层条目 → 直接解出该条目本身；
+ * - 多个顶层条目（散装文件）→ 套进一个与压缩包同名的文件夹；
+ * - 顶层名与目标目录现有内容冲突 → 整体加「 2」「 3」后缀改名。
+ * 裸 .gz（非 tar.gz/tgz）按单文件解压，输出名为去掉 .gz 的主干名。
+ */
 export async function extractArchiveToDirectory(params: {
   node: FilesNode
   destRoot: string
@@ -120,16 +141,47 @@ export async function extractArchiveToDirectory(params: {
   const extractStartAt = performance.now()
   const { blob } = await readFileBlob(node.id)
   const bytes = new Uint8Array(await blob.arrayBuffer())
-  const entries = await decodeArchiveInWorker({ bytes, format: 'auto', stripRoot: true })
 
+  if (isBareGzipFileName(node.name)) {
+    const decoded = await decodeArchiveInWorker({ bytes, format: 'gzip-file' })
+    const inflated = decoded.get('data')
+    if (!inflated) throw new Error('无法解压该 gzip 文件（文件可能已损坏）')
+    const desiredName = stripArchiveExtension(node.name) || '解压文件'
+    const outName = await allocateUniqueFileName(destRoot, desiredName)
+    const written = await materializeArchiveEntries({
+      destRoot,
+      entries: [{ relativePath: outName, bytes: inflated }],
+      onProgress: (progress) => onProgress?.(progress.done, progress.total),
+    })
+    return {
+      fileCount: written.fileCount,
+      bytesWritten: written.bytesWritten,
+      destinationName: outName,
+    }
+  }
+
+  const entries = await decodeArchiveInWorker({ bytes, format: 'auto', stripRoot: false })
   if (entries.size === 0) {
     return { fileCount: 0, bytesWritten: 0 }
+  }
+
+  let finalEntries = entries
+  let wrapperName: string | undefined
+  if (topLevelNames(entries.keys()).length > 1) {
+    const listing = await filesList(destRoot)
+    wrapperName = uniqueSiblingName(
+      new Set(listing.map((entry) => entry.name)),
+      stripArchiveExtension(node.name) || '归档',
+    )
+    finalEntries = wrapEntriesInFolder(entries, wrapperName)
+  } else {
+    finalEntries = await remapEntriesAwayFromExisting(destRoot, entries)
   }
 
   const shared = {
     destRoot,
     zip: bytes,
-    entries,
+    entries: finalEntries,
     onProgress: (progress: { done: number; total: number }) =>
       onProgress?.(progress.done, progress.total),
   }
@@ -137,8 +189,12 @@ export async function extractArchiveToDirectory(params: {
   recordSystemDebugTimeline({
     layer: 'files',
     op: 'extract-archive-done',
-    detail: `${node.name} → ${result.fileCount} files ${result.bytesWritten}B`,
+    detail: `${node.name} → ${wrapperName ?? '(当前目录)'} ${result.fileCount} files ${result.bytesWritten}B`,
     durationMs: Math.round(performance.now() - extractStartAt),
   })
-  return { fileCount: result.fileCount, bytesWritten: result.bytesWritten }
+  return {
+    fileCount: result.fileCount,
+    bytesWritten: result.bytesWritten,
+    destinationName: topLevelNames(finalEntries.keys())[0],
+  }
 }

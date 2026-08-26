@@ -97,7 +97,10 @@ export async function extractArchiveToDirectoryOp(
           onProgress: (done, total) => report({ done, total }),
         }),
     })
-    context.showToast(result.fileCount > 0 ? `已解压 ${result.fileCount} 个文件` : '归档为空')
+    const targetSuffix = result.destinationName ? `到「${result.destinationName}」` : ''
+    context.showToast(
+      result.fileCount > 0 ? `已解压 ${result.fileCount} 个文件${targetSuffix}` : '归档为空',
+    )
     await context.refresh()
   } catch (error) {
     await context.alertError('无法解压', error)

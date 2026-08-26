@@ -34,7 +34,7 @@ registerFilesContextMenuContribution({
     ]
     if (!multi && node.kind === 'file' && ops.isArchiveFileName(node.name)) {
       items.push({
-        label: '解压到当前文件夹',
+        label: '解压',
         onClick: () => ops.extractHere(node),
       })
     }
