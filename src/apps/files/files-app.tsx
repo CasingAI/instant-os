@@ -107,6 +107,7 @@ import {
   enrichFilesNodeMeta,
   estimateCopyWorkload,
   estimateDeleteWorkload,
+  estimateEmptyTrashWorkload,
   filesNodeNeedsViewportMeta,
   getFilesLocationLabel,
   getNodeOrThrow,
@@ -2278,25 +2279,23 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     })
     if (!ok) return
     try {
+      const workload = await estimateEmptyTrashWorkload()
       const emptyController = new AbortController()
       await runFilesOpWithProgress({
         kind: 'delete',
-        totalWork: Math.max(1, itemsRef.current.length),
-        estimatedTotalMs: estimateFilesOpDurationMs(Math.max(1, itemsRef.current.length)),
+        totalWork: workload.totalUnits,
+        estimatedTotalMs: estimateFilesOpDurationMs(workload.totalUnits),
         onUiChange: setOpProgressUi,
         signal: emptyController.signal,
         cancel: () => emptyController.abort(),
         task: async (report, signal) => {
           await emptyTrash({
             signal,
-            onProgress: (progress) =>
-              report({
-                ...progress,
-                detailLabel: `${progress.done} / ${progress.total} 项`,
-              }),
+            onProgress: (progress) => report(progress),
           })
         },
       })
+      showToast('废纸篓已清空')
     } catch (err) {
       if (isFilesOpCancelledError(err)) {
         showToast('已取消')
@@ -2306,7 +2305,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     }
     clearSelection()
     await refresh()
-  }, [clearSelection, closeTransientMenus, locationId, modal, refresh])
+  }, [clearSelection, closeTransientMenus, locationId, modal, refresh, showToast])
 
   const handleNewFolder = useCallback(async () => {
     if (!canCreateHere) return

@@ -24,7 +24,7 @@
 
 - 与现有预览 iframe 模式一致，工程增量最小；
 - Editor 自带的全局样式 / DOM 单例与 OS 样式天然隔离，关掉即卸载；
-- 体积不进主 bundle、按需加载，符合项目「独立 realm + 按需 + 可卸载」的一贯策略（同 `archive-wasm-support.md` 的扩展隔离思路）。
+- 体积不进主 bundle、按需加载，符合项目「独立 realm + 按需 + 可卸载」的一贯策略。
 - 代价：编辑器与系统的文件/存储互操作需要 postMessage 桥（MVP 阶段可先不做，直接读写 localStorage / 内存，够用）。
 
 ## 技术要点

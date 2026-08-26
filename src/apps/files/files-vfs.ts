@@ -1922,26 +1922,60 @@ export async function restoreNode(id: string): Promise<FilesNode> {
   return restored
 }
 
-/** 清空废纸篓：永久删除其中全部内容（释放容量，带进度） */
+type TrashRootWorkload = {
+  node: FilesNode
+  nodeCount: number
+  byteSize: number
+  units: number
+}
+
+/** 统计废纸篓各根节点删除工作量：挂载/镜像按 1 单位，本地子树按节点数+字节折算 */
+async function collectTrashRootWorkloads(): Promise<TrashRootWorkload[]> {
+  const roots = await listDirectory('trash', undefined)
+  return Promise.all(
+    roots.map(async (node) => {
+      if (isMountNodeId(node.id) || isImageNodeId(node.id)) {
+        return { node, nodeCount: 1, byteSize: 0, units: 1 }
+      }
+      const subtree = await collectSubtreeIds(node.id)
+      const units = filesWorkloadUnits(subtree.nodeIds.length, subtree.reclaimBytes)
+      return { node, nodeCount: subtree.nodeIds.length, byteSize: subtree.reclaimBytes, units }
+    }),
+  )
+}
+
+/** 估算清空废纸篓的总工作量（与 estimateDeleteWorkload 同口径；空废纸篓为 0） */
+export async function estimateEmptyTrashWorkload(): Promise<FilesDeleteWorkload> {
+  const workloads = await collectTrashRootWorkloads()
+  return {
+    nodeCount: workloads.reduce((sum, w) => sum + w.nodeCount, 0),
+    byteSize: workloads.reduce((sum, w) => sum + w.byteSize, 0),
+    totalUnits: workloads.reduce((sum, w) => sum + w.units, 0),
+  }
+}
+
+/** 清空废纸篓：永久删除其中全部内容（释放容量，带进度；按工作量单位上报，大子树内部平滑推进） */
 export async function emptyTrash(
   options?: { onProgress?: (progress: FilesVfsOpProgress) => void; signal?: AbortSignal },
 ): Promise<void> {
   const trashStartAt = performance.now()
-  const roots = await listDirectory('trash', undefined)
+  const workloads = await collectTrashRootWorkloads()
+  const total = Math.max(1, workloads.reduce((sum, w) => sum + w.units, 0))
   let done = 0
-  const total = roots.length
   options?.onProgress?.({ done: 0, total })
-  for (const root of roots) {
+  for (const { node, units } of workloads) {
     options?.signal?.throwIfAborted?.()
-    await removeNodeForced(root.id)
-    done += 1
+    await removeNodeForced(node.id, {
+      onProgress: (progress) => options?.onProgress?.({ done: done + progress.done, total }),
+    })
+    done += units
     options?.onProgress?.({ done, total })
   }
   options?.onProgress?.({ done: total, total })
   recordSystemDebugTimeline({
     layer: 'files',
     op: 'empty-trash-done',
-    detail: `${total} roots`,
+    detail: `${workloads.length} roots`,
     durationMs: Math.round(performance.now() - trashStartAt),
   })
 }

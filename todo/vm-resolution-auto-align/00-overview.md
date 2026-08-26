@@ -11,6 +11,8 @@
 
 - `00-overview.md` —— 本文件：背景、选型结论、接入清单、调研存档。
 - `01-channel-mvp.md` —— 过墙通道 MVP 验证计划（先于任何正式实现执行）。
+- `02-emacs-workflow.md` —— Emacs 内完整闭环开发方案（zig + Makefile + eglot）。
+- `03-staged-delivery.md` —— 分期交付计划（三期）：第一期宿主侧（AI 全程），第二期客机代理代码（AI 全程），第三期 XP 实测（你来做的 6 步动作）。
 
 ## 1. 背景与目标
 

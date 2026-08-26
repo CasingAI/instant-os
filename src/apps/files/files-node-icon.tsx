@@ -1529,16 +1529,142 @@ function IsoDiscIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/** 3.5 寸盘：x 左右、y 近远（1 为近端）、z 上下。带一点透视，近大远小。 */
+function projectHddPoint(x: number, y: number, z: number): [number, number] {
+  const width = x - 0.5
+  const depth = (y - 0.5) * 0.7
+  const height = (z - 0.5) * 0.32
+  const pitch = -0.68
+  const yaw = 0.18
+  const cosPitch = Math.cos(pitch)
+  const sinPitch = Math.sin(pitch)
+  const cosYaw = Math.cos(yaw)
+  const sinYaw = Math.sin(yaw)
+  const cameraX = width * cosYaw - depth * sinYaw
+  const cameraY = width * sinYaw + depth * cosYaw
+  const rotatedY = cameraY * cosPitch - height * sinPitch
+  const rotatedZ = cameraY * sinPitch + height * cosPitch
+  const perspective = 3.4 / (3.4 - rotatedY)
+  return [24.5 + cameraX * 36 * perspective, 23 - rotatedZ * 36 * perspective]
+}
+
+function hddPoly(points: Array<[number, number]>, close = true): string {
+  const body = points
+    .map(([px, py], index) => `${index === 0 ? 'M' : 'L'}${px.toFixed(2)} ${py.toFixed(2)}`)
+    .join(' ')
+  return close ? `${body} Z` : body
+}
+
+function hddArcPoints(
+  cx: number,
+  cy: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+  z: number,
+  steps: number,
+): Array<[number, number]> {
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const angle = startAngle + (endAngle - startAngle) * (index / steps)
+    return projectHddPoint(cx + radius * Math.cos(angle), cy + radius * Math.sin(angle), z)
+  })
+}
+
+function hddCirclePoints(
+  cx: number,
+  cy: number,
+  radius: number,
+  z: number,
+  steps = 28,
+): Array<[number, number]> {
+  return Array.from({ length: steps }, (_, index) => {
+    const angle = (index / steps) * Math.PI * 2
+    return projectHddPoint(cx + radius * Math.cos(angle), cy + radius * Math.sin(angle), z)
+  })
+}
+
+const HDD_CORNER = 0.055
+
+function hddRoundRectPoints(z: number): Array<[number, number]> {
+  const radius = HDD_CORNER
+  return [
+    ...hddArcPoints(radius, 1 - radius, radius, Math.PI, Math.PI / 2, z, 4),
+    ...hddArcPoints(1 - radius, 1 - radius, radius, Math.PI / 2, 0, z, 4).slice(1),
+    ...hddArcPoints(1 - radius, radius, radius, 0, -Math.PI / 2, z, 4).slice(1),
+    ...hddArcPoints(radius, radius, radius, -Math.PI / 2, -Math.PI, z, 4).slice(1),
+  ]
+}
+
+function hddFrontEdge(z: number, steps = 10): Array<[number, number]> {
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const t = index / steps
+    return projectHddPoint(HDD_CORNER + (1 - 2 * HDD_CORNER) * t, 1, z)
+  })
+}
+
+function hddRightEdge(z: number, steps = 10): Array<[number, number]> {
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const t = index / steps
+    return projectHddPoint(1, 1 - HDD_CORNER - (1 - 2 * HDD_CORNER) * t, z)
+  })
+}
+
+function hddQuad(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  z: number,
+): Array<[number, number]> {
+  return [
+    projectHddPoint(x0, y0, z),
+    projectHddPoint(x1, y0, z),
+    projectHddPoint(x1, y1, z),
+    projectHddPoint(x0, y1, z),
+  ]
+}
+
 /**
- * 硬盘镜像：金属外壳 + 盘片 + 磁头臂 + 指示灯。
- * 方形构图，独立 48×48 viewBox（不沿用折角纸模板）。
+ * 硬盘镜像：3.5 寸内置硬盘合盖，斜俯视一点透视。
+ * 远端收窄、竖边向下汇聚；盘腔/压筋/螺丝画在顶面上。
  */
 function HddDiscGlyph({ className }: { className: string }) {
   const rawId = useId()
   const uid = rawId.replace(/[^a-zA-Z0-9_-]/g, '')
-  const caseGrad = `hdd-case-${uid}`
-  const platterGrad = `hdd-platter-${uid}`
-  const armGrad = `hdd-arm-${uid}`
+  const lidGrad = `hdd-lid-${uid}`
+  const lidFrontGrad = `hdd-lid-front-${uid}`
+  const lidSideGrad = `hdd-lid-side-${uid}`
+  const chassisFrontGrad = `hdd-chas-front-${uid}`
+  const chassisSideGrad = `hdd-chas-side-${uid}`
+  const wellGrad = `hdd-well-${uid}`
+  const ridgeGrad = `hdd-ridge-${uid}`
+  const screwGrad = `hdd-screw-${uid}`
+  const sheenGrad = `hdd-sheen-${uid}`
+  const lidClip = `hdd-lid-clip-${uid}`
+  const lidTopZ = 1
+  const lidBottomZ = 0.8
+  const chassisBottomZ = 0
+  const lidTop = hddRoundRectPoints(lidTopZ)
+  const frontTop = hddFrontEdge(lidTopZ)
+  const frontLid = hddFrontEdge(lidBottomZ)
+  const frontChassis = hddFrontEdge(chassisBottomZ)
+  const rightTop = hddRightEdge(lidTopZ)
+  const rightLid = hddRightEdge(lidBottomZ)
+  const rightChassis = hddRightEdge(chassisBottomZ)
+  const screws: Array<[number, number]> = [
+    [0.1, 0.88],
+    [0.9, 0.88],
+    [0.1, 0.5],
+    [0.9, 0.5],
+    [0.1, 0.12],
+    [0.9, 0.12],
+  ]
+  const wellHighlight = hddArcPoints(0.5, 0.58, 0.168, 3.4, 4.4, lidTopZ, 8)
+  const farHighlight = Array.from({ length: 8 }, (_, index) => {
+    const t = index / 7
+    return projectHddPoint(0.08 + 0.84 * t, 0.02, lidTopZ)
+  })
+  const frontHighlight = hddFrontEdge(lidTopZ, 8)
   return (
     <svg
       class={className}
@@ -1547,76 +1673,182 @@ function HddDiscGlyph({ className }: { className: string }) {
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id={caseGrad} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#9aa4b2" />
-          <stop offset="18%" stop-color="#c4cbd4" />
-          <stop offset="52%" stop-color="#8a94a3" />
-          <stop offset="100%" stop-color="#5e6878" />
+        <linearGradient id={lidGrad} x1="0.12" y1="0" x2="0.88" y2="1">
+          <stop offset="0%" stop-color="#f5f7fa" />
+          <stop offset="36%" stop-color="#d5dbe4" />
+          <stop offset="100%" stop-color="#9aa3b0" />
         </linearGradient>
-        <radialGradient id={platterGrad} cx="40%" cy="35%" r="72%">
-          <stop offset="0%" stop-color="#e8ecf1" />
-          <stop offset="55%" stop-color="#b8c0cc" />
-          <stop offset="100%" stop-color="#7a8494" />
+        <linearGradient id={lidFrontGrad} x1="0" y1="0" x2="0.2" y2="1">
+          <stop offset="0%" stop-color="#d8dee6" />
+          <stop offset="38%" stop-color="#b4bcc7" />
+          <stop offset="100%" stop-color="#7e8794" />
+        </linearGradient>
+        <linearGradient id={lidSideGrad} x1="0" y1="0" x2="1" y2="0.2">
+          <stop offset="0%" stop-color="#8b94a1" />
+          <stop offset="100%" stop-color="#5c6572" />
+        </linearGradient>
+        <linearGradient id={chassisFrontGrad} x1="0" y1="0" x2="0.12" y2="1">
+          <stop offset="0%" stop-color="#5a6270" />
+          <stop offset="48%" stop-color="#3c4450" />
+          <stop offset="100%" stop-color="#262c36" />
+        </linearGradient>
+        <linearGradient id={chassisSideGrad} x1="0" y1="0" x2="1" y2="0.2">
+          <stop offset="0%" stop-color="#3a424c" />
+          <stop offset="100%" stop-color="#1c222a" />
+        </linearGradient>
+        <radialGradient id={wellGrad} cx="0.34" cy="0.28" r="0.74">
+          <stop offset="0%" stop-color="#c5ccd6" />
+          <stop offset="52%" stop-color="#8e97a4" />
+          <stop offset="100%" stop-color="#5e6774" />
         </radialGradient>
-        <linearGradient id={armGrad} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#7a8494" />
-          <stop offset="50%" stop-color="#a4aebc" />
-          <stop offset="100%" stop-color="#6a7484" />
+        <linearGradient id={ridgeGrad} x1="0.18" y1="0.15" x2="0.82" y2="0.9">
+          <stop offset="0%" stop-color="#eef1f5" />
+          <stop offset="48%" stop-color="#c5ccd5" />
+          <stop offset="100%" stop-color="#7e8794" />
         </linearGradient>
+        <radialGradient id={screwGrad} cx="0.32" cy="0.26" r="0.72">
+          <stop offset="0%" stop-color="#f7f8fa" />
+          <stop offset="52%" stop-color="#c5ccd5" />
+          <stop offset="100%" stop-color="#7a8490" />
+        </radialGradient>
+        <radialGradient id={sheenGrad} cx="0.28" cy="0.18" r="0.7">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.4)" />
+          <stop offset="58%" stop-color="rgba(255,255,255,0)" />
+        </radialGradient>
+        <clipPath id={lidClip}>
+          <path d={hddPoly(lidTop)} />
+        </clipPath>
       </defs>
-      {/* 落地阴影 */}
-      <ellipse cx="24" cy="44.6" rx="16" ry="2.1" fill="rgba(24, 32, 44, 0.22)" />
-      {/* 外壳 */}
-      <rect
-        x="4.5"
-        y="8.5"
-        width="39"
-        height="31"
-        rx="4"
-        fill={`url(#${caseGrad})`}
-        stroke="#5e6878"
-        stroke-width="1"
-      />
-      {/* 内凹面板 */}
-      <rect
-        x="7"
-        y="11"
-        width="34"
-        height="26"
-        rx="2.5"
-        fill="#2a3038"
-        stroke="#4a5462"
-        stroke-width="0.8"
-      />
-      {/* 盘片 */}
-      <circle
-        cx="21"
-        cy="24"
-        r="10.5"
-        fill={`url(#${platterGrad})`}
-        stroke="#6a7484"
-        stroke-width="0.7"
-      />
-      {/* 盘片同心环 */}
-      <circle cx="21" cy="24" r="7.5" fill="none" stroke="#8a94a3" stroke-width="0.5" opacity="0.6" />
-      <circle cx="21" cy="24" r="4.5" fill="none" stroke="#8a94a3" stroke-width="0.5" opacity="0.5" />
-      {/* 磁头臂 */}
+      <ellipse cx="26.2" cy="44.4" rx="16.6" ry="2.1" fill="rgba(24, 32, 44, 0.24)" />
+      <path d={hddPoly([...rightLid, ...rightChassis.slice().reverse()])} fill={`url(#${chassisSideGrad})`} />
+      <path d={hddPoly([...rightTop, ...rightLid.slice().reverse()])} fill={`url(#${lidSideGrad})`} />
       <path
-        d="M32 32 L39 15"
-        stroke={`url(#${armGrad})`}
-        stroke-width="3"
+        d={hddPoly([...frontLid, ...frontChassis.slice().reverse()])}
+        fill={`url(#${chassisFrontGrad})`}
+      />
+      <path d={hddPoly(hddQuad(0.03, 1.02, 0.13, 1.06, 0.08))} fill="#4a5260" />
+      <path d={hddPoly(hddQuad(0.87, 1.02, 0.97, 1.06, 0.08))} fill="#4a5260" />
+      <path
+        d={hddPoly([
+          projectHddPoint(0.22, 1, 0.72),
+          projectHddPoint(0.78, 1, 0.72),
+          projectHddPoint(0.78, 1, 0.12),
+          projectHddPoint(0.22, 1, 0.12),
+        ])}
+        fill="#1a1f27"
+      />
+      {Array.from({ length: 7 }, (_, index) => {
+        const t0 = 0.26 + index * 0.07
+        const t1 = t0 + 0.028
+        return (
+          <path
+            key={`fin-${index}`}
+            d={hddPoly([
+              projectHddPoint(t0, 1, 0.68),
+              projectHddPoint(t1, 1, 0.68),
+              projectHddPoint(t1, 1, 0.16),
+              projectHddPoint(t0, 1, 0.16),
+            ])}
+            fill="#0b0f15"
+          />
+        )
+      })}
+      <path d={hddPoly([...frontTop, ...frontLid.slice().reverse()])} fill={`url(#${lidFrontGrad})`} />
+      <path
+        d={hddPoly(frontHighlight, false)}
+        fill="none"
+        stroke="rgba(255,255,255,0.55)"
+        stroke-width="0.7"
         stroke-linecap="round"
       />
-      <circle cx="39" cy="15" r="2.6" fill="#5e6878" />
-      <circle cx="32" cy="32" r="2.4" fill="#7a8494" />
-      {/* 状态指示灯 */}
-      <circle cx="38" cy="32.5" r="2.2" fill="#34d399" opacity="0.9" />
-      {/* 顶面高光 */}
       <path
-        d="M8 12 Q24 10 40 12"
+        d={hddPoly(lidTop)}
+        fill={`url(#${lidGrad})`}
+        stroke="#7a8490"
+        stroke-width="0.75"
+      />
+      <g clip-path={`url(#${lidClip})`}>
+        <path d={hddPoly(lidTop)} fill={`url(#${sheenGrad})`} />
+        <path d={hddPoly(hddCirclePoints(0.5, 0.58, 0.205, lidTopZ))} fill={`url(#${wellGrad})`} />
+        <path
+          d={hddPoly(hddCirclePoints(0.52, 0.56, 0.188, lidTopZ))}
+          fill="none"
+          stroke="rgba(40,48,58,0.34)"
+          stroke-width="0.85"
+        />
+        <path
+          d={hddPoly(wellHighlight, false)}
+          fill="none"
+          stroke="rgba(255,255,255,0.32)"
+          stroke-width="0.85"
+          stroke-linecap="round"
+        />
+        <path
+          d={hddPoly(hddCirclePoints(0.5, 0.58, 0.255, lidTopZ))}
+          fill="none"
+          stroke="rgba(70,78,90,0.28)"
+          stroke-width="2.5"
+        />
+        <path
+          d={hddPoly(hddCirclePoints(0.5, 0.58, 0.255, lidTopZ))}
+          fill="none"
+          stroke={`url(#${ridgeGrad})`}
+          stroke-width="2.15"
+        />
+        <path
+          d={hddPoly([projectHddPoint(0.6, 0.38, lidTopZ), projectHddPoint(0.64, 0.08, lidTopZ)], false)}
+          fill="none"
+          stroke="rgba(70,78,90,0.28)"
+          stroke-width="2.5"
+          stroke-linecap="round"
+        />
+        <path
+          d={hddPoly([projectHddPoint(0.6, 0.38, lidTopZ), projectHddPoint(0.64, 0.08, lidTopZ)], false)}
+          fill="none"
+          stroke={`url(#${ridgeGrad})`}
+          stroke-width="2.15"
+          stroke-linecap="round"
+        />
+        <path
+          d={hddPoly(hddQuad(0.73, 0.46, 0.84, 0.7, lidTopZ))}
+          fill="#e4e8ee"
+          stroke="#8b94a1"
+          stroke-width="0.4"
+        />
+        <path d={hddPoly(hddQuad(0.755, 0.5, 0.815, 0.66, lidTopZ))} fill="#c5ccd6" />
+        <path d={hddPoly(hddQuad(0.2, 0.06, 0.5, 0.165, lidTopZ))} fill="#1a1d22" />
+        <path d={hddPoly(hddQuad(0.22, 0.085, 0.38, 0.11, lidTopZ))} fill="#d8dce3" />
+        <path d={hddPoly(hddQuad(0.22, 0.12, 0.34, 0.14, lidTopZ))} fill="#9aa3ae" />
+        <path
+          d={hddPoly([
+            projectHddPoint(0.42, 0.075, lidTopZ),
+            projectHddPoint(0.465, 0.155, lidTopZ),
+            projectHddPoint(0.375, 0.155, lidTopZ),
+          ])}
+          fill="#e8eaee"
+        />
+        {screws.map(([sx, sy]) => {
+          const [cx, cy] = projectHddPoint(sx, sy, lidTopZ)
+          return (
+            <g key={`screw-${sx}-${sy}`}>
+              <circle
+                cx={cx}
+                cy={cy}
+                r="1.15"
+                fill={`url(#${screwGrad})`}
+                stroke="#6a7380"
+                stroke-width="0.35"
+              />
+              <circle cx={cx - 0.28} cy={cy - 0.32} r="0.32" fill="rgba(255,255,255,0.74)" />
+            </g>
+          )
+        })}
+      </g>
+      <path
+        d={hddPoly(farHighlight, false)}
         fill="none"
-        stroke="rgba(255,255,255,0.45)"
-        stroke-width="1.2"
+        stroke="rgba(255,255,255,0.55)"
+        stroke-width="0.9"
         stroke-linecap="round"
       />
     </svg>
