@@ -60,6 +60,10 @@ export function toQuickJsFsError(error: unknown, fallbackSyscall?: string): Quic
   if (lower.includes('是文件夹') || lower.includes('is a directory') || lower.includes('eisdir')) {
     return new QuickJsFsError('EISDIR', message, { syscall: fallbackSyscall })
   }
+  // 第九期：写时并发检查不匹配 → 收成权限类错误（提示 agent 重读后重试）
+  if (lower.includes('已被外部修改')) {
+    return new QuickJsFsError('EACCES', message, { syscall: fallbackSyscall })
+  }
   if (
     lower.includes('不能写入') ||
     lower.includes('不能删除') ||

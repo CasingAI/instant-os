@@ -2,6 +2,7 @@ import type { TerminalChangeSet } from '../terminal/terminal-changeset.ts'
 import type { TerminalFsMode } from '../terminal/terminal-fs-mode.ts'
 import type { InstantShellHost } from '../terminal/instant-shell/instant-shell-types.ts'
 import type { WebViewHostBindings } from '../apps/webview/inject-webview.ts'
+import type { QuickJsSyscallInterceptor } from './quickjs-syscall.ts'
 
 /** QuickJS 实例控制台级别。 */
 export type QuickJsConsoleLevel = 'log' | 'info' | 'warn' | 'error'
@@ -124,6 +125,12 @@ export type QuickJsInstanceOptions = {
    * 未传则不注入；销毁 / `.reset` 时应由注入侧级联销毁所属浏览单元。
    */
   webviewHost?: WebViewHostBindings
+  /**
+   * 跨沙箱调用拦截链（按实例挂，实例销毁随之失效）。
+   * 文件 / 网络 / 终端壳层出沙箱的那一跳都会经过这条链；
+   * 未传则内建模块不包装，行为与未引入本机制完全一致。
+   */
+  interceptors?: QuickJsSyscallInterceptor[]
 }
 
 export type QuickJsEvalOptions = {

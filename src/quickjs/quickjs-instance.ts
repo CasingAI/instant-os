@@ -41,6 +41,7 @@ import { createQuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 import { resolveEvalModuleFilename } from './quickjs-module-loader.ts'
 import { injectNodeBuiltins } from './quickjs-node-builtins.ts'
 import { injectFetch } from './quickjs-fetch.ts'
+import { createQuickJsSyscallChain } from './quickjs-syscall.ts'
 import { injectTextEncoding } from './quickjs-text-encoding.ts'
 import {
   createProcessState,
@@ -460,6 +461,9 @@ export async function createQuickJsInstance(
   /** 当前 eval 切片的入口路径（`eval({ filename })`）；供顶层 CJS require 相对解析。 */
   let activeEvalFilename: string | undefined
 
+  /** 跨沙箱调用拦截链：仅创建时传了 interceptors 才存在；各内建出沙箱那一跳经过它 */
+  const syscallChain = createQuickJsSyscallChain(options.interceptors)
+
   const nodeBuiltins = injectNodeBuiltins(runtime, context, {
     getCwd: () => processState.cwd,
     asyncBridge,
@@ -469,6 +473,7 @@ export async function createQuickJsInstance(
       maxFileBytes: hostConfig.quotas.maxFileBytes,
       isDestroyed: () => state.destroyed,
       getJournal: () => activeJournal,
+      syscallChain,
     },
     getEvalParentFilename: () => activeEvalFilename,
     tmpDir: sessionTmpDir,
@@ -483,6 +488,7 @@ export async function createQuickJsInstance(
       asyncBridge,
       maxResponseBytes: hostConfig.quotas.maxFileBytes,
       isDestroyed: () => state.destroyed,
+      syscallChain,
     })
   }
 
@@ -492,6 +498,7 @@ export async function createQuickJsInstance(
       asyncBridge,
       host: options.instantShellHost,
       isDestroyed: () => state.destroyed,
+      syscallChain,
     })
   }
 

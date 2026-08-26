@@ -6,6 +6,7 @@ import {
 } from '../os/proxy-server-api.ts'
 import { isProxyServerConnected } from '../os/proxy-server-settings-storage.ts'
 import type { QuickJsAsyncBridge } from './quickjs-async-bridge.ts'
+import { dispatchSyscallIfExists, type QuickJsSyscallChain } from './quickjs-syscall.ts'
 
 const HOST_FETCH_KEY = '__instantHostFetch'
 const HOST_FETCH_STREAM_READ_KEY = '__instantFetchStreamRead'
@@ -483,6 +484,8 @@ export type InjectFetchOptions = {
   asyncBridge: QuickJsAsyncBridge
   maxResponseBytes: number
   isDestroyed: () => boolean
+  /** 网络域跨沙箱调用拦截链；未传则不包装 */
+  syscallChain?: QuickJsSyscallChain
 }
 
 function guestError(context: QuickJSAsyncContext, error: unknown): QuickJSHandle {
@@ -496,7 +499,7 @@ function guestError(context: QuickJSAsyncContext, error: unknown): QuickJSHandle
 }
 
 export function injectFetch(options: InjectFetchOptions): () => void {
-  const { context, asyncBridge, maxResponseBytes, isDestroyed } = options
+  const { context, asyncBridge, maxResponseBytes, isDestroyed, syscallChain } = options
 
   let nextStreamId = 1
   const streams = new Map<number, FetchStreamEntry>()
@@ -542,7 +545,21 @@ export function injectFetch(options: InjectFetchOptions): () => void {
           throw new Error('QuickJS instance destroyed')
         }
         const { url, init } = parseFetchArgs(context, inputHandle, initHandle)
-        const response = await hostFetch(url, init)
+        const fetchParams: Record<string, unknown> = {
+          url,
+          method:
+            typeof init?.method === 'string' && init.method.length > 0 ? init.method : 'GET',
+        }
+        // 网络域出沙箱：before 可拒绝（抛错）或改写 params.url 后再真正请求
+        const response = await dispatchSyscallIfExists(
+          syscallChain,
+          'network.fetch',
+          fetchParams,
+          async () => {
+            const targetUrl = typeof fetchParams.url === 'string' ? fetchParams.url : url
+            return hostFetch(targetUrl, init)
+          },
+        )
 
         if (isDestroyed()) {
           asyncBridge.abandonDeferred(deferred)
@@ -615,7 +632,12 @@ export function injectFetch(options: InjectFetchOptions): () => void {
       }
       const { reader } = entry
       try {
-        const result = await reader.read()
+        const result = (await dispatchSyscallIfExists(
+          syscallChain,
+          'network.fetchStream.read',
+          { streamId },
+          () => reader.read(),
+        )) as ReadableStreamReadResult<Uint8Array>
         if (result.done) {
           streams.delete(streamId)
           return context.null
@@ -647,7 +669,9 @@ export function injectFetch(options: InjectFetchOptions): () => void {
     const entry = streams.get(streamId)
     if (entry) {
       streams.delete(streamId)
-      void entry.reader.cancel()
+      void dispatchSyscallIfExists(syscallChain, 'network.fetchStream.cancel', { streamId }, () =>
+        entry.reader.cancel(),
+      )
     }
     return context.undefined
   })

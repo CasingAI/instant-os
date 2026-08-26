@@ -1,6 +1,7 @@
 import type { QuickJSAsyncContext, QuickJSHandle } from 'quickjs-emscripten'
 import type { QuickJsAsyncBridge } from '../../quickjs/quickjs-async-bridge.ts'
 import { formatQuickJsBridgeErrorMessage } from '../../quickjs/quickjs-bridge-error.ts'
+import { dispatchSyscallIfExists, type QuickJsSyscallChain } from '../../quickjs/quickjs-syscall.ts'
 import { createInstantShellApi } from './instant-shell-host.ts'
 import type {
   InstantShellGitCloneOptions,
@@ -19,6 +20,8 @@ export type InjectInstantShellOptions = {
   asyncBridge: QuickJsAsyncBridge
   host: InstantShellHost
   isDestroyed: () => boolean
+  /** 壳层域跨沙箱调用拦截链；未传则命令直接走实现 */
+  syscallChain?: QuickJsSyscallChain
 }
 
 function guestError(context: QuickJSAsyncContext, error: unknown): QuickJSHandle {
@@ -364,11 +367,13 @@ function readWishOptions(
  * 须在 asyncBridge.injectGlobals() 之后调用。
  */
 export function injectInstantShell(options: InjectInstantShellOptions): void {
-  const { context, asyncBridge, host, isDestroyed } = options
+  const { context, asyncBridge, host, isDestroyed, syscallChain } = options
   const api = createInstantShellApi(host)
 
   const runAsync = (
     work: () => Promise<unknown>,
+    /** 出沙箱的命令名（shell.openApp / shell.git.status …）；传了就走拦截链 */
+    syscallName?: string,
   ): QuickJSHandle => {
     const deferred = asyncBridge.createDeferredPromise()
     void (async () => {
@@ -376,7 +381,10 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
         if (isDestroyed()) {
           throw new Error('QuickJS 实例已销毁')
         }
-        const value = await work()
+        const value =
+          syscallName !== undefined
+            ? await dispatchSyscallIfExists(syscallChain, syscallName, {}, work)
+            : await work()
         if (isDestroyed()) {
           asyncBridge.abandonDeferred(deferred)
           return
@@ -418,59 +426,59 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
       const appId = readStringArg(context, appIdHandle, 'appId')
       const openOptions = readOpenAppOptions(context, optionsHandle)
       await api.openApp(appId, openOptions)
-    }),
+    }, 'shell.openApp'),
   )
 
   bind(instant, 'openPath', (pathHandle) =>
     runAsync(async () => {
       await api.openPath(readStringArg(context, pathHandle, 'path'))
-    }),
+    }, 'shell.openPath'),
   )
 
   bind(instant, 'openUrl', (urlHandle) =>
     runAsync(async () => {
       await api.openUrl(readStringArg(context, urlHandle, 'url'))
-    }),
+    }, 'shell.openUrl'),
   )
 
-  bind(instant, 'listApps', () => runAsync(async () => api.listApps()))
+  bind(instant, 'listApps', () => runAsync(async () => api.listApps(), 'shell.listApps'))
 
-  bind(instant, 'listWindows', () => runAsync(async () => api.listWindows()))
+  bind(instant, 'listWindows', () => runAsync(async () => api.listWindows(), 'shell.listWindows'))
 
   bind(instant, 'focus', (targetHandle) =>
     runAsync(async () => {
       await api.focus(readStringArg(context, targetHandle, 'target'))
-    }),
+    }, 'shell.focus'),
   )
 
   bind(instant, 'close', (targetHandle) =>
     runAsync(async () => {
       await api.close(readStringArg(context, targetHandle, 'target'))
-    }),
+    }, 'shell.close'),
   )
 
   bind(instant, 'minimize', (targetHandle) =>
     runAsync(async () => {
       await api.minimize(readStringArg(context, targetHandle, 'target'))
-    }),
+    }, 'shell.minimize'),
   )
 
   bind(instant, 'restore', (targetHandle) =>
     runAsync(async () => {
       await api.restore(readStringArg(context, targetHandle, 'target'))
-    }),
+    }, 'shell.restore'),
   )
 
   bind(instant, 'toggleFullscreen', (targetHandle) =>
     runAsync(async () => {
       await api.toggleFullscreen(readStringArg(context, targetHandle, 'target'))
-    }),
+    }, 'shell.toggleFullscreen'),
   )
 
   bind(instant, 'toggleMaximize', (targetHandle) =>
     runAsync(async () => {
       await api.toggleMaximize(readStringArg(context, targetHandle, 'target'))
-    }),
+    }, 'shell.toggleMaximize'),
   )
 
   bind(instant, 'grep', (queryHandle, optionsHandle) =>
@@ -478,54 +486,78 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
       const query = readStringArg(context, queryHandle, 'query')
       const grepOptions = readGrepOptions(context, optionsHandle)
       return await api.grep(query, grepOptions)
-    }),
+    }, 'shell.grep'),
   )
 
   bind(instant, 'wish', (optionsHandle) =>
-    runAsync(async () => api.wish(readWishOptions(context, optionsHandle))),
+    runAsync(
+    async () => api.wish(readWishOptions(context, optionsHandle)),
+    'shell.wish',
+  ),
   )
 
   const git = context.newObject()
-  bind(git, 'status', () => runAsync(async () => api.git.status()))
+  bind(git, 'status', () => runAsync(async () => api.git.status(), 'shell.git.status'))
   bind(git, 'diff', (pathHandle) =>
-    runAsync(async () => api.git.diff(readOptionalStringArg(context, pathHandle))),
+    runAsync(
+    async () => api.git.diff(readOptionalStringArg(context, pathHandle)),
+    'shell.git.diff',
+  ),
   )
   bind(git, 'log', (limitHandle) =>
-    runAsync(async () => api.git.log(readOptionalNumberArg(context, limitHandle))),
+    runAsync(
+    async () => api.git.log(readOptionalNumberArg(context, limitHandle)),
+    'shell.git.log',
+  ),
   )
   bind(git, 'clone', (optionsHandle) =>
-    runAsync(async () => api.git.clone(readGitCloneOptions(context, optionsHandle))),
+    runAsync(
+    async () => api.git.clone(readGitCloneOptions(context, optionsHandle)),
+    'shell.git.clone',
+  ),
   )
   bind(git, 'commit', (optionsHandle) =>
-    runAsync(async () => api.git.commit(readGitCommitOptions(context, optionsHandle))),
+    runAsync(
+    async () => api.git.commit(readGitCommitOptions(context, optionsHandle)),
+    'shell.git.commit',
+  ),
   )
-  bind(git, 'push', () => runAsync(async () => api.git.push()))
-  bind(git, 'pull', () => runAsync(async () => api.git.pull()))
-  bind(git, 'fetch', () => runAsync(async () => api.git.fetch()))
+  bind(git, 'push', () => runAsync(async () => api.git.push(), 'shell.git.push'))
+  bind(git, 'pull', () => runAsync(async () => api.git.pull(), 'shell.git.pull'))
+  bind(git, 'fetch', () => runAsync(async () => api.git.fetch(), 'shell.git.fetch'))
   bind(git, 'switchBranch', (branchHandle) =>
-    runAsync(async () =>
-      api.git.switchBranch(readStringArg(context, branchHandle, 'branch')),
+    runAsync(
+      async () => api.git.switchBranch(readStringArg(context, branchHandle, 'branch')),
+      'shell.git.switchBranch',
     ),
   )
   bind(git, 'discard', (pathsHandle) =>
-    runAsync(async () =>
-      api.git.discard(readStringArrayArg(context, pathsHandle, 'paths')),
+    runAsync(
+      async () => api.git.discard(readStringArrayArg(context, pathsHandle, 'paths')),
+      'shell.git.discard',
     ),
   )
-  bind(git, 'undo', () => runAsync(async () => api.git.undo()))
+  bind(git, 'undo', () => runAsync(async () => api.git.undo(), 'shell.git.undo'))
   bind(git, 'amend', (messageHandle) =>
-    runAsync(async () => api.git.amend(readStringArg(context, messageHandle, 'message'))),
+    runAsync(
+    async () => api.git.amend(readStringArg(context, messageHandle, 'message')),
+    'shell.git.amend',
+  ),
   )
   bind(git, 'createBranch', (optionsHandle) =>
-    runAsync(async () =>
-      api.git.createBranch(readGitCreateBranchOptions(context, optionsHandle)),
+    runAsync(
+      async () => api.git.createBranch(readGitCreateBranchOptions(context, optionsHandle)),
+      'shell.git.createBranch',
     ),
   )
   bind(git, 'stashSave', (messageHandle) =>
-    runAsync(async () => api.git.stashSave(readOptionalStringArg(context, messageHandle))),
+    runAsync(
+    async () => api.git.stashSave(readOptionalStringArg(context, messageHandle)),
+    'shell.git.stashSave',
+  ),
   )
-  bind(git, 'stashPop', () => runAsync(async () => api.git.stashPop()))
-  bind(git, 'stashList', () => runAsync(async () => api.git.stashList()))
+  bind(git, 'stashPop', () => runAsync(async () => api.git.stashPop(), 'shell.git.stashPop'))
+  bind(git, 'stashList', () => runAsync(async () => api.git.stashList(), 'shell.git.stashList'))
   context.setProp(instant, 'git', git)
   git.dispose()
 

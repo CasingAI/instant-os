@@ -25,6 +25,7 @@ import {
   resolveGuestFsPath,
 } from './quickjs-fs-path.ts'
 import type { QuickJsHostPermissions } from './quickjs-instance-types.ts'
+import { dispatchSyscallIfExists, type QuickJsSyscallChain } from './quickjs-syscall.ts'
 import { beginFsHostTrace } from '../os/system-debug-log.ts'
 import type { TerminalFsJournal } from '../terminal/terminal-changeset-journal.ts'
 import { isUnderTmpPath } from '../apps/files/files-tmp.ts'
@@ -91,6 +92,35 @@ export type QuickJsFsHostOps = {
   isDestroyed: () => boolean
   /** 受控模式 journal；普通/只读为 undefined */
   getJournal?: () => TerminalFsJournal | undefined
+  /**
+   * 跨沙箱调用拦截链（第十一期）：文件域出沙箱那一跳经过它。
+   * 未挂（undefined）则各 fsHost 直接走实现，行为与以前一致。
+   */
+  syscallChain?: QuickJsSyscallChain
+}
+
+/**
+ * 文件域 syscall 统一出沙箱点。约定：
+ * - params 至少含已解析的宿主绝对路径 `path`；before 可改写 / 补字段；
+ *   实现读取改写后的值（如补 expectedContentRevisionId）。
+ * - 实现、把观测值回填进 params 供 after 使用：读类成功后写
+ *   observedContentRevisionId，写类成功后写 writtenContentRevisionId。
+ * - 完整名字为 `file.<action>`。
+ */
+function dispatchFsSyscall<T>(
+  ops: QuickJsFsHostOps,
+  action: string,
+  params: Record<string, unknown>,
+  impl: (params: Record<string, unknown>) => Promise<T>,
+): Promise<T> {
+  return Promise.resolve(
+    dispatchSyscallIfExists(ops.syscallChain, `file.${action}`, params, impl),
+  )
+}
+
+function optionalRevision(params: Record<string, unknown>, key: string): string | undefined {
+  const value = params[key]
+  return typeof value === 'string' ? value : undefined
 }
 
 function entryToStats(entry: FilesApiEntry): QuickJsFsStats {
@@ -182,19 +212,25 @@ export async function fsHostStat(ops: QuickJsFsHostOps, rawPath: unknown): Promi
     const absolute = await resolvePath(ops, rawPath, 'read', 'stat')
     trackPath(absolute)
     assertAlive(ops)
-    try {
-      const entry = await filesStat(absolute)
-      assertAlive(ops)
-      if (entry === undefined) {
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, stat '${absolute}'`, {
-          path: absolute,
-          syscall: 'stat',
-        })
+    return dispatchFsSyscall(ops, 'stat', { path: absolute }, async (params) => {
+      const target = optionalRevision(params, 'path') ?? absolute
+      trackPath(target)
+      try {
+        const entry = await filesStat(target)
+        assertAlive(ops)
+        if (entry === undefined) {
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, stat '${target}'`, {
+            path: target,
+            syscall: 'stat',
+          })
+        }
+        params.observedKind = entry.kind
+        params.observedContentRevisionId = entry.contentRevisionId
+        return entryToStats(entry)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'stat')
       }
-      return entryToStats(entry)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'stat')
-    }
+    })
   })
 }
 
@@ -203,19 +239,24 @@ export async function fsHostLstat(ops: QuickJsFsHostOps, rawPath: unknown): Prom
     const absolute = await resolvePath(ops, rawPath, 'read', 'lstat')
     trackPath(absolute)
     assertAlive(ops)
-    try {
-      const entry = await filesLstat(absolute)
-      assertAlive(ops)
-      if (entry === undefined) {
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, lstat '${absolute}'`, {
-          path: absolute,
-          syscall: 'lstat',
-        })
+    return dispatchFsSyscall(ops, 'lstat', { path: absolute }, async (params) => {
+      const target = optionalRevision(params, 'path') ?? absolute
+      try {
+        const entry = await filesLstat(target)
+        assertAlive(ops)
+        if (entry === undefined) {
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, lstat '${target}'`, {
+            path: target,
+            syscall: 'lstat',
+          })
+        }
+        params.observedKind = entry.kind
+        params.observedContentRevisionId = entry.contentRevisionId
+        return entryToStats(entry)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'lstat')
       }
-      return entryToStats(entry)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'lstat')
-    }
+    })
   })
 }
 
@@ -229,12 +270,15 @@ export async function fsHostSymlink(
     trackPath(absolute)
     assertAlive(ops)
     const targetStr = typeof target === 'string' ? target : String(target ?? '')
-    try {
-      await filesSymlink(targetStr, absolute)
-      assertAlive(ops)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'symlink')
-    }
+    return dispatchFsSyscall(ops, 'symlink', { path: absolute, target: targetStr }, async (params) => {
+      const linkTarget = optionalRevision(params, 'target') ?? targetStr
+      try {
+        await filesSymlink(linkTarget, absolute)
+        assertAlive(ops)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'symlink')
+      }
+    })
   })
 }
 
@@ -243,13 +287,15 @@ export async function fsHostReadlink(ops: QuickJsFsHostOps, rawPath: unknown): P
     const absolute = await resolvePath(ops, rawPath, 'read', 'readlink')
     trackPath(absolute)
     assertAlive(ops)
-    try {
-      const target = await filesReadlink(absolute)
-      assertAlive(ops)
-      return target
-    } catch (error) {
-      throw toQuickJsFsError(error, 'readlink')
-    }
+    return dispatchFsSyscall(ops, 'readlink', { path: absolute }, async () => {
+      try {
+        const target = await filesReadlink(absolute)
+        assertAlive(ops)
+        return target
+      } catch (error) {
+        throw toQuickJsFsError(error, 'readlink')
+      }
+    })
   })
 }
 
@@ -258,14 +304,18 @@ export async function fsHostAccess(ops: QuickJsFsHostOps, rawPath: unknown): Pro
     const absolute = await resolvePath(ops, rawPath, 'read', 'access')
     trackPath(absolute)
     assertAlive(ops)
-    const entry = await filesStat(absolute)
-    assertAlive(ops)
-    if (entry === undefined) {
-      throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, access '${absolute}'`, {
-        path: absolute,
-        syscall: 'access',
-      })
-    }
+    return dispatchFsSyscall(ops, 'access', { path: absolute }, async (params) => {
+      const entry = await filesStat(absolute)
+      assertAlive(ops)
+      if (entry === undefined) {
+        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, access '${absolute}'`, {
+          path: absolute,
+          syscall: 'access',
+        })
+      }
+      params.observedKind = entry.kind
+      params.observedContentRevisionId = entry.contentRevisionId
+    })
   })
 }
 
@@ -290,39 +340,44 @@ export async function fsHostReadFile(
     const absolute = await resolvePath(ops, rawPath, 'read', 'readFile')
     trackPath(absolute)
     assertAlive(ops)
-    try {
-      const entry = await filesStat(absolute)
-      assertAlive(ops)
-      if (entry === undefined) {
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, open '${absolute}'`, {
-          path: absolute,
-          syscall: 'open',
-        })
-      }
-      if (entry.kind === 'folder') {
-        throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, read '${absolute}'`, {
-          path: absolute,
-          syscall: 'read',
-        })
-      }
-      assertMaxFileBytes(entry.byteSize, ops.maxFileBytes, absolute, 'readFile')
-
-      if (encoding === 'utf8') {
-        const text = await filesReadText(absolute)
+    return dispatchFsSyscall(ops, 'readFile', { path: absolute, encoding }, async (params) => {
+      const target = optionalRevision(params, 'path') ?? absolute
+      try {
+        const entry = await filesStat(target)
         assertAlive(ops)
-        const bytes = new TextEncoder().encode(text)
-        assertMaxFileBytes(bytes.byteLength, ops.maxFileBytes, absolute, 'readFile')
-        return text
-      }
+        if (entry === undefined) {
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, open '${target}'`, {
+            path: target,
+            syscall: 'open',
+          })
+        }
+        if (entry.kind === 'folder') {
+          throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, read '${target}'`, {
+            path: target,
+            syscall: 'read',
+          })
+        }
+        params.observedKind = entry.kind
+        params.observedContentRevisionId = entry.contentRevisionId
+        assertMaxFileBytes(entry.byteSize, ops.maxFileBytes, target, 'readFile')
 
-      const blob = await filesReadBlob(absolute)
-      assertAlive(ops)
-      const buffer = await blob.arrayBuffer()
-      assertMaxFileBytes(buffer.byteLength, ops.maxFileBytes, absolute, 'readFile')
-      return new Uint8Array(buffer)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'readFile')
-    }
+        if (encoding === 'utf8') {
+          const text = await filesReadText(target)
+          assertAlive(ops)
+          const bytes = new TextEncoder().encode(text)
+          assertMaxFileBytes(bytes.byteLength, ops.maxFileBytes, target, 'readFile')
+          return text
+        }
+
+        const blob = await filesReadBlob(target)
+        assertAlive(ops)
+        const buffer = await blob.arrayBuffer()
+        assertMaxFileBytes(buffer.byteLength, ops.maxFileBytes, target, 'readFile')
+        return new Uint8Array(buffer)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'readFile')
+      }
+    })
   })
 }
 
@@ -352,37 +407,48 @@ export async function fsHostWriteFile(
       typeof data === 'string' ? new TextEncoder().encode(data).byteLength : data.byteLength
     assertMaxFileBytes(byteLength, ops.maxFileBytes, absolute, 'writeFile')
 
-    try {
-      const existing = await filesStat(absolute)
-      assertAlive(ops)
-      if (existing?.kind === 'folder') {
-        throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, open '${absolute}'`, {
-          path: absolute,
-          syscall: 'open',
-        })
-      }
-
-      await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
-      assertAlive(ops)
-
-      if (typeof data === 'string') {
-        if (existing === undefined) {
-          await filesCreateText(absolute, data)
-        } else {
-          await filesWriteText(absolute, data)
+    const params: Record<string, unknown> = { path: absolute }
+    return dispatchFsSyscall(ops, 'writeFile', params, async (p) => {
+      // before 拦截器可补 expectedContentRevisionId（第九期记读写时核对）
+      const expectedContentRevisionId = optionalRevision(p, 'expectedContentRevisionId')
+      const writeOptions =
+        expectedContentRevisionId !== undefined ? { expectedContentRevisionId } : undefined
+      try {
+        const existing = await filesStat(absolute)
+        assertAlive(ops)
+        if (existing?.kind === 'folder') {
+          throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, open '${absolute}'`, {
+            path: absolute,
+            syscall: 'open',
+          })
         }
-      } else {
-        const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
-        if (existing === undefined) {
-          await filesCreateBinary(absolute, ab)
+
+        await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
+        assertAlive(ops)
+
+        let writtenEntry: FilesApiEntry | undefined
+        if (typeof data === 'string') {
+          if (existing === undefined) {
+            await filesCreateText(absolute, data)
+          } else {
+            writtenEntry = await filesWriteText(absolute, data, writeOptions)
+          }
         } else {
-          await filesWriteBinary(absolute, ab)
+          const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+          if (existing === undefined) {
+            await filesCreateBinary(absolute, ab)
+          } else {
+            writtenEntry = await filesWriteBinary(absolute, ab, writeOptions)
+          }
         }
+        if (writtenEntry?.contentRevisionId !== undefined) {
+          p.writtenContentRevisionId = writtenEntry.contentRevisionId
+        }
+        assertAlive(ops)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'writeFile')
       }
-      assertAlive(ops)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'writeFile')
-    }
+    })
   })
 }
 
@@ -407,48 +473,50 @@ export async function fsHostOpenStreamWrite(
     trackPath(absolute)
     assertAlive(ops)
 
-    try {
-      const existing = await filesStat(absolute)
-      assertAlive(ops)
-      if (existing?.kind === 'folder') {
-        throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, open '${absolute}'`, {
-          path: absolute,
-          syscall: 'open',
-        })
-      }
+    return dispatchFsSyscall(ops, 'openStreamWrite', { path: absolute }, async () => {
+      try {
+        const existing = await filesStat(absolute)
+        assertAlive(ops)
+        if (existing?.kind === 'folder') {
+          throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, open '${absolute}'`, {
+            path: absolute,
+            syscall: 'open',
+          })
+        }
 
-      await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
-      assertAlive(ops)
+        await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
+        assertAlive(ops)
 
-      const writer = await filesOpenStreamWrite(absolute)
-      assertAlive(ops)
-      let closed = false
-      return {
-        absolutePath: absolute,
-        async write(chunk) {
-          assertAlive(ops)
-          if (closed) {
-            throw new QuickJsFsError('EPIPE', `EPIPE: stream closed, write '${absolute}'`, {
-              path: absolute,
-              syscall: 'write',
-            })
-          }
-          await writer.write(chunk)
-        },
-        async close() {
-          if (closed) return
-          closed = true
-          await writer.close()
-        },
-        async abort() {
-          if (closed) return
-          closed = true
-          await writer.abort()
-        },
+        const writer = await filesOpenStreamWrite(absolute)
+        assertAlive(ops)
+        let closed = false
+        return {
+          absolutePath: absolute,
+          async write(chunk) {
+            assertAlive(ops)
+            if (closed) {
+              throw new QuickJsFsError('EPIPE', `EPIPE: stream closed, write '${absolute}'`, {
+                path: absolute,
+                syscall: 'write',
+              })
+            }
+            await writer.write(chunk)
+          },
+          async close() {
+            if (closed) return
+            closed = true
+            await writer.close()
+          },
+          async abort() {
+            if (closed) return
+            closed = true
+            await writer.abort()
+          },
+        }
+      } catch (error) {
+        throw toQuickJsFsError(error, 'open')
       }
-    } catch (error) {
-      throw toQuickJsFsError(error, 'open')
-    }
+    })
   })
 }
 
@@ -462,57 +530,67 @@ export async function fsHostAppendFile(
     trackPath(absolute)
     assertAlive(ops)
 
-    try {
-      const existing = await filesStat(absolute)
-      assertAlive(ops)
-      if (existing?.kind === 'folder') {
-        throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, open '${absolute}'`, {
-          path: absolute,
-          syscall: 'open',
-        })
-      }
-
-      await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
-      assertAlive(ops)
-
-      let next: string | Uint8Array
-      if (existing === undefined) {
-        next = data
-      } else if (typeof data === 'string') {
-        const prev = await filesReadText(absolute)
+    const params: Record<string, unknown> = { path: absolute }
+    return dispatchFsSyscall(ops, 'appendFile', params, async (p) => {
+      const expectedContentRevisionId = optionalRevision(p, 'expectedContentRevisionId')
+      const writeOptions =
+        expectedContentRevisionId !== undefined ? { expectedContentRevisionId } : undefined
+      try {
+        const existing = await filesStat(absolute)
         assertAlive(ops)
-        next = prev + data
-      } else {
-        const blob = await filesReadBlob(absolute)
+        if (existing?.kind === 'folder') {
+          throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, open '${absolute}'`, {
+            path: absolute,
+            syscall: 'open',
+          })
+        }
+
+        await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
         assertAlive(ops)
-        const prev = new Uint8Array(await blob.arrayBuffer())
-        const merged = new Uint8Array(prev.byteLength + data.byteLength)
-        merged.set(prev, 0)
-        merged.set(data, prev.byteLength)
-        next = merged
-      }
 
-      const byteLength =
-        typeof next === 'string' ? new TextEncoder().encode(next).byteLength : next.byteLength
-      assertMaxFileBytes(byteLength, ops.maxFileBytes, absolute, 'appendFile')
+        let next: string | Uint8Array
+        if (existing === undefined) {
+          next = data
+        } else if (typeof data === 'string') {
+          const prev = await filesReadText(absolute)
+          assertAlive(ops)
+          next = prev + data
+        } else {
+          const blob = await filesReadBlob(absolute)
+          assertAlive(ops)
+          const prev = new Uint8Array(await blob.arrayBuffer())
+          const merged = new Uint8Array(prev.byteLength + data.byteLength)
+          merged.set(prev, 0)
+          merged.set(data, prev.byteLength)
+          next = merged
+        }
 
-      if (existing === undefined) {
-        if (typeof next === 'string') {
-          await filesCreateText(absolute, next)
+        const byteLength =
+          typeof next === 'string' ? new TextEncoder().encode(next).byteLength : next.byteLength
+        assertMaxFileBytes(byteLength, ops.maxFileBytes, absolute, 'appendFile')
+
+        if (existing === undefined) {
+          if (typeof next === 'string') {
+            await filesCreateText(absolute, next)
+          } else {
+            const ab = next.buffer.slice(next.byteOffset, next.byteOffset + next.byteLength) as ArrayBuffer
+            await filesCreateBinary(absolute, ab)
+          }
+        } else if (typeof next === 'string') {
+          p.writtenContentRevisionId = (
+            await filesWriteText(absolute, next, writeOptions)
+          ).contentRevisionId
         } else {
           const ab = next.buffer.slice(next.byteOffset, next.byteOffset + next.byteLength) as ArrayBuffer
-          await filesCreateBinary(absolute, ab)
+          p.writtenContentRevisionId = (
+            await filesWriteBinary(absolute, ab, writeOptions)
+          ).contentRevisionId
         }
-      } else if (typeof next === 'string') {
-        await filesWriteText(absolute, next)
-      } else {
-        const ab = next.buffer.slice(next.byteOffset, next.byteOffset + next.byteLength) as ArrayBuffer
-        await filesWriteBinary(absolute, ab)
+        assertAlive(ops)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'appendFile')
       }
-      assertAlive(ops)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'appendFile')
-    }
+    })
   })
 }
 
@@ -527,53 +605,55 @@ export async function fsHostMkdir(
     assertAlive(ops)
     const recursive = options?.recursive === true
 
-    try {
-      const existing = await filesStat(absolute)
-      assertAlive(ops)
-      if (existing !== undefined) {
-        if (recursive && existing.kind === 'folder') {
-          return undefined
-        }
-        throw new QuickJsFsError('EEXIST', `EEXIST: file already exists, mkdir '${absolute}'`, {
-          path: absolute,
-          syscall: 'mkdir',
-        })
-      }
-
-      if (!recursive) {
-        await noteJournal(ops, absolute, (j) => j.noteMkdir(absolute))
+    return dispatchFsSyscall(ops, 'mkdir', { path: absolute, recursive }, async () => {
+      try {
+        const existing = await filesStat(absolute)
         assertAlive(ops)
-        await filesMkdir(absolute)
-        assertAlive(ops)
-        return absolute
-      }
-
-      const parts = absolute.split('/').filter(Boolean)
-      let current = ''
-      let firstCreated: string | undefined
-      for (const part of parts) {
-        current = `${current}/${part}`
-        const entry = await filesStat(current)
-        assertAlive(ops)
-        if (entry === undefined) {
-          await noteJournal(ops, current, (j) => j.noteMkdir(current))
-          assertAlive(ops)
-          await filesMkdir(current)
-          assertAlive(ops)
-          if (firstCreated === undefined) {
-            firstCreated = current
+        if (existing !== undefined) {
+          if (recursive && existing.kind === 'folder') {
+            return undefined
           }
-        } else if (entry.kind !== 'folder') {
-          throw new QuickJsFsError('ENOTDIR', `ENOTDIR: not a directory, mkdir '${current}'`, {
-            path: current,
+          throw new QuickJsFsError('EEXIST', `EEXIST: file already exists, mkdir '${absolute}'`, {
+            path: absolute,
             syscall: 'mkdir',
           })
         }
+
+        if (!recursive) {
+          await noteJournal(ops, absolute, (j) => j.noteMkdir(absolute))
+          assertAlive(ops)
+          await filesMkdir(absolute)
+          assertAlive(ops)
+          return absolute
+        }
+
+        const parts = absolute.split('/').filter(Boolean)
+        let current = ''
+        let firstCreated: string | undefined
+        for (const part of parts) {
+          current = `${current}/${part}`
+          const entry = await filesStat(current)
+          assertAlive(ops)
+          if (entry === undefined) {
+            await noteJournal(ops, current, (j) => j.noteMkdir(current))
+            assertAlive(ops)
+            await filesMkdir(current)
+            assertAlive(ops)
+            if (firstCreated === undefined) {
+              firstCreated = current
+            }
+          } else if (entry.kind !== 'folder') {
+            throw new QuickJsFsError('ENOTDIR', `ENOTDIR: not a directory, mkdir '${current}'`, {
+              path: current,
+              syscall: 'mkdir',
+            })
+          }
+        }
+        return firstCreated
+      } catch (error) {
+        throw toQuickJsFsError(error, 'mkdir')
       }
-      return firstCreated
-    } catch (error) {
-      throw toQuickJsFsError(error, 'mkdir')
-    }
+    })
   })
 }
 
@@ -584,42 +664,49 @@ function resolveAbsolutePath(getCwd: () => string, absolute: string): string {
 }
 
 export async function fsHostRealpath(ops: QuickJsFsHostOps, rawPath: unknown): Promise<string> {
-  return withFsHostTrace('realpath', async (trackPath) => {
-    const pathApi = createPosixPathApi(ops.getCwd)
-    let current = resolveAbsolutePath(ops.getCwd, await resolvePath(ops, rawPath, 'read', 'realpath'))
-    trackPath(current)
-
-    for (let depth = 0; depth < REALPATH_MAX_SYMLINKS; depth++) {
-      assertAlive(ops)
-      try {
-        const entry = await filesLstat(current)
-        assertAlive(ops)
-        if (entry === undefined) {
-          throw new QuickJsFsError(
-            'ENOENT',
-            `ENOENT: no such file or directory, realpath '${current}'`,
-            { path: current, syscall: 'realpath' },
-          )
-        }
-        if (entry.kind !== 'symlink') {
-          return current
-        }
-        const target = await filesReadlink(current)
-        assertAlive(ops)
-        current = target.startsWith('/')
-          ? resolveAbsolutePath(ops.getCwd, target)
-          : pathApi.resolve(pathDirname(current), target)
+  const requested = resolveAbsolutePath(ops.getCwd, String(rawPath ?? ''))
+  return dispatchFsSyscall(
+    ops,
+    'realpath',
+    { path: requested },
+    () =>
+      withFsHostTrace('realpath', async (trackPath) => {
+        const pathApi = createPosixPathApi(ops.getCwd)
+        let current = resolveAbsolutePath(ops.getCwd, await resolvePath(ops, rawPath, 'read', 'realpath'))
         trackPath(current)
-      } catch (error) {
-        throw toQuickJsFsError(error, 'realpath')
-      }
-    }
 
-    throw new QuickJsFsError('ELOOP', `ELOOP: too many symbolic links encountered, realpath '${current}'`, {
-      path: current,
-      syscall: 'realpath',
-    })
-  })
+        for (let depth = 0; depth < REALPATH_MAX_SYMLINKS; depth++) {
+          assertAlive(ops)
+          try {
+            const entry = await filesLstat(current)
+            assertAlive(ops)
+            if (entry === undefined) {
+              throw new QuickJsFsError(
+                'ENOENT',
+                `ENOENT: no such file or directory, realpath '${current}'`,
+                { path: current, syscall: 'realpath' },
+              )
+            }
+            if (entry.kind !== 'symlink') {
+              return current
+            }
+            const target = await filesReadlink(current)
+            assertAlive(ops)
+            current = target.startsWith('/')
+              ? resolveAbsolutePath(ops.getCwd, target)
+              : pathApi.resolve(pathDirname(current), target)
+            trackPath(current)
+          } catch (error) {
+            throw toQuickJsFsError(error, 'realpath')
+          }
+        }
+
+        throw new QuickJsFsError('ELOOP', `ELOOP: too many symbolic links encountered, realpath '${current}'`, {
+          path: current,
+          syscall: 'realpath',
+        })
+      }),
+  )
 }
 
 export async function fsHostReaddir(
@@ -632,35 +719,38 @@ export async function fsHostReaddir(
     trackPath(absolute)
     assertAlive(ops)
     const withFileTypes = options?.withFileTypes === true
-    try {
-      const entry = await filesStat(absolute)
-      assertAlive(ops)
-      if (entry === undefined) {
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, scandir '${absolute}'`, {
-          path: absolute,
-          syscall: 'scandir',
-        })
+    return dispatchFsSyscall(ops, 'readdir', { path: absolute }, async (params) => {
+      try {
+        const entry = await filesStat(absolute)
+        assertAlive(ops)
+        if (entry === undefined) {
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, scandir '${absolute}'`, {
+            path: absolute,
+            syscall: 'scandir',
+          })
+        }
+        if (entry.kind !== 'folder') {
+          throw new QuickJsFsError('ENOTDIR', `ENOTDIR: not a directory, scandir '${absolute}'`, {
+            path: absolute,
+            syscall: 'scandir',
+          })
+        }
+        params.observedKind = entry.kind
+        const children = await filesList(absolute)
+        assertAlive(ops)
+        if (!withFileTypes) {
+          return children.map((child) => child.name)
+        }
+        return children.map((child) => ({
+          name: child.name,
+          isFile: child.kind === 'file',
+          isDirectory: child.kind === 'folder',
+          isSymbolicLink: child.kind === 'symlink',
+        }))
+      } catch (error) {
+        throw toQuickJsFsError(error, 'readdir')
       }
-      if (entry.kind !== 'folder') {
-        throw new QuickJsFsError('ENOTDIR', `ENOTDIR: not a directory, scandir '${absolute}'`, {
-          path: absolute,
-          syscall: 'scandir',
-        })
-      }
-      const children = await filesList(absolute)
-      assertAlive(ops)
-      if (!withFileTypes) {
-        return children.map((child) => child.name)
-      }
-      return children.map((child) => ({
-        name: child.name,
-        isFile: child.kind === 'file',
-        isDirectory: child.kind === 'folder',
-        isSymbolicLink: child.kind === 'symlink',
-      }))
-    } catch (error) {
-      throw toQuickJsFsError(error, 'readdir')
-    }
+    })
   })
 }
 
@@ -672,50 +762,54 @@ export async function fsHostCopyFile(
 ): Promise<void> {
   return withFsHostTrace('copyFile', async (trackPath) => {
     const src = await resolvePath(ops, rawSrc, 'read', 'copyFile')
-    let dest = await resolvePath(ops, rawDest, 'write', 'copyFile')
+    const destRaw = await resolvePath(ops, rawDest, 'write', 'copyFile')
     trackPath(src)
     assertAlive(ops)
     const COPYFILE_EXCL = 1
 
-    try {
-      const srcEntry = await filesStat(src)
-      assertAlive(ops)
-      if (srcEntry === undefined) {
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, copyfile '${src}'`, {
-          path: src,
-          syscall: 'copyfile',
-        })
-      }
-      if (srcEntry.kind === 'folder') {
-        throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, copyfile '${src}'`, {
-          path: src,
-          syscall: 'copyfile',
-        })
-      }
+    return dispatchFsSyscall(ops, 'copyFile', { src, dest: destRaw }, async (params) => {
+      try {
+        const srcEntry = await filesStat(src)
+        assertAlive(ops)
+        if (srcEntry === undefined) {
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, copyfile '${src}'`, {
+            path: src,
+            syscall: 'copyfile',
+          })
+        }
+        if (srcEntry.kind === 'folder') {
+          throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, copyfile '${src}'`, {
+            path: src,
+            syscall: 'copyfile',
+          })
+        }
 
-      const destEntry = await filesStat(dest)
-      assertAlive(ops)
-      if (destEntry?.kind === 'folder') {
-        dest = `${dest === '/' ? '' : dest}/${pathBasename(src)}`
-        assertFsPermission(dest, 'write', ops.permissions, 'copyFile')
-      }
+        let dest = optionalRevision(params, 'dest') ?? destRaw
+        const destEntry = await filesStat(dest)
+        assertAlive(ops)
+        if (destEntry?.kind === 'folder') {
+          dest = `${dest === '/' ? '' : dest}/${pathBasename(src)}`
+          params.dest = dest
+          assertFsPermission(dest, 'write', ops.permissions, 'copyFile')
+        }
 
-      const destFinal = await filesStat(dest)
-      assertAlive(ops)
-      if (destFinal !== undefined && mode !== undefined && (mode & COPYFILE_EXCL) !== 0) {
-        throw new QuickJsFsError('EEXIST', `EEXIST: file already exists, copyfile '${dest}'`, {
-          path: dest,
-          syscall: 'copyfile',
-        })
-      }
+        const destFinal = await filesStat(dest)
+        assertAlive(ops)
+        if (destFinal !== undefined && mode !== undefined && (mode & COPYFILE_EXCL) !== 0) {
+          throw new QuickJsFsError('EEXIST', `EEXIST: file already exists, copyfile '${dest}'`, {
+            path: dest,
+            syscall: 'copyfile',
+          })
+        }
 
-      const data = await fsHostReadFile(ops, src, 'buffer')
-      assertAlive(ops)
-      await fsHostWriteFile(ops, dest, data as Uint8Array)
-      assertAlive(ops)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'copyFile')
-    }
+        const data = await fsHostReadFile(ops, src, 'buffer')
+        assertAlive(ops)
+        await fsHostWriteFile(ops, dest, data as Uint8Array)
+        assertAlive(ops)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'copyFile')
+      }
+    })
   })
 }
 
@@ -828,46 +922,48 @@ export async function fsHostRename(
     trackPath(oldPath)
     assertAlive(ops)
 
-    try {
-      const source = await filesStat(oldPath)
-      assertAlive(ops)
-      if (source === undefined) {
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, rename '${oldPath}' -> '${newPath}'`, {
-          path: oldPath,
-          syscall: 'rename',
-        })
-      }
-      const dest = await filesStat(newPath)
-      assertAlive(ops)
-      if (dest !== undefined) {
-        throw new QuickJsFsError('EEXIST', `EEXIST: file already exists, rename '${oldPath}' -> '${newPath}'`, {
-          path: newPath,
-          syscall: 'rename',
-        })
-      }
-
-      if (!isUnderTmpPath(oldPath) && !isUnderTmpPath(newPath)) {
-        await noteJournal(ops, oldPath, (j) => j.noteRename(oldPath, newPath))
-      }
-      assertAlive(ops)
-
-      const oldDir = pathDirname(oldPath)
-      const newDir = pathDirname(newPath)
-      const newName = pathBasename(newPath)
-
-      if (oldDir === newDir) {
-        await filesRename(oldPath, newName)
-      } else {
-        await filesMove(oldPath, newDir)
-        const movedPath = `${newDir === '/' ? '' : newDir}/${pathBasename(oldPath)}`
-        if (movedPath !== newPath) {
-          await filesRename(movedPath, newName)
+    return dispatchFsSyscall(ops, 'rename', { from: oldPath, to: newPath }, async () => {
+      try {
+        const source = await filesStat(oldPath)
+        assertAlive(ops)
+        if (source === undefined) {
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, rename '${oldPath}' -> '${newPath}'`, {
+            path: oldPath,
+            syscall: 'rename',
+          })
         }
+        const dest = await filesStat(newPath)
+        assertAlive(ops)
+        if (dest !== undefined) {
+          throw new QuickJsFsError('EEXIST', `EEXIST: file already exists, rename '${oldPath}' -> '${newPath}'`, {
+            path: newPath,
+            syscall: 'rename',
+          })
+        }
+
+        if (!isUnderTmpPath(oldPath) && !isUnderTmpPath(newPath)) {
+          await noteJournal(ops, oldPath, (j) => j.noteRename(oldPath, newPath))
+        }
+        assertAlive(ops)
+
+        const oldDir = pathDirname(oldPath)
+        const newDir = pathDirname(newPath)
+        const newName = pathBasename(newPath)
+
+        if (oldDir === newDir) {
+          await filesRename(oldPath, newName)
+        } else {
+          await filesMove(oldPath, newDir)
+          const movedPath = `${newDir === '/' ? '' : newDir}/${pathBasename(oldPath)}`
+          if (movedPath !== newPath) {
+            await filesRename(movedPath, newName)
+          }
+        }
+        assertAlive(ops)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'rename')
       }
-      assertAlive(ops)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'rename')
-    }
+    })
   })
 }
 
@@ -876,28 +972,30 @@ export async function fsHostUnlink(ops: QuickJsFsHostOps, rawPath: unknown): Pro
     const absolute = await resolvePath(ops, rawPath, 'write', 'unlink')
     trackPath(absolute)
     assertAlive(ops)
-    try {
-      const entry = await filesStat(absolute)
-      assertAlive(ops)
-      if (entry === undefined) {
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, unlink '${absolute}'`, {
-          path: absolute,
-          syscall: 'unlink',
-        })
+    return dispatchFsSyscall(ops, 'unlink', { path: absolute }, async () => {
+      try {
+        const entry = await filesStat(absolute)
+        assertAlive(ops)
+        if (entry === undefined) {
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, unlink '${absolute}'`, {
+            path: absolute,
+            syscall: 'unlink',
+          })
+        }
+        if (entry.kind === 'folder') {
+          throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, unlink '${absolute}'`, {
+            path: absolute,
+            syscall: 'unlink',
+          })
+        }
+        await noteJournal(ops, absolute, (j) => j.noteUnlink(absolute))
+        assertAlive(ops)
+        await filesRemove(absolute)
+        assertAlive(ops)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'unlink')
       }
-      if (entry.kind === 'folder') {
-        throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, unlink '${absolute}'`, {
-          path: absolute,
-          syscall: 'unlink',
-        })
-      }
-      await noteJournal(ops, absolute, (j) => j.noteUnlink(absolute))
-      assertAlive(ops)
-      await filesRemove(absolute)
-      assertAlive(ops)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'unlink')
-    }
+    })
   })
 }
 
@@ -913,35 +1011,37 @@ export async function fsHostRm(
     const recursive = options?.recursive === true
     const force = options?.force === true
 
-    try {
-      const entry = await filesStat(absolute)
-      assertAlive(ops)
-      if (entry === undefined) {
-        if (force) {
-          return
-        }
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, rm '${absolute}'`, {
-          path: absolute,
-          syscall: 'rm',
-        })
-      }
-      if (entry.kind === 'folder' && !recursive) {
-        const children = await filesList(absolute)
+    return dispatchFsSyscall(ops, 'rm', { path: absolute, recursive, force }, async () => {
+      try {
+        const entry = await filesStat(absolute)
         assertAlive(ops)
-        if (children.length > 0) {
-          throw new QuickJsFsError('ENOTEMPTY', `ENOTEMPTY: directory not empty, rm '${absolute}'`, {
+        if (entry === undefined) {
+          if (force) {
+            return
+          }
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, rm '${absolute}'`, {
             path: absolute,
             syscall: 'rm',
           })
         }
+        if (entry.kind === 'folder' && !recursive) {
+          const children = await filesList(absolute)
+          assertAlive(ops)
+          if (children.length > 0) {
+            throw new QuickJsFsError('ENOTEMPTY', `ENOTEMPTY: directory not empty, rm '${absolute}'`, {
+              path: absolute,
+              syscall: 'rm',
+            })
+          }
+        }
+        await noteJournal(ops, absolute, (j) => j.noteRmTree(absolute))
+        assertAlive(ops)
+        await filesRemove(absolute)
+        assertAlive(ops)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'rm')
       }
-      await noteJournal(ops, absolute, (j) => j.noteRmTree(absolute))
-      assertAlive(ops)
-      await filesRemove(absolute)
-      assertAlive(ops)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'rm')
-    }
+    })
   })
 }
 
@@ -950,35 +1050,37 @@ export async function fsHostRmdir(ops: QuickJsFsHostOps, rawPath: unknown): Prom
     const absolute = await resolvePath(ops, rawPath, 'write', 'rmdir')
     trackPath(absolute)
     assertAlive(ops)
-    try {
-      const entry = await filesStat(absolute)
-      assertAlive(ops)
-      if (entry === undefined) {
-        throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, rmdir '${absolute}'`, {
-          path: absolute,
-          syscall: 'rmdir',
-        })
+    return dispatchFsSyscall(ops, 'rmdir', { path: absolute }, async () => {
+      try {
+        const entry = await filesStat(absolute)
+        assertAlive(ops)
+        if (entry === undefined) {
+          throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, rmdir '${absolute}'`, {
+            path: absolute,
+            syscall: 'rmdir',
+          })
+        }
+        if (entry.kind !== 'folder') {
+          throw new QuickJsFsError('ENOTDIR', `ENOTDIR: not a directory, rmdir '${absolute}'`, {
+            path: absolute,
+            syscall: 'rmdir',
+          })
+        }
+        const children = await filesList(absolute)
+        assertAlive(ops)
+        if (children.length > 0) {
+          throw new QuickJsFsError('ENOTEMPTY', `ENOTEMPTY: directory not empty, rmdir '${absolute}'`, {
+            path: absolute,
+            syscall: 'rmdir',
+          })
+        }
+        await noteJournal(ops, absolute, (j) => j.noteRmTree(absolute))
+        assertAlive(ops)
+        await filesRemove(absolute)
+        assertAlive(ops)
+      } catch (error) {
+        throw toQuickJsFsError(error, 'rmdir')
       }
-      if (entry.kind !== 'folder') {
-        throw new QuickJsFsError('ENOTDIR', `ENOTDIR: not a directory, rmdir '${absolute}'`, {
-          path: absolute,
-          syscall: 'rmdir',
-        })
-      }
-      const children = await filesList(absolute)
-      assertAlive(ops)
-      if (children.length > 0) {
-        throw new QuickJsFsError('ENOTEMPTY', `ENOTEMPTY: directory not empty, rmdir '${absolute}'`, {
-          path: absolute,
-          syscall: 'rmdir',
-        })
-      }
-      await noteJournal(ops, absolute, (j) => j.noteRmTree(absolute))
-      assertAlive(ops)
-      await filesRemove(absolute)
-      assertAlive(ops)
-    } catch (error) {
-      throw toQuickJsFsError(error, 'rmdir')
-    }
+    })
   })
 }
