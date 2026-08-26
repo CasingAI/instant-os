@@ -38,6 +38,7 @@ import {
 import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
 import type { TerminalFsMode } from '../../terminal/terminal-fs-mode.ts'
+import type { QuickJsSyscallInterceptor } from '../../quickjs/quickjs-syscall.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { terminalTmpDir } from '../files/files-tmp.ts'
 
@@ -87,6 +88,11 @@ export type TerminalReplPanelProps = {
    * - controlled：可写并记录 ChangeSet
    */
   fsMode?: TerminalFsMode
+  /**
+   * 第九期：跨沙箱 syscall 拦截器（创建实例时生效）。
+   * agent 会话的宿主侧挂「记读、写时带期望版本」拦截器；用户自己的终端不挂。
+   */
+  interceptors?: readonly QuickJsSyscallInterceptor[]
   /** 受控模式下是否有可撤销的上一轮变更 */
   onChangesAvailable?: (available: boolean) => void
 }
@@ -156,6 +162,7 @@ export function TerminalReplPanel({
   welcomeLines,
   ariaLabel = '终端',
   fsMode = 'normal',
+  interceptors,
   onChangesAvailable,
 }: TerminalReplPanelProps) {
   const {
@@ -234,6 +241,9 @@ export function TerminalReplPanel({
   workspaceRootRef.current = workspaceRoot
   const fsModeRef = useRef(fsMode)
   fsModeRef.current = fsMode
+  // 拦截器只在实例创建时读取；用 ref 避免身份变化触发实例重建
+  const interceptorsRef = useRef(interceptors)
+  interceptorsRef.current = interceptors
   const onChangesAvailableRef = useRef(onChangesAvailable)
   onChangesAvailableRef.current = onChangesAvailable
 
@@ -427,6 +437,7 @@ export function TerminalReplPanel({
           cwd: root,
           fsMode: fsModeRef.current,
           terminalSessionId: terminalSessionIdRef.current,
+          interceptors: interceptorsRef.current ? [...interceptorsRef.current] : undefined,
           instantShellHost,
           webviewHost: {
             terminalSessionId: terminalSessionIdRef.current,

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import { TerminalReplPanel } from '../terminal/terminal-repl-panel.tsx'
+import { createFsRevisionMemoryInterceptor } from '../../quickjs/fs-revision-memory-interceptor.ts'
+import type { QuickJsSyscallInterceptor } from '../../quickjs/quickjs-syscall.ts'
 import type { VscodeAgentTerminalEnsureResult } from '../vscode/vscode-ai-run-command.ts'
 import {
   createAiTerminalSession,
@@ -56,6 +58,19 @@ export function ProdudeTerminalHost({ workspaceFolder, onApiChange }: ProdudeTer
     plan: new Set(),
     agent: new Set(),
   })
+  // 第九期：agent 会话实例挂「记读、写时带期望版本」拦截器；按 chat 维度一份，
+  // 实例重建（fsMode/reset）后延续该会话对文件的已知版本；ask/plan 只读、无需挂。
+  const revisionMemoryRef = useRef(new Map<string, readonly QuickJsSyscallInterceptor[]>())
+  const interceptorsForSession = useCallback((session: VscodeTerminalSession) => {
+    if (session.kind !== 'agent') return undefined
+    const key = session.ownerChatId ?? session.id
+    let list = revisionMemoryRef.current.get(key)
+    if (!list) {
+      list = [createFsRevisionMemoryInterceptor()]
+      revisionMemoryRef.current.set(key, list)
+    }
+    return list
+  }, [])
 
   const workspaceRoot = workspaceFolder.trim() || PRODUDE_DEFAULT_WORKSPACE
 
@@ -228,6 +243,7 @@ export function ProdudeTerminalHost({ workspaceFolder, onApiChange }: ProdudeTer
             welcomeLines={[]}
             ariaLabel={session.title}
             fsMode={session.fsMode}
+            interceptors={interceptorsForSession(session)}
           />
         </div>
       ))}

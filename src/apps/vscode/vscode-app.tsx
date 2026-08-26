@@ -35,6 +35,8 @@ import {
   TerminalReplPanel,
   type TerminalReplHandle,
 } from '../terminal/terminal-repl-panel.tsx'
+import { createFsRevisionMemoryInterceptor } from '../../quickjs/fs-revision-memory-interceptor.ts'
+import type { QuickJsSyscallInterceptor } from '../../quickjs/quickjs-syscall.ts'
 import {
   createAiTerminalSession,
   createUserTerminalSession,
@@ -505,6 +507,20 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     activeTerminalHandleRef.current = handle
   }, [])
 
+  // 第九期：agent 终端实例挂「记读、写时带期望版本」拦截器（用户自己的终端不挂）；
+  // 按 chat 维度一份，实例重建后延续该会话对文件的已知版本。
+  const revisionMemoryByChatRef = useRef(new Map<string, readonly QuickJsSyscallInterceptor[]>())
+  const interceptorsForSession = useCallback((session: VscodeTerminalSession) => {
+    if (session.kind !== 'agent') return undefined
+    const key = session.ownerChatId ?? session.id
+    let list = revisionMemoryByChatRef.current.get(key)
+    if (!list) {
+      list = [createFsRevisionMemoryInterceptor()]
+      revisionMemoryByChatRef.current.set(key, list)
+    }
+    return list
+  }, [])
+
   const bindSessionHandle = useCallback(
     (sessionId: string, handle: TerminalReplHandle | null) => {
       if (handle) {
@@ -837,6 +853,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               welcomeLines={terminalReplWelcome}
               ariaLabel={session.title}
               fsMode={session.fsMode}
+              interceptors={interceptorsForSession(session)}
               onChangesAvailable={handleTerminalChangesAvailable}
             />
           </div>
