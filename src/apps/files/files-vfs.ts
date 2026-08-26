@@ -24,6 +24,7 @@ import {
   estimateTextBytes,
   FILES_BATCH_DEFAULT_MAX_BYTES,
   FILES_BATCH_DEFAULT_SIZE,
+  FilesContentRevisionMismatchError,
   getNode,
   getNodeBlobStoredBytes,
   listChildNodes,
@@ -36,6 +37,7 @@ import {
   renameNodeRecord,
   moveNodeRecord,
   FilesStorageFullError,
+  normalizeFilesNameKey,
   uniqueNameAmong,
   writeBlobBytes,
   writeBlobBytesRange,
@@ -130,6 +132,7 @@ import {
   isMountLocationId,
   isMountNodeId,
   isTrashLocationId,
+  locationSupportsTrash,
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
@@ -365,6 +368,28 @@ function assertNodeWritable(node: FilesNode): void {
   }
 }
 
+/** 写入时可带「期望内容版本」做并发检查：与节点当前版本不等即拒，类似比较并交换 */
+export type FilesWriteExpectedRevisionOptions = {
+  /** 上次读到的 contentRevisionId；缺省表示盲写（与旧行为一致） */
+  expectedContentRevisionId?: string
+}
+
+function assertExpectedContentRevision(
+  path: string,
+  target: FilesNode,
+  expected: string | undefined,
+): void {
+  if (expected === undefined || target.kind !== 'file') return
+  const current = target.contentRevisionId
+  if (current === expected) return
+  throw new FilesContentRevisionMismatchError(
+    `文件 ${path} 已被外部修改（expected=${expected}, current=${current}），请重读后重试`,
+    path,
+    expected,
+    current,
+  )
+}
+
 async function assertCanCreateIn(
   locationId: FilesLocationId,
   parentId: string | undefined,
@@ -387,7 +412,7 @@ async function assertCanCreateIn(
     throw new Error('此位置受保护，无法在此新建或粘贴')
   }
   // 废纸篓不接受面向用户的新建/粘贴（copyNodeTo / moveNodeTo / files-api 层另行拒绝）；
-  // 移入废纸篓的内部复制路径需经本检查创建节点，故不在此拦截。
+  // 移入废纸篓是内部卷上的元数据级移动，不经过面向用户的创建检查，故不在此拦截。
   if (parentId === undefined) return
   const parent = await getNodeOrThrow(parentId)
   if (parent.kind !== 'folder') {
@@ -438,6 +463,20 @@ export async function uniqueNodeName(
 ): Promise<string> {
   const names = await siblingNames(locationId, parentId, excludeId)
   return uniqueNameAmong(names, desired)
+}
+
+/** 在目标目录下按名查找兄弟节点（与存储层一致的大小写/Unicode 规范化比较） */
+export async function findSiblingNode(
+  locationId: FilesLocationId,
+  parentId: string | undefined,
+  desiredName: string,
+  excludeId?: string,
+): Promise<FilesNode | undefined> {
+  const siblings = await listDirectory(locationId, parentId)
+  const key = normalizeFilesNameKey(desiredName)
+  return siblings.find(
+    (sibling) => sibling.id !== excludeId && normalizeFilesNameKey(sibling.name) === key,
+  )
 }
 
 export async function listDirectory(
@@ -1287,12 +1326,20 @@ async function readFileBlobRangeByNodeIdUnmetered(
   return { node, blob: new Blob([], { type }) }
 }
 
-export async function writeTextFile(ref: string, text: string): Promise<FilesNode> {
+export async function writeTextFile(
+  ref: string,
+  text: string,
+  options?: FilesWriteExpectedRevisionOptions,
+): Promise<FilesNode> {
   const target = isFilesAbsolutePath(ref) ? await resolveFileRef(ref) : await getNodeOrThrow(ref)
   if (target.kind !== 'file') {
     throw new Error('文件不存在')
   }
   assertNodeWritable(target)
+  if (options?.expectedContentRevisionId !== undefined) {
+    const path = isFilesAbsolutePath(ref) ? ref : await resolveFilesAbsolutePath(target)
+    assertExpectedContentRevision(path, target, options.expectedContentRevisionId)
+  }
   const startedAt = performance.now()
 
   if (isMountNodeId(target.id)) {
@@ -1333,12 +1380,20 @@ export async function writeTextFile(ref: string, text: string): Promise<FilesNod
   return written
 }
 
-export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<FilesNode> {
+export async function writeBinaryFile(
+  ref: string,
+  bytes: ArrayBuffer,
+  options?: FilesWriteExpectedRevisionOptions,
+): Promise<FilesNode> {
   const target = isFilesAbsolutePath(ref) ? await resolveFileRef(ref) : await getNodeOrThrow(ref)
   if (target.kind !== 'file') {
     throw new Error('文件不存在')
   }
   assertNodeWritable(target)
+  if (options?.expectedContentRevisionId !== undefined) {
+    const path = isFilesAbsolutePath(ref) ? ref : await resolveFilesAbsolutePath(target)
+    assertExpectedContentRevision(path, target, options.expectedContentRevisionId)
+  }
 
   const startedAt = performance.now()
   if (isMountNodeId(target.id)) {
@@ -1373,12 +1428,17 @@ export async function writeFileBytesRange(
   ref: string,
   offset: number,
   bytes: ArrayBuffer | Uint8Array,
+  options?: FilesWriteExpectedRevisionOptions,
 ): Promise<FilesNode> {
   const target = isFilesAbsolutePath(ref) ? await resolveFileRef(ref) : await getNodeOrThrow(ref)
   if (target.kind !== 'file') {
     throw new Error('文件不存在')
   }
   assertNodeWritable(target)
+  if (options?.expectedContentRevisionId !== undefined) {
+    const path = isFilesAbsolutePath(ref) ? ref : await resolveFilesAbsolutePath(target)
+    assertExpectedContentRevision(path, target, options.expectedContentRevisionId)
+  }
 
   const startedAt = performance.now()
   if (isMountNodeId(target.id)) {
@@ -1416,7 +1476,7 @@ export async function openStreamWrite(params: {
   previousByteSize: number
   chunkSize?: number
   expectedSize?: number
-  /** 新建时的冲突处理：内部卷透传给 openStreamWriteBlob；挂载卷忽略（FSA 无同名） */
+  /** 新建时的冲突处理：内部卷透传给 openStreamWriteBlob；挂载/镜像卷读列表算不冲突名 */
   nameMode?: FilesNodeNameMode
 }): Promise<FilesStreamWriter> {
   const { node, isNew, metaBytes, previousByteSize, chunkSize, expectedSize, nameMode } = params
@@ -1430,10 +1490,17 @@ export async function openStreamWrite(params: {
       isNew,
     })
   } else if (isImageLocationId(node.locationId)) {
+    // 镜像卷同挂载卷无事务内取名：unique-suffix 时读目录列表算不冲突名，
+    // 否则 FAT 会按原名返回已有条目并从头覆写（静默丢数据）
+    let imageName = node.name
+    if (isNew && nameMode === 'unique-suffix') {
+      const names = await siblingNames(node.locationId, node.parentId)
+      imageName = uniqueNameAmong(names, node.name)
+    }
     writer = await openImageStreamWrite({
       locationId: node.locationId as ImageFilesLocationId,
       parentId: node.parentId,
-      name: node.name,
+      name: imageName,
       isNew,
       expectedSize,
     })
@@ -1754,8 +1821,8 @@ export async function moveNodeTo(
 
 /**
  * 将节点移入废纸篓（可恢复，记录原位置）。
- * 内部卷为元数据级移动（零拷贝零容量）；挂载卷复制进废纸篓后删除原文件
- * （占 IDB 配额，容量不足时抛错并建议用永久删除）。
+ * 仅内部卷支持：元数据级移动（零拷贝零容量）。
+ * 磁盘镜像 / 挂载文件夹等外接卷没有系统盘废纸篓可回退，须走永久删除（removeNode）。
  */
 export async function trashNode(
   id: string,
@@ -1764,6 +1831,9 @@ export async function trashNode(
   const node = await getNodeOrThrow(id)
   if (isTrashLocationId(node.locationId)) {
     throw new Error('该节点已在废纸篓中')
+  }
+  if (!locationSupportsTrash(node.locationId)) {
+    throw new Error('外部存储不支持移入废纸篓，请使用永久删除')
   }
   if (isUserSpecialFolderNode(node)) {
     throw new Error(USER_SPECIAL_FOLDER_PROTECTED_MESSAGE)
@@ -1775,80 +1845,6 @@ export async function trashNode(
     parentId: node.parentId,
     name: node.name,
   }
-
-  if (isMountNodeId(id)) {
-    // 跨存储：复制进废纸篓（预检配额），成功后删除挂载原件
-    const previousPath = await resolveFilesAbsolutePath(node)
-    const needed = await estimateCopyBytesForNode(node, 'trash')
-    await assertAdditionalBytesAvailable(needed)
-    const workload = await estimateCopyWorkloadForNode(node)
-    const total = filesWorkloadUnits(workload.nodeCount, workload.byteSize)
-    const progressState = { done: 0 }
-    options?.onProgress?.({ done: 0, total })
-    let copied: FilesNode
-    try {
-      copied = await copyNodeTree(node, 'trash', undefined, (copyNode) => {
-        progressState.done = Math.min(total, progressState.done + nodeWorkloadUnits(copyNode))
-        options?.onProgress?.({ done: progressState.done, total })
-      })
-    } catch (err) {
-      if (err instanceof FilesStorageFullError) {
-        throw new Error('数据空间不足，无法移入废纸篓。按住 ⌥ 键删除可直接永久删除')
-      }
-      throw err
-    }
-    const withOrigin = await moveNodeRecord({
-      id: copied.id,
-      locationId: 'trash',
-      parentId: undefined,
-      name: copied.name,
-      trashOrigin,
-    })
-    await removeMountNode(id)
-    options?.onProgress?.({ done: total, total })
-    emitFilesVfsChanged([
-      { kind: 'deleted', path: previousPath },
-      { kind: 'created', path: await resolveFilesAbsolutePath(withOrigin) },
-    ])
-    return withOrigin
-  }
-
-  if (isImageNodeId(id)) {
-    const previousPath = await resolveFilesAbsolutePath(node)
-    const needed = await estimateCopyBytesForNode(node, 'trash')
-    await assertAdditionalBytesAvailable(needed)
-    const workload = await estimateCopyWorkloadForNode(node)
-    const total = filesWorkloadUnits(workload.nodeCount, workload.byteSize)
-    const progressState = { done: 0 }
-    options?.onProgress?.({ done: 0, total })
-    let copied: FilesNode
-    try {
-      copied = await copyNodeTree(node, 'trash', undefined, (copyNode) => {
-        progressState.done = Math.min(total, progressState.done + nodeWorkloadUnits(copyNode))
-        options?.onProgress?.({ done: progressState.done, total })
-      })
-    } catch (err) {
-      if (err instanceof FilesStorageFullError) {
-        throw new Error('数据空间不足，无法移入废纸篓。按住 ⌥ 键删除可直接永久删除')
-      }
-      throw err
-    }
-    const withOrigin = await moveNodeRecord({
-      id: copied.id,
-      locationId: 'trash',
-      parentId: undefined,
-      name: copied.name,
-      trashOrigin,
-    })
-    await removeImageNode(id)
-    options?.onProgress?.({ done: total, total })
-    emitFilesVfsChanged([
-      { kind: 'deleted', path: previousPath },
-      { kind: 'created', path: await resolveFilesAbsolutePath(withOrigin) },
-    ])
-    return withOrigin
-  }
-
   const previousPath = await resolveFilesAbsolutePath(node)
   const moved = await moveNodeRecord({
     id,
@@ -2359,8 +2355,8 @@ async function copyNodeTree(
 }
 
 export type FilesUpsertBatchItem =
-  | { path: string; text: string }
-  | { path: string; bytes: ArrayBuffer }
+  | { path: string; text: string; expectedContentRevisionId?: string }
+  | { path: string; bytes: ArrayBuffer; expectedContentRevisionId?: string }
 
 type PreparedUpsert = {
   absolutePath: string
@@ -2593,8 +2589,27 @@ export async function upsertFilesBatch(
       throw new Error(`路径冲突：${parsed.absolutePath}`)
     }
 
+    if (
+      existing === undefined &&
+      parsed.item.expectedContentRevisionId !== undefined
+    ) {
+      const expected = parsed.item.expectedContentRevisionId
+      throw new FilesContentRevisionMismatchError(
+        `文件 ${parsed.absolutePath} 已被外部修改（expected=${expected}, current=无），请重读后重试`,
+        parsed.absolutePath,
+        expected,
+        undefined,
+      )
+    }
     if (existing) {
       assertNodeWritable(existing)
+      if (parsed.item.expectedContentRevisionId !== undefined) {
+        assertExpectedContentRevision(
+          parsed.absolutePath,
+          existing,
+          parsed.item.expectedContentRevisionId,
+        )
+      }
       if ('text' in parsed.item) {
         prepared.push({
           absolutePath: parsed.absolutePath,

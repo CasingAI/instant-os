@@ -10,6 +10,11 @@
 
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { filesOpenStreamWrite } from './files-api.ts'
+import {
+  filesConflictAllowsReplace,
+  type FilesConflictChoice,
+  type FilesConflictInfo,
+} from './files-conflict.ts'
 import { filesLocationPathRoot, joinFilesAbsolutePath } from './files-path.ts'
 import {
   estimateFilesOpDurationMs,
@@ -21,8 +26,13 @@ import {
   type FilesOpProgressUiState,
 } from './files-run-with-op-progress.ts'
 import { assertAdditionalBytesAvailable } from './files-storage.ts'
-import { isMountLocationId, type FilesLocationId } from './files-types.ts'
 import {
+  isFilesNodeWritable,
+  isMountLocationId,
+  type FilesLocationId,
+} from './files-types.ts'
+import {
+  findSiblingNode,
   getNodeOrThrow,
   mkdir,
   resolveFilesAbsolutePath,
@@ -168,6 +178,13 @@ export async function importExternalNodes(params: {
   signal?: AbortSignal
   /** ✕ 取消回调（通常 abort 调用方自己的 AbortController） */
   cancel?: () => void
+  /**
+   * 可选的重名冲突询问回调（文件 APP 拖入传弹窗决策器；不传维持静默自动改名惯例）。
+   * 返回 undefined 表示用户取消整个导入。仅询问文件步骤；文件夹撞名始终自动改名。
+   */
+  resolveFileConflict?: (
+    conflict: FilesConflictInfo,
+  ) => Promise<FilesConflictChoice | undefined>
 }): Promise<ExternalImportResult> {
   const { nodes, dest, onUiChange, signal, cancel } = params
   if (nodes.length === 0) return { fileCount: 0, byteCount: 0 }
@@ -227,20 +244,45 @@ export async function importExternalNodes(params: {
           stepsDone += 1
           continue
         }
+        // 冲突预检：提供询问回调时，撞名先问「替换 / 保留两者 / 跳过」，
+        // 关闭对话框视为取消整个导入。文件夹步骤不询问（无合并语义）。
+        let overwrite = false
+        if (params.resolveFileConflict) {
+          const existing = await findSiblingNode(dest.destLocationId, current.id, step.name)
+          if (existing) {
+            const conflict: FilesConflictInfo = {
+              name: step.name,
+              kind: 'file',
+              existingKind: existing.kind,
+              existingWritable: isFilesNodeWritable(existing),
+            }
+            const choice = await params.resolveFileConflict(conflict)
+            if (!choice) throw new FilesOpCancelledError()
+            if (choice === 'skip') {
+              stepsDone += 1
+              continue
+            }
+            // 双重校验：即使回调误答「替换」（目标不可替换/类型不符），也退回自动改名
+            if (choice === 'replace' && filesConflictAllowsReplace(conflict)) overwrite = true
+          }
+        }
         // 内部卷：直接按计划名打开，写入事务内查重加后缀（不依赖会过期的目录缓存）；
-        // 挂载卷无唯一索引与事务内取名，仍预先算不冲突名（FSA 自身保证无同名）
+        // 挂载卷无唯一索引与事务内取名，仍预先算不冲突名（FSA 自身保证无同名）。
+        // 「替换」按原名精确打开：已存在即覆盖写，未存在则新建。
         let filePath: string
-        if (isMountLocationId(dest.destLocationId)) {
+        if (overwrite || !isMountLocationId(dest.destLocationId)) {
+          filePath = joinFilesAbsolutePath(current.path, step.name)
+        } else {
           const name = await uniqueNodeName(dest.destLocationId, current.id, step.name)
           filePath = joinFilesAbsolutePath(current.path, name)
-        } else {
-          filePath = joinFilesAbsolutePath(current.path, step.name)
         }
         const writer = await filesOpenStreamWrite(
           filePath,
-          isMountLocationId(dest.destLocationId)
-            ? undefined
-            : { nameMode: 'unique-suffix', expectedSize: step.file.size },
+          overwrite
+            ? { expectedSize: step.file.size }
+            : isMountLocationId(dest.destLocationId)
+              ? undefined
+              : { nameMode: 'unique-suffix', expectedSize: step.file.size },
         )
         // 拖入的大 File 用 slice 按块读并立刻落库：默认要攒到 5MB 才写盘，
         // 前几兆只在内存里，下一次落库若卡住文件就一直是空的。

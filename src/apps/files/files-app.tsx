@@ -35,6 +35,12 @@ import {
   type ExternalImportNode,
 } from './files-import-external.ts'
 import {
+  createFilesConflictResolver,
+  filesConflictAllowsReplace,
+  type FilesConflictChoice,
+  type FilesConflictInfo,
+} from './files-conflict.ts'
+import {
   FILES_MOUNTS_CHANGED_EVENT,
   addMount,
   canMountDirectories,
@@ -61,6 +67,7 @@ import {
   isMountLocationId,
   isMountNodeId,
   isTrashLocationId,
+  locationSupportsTrash,
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
@@ -109,6 +116,7 @@ import {
   estimateDeleteWorkload,
   estimateEmptyTrashWorkload,
   filesNodeNeedsViewportMeta,
+  findSiblingNode,
   getFilesLocationLabel,
   getNodeOrThrow,
   getCachedListDirectory,
@@ -150,6 +158,13 @@ const APP_ID = 'files' as const
 
 function canRenameOrDeleteFilesNode(node: FilesNode): boolean {
   return isFilesNodeWritable(node) && !isUserSpecialFolderNode(node)
+}
+
+/** 删除菜单项文案：选中集含外接卷项时不能叫「移入废纸篓」（外接卷只能永久删除） */
+function trashMenuLabel(nodes: readonly FilesNode[]): string {
+  const untrashable = nodes.filter((node) => !locationSupportsTrash(node.locationId)).length
+  if (untrashable === 0) return '移入废纸篓'
+  return untrashable === nodes.length ? '永久删除' : '删除'
 }
 const THEME = '#8a6a38'
 const LONG_PRESS_MS = 380
@@ -1961,6 +1976,34 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [closeTransientMenus, openNode, rangeSelectTo, selectionMode, toggleSelection],
   )
 
+  /** 重名冲突弹窗（外部拖入与内部粘贴共用）：替换 / 保留两者 / 跳过，可勾选应用到全部。
+   *  返回 undefined = 用户关闭对话框（取消整个操作）。 */
+  const askFilesConflict = useCallback(
+    async (
+      conflict: FilesConflictInfo,
+    ): Promise<{ choice: FilesConflictChoice; applyToAll?: boolean } | undefined> => {
+      const answer = await modal.choose({
+        title: '文件名冲突',
+        message: `「${conflict.name}」已存在于此位置。`,
+        options: [
+          ...(filesConflictAllowsReplace(conflict)
+            ? [{ key: 'replace' as const, label: '替换', tone: 'danger' as const }]
+            : []),
+          { key: 'rename' as const, label: '保留两者', tone: 'primary' as const },
+          { key: 'skip' as const, label: '跳过', tone: 'secondary' as const },
+        ],
+        applyToAllLabel: '应用到全部',
+        themeColor: THEME,
+      })
+      if (!answer) return undefined
+      if (answer.key === 'replace' || answer.key === 'rename' || answer.key === 'skip') {
+        return { choice: answer.key, applyToAll: answer.applyToAll }
+      }
+      return undefined
+    },
+    [modal],
+  )
+
   /** 复制选中项（多选批量；mode=copy） */
   const handleCopy = useCallback(
     (nodes: readonly FilesNode[]) => {
@@ -2007,12 +2050,60 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     if (!canCreateHere) return
     closeTransientMenus()
     try {
+      // 顶层项重名冲突预检：逐个询问「替换 / 保留两者 / 跳过」（可应用到全部）。
+      // 先只收集决策，全部问完才执行替换删除——中途关对话框取消时不能有半执行状态。
+      const resolveConflict = createFilesConflictResolver(askFilesConflict)
+      const keptEntries: typeof entry.entries = []
+      const replaceEntries: typeof entry.entries = []
+      for (const item of entry.entries) {
+        const existing = await findSiblingNode(locationId, folderId, item.name)
+        if (!existing) {
+          keptEntries.push(item)
+          continue
+        }
+        const info = {
+          name: item.name,
+          kind: item.kind,
+          existingKind: existing.kind,
+          existingWritable: isFilesNodeWritable(existing),
+        }
+        const choice = await resolveConflict(info)
+        if (!choice) {
+          showToast('已取消')
+          return
+        }
+        if (choice === 'skip') continue
+        if (choice === 'replace' && filesConflictAllowsReplace(info)) {
+          replaceEntries.push(item)
+          continue
+        }
+        keptEntries.push(item)
+      }
+      let replacedCount = 0
+      for (const item of replaceEntries) {
+        const target = await findSiblingNode(locationId, folderId, item.name)
+        if (!target) {
+          keptEntries.push(item)
+          continue
+        }
+        try {
+          // 先移入废纸篓腾出原名再按原名拷入；失败则退回保留两者（靠自动改名兜底）
+          await trashNode(target.id)
+          replacedCount += 1
+        } catch (err) {
+          showToast(`无法替换「${item.name}」：${formatError(err)}`)
+        }
+        keptEntries.push(item)
+      }
+      const pasteEntries = keptEntries
+      if (replacedCount > 0) invalidateFilesVfsPathCaches()
       const workloads = await Promise.all(
-        entry.entries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
+        pasteEntries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
       )
       const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+      // 剪切语义只删除实际粘贴过的源；跳过/替换中退回保留两者的项保留原位
       const cutSourceIds =
-        entry.mode === 'cut' ? new Set(entry.entries.map((item) => item.nodeId)) : undefined
+        entry.mode === 'cut' ? new Set(pasteEntries.map((item) => item.nodeId)) : undefined
       const createdNodes: FilesNode[] = []
       const pasteController = new AbortController()
       await runFilesOpWithProgress({
@@ -2024,9 +2115,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         cancel: () => pasteController.abort(),
         task: async (report, signal) => {
           let done = 0
-          for (let index = 0; index < entry.entries.length; index += 1) {
+          for (let index = 0; index < pasteEntries.length; index += 1) {
             signal?.throwIfAborted?.()
-            const item = entry.entries[index]!
+            const item = pasteEntries[index]!
             const itemWorkload = workloads[index]?.totalUnits ?? 1
             const copied = await copyNodeTo({
               sourceId: item.nodeId,
@@ -2036,7 +2127,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 report({
                   done: done + Math.round(progress.done * (itemWorkload / totalUnits)),
                   total: totalUnits,
-                  detailLabel: `${index + 1} / ${entry.entries.length} 项`,
+                  detailLabel: `${index + 1} / ${pasteEntries.length} 项`,
                 })
               },
             })
@@ -2065,9 +2156,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
       await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
     }
-  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, setItems, showToast, sort])
+  }, [askFilesConflict, canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, setItems, showToast, sort])
 
-  /** 删除选中项：默认移入废纸篓；permanent（按住 ⌥）时永久删除 */
+  /**
+   * 删除选中项：默认移入废纸篓；permanent（按住 ⌥）时永久删除。
+   * 磁盘镜像 / 挂载文件夹等外接卷不支持移入废纸篓，其中的项一律永久删除；
+   * 与本地项混选时分流处理，并在确认框中说明两部分的去向。
+   */
   const handleTrash = useCallback(
     async (nodes: readonly FilesNode[], permanent: boolean) => {
       if (nodes.length === 0) return
@@ -2079,36 +2174,60 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       closeTransientMenus()
       const single = nodes.length === 1 ? nodes[0]! : undefined
       const removedIds = new Set(nodes.map((node) => node.id))
-      if (permanent) {
+      const forcedCount = permanent
+        ? nodes.length
+        : nodes.filter((node) => !locationSupportsTrash(node.locationId)).length
+      const softCount = nodes.length - forcedCount
+      if (forcedCount > 0) {
+        const mixed = softCount > 0
         const ok = await modal.confirm({
-          title: single ? `永久删除「${single.name}」？` : `永久删除选中的 ${nodes.length} 项？`,
-          message:
-            '永久删除后将无法恢复，且会释放占用的数据空间。',
-          confirmLabel: '永久删除',
+          title: single
+            ? `永久删除「${single.name}」？`
+            : mixed
+              ? `移除选中的 ${nodes.length} 项？`
+              : `永久删除选中的 ${forcedCount} 项？`,
+          message: mixed
+            ? `其中 ${forcedCount} 项来自外部存储，将永久删除且无法恢复；其余 ${softCount} 项将移入废纸篓。`
+            : '永久删除后将无法恢复，且会释放占用的数据空间。',
+          confirmLabel: mixed ? '确认删除' : '永久删除',
           cancelLabel: '取消',
           confirmTone: 'danger',
           themeColor: THEME,
         })
         if (!ok) return
-        try {
-          const workloads = await Promise.all(
-            nodes.map((node) => estimateDeleteWorkload(node.id).catch(() => undefined)),
-          )
-          const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
-          const deleteController = new AbortController()
-          await runFilesOpWithProgress({
-            kind: 'delete',
-            totalWork: totalUnits,
-            estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
-            onUiChange: setOpProgressUi,
-            signal: deleteController.signal,
-            cancel: () => deleteController.abort(),
-            task: async (report, signal) => {
-              let done = 0
-              for (let index = 0; index < nodes.length; index += 1) {
-                signal?.throwIfAborted?.()
-                const node = nodes[index]!
-                const units = workloads[index]?.totalUnits ?? 1
+      }
+
+      try {
+        // 移入废纸篓（仅内部卷）与永久删除均为元数据级/原地操作，按删除同口径估算
+        const workloads = await Promise.all(
+          nodes.map((node) => estimateDeleteWorkload(node.id).catch(() => undefined)),
+        )
+        const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+        const deleteController = new AbortController()
+        await runFilesOpWithProgress({
+          kind: 'delete',
+          totalWork: totalUnits,
+          estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
+          onUiChange: setOpProgressUi,
+          signal: deleteController.signal,
+          cancel: () => deleteController.abort(),
+          task: async (report, signal) => {
+            let done = 0
+            for (let index = 0; index < nodes.length; index += 1) {
+              signal?.throwIfAborted?.()
+              const node = nodes[index]!
+              const units = workloads[index]?.totalUnits ?? 1
+              if (!permanent && locationSupportsTrash(node.locationId)) {
+                await trashNode(node.id, {
+                  onProgress: (progress) => {
+                    report({
+                      done: done + progress.done,
+                      total: totalUnits,
+                      detailLabel: `${index + 1} / ${nodes.length} 项`,
+                    })
+                  },
+                })
+              } else {
                 await removeNode(node.id, {
                   onProgress: (progress) => {
                     report({
@@ -2118,56 +2237,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                     })
                   },
                 })
-                done += units
               }
-            },
-          })
-          setItems((prev) => applyLocalItemsChange(prev, { kind: 'remove', ids: removedIds }, sort))
-        } catch (err) {
-          if (isFilesOpCancelledError(err)) {
-            showToast('已取消')
-            return
-          }
-          await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
-        }
-        clearSelection()
-        refresh({ quiet: true })
-        return
-      }
-
-      try {
-        // 内部卷移入废纸篓为元数据级移动（成本≈删除）；挂载卷按复制估算
-        const workloads = await Promise.all(
-          nodes.map((node) =>
-            isMountNodeId(node.id)
-              ? estimateCopyWorkload(node.id).catch(() => undefined)
-              : estimateDeleteWorkload(node.id).catch(() => undefined),
-          ),
-        )
-        const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
-        const trashController = new AbortController()
-        await runFilesOpWithProgress({
-          kind: 'delete',
-          totalWork: totalUnits,
-          estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
-          onUiChange: setOpProgressUi,
-          signal: trashController.signal,
-          cancel: () => trashController.abort(),
-          task: async (report, signal) => {
-            let done = 0
-            for (let index = 0; index < nodes.length; index += 1) {
-              signal?.throwIfAborted?.()
-              const node = nodes[index]!
-              const units = workloads[index]?.totalUnits ?? 1
-              await trashNode(node.id, {
-                onProgress: (progress) => {
-                  report({
-                    done: done + progress.done,
-                    total: totalUnits,
-                    detailLabel: `${index + 1} / ${nodes.length} 项`,
-                  })
-                },
-              })
               done += units
             }
           },
@@ -2179,8 +2249,17 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           return
         }
         await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
+        clearSelection()
+        refresh({ quiet: true })
+        return
       }
-      showToast(nodes.length > 1 ? `已将 ${nodes.length} 项移入废纸篓` : '已移入废纸篓')
+      if (softCount === 0) {
+        showToast(forcedCount > 1 ? `已永久删除 ${forcedCount} 项` : '已永久删除')
+      } else if (forcedCount > 0) {
+        showToast(`已永久删除 ${forcedCount} 项，${softCount} 项已移入废纸篓`)
+      } else {
+        showToast(nodes.length > 1 ? `已将 ${nodes.length} 项移入废纸篓` : '已移入废纸篓')
+      }
       clearSelection()
       refresh({ quiet: true })
     },
@@ -2711,6 +2790,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           onUiChange: setOpProgressUi,
           signal: importController.signal,
           cancel: () => importController.abort(),
+          resolveFileConflict: createFilesConflictResolver(askFilesConflict),
         })
         clearSelection()
         const importedCount = fileCount
@@ -2738,7 +2818,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         await modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
       }
     },
-    [clearSelection, folderId, modal, refresh, showToast],
+    [askFilesConflict, clearSelection, folderId, modal, refresh, showToast],
   )
 
   /** 外部文件是否进入导入流程（有文件但无内部拖拽数据） */
@@ -3212,7 +3292,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         }
         items.push({
           type: 'action',
-          label: countLabel('移入废纸篓'),
+          label: countLabel(trashMenuLabel(targetNodes)),
           onClick: () => void handleTrash(targetNodes, false),
         })
       }
@@ -3391,7 +3471,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           { type: 'separator' },
           {
             type: 'action',
-            label: isTrashLocationId(locationId) ? '清空废纸篓' : '移入废纸篓',
+            label: isTrashLocationId(locationId) ? '清空废纸篓' : trashMenuLabel(selectedNodes),
             shortcut: '⌘⌫',
             disabled: isTrashLocationId(locationId)
               ? itemsRef.current.length === 0

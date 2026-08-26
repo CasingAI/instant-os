@@ -31,6 +31,7 @@ import {
   filesCreateText,
   filesList,
   filesMkdir,
+  filesOpenStreamWrite,
   filesReadBlobRange,
   filesReadText,
   filesRemove,
@@ -774,6 +775,54 @@ async function testBootSectorStaysPinnedUnderPressure(): Promise<void> {
   await volume.close()
 }
 
+/** 回归：镜像卷流式写 unique-suffix 不得覆盖同名旧文件（曾静默覆写导致丢数据） */
+async function testStreamWriteUniqueSuffixNoClobber(): Promise<void> {
+  await resetFiles()
+  const image = createFat12Image()
+  await filesCreateBinary(
+    '/user/disk.img',
+    image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength),
+  )
+  const mounted = await mountDiskImage('/user/disk.img')
+  const root = filesLocationPathRoot(mounted.id)
+  try {
+    await filesCreateText(`${root}/dup.txt`, 'original')
+    const writer = await filesOpenStreamWrite(`${root}/dup.txt`, { nameMode: 'unique-suffix' })
+    assert.equal(writer.node.name, 'dup 2.txt')
+    await writer.write(new TextEncoder().encode('brand new'))
+    const closed = await writer.close()
+    assert.equal(closed.name, 'dup 2.txt')
+    assert.equal(await filesReadText(`${root}/dup.txt`), 'original')
+    assert.equal(await filesReadText(`${root}/dup 2.txt`), 'brand new')
+  } finally {
+    await unmountDiskImage(mounted.id)
+  }
+}
+
+/** 「替换」语义：镜像卷按原名覆盖写，旧内容不残留尾部 */
+async function testStreamWriteReplaceOverwritesExisting(): Promise<void> {
+  await resetFiles()
+  const image = createFat12Image()
+  await filesCreateBinary(
+    '/user/disk.img',
+    image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength),
+  )
+  const mounted = await mountDiskImage('/user/disk.img')
+  const root = filesLocationPathRoot(mounted.id)
+  try {
+    await filesCreateText(`${root}/swap.txt`, 'old much longer content')
+    const writer = await filesOpenStreamWrite(`${root}/swap.txt`)
+    assert.equal(writer.node.name, 'swap.txt')
+    await writer.write(new TextEncoder().encode('tiny'))
+    await writer.close()
+    assert.equal(await filesReadText(`${root}/swap.txt`), 'tiny')
+    const names = (await filesList(root)).map((entry) => entry.name.toLowerCase())
+    assert.equal(names.some((name) => name.startsWith('swap 2')), false)
+  } finally {
+    await unmountDiskImage(mounted.id)
+  }
+}
+
 await testInMemoryFatVolume()
 await testMountWriteUnmountRemount()
 await testVmOccupancyBlocksMount()
@@ -798,4 +847,6 @@ await testInlineFlushFailureKeepsDirty()
 await testTinyResidentPreallocSurvivesMetadataEviction()
 await testBootSectorStaysPinnedUnderPressure()
 await testFatInternalsAdapterRejectsBadShape()
+await testStreamWriteUniqueSuffixNoClobber()
+await testStreamWriteReplaceOverwritesExisting()
 console.log('files-image-mount.test.ts ok')

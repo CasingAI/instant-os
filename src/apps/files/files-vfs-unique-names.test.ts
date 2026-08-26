@@ -11,6 +11,7 @@ import './files-mount-test-window.ts'
 import assert from 'node:assert/strict'
 import { filesCreateText, filesMkdir, filesOpenStreamWrite, filesReadText, filesUpsertBatch } from './files-api.ts'
 import { importExternalNodes } from './files-import-external.ts'
+import { FilesOpCancelledError } from './files-run-with-op-progress.ts'
 import {
   createFolderNode,
   estimateNodeMetaBytes,
@@ -241,6 +242,80 @@ async function testImportConcurrentSameName(): Promise<void> {
   console.log('ok: concurrent import same name dedups without overwrite')
 }
 
+/** 外部导入冲突询问：保留两者——旧文件不动，新文件加后缀 */
+async function testImportConflictAskRename(): Promise<void> {
+  await resetState()
+  await filesCreateText('/user/dup.txt', 'original')
+  const incoming = new File([new Uint8Array([0x6e, 0x65, 0x77])], 'dup.txt') // "new"
+  const asked: string[] = []
+  const { fileCount } = await importExternalNodes({
+    nodes: [{ name: 'dup.txt', kind: 'file', file: incoming }],
+    dest: { destLocationId: 'local', destParentId: undefined },
+    onUiChange: () => {},
+    resolveFileConflict: async (conflict) => {
+      asked.push(conflict.name)
+      return 'rename'
+    },
+  })
+  assert.deepEqual(asked, ['dup.txt'])
+  assert.equal(fileCount, 1)
+  assert.equal(await filesReadText('/user/dup.txt'), 'original')
+  assert.equal(await filesReadText('/user/dup 2.txt'), 'new')
+  console.log('ok: import conflict rename keeps both')
+}
+
+/** 外部导入冲突询问：跳过——不写入且旧文件不动 */
+async function testImportConflictAskSkip(): Promise<void> {
+  await resetState()
+  await filesCreateText('/user/skipme.txt', 'keep')
+  const incoming = new File([new Uint8Array([0x78])], 'skipme.txt')
+  const { fileCount } = await importExternalNodes({
+    nodes: [{ name: 'skipme.txt', kind: 'file', file: incoming }],
+    dest: { destLocationId: 'local', destParentId: undefined },
+    onUiChange: () => {},
+    resolveFileConflict: async () => 'skip',
+  })
+  assert.equal(fileCount, 0)
+  assert.equal(await filesReadText('/user/skipme.txt'), 'keep')
+  console.log('ok: import conflict skip leaves original')
+}
+
+/** 外部导入冲突询问：替换——原名覆盖写，不留后缀副本 */
+async function testImportConflictAskReplace(): Promise<void> {
+  await resetState()
+  await filesCreateText('/user/rp.txt', 'old much longer content')
+  const incoming = new File([new Uint8Array([0x68, 0x69])], 'rp.txt') // "hi"
+  const { fileCount } = await importExternalNodes({
+    nodes: [{ name: 'rp.txt', kind: 'file', file: incoming }],
+    dest: { destLocationId: 'local', destParentId: undefined },
+    onUiChange: () => {},
+    resolveFileConflict: async () => 'replace',
+  })
+  assert.equal(fileCount, 1)
+  assert.equal(await filesReadText('/user/rp.txt'), 'hi')
+  assert.ok(!(await resolveNodeByAbsolutePath('/user/rp 2.txt')))
+  console.log('ok: import conflict replace overwrites in place')
+}
+
+/** 外部导入冲突询问：关闭对话框（undefined）取消整个导入 */
+async function testImportConflictAskCancel(): Promise<void> {
+  await resetState()
+  await filesCreateText('/user/cc.txt', 'untouched')
+  const incoming = new File([new Uint8Array([0x7a])], 'cc.txt')
+  await assert.rejects(
+    () =>
+      importExternalNodes({
+        nodes: [{ name: 'cc.txt', kind: 'file', file: incoming }],
+        dest: { destLocationId: 'local', destParentId: undefined },
+        onUiChange: () => {},
+        resolveFileConflict: async () => undefined,
+      }),
+    FilesOpCancelledError,
+  )
+  assert.equal(await filesReadText('/user/cc.txt'), 'untouched')
+  console.log('ok: import conflict cancel aborts whole import')
+}
+
 async function main(): Promise<void> {
   await testConcurrentAutoSuffix()
   await testMkdirAutoSuffix()
@@ -253,6 +328,10 @@ async function main(): Promise<void> {
   await testUpsertBatchConcurrentCollision()
   await testStreamWriteUniqueSuffixPlaceholder()
   await testImportConcurrentSameName()
+  await testImportConflictAskRename()
+  await testImportConflictAskSkip()
+  await testImportConflictAskReplace()
+  await testImportConflictAskCancel()
   console.log('files-vfs-unique-names tests passed')
 }
 

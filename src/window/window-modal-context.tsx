@@ -39,6 +39,27 @@ type AlertOptions = {
   themeColor?: string
 }
 
+export type WindowModalChooseOption = {
+  key: string
+  label: string
+  tone?: WindowModalActionTone
+}
+
+export type WindowModalChooseOptions = {
+  title: string
+  message: string
+  /** 按钮组，按传入顺序渲染（≥3 个自动走紧凑布局） */
+  options: readonly WindowModalChooseOption[]
+  /** 提供时在按钮上方显示「应用到全部」复选框 */
+  applyToAllLabel?: string
+  themeColor?: string
+}
+
+export type WindowModalChooseResult = {
+  key: string
+  applyToAll: boolean
+}
+
 type PromptState = {
   options: PromptOptions
   draft: string
@@ -50,6 +71,8 @@ type WindowModalContextValue = {
   prompt: (options: PromptOptions) => Promise<string | undefined>
   confirm: (options: ConfirmOptions) => Promise<boolean>
   alert: (options: AlertOptions) => Promise<void>
+  /** 多选对话框：点按钮返回所选 key 与「应用到全部」勾选态；关闭/Escape 返回 undefined */
+  choose: (options: WindowModalChooseOptions) => Promise<WindowModalChooseResult | undefined>
   setThemeColor: (themeColor: string | undefined) => void
   themeColor: string | undefined
 }
@@ -73,6 +96,14 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
       }
     | undefined
   >(undefined)
+  const [chooseState, setChooseState] = useState<
+    | {
+        options: WindowModalChooseOptions
+        resolve: (value: WindowModalChooseResult | undefined) => void
+      }
+    | undefined
+  >(undefined)
+  const chooseCheckboxRef = useRef<HTMLInputElement | null>(null)
   const promptInputRef = useRef<HTMLInputElement | null>(null)
   const [overlayRoot, setOverlayRoot] = useState<HTMLDivElement | undefined>(undefined)
 
@@ -103,6 +134,12 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
     })
   }, [])
 
+  const choose = useCallback((options: WindowModalChooseOptions) => {
+    return new Promise<WindowModalChooseResult | undefined>((resolve) => {
+      setChooseState({ options, resolve })
+    })
+  }, [])
+
   const setThemeColor = useCallback((themeColor: string | undefined) => {
     setDefaultThemeColor(themeColor)
   }, [])
@@ -124,6 +161,13 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
   const closeAlert = useCallback(() => {
     setAlertState((current) => {
       current?.resolve()
+      return undefined
+    })
+  }, [])
+
+  const closeChoose = useCallback((value: WindowModalChooseResult | undefined) => {
+    setChooseState((current) => {
+      current?.resolve(value)
       return undefined
     })
   }, [])
@@ -156,17 +200,32 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
         event.preventDefault()
         event.stopImmediatePropagation()
         closeAlert()
+        return
+      }
+      if (chooseState) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        closeChoose(undefined)
       }
     }
 
-    if (!promptState && !confirmState && !alertState) {
+    if (!promptState && !confirmState && !alertState && !chooseState) {
       return
     }
 
     // capture：先于系统打开对话框等外层 Escape 处理，避免整层被关掉
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [alertState, closeAlert, closeConfirm, closePrompt, confirmState, promptState])
+  }, [
+    alertState,
+    chooseState,
+    closeAlert,
+    closeChoose,
+    closeConfirm,
+    closePrompt,
+    confirmState,
+    promptState,
+  ])
 
   const submitPrompt = useCallback(() => {
     if (!promptState) {
@@ -190,15 +249,17 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
       prompt,
       confirm,
       alert,
+      choose,
       setThemeColor,
       themeColor: defaultThemeColor,
     }),
-    [alert, confirm, defaultThemeColor, prompt, setThemeColor],
+    [alert, choose, confirm, defaultThemeColor, prompt, setThemeColor],
   )
 
   const promptTheme = promptState ? resolveThemeColor(promptState.options.themeColor) : undefined
   const confirmTheme = confirmState ? resolveThemeColor(confirmState.options.themeColor) : undefined
   const alertTheme = alertState ? resolveThemeColor(alertState.options.themeColor) : undefined
+  const chooseTheme = chooseState ? resolveThemeColor(chooseState.options.themeColor) : undefined
 
   const promptActions = useMemo((): WindowModalAction[] => {
     if (!promptState) {
@@ -260,6 +321,24 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
       },
     ]
   }, [alertState, closeAlert])
+
+  const chooseActions = useMemo((): WindowModalAction[] => {
+    if (!chooseState) {
+      return []
+    }
+
+    return chooseState.options.options.map((option) => ({
+      key: option.key,
+      label: option.label,
+      tone: option.tone,
+      onClick: () => {
+        closeChoose({
+          key: option.key,
+          applyToAll: chooseCheckboxRef.current?.checked === true,
+        })
+      },
+    }))
+  }, [chooseState, closeChoose])
 
   return (
     <WindowModalContext.Provider value={value}>
@@ -341,6 +420,24 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
             actions={alertActions}
           >
             {alertState && <p class="window-modal__message">{alertState.options.message}</p>}
+          </WindowModal>
+          <WindowModal
+            open={!!chooseState}
+            title={chooseState?.options.title ?? ''}
+            role="alertdialog"
+            themeColor={chooseTheme}
+            onClose={() => closeChoose(undefined)}
+            actions={chooseActions}
+            footer={
+              chooseState?.options.applyToAllLabel ? (
+                <label class="window-modal__apply-all">
+                  <input ref={chooseCheckboxRef} type="checkbox" />
+                  <span>{chooseState.options.applyToAllLabel}</span>
+                </label>
+              ) : undefined
+            }
+          >
+            {chooseState && <p class="window-modal__message">{chooseState.options.message}</p>}
           </WindowModal>
         </div>
       </WindowModalOverlayContext.Provider>
