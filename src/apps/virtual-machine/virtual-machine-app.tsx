@@ -5,6 +5,11 @@ import { useOs } from '../../os/os-context.tsx'
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
+import {
+  AdaptiveActionMenu,
+  type AdaptiveActionMenuItem,
+} from '../../ui/adaptive-action-menu.tsx'
+import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
   formatVmBackendLabel,
@@ -32,6 +37,12 @@ import {
   pickDisplayedMachineId,
   useVirtualMachineRuntimePool,
 } from './virtual-machine-runtime.ts'
+import {
+  buildKeyboardSequence,
+  VM_COMBO_KEY_PRESETS,
+  VM_FUNCTION_KEY_PRESETS,
+  type VmSendKeyPreset,
+} from './virtual-machine-send-keys.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 import { VirtualMachineSettingsDialog } from './virtual-machine-settings-dialog.tsx'
 import {
@@ -123,6 +134,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const [settingsSession, setSettingsSession] = useState<SettingsSession | undefined>(undefined)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [guestKeyboardArmed, setGuestKeyboardArmed] = useState(false)
+  const [sendKeysAnchor, setSendKeysAnchor] = useState<{ x: number; y: number } | undefined>(
+    undefined,
+  )
+  const { hostRef: narrowHostRef, narrowLayout } = useAppNarrowLayout()
   const keyboardSinkRef = useRef<HTMLDivElement>(null)
   const settingsOpenRef = useRef(false)
   const inspectorOpenRef = useRef(false)
@@ -261,6 +276,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const displayedBusy = Boolean(
     displayedId !== undefined && selectedSnapshot && !selectedSnapshot.ready,
   )
+  // 发送按键始终发给当前显示的画面，有运行中的画面就可用。
+  const canSendKeys = displayedId !== undefined
 
   const captureGuestKeyboard = useCallback(() => {
     // 不要把焦点交给 iframe：跨域画面看起来像聚焦了，按键却进不去。
@@ -516,6 +533,44 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     })()
   }, [pool, runtimeOrigin, selected, selectedBackend, showVmError])
 
+  const handleSendKeyPreset = useCallback(
+    (preset: VmSendKeyPreset) => {
+      if (displayedId === undefined) {
+        return
+      }
+      recordSystemDebugTimeline({
+        layer: 'vm',
+        op: 'send-key',
+        detail: `${preset.id} (${preset.label})`,
+      })
+      // 组合键就是一串键盘消息：按下顺序 down、逆序 up，走现有键盘注入通道。
+      for (const message of buildKeyboardSequence(preset)) {
+        pool.sendKeyboard(displayedId, message)
+      }
+    },
+    [displayedId, pool.sendKeyboard],
+  )
+
+  const sendKeysMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
+    return [
+      ...VM_COMBO_KEY_PRESETS.map((preset) => ({
+        type: 'action' as const,
+        label: preset.label,
+        onClick: () => handleSendKeyPreset(preset),
+      })),
+      { type: 'separator' as const },
+      {
+        type: 'submenu',
+        label: '功能键',
+        items: VM_FUNCTION_KEY_PRESETS.map((preset) => ({
+          type: 'action' as const,
+          label: preset.label,
+          onClick: () => handleSendKeyPreset(preset),
+        })),
+      },
+    ]
+  }, [handleSendKeyPreset])
+
   const handleBootError = useCallback(
     (machineId: string, message: string) => {
       pool.onBootError(machineId, message)
@@ -714,7 +769,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   )
 
   return (
-    <div class="virtual-machine">
+    <div class="virtual-machine" ref={narrowHostRef}>
       <div class="virtual-machine__toolbar" onPointerDown={releaseGuestKeyboard}>
         <div class="virtual-machine__toolbar-actions">
           <IosButton size="compact" onClick={handleNew}>
@@ -735,6 +790,16 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           </IosButton>
           <IosButton size="compact" disabled={!canReset} onClick={() => handlePower('reset')}>
             重置
+          </IosButton>
+          <IosButton
+            size="compact"
+            disabled={!canSendKeys}
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              setSendKeysAnchor({ x: rect.left, y: rect.bottom + 4 })
+            }}
+          >
+            发送按键
           </IosButton>
           <IosButton size="compact" disabled={!canSaveSnapshot} onClick={handleSaveSnapshot}>
             保存快照
@@ -883,6 +948,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           ) : null}
         </section>
       </div>
+      <AdaptiveActionMenu
+        open={sendKeysAnchor !== undefined}
+        title="发送按键"
+        items={sendKeysMenuItems}
+        narrowLayout={narrowLayout}
+        mount="portal"
+        anchor={sendKeysAnchor}
+        onClose={() => setSendKeysAnchor(undefined)}
+      />
       <VirtualMachineSettingsDialog
         open={settingsOpen}
         mode={settingsSession?.mode ?? 'create'}
