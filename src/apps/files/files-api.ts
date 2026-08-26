@@ -25,11 +25,14 @@ import {
 import {
   DATA_SPACE_FILE_LOCATIONS,
   estimateNodeMetaBytes,
+  FilesContentRevisionMismatchError,
   FilesPathExistsError,
   newFilesNodeId,
   setNodeSparse,
   type FilesNodeNameMode,
 } from './files-storage.ts'
+
+export { FilesContentRevisionMismatchError }
 import {
   copyNodeTo,
   createBinaryFile,
@@ -63,11 +66,12 @@ import {
   emitFilesVfsPathModified,
   type FilesSubtreeFileEntry,
   type FilesUpsertBatchItem,
+  type FilesWriteExpectedRevisionOptions,
   type FilesRemoveBatchOptions,
   type FilesStreamWriter,
 } from './files-vfs.ts'
 
-export type { FilesStreamWriter }
+export type { FilesWriteExpectedRevisionOptions }
 
 export type { FilesUpsertBatchItem, FilesSubtreeFileEntry, FilesRemoveBatchOptions }
 import {
@@ -384,13 +388,22 @@ export async function filesReadBlobRange(
   return blob
 }
 
-/** 覆写已存在的文本文件 */
-export async function filesWriteText(path: string, text: string): Promise<FilesApiEntry> {
+/**
+ * 覆写已存在的文本文件。
+ * 可选并发检查：options.expectedContentRevisionId 传调用方上次读到的内容版本戳，
+ * 与节点当前 contentRevisionId 不等时抛 FilesContentRevisionMismatchError（不合并，要求重读）；
+ * 缺省则盲写（与旧行为一致）。
+ */
+export async function filesWriteText(
+  path: string,
+  text: string,
+  options?: FilesWriteExpectedRevisionOptions,
+): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
   if (isFilesNamespaceRoot(absolutePath)) {
     throw new Error('不能写入命名空间根')
   }
-  const node = await writeTextFile(absolutePath, text)
+  const node = await writeTextFile(absolutePath, text, options)
   return toEntry(node)
 }
 
@@ -600,13 +613,17 @@ export async function filesOpenStreamWrite(
   })
 }
 
-/** 覆写已存在的二进制文件 */
-export async function filesWriteBinary(path: string, bytes: ArrayBuffer): Promise<FilesApiEntry> {
+/** 覆写已存在的二进制文件；options.expectedContentRevisionId 见 filesWriteText */
+export async function filesWriteBinary(
+  path: string,
+  bytes: ArrayBuffer,
+  options?: FilesWriteExpectedRevisionOptions,
+): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
   if (isFilesNamespaceRoot(absolutePath)) {
     throw new Error('不能写入命名空间根')
   }
-  const node = await writeBinaryFile(absolutePath, bytes)
+  const node = await writeBinaryFile(absolutePath, bytes, options)
   return toEntry(node)
 }
 
@@ -614,23 +631,27 @@ export async function filesWriteBinary(path: string, bytes: ArrayBuffer): Promis
  * 按偏移随机写：在文件 [offset, offset+bytes.byteLength) 处覆盖写入。
  * 挂载卷走 FSA seek + write；IndexedDB 本地卷走 chunk 拆分/合并。
  * offset 不能超过当前文件末尾（不支持空洞扩展）。
+ * options.expectedContentRevisionId 见 filesWriteText。
  */
 export async function filesWriteBytesRange(
   path: string,
   offset: number,
   bytes: ArrayBuffer | Uint8Array,
+  options?: FilesWriteExpectedRevisionOptions,
 ): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
   if (isFilesNamespaceRoot(absolutePath)) {
     throw new Error('不能写入命名空间根')
   }
-  const node = await writeFileBytesRange(absolutePath, offset, bytes)
+  const node = await writeFileBytesRange(absolutePath, offset, bytes, options)
   return toEntry(node)
 }
 
 /**
  * 批量 upsert 本地卷文件：路径不存在则创建、存在则覆写；自动创建缺失父目录。
  * 底层按批提交 IndexedDB 事务（默认最多 64 条，且内容合计不超过约 4 MiB）。
+ * 每条可带 expectedContentRevisionId 做并发检查；任一不等则整批不再提交
+ * （先于任何写入项抛错，与「任一失败整批回滚」语义一致）。
  */
 export async function filesUpsertBatch(
   items: readonly FilesUpsertBatchItem[],
@@ -641,8 +662,9 @@ export async function filesUpsertBatch(
     if (isFilesNamespaceRoot(path)) {
       throw new Error('不能写入命名空间根')
     }
-    if ('text' in item) return { path, text: item.text }
-    return { path, bytes: item.bytes }
+    const expectedContentRevisionId = item.expectedContentRevisionId
+    if ('text' in item) return { path, text: item.text, expectedContentRevisionId }
+    return { path, bytes: item.bytes, expectedContentRevisionId }
   })
   const nodes = await upsertFilesBatch(normalized, options)
   return Promise.all(nodes.map((node) => toEntry(node)))

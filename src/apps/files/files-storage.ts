@@ -214,6 +214,29 @@ export class FilesPathExistsError extends Error {
   }
 }
 
+/**
+ * 写入时代并发检查失败：调用方传入的期望内容版本（expectedContentRevisionId）
+ * 与节点当前 contentRevisionId 不一致，说明文件自调用方上次读取后被外部修改。
+ * 调用方应重读最新内容后再决定如何写入（存储层不做合并）。
+ */
+export class FilesContentRevisionMismatchError extends Error {
+  readonly path: string
+  readonly expected: string | undefined
+  readonly current: string | undefined
+  constructor(
+    message: string,
+    path: string,
+    expected: string | undefined,
+    current: string | undefined,
+  ) {
+    super(message)
+    this.name = 'FilesContentRevisionMismatchError'
+    this.path = path
+    this.expected = expected
+    this.current = current
+  }
+}
+
 let dbPromise: Promise<IDBDatabase> | undefined
 
 export function openFilesDb(): Promise<IDBDatabase> {

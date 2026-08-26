@@ -24,6 +24,7 @@
     "test:files-extract": "node --experimental-strip-types src/apps/files/files-extract-layout.test.ts",
     "test:files-op-window": "node --experimental-strip-types src/apps/files/files-op-window-position.test.ts",
     "test:files-empty-trash": "node --experimental-strip-types src/apps/files/files-empty-trash-progress.test.ts",
+    "test:files-revision": "node --experimental-strip-types src/apps/files/files-write-revision-check.test.ts",
     "test:files-image": "node --experimental-strip-types src/apps/files/files-image-mount.test.ts && node --experimental-strip-types src/apps/files/files-image-exfat.test.ts",
     "test:mdx-vocal": "node --experimental-strip-types src/apps/stems/mdx-vocal.test.ts",
     "test:stems-tempo": "node --experimental-strip-types src/apps/stems/stems-tempo.test.ts",
