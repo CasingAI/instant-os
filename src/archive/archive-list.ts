@@ -1,5 +1,6 @@
 import { gunzipSync } from 'fflate'
 import { detectArchiveFormat, type ArchiveCodecFormat } from './archive-codec.ts'
+import { listIsoEntries } from './archive-iso.ts'
 
 /**
  * 归档列目录（只读元数据，不解压内容）。
@@ -7,6 +8,7 @@ import { detectArchiveFormat, type ArchiveCodecFormat } from './archive-codec.ts
  *   压缩方法 / DOS 时间；不用 fflate Unzip 是因为它不暴露 mtime 与目录条目。
  * - tar / tar.gz：顺序扫 512 字节头、跳过数据区。
  * - gzip-file：整体 gunzip 后作为单个条目。
+ * - iso：ISOReader 遍历 Joliet/PVD 树（只列文件，目录由路径前缀推导）。
  */
 
 export type ArchiveEntryMeta = {
@@ -177,6 +179,8 @@ export function listArchiveEntries(
       return { format: 'zip', entries: listZipEntries(bytes) }
     case 'tar':
       return { format: 'tar', entries: listTarEntries(bytes) }
+    case 'iso':
+      return { format: 'iso', entries: listIsoEntries(bytes) }
     case 'gzip-tar': {
       let inflated: Uint8Array
       try {

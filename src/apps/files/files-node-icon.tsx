@@ -1442,6 +1442,92 @@ function ArchiveFileIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/**
+ * ISO 光盘镜像：同心环 + 虹彩高光 + 中孔。
+ * 圆形构图，独立 48×48 viewBox（不沿用折角纸模板）。
+ */
+function IsoDiscGlyph({ className }: { className: string }) {
+  const rawId = useId()
+  const uid = rawId.replace(/[^a-zA-Z0-9_-]/g, '')
+  const faceGrad = `iso-face-${uid}`
+  const rainbowGrad = `iso-rainbow-${uid}`
+  return (
+    <svg
+      class={className}
+      viewBox="0 0 48 48"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <defs>
+        <radialGradient id={faceGrad} cx="0.36" cy="0.3" r="0.9">
+          <stop offset="0%" stop-color="#fbfcfe" />
+          <stop offset="52%" stop-color="#dde4ec" />
+          <stop offset="100%" stop-color="#a6b0bf" />
+        </radialGradient>
+        <linearGradient id={rainbowGrad} x1="0.05" y1="0.1" x2="0.95" y2="0.9">
+          <stop offset="0%" stop-color="#7dd3fc" />
+          <stop offset="34%" stop-color="#c4b5fd" />
+          <stop offset="68%" stop-color="#fda4af" />
+          <stop offset="100%" stop-color="#fcd34d" />
+        </linearGradient>
+      </defs>
+      {/* 落地阴影 */}
+      <ellipse cx="24" cy="44.6" rx="15.5" ry="2.1" fill="rgba(24, 32, 44, 0.22)" />
+      {/* 盘体 */}
+      <circle
+        cx="24"
+        cy="23.5"
+        r="19.5"
+        fill={`url(#${faceGrad})`}
+        stroke="#8b94a3"
+        stroke-width="1"
+      />
+      {/* 同心数据环 */}
+      <circle cx="24" cy="23.5" r="16.8" fill="none" stroke="#c2cbd7" stroke-width="0.9" />
+      <circle cx="24" cy="23.5" r="12.4" fill="none" stroke="#ccd4de" stroke-width="0.7" />
+      {/* 虹彩高光环带（中孔外圈到数据区之间） */}
+      <circle
+        cx="24"
+        cy="23.5"
+        r="10.4"
+        fill="none"
+        stroke={`url(#${rainbowGrad})`}
+        stroke-width="5.4"
+        opacity="0.42"
+      />
+      {/* 斜向白色眩光 */}
+      <ellipse
+        cx="17.5"
+        cy="14.5"
+        rx="13"
+        ry="6.2"
+        transform="rotate(-32 17.5 14.5)"
+        fill="rgba(255, 255, 255, 0.38)"
+      />
+      {/* 中孔 */}
+      <circle cx="24" cy="23.5" r="5.4" fill="#f7f8fa" stroke="#8b94a3" stroke-width="0.95" />
+      <path
+        fill="none"
+        stroke="rgba(139, 148, 163, 0.55)"
+        stroke-width="1.1"
+        stroke-linecap="round"
+        d="M20.6 21.9a4.4 4.4 0 0 1 3.4 -1.75"
+      />
+    </svg>
+  )
+}
+
+function IsoDiscIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--iso-disc`}
+      aria-hidden="true"
+    >
+      <IsoDiscGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
+
 /** 「新建文件夹」等无节点场景的静态文件夹图标 */
 export function FilesFolderTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
   return (
@@ -1548,6 +1634,10 @@ export function FilesNodeIcon({
 
   if (isDocxFileExtension(extension)) {
     return <DocxFileIcon size={size} />
+  }
+
+  if (extension === 'iso') {
+    return <IsoDiscIcon size={size} />
   }
 
   if (resolveArchiveUtilityFormat(node.name)) {

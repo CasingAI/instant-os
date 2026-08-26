@@ -116,6 +116,8 @@ function formatFormatLabel(format: ArchiveSession['format']): string {
       return 'TAR.GZ'
     case 'gzip-file':
       return 'GZIP'
+    case 'iso':
+      return 'ISO'
   }
 }
 
@@ -150,7 +152,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
   const [createDialog, setCreateDialog] = useState<
     { sourcePath: string; destDir: string; sourceName: string } | undefined
   >(undefined)
-  const [createFormat, setCreateFormat] = useState<'zip' | 'gzip-tar'>('zip')
+  const [createFormat, setCreateFormat] = useState<'zip' | 'gzip-tar' | 'iso'>('zip')
   const [createName, setCreateName] = useState('')
 
   const { hostRef: narrowHostRef, narrowLayout } = useAppNarrowLayout()
@@ -453,10 +455,15 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
   }, [modal, showSystemOpenDialog])
 
   const performCreateArchive = useCallback(
-    async (sourcePath: string, destDir: string, format: 'zip' | 'gzip-tar', fileName: string) => {
+    async (
+      sourcePath: string,
+      destDir: string,
+      format: 'zip' | 'gzip-tar' | 'iso',
+      fileName: string,
+    ) => {
       setCreateDialog(undefined)
-      const extension = format === 'zip' ? 'zip' : 'tar.gz'
-      const finalName = /\.(zip|tar\.gz|tgz)$/i.test(fileName.trim())
+      const extension = format === 'zip' ? 'zip' : format === 'iso' ? 'iso' : 'tar.gz'
+      const finalName = /\.(zip|tar\.gz|tgz|iso)$/i.test(fileName.trim())
         ? fileName.trim()
         : `${fileName.trim()}.${extension}`
       const archivePath = `${destDir.replace(/\/+$/, '')}/${finalName}`
@@ -1000,7 +1007,9 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
         <ArchiveUtilityIcon size={44} />
       </div>
       <p class="archive-utility-app__empty-title">未打开压缩包</p>
-      <p class="archive-utility-app__empty-hint">打开一个 .zip、.tar、.tar.gz 或 .gz 文件以浏览其内容。</p>
+      <p class="archive-utility-app__empty-hint">
+        打开一个 .zip、.tar、.tar.gz、.gz 或 .iso 文件以浏览其内容。
+      </p>
       <div class="archive-utility-app__empty-actions">
         <IosButton tone="primary" onClick={() => void handleOpenArchive()}>
           打开压缩包…
@@ -1121,7 +1130,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
 
   const renderCreateDialog = () => {
     if (!createDialog) return null
-    const extension = createFormat === 'zip' ? 'zip' : 'tar.gz'
+    const extension = createFormat === 'zip' ? 'zip' : createFormat === 'iso' ? 'iso' : 'tar.gz'
     return (
       <div class="archive-utility-app__busy" role="dialog" aria-label="新建归档">
         <div class="archive-utility-app__busy-card archive-utility-app__create-card">
@@ -1138,6 +1147,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
               items={[
                 { id: 'zip', label: 'ZIP' },
                 { id: 'gzip-tar', label: 'TAR.GZ' },
+                { id: 'iso', label: 'ISO' },
               ]}
             />
           </div>

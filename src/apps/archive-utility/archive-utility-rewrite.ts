@@ -4,7 +4,9 @@ import type { ArchiveCodecFormat } from '../../archive/archive-codec.ts'
 
 /**
  * 归档内修改：读回字节 → 全量解码 → transform 改写条目 → 重新编码 → 覆盖写回。
- * 支持 zip / tar / tar.gz；单文件 gzip 无条目结构，不支持。
+ * 支持 zip / tar / tar.gz / iso；单文件 gzip 无条目结构，不支持。
+ * ISO 与 zip/tar 同走「整盘重建」：库只能从零构建镜像，无法原地改字节，
+ * 用户不可感知（编辑只动内存虚拟树，保存时才重建并覆盖写回同一路径）。
  * 已知取舍：重新编码会丢失归档注释、额外字段、加密等原始特性。
  */
 
@@ -38,7 +40,14 @@ export async function applyArchiveRewrite(params: {
       path,
       bytes: toExactBytes(data),
     })),
-    format: format === 'zip' ? 'zip' : format === 'tar' ? 'tar' : 'gzip-tar',
+    format:
+      format === 'zip'
+        ? 'zip'
+        : format === 'tar'
+          ? 'tar'
+          : format === 'iso'
+            ? 'iso'
+            : 'gzip-tar',
     signal,
   })
   await filesWriteBinary(archivePath, toExactBytes(outBytes))

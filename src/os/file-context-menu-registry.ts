@@ -19,6 +19,8 @@ export type FilesContextMenuOps = {
   compressAsZip: (nodes: readonly FilesNode[]) => void
   /** 压缩选中节点为 tar.gz，写入当前目录 */
   compressAsTarGz: (nodes: readonly FilesNode[]) => void
+  /** 压缩选中节点为 ISO 数据镜像，写入当前目录 */
+  compressAsIso: (nodes: readonly FilesNode[]) => void
   /** 解压归档到当前目录 */
   extractHere: (node: FilesNode) => void
   /** 按扩展名判断是否可解压的归档文件 */

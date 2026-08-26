@@ -24,7 +24,7 @@
     "test:files-image": "node --experimental-strip-types src/apps/files/files-image-mount.test.ts && node --experimental-strip-types src/apps/files/files-image-exfat.test.ts",
     "test:mdx-vocal": "node --experimental-strip-types src/apps/stems/mdx-vocal.test.ts",
     "test:stems-tempo": "node --experimental-strip-types src/apps/stems/stems-tempo.test.ts",
-    "test:archive": "node --experimental-strip-types src/archive/archive-codec.test.ts && node --experimental-strip-types src/archive/archive-progress.test.ts && node --experimental-strip-types src/archive/archive-worker-job.test.ts",
+    "test:archive": "node --experimental-strip-types src/archive/archive-codec.test.ts && node --experimental-strip-types src/archive/archive-iso.test.ts && node --experimental-strip-types src/archive/archive-progress.test.ts && node --experimental-strip-types src/archive/archive-worker-job.test.ts",
     "test:model-tokenizer": "node --experimental-strip-types src/ai/model-tokenizer.test.ts",
     "test:pow": "node --experimental-strip-types src/os/pow-client.test.ts && node --experimental-strip-types src/os/pow-parallel.test.ts && node --experimental-strip-types workers/model-gateway/src/catalog.test.ts",
     "test:model-cache": "node --experimental-strip-types src/os/model-cache-import.test.ts",

@@ -1,0 +1,34 @@
+{
+  "name": "@gcu/iso9660",
+  "version": "0.1.0",
+  "description": "ISO 9660 CD/DVD filesystem reader and writer in pure JavaScript. Supports Joliet extensions.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./reader": "./src/reader.js",
+    "./writer": "./src/writer.js",
+    "./bundled": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "index.js",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.js"
+  },
+  "keywords": ["iso9660", "iso", "cd", "dvd", "filesystem", "joliet", "auditable", "gcu"],
+  "license": "MIT",
+  "author": "Arthur Endlein Correia",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endarthur/auditable.git",
+    "directory": "ext/iso9660"
+  },
+  "homepage": "https://github.com/endarthur/auditable/tree/main/ext/iso9660",
+  "bugs": {
+    "url": "https://github.com/endarthur/auditable/issues"
+  }
+}

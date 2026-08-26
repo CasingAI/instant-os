@@ -1,6 +1,6 @@
-export type ArchiveUtilityFormat = 'zip' | 'gzip-tar' | 'tar' | 'gzip-file'
+export type ArchiveUtilityFormat = 'zip' | 'gzip-tar' | 'tar' | 'gzip-file' | 'iso'
 
-const ARCHIVE_OPEN_EXTENSIONS = ['zip', 'tar', 'gz', 'tgz'] as const
+const ARCHIVE_OPEN_EXTENSIONS = ['zip', 'tar', 'gz', 'tgz', 'iso'] as const
 
 export const ARCHIVE_UTILITY_OPEN_EXTENSIONS: readonly string[] = ARCHIVE_OPEN_EXTENSIONS
 
@@ -10,6 +10,7 @@ export function resolveArchiveUtilityFormat(fileName: string): ArchiveUtilityFor
   if (!base || base.endsWith('/')) return undefined
   if (base.endsWith('.tar.gz') || base.endsWith('.tgz')) return 'gzip-tar'
   if (base.endsWith('.zip')) return 'zip'
+  if (base.endsWith('.iso')) return 'iso'
   if (base.endsWith('.tar')) return 'tar'
   if (base.endsWith('.gz')) return 'gzip-file'
   return undefined
@@ -21,7 +22,12 @@ export function stripArchiveExtension(fileName: string): string {
   const lower = name.toLowerCase()
   if (lower.endsWith('.tar.gz')) return name.slice(0, -7)
   if (lower.endsWith('.tgz')) return name.slice(0, -4)
-  if (lower.endsWith('.zip') || lower.endsWith('.tar') || lower.endsWith('.gz')) {
+  if (
+    lower.endsWith('.zip') ||
+    lower.endsWith('.tar') ||
+    lower.endsWith('.gz') ||
+    lower.endsWith('.iso')
+  ) {
     return name.slice(0, -4)
   }
   const dot = name.lastIndexOf('.')

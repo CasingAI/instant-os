@@ -85,6 +85,7 @@
 .files-node-icon--model3d .files-node-icon__glyph--file,
 .files-node-icon--docx .files-node-icon__glyph--file,
 .files-node-icon--archive .files-node-icon__glyph--file,
+.files-node-icon--iso-disc .files-node-icon__glyph--file,
 .files-node-icon--code .files-node-icon__glyph--file {
   position: absolute;
   top: 50%;
@@ -98,6 +99,12 @@
 
 .files-node-icon--code .files-node-icon__glyph--file {
   aspect-ratio: 56 / 68;
+}
+
+/* ISO 光盘：正圆略小于纸面高度，避免圆形视觉体量过大 */
+.files-node-icon--iso-disc .files-node-icon__glyph--file {
+  aspect-ratio: 1 / 1;
+  height: 92%;
 }
 
 .files-node-icon__mark {

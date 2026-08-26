@@ -895,6 +895,8 @@ function toFriendlyArchiveError(format: FilesArchiveFormat, error: unknown): Err
       return new Error('无法解析该 tar 归档（文件可能已损坏）')
     case 'gzip-file':
       return new Error('无法解压该 gzip 文件（文件可能已损坏）')
+    case 'iso':
+      return new Error('无法解析该 ISO 镜像（文件可能已损坏）')
     default:
       return error instanceof Error ? error : new Error('无法解析压缩包（文件可能已损坏或格式不受支持）')
   }
@@ -1037,7 +1039,7 @@ export async function filesExtractArchive(params: {
 export async function filesCreateArchive(params: {
   sourceDirPath: string
   archivePath: string
-  format?: 'zip' | 'gzip-tar'
+  format?: 'zip' | 'gzip-tar' | 'iso'
   signal?: AbortSignal
   onProgress?: (progress: FilesCreateArchiveProgress) => void
 }): Promise<FilesApiEntry> {

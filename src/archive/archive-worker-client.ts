@@ -60,11 +60,11 @@ export async function decodeArchiveInWorker(params: {
 }
 
 /**
- * 在 Worker 中打包：目录文件（相对路径 → 字节）→ zip 或 tar.gz。
+ * 在 Worker 中打包：目录文件（相对路径 → 字节）→ zip / tar.gz / tar / iso。
  */
 export async function encodeArchiveInWorker(params: {
   entries: { path: string; bytes: ArrayBuffer }[]
-  format: 'zip' | 'gzip-tar' | 'tar'
+  format: 'zip' | 'gzip-tar' | 'tar' | 'iso'
   signal?: AbortSignal
 }): Promise<Uint8Array> {
   const request: ArchiveWorkerEncodeRequest = {

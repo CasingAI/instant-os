@@ -2239,6 +2239,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       canCreateHere,
       compressAsZip: (nodes) => void handleCompress(nodes, 'zip'),
       compressAsTarGz: (nodes) => void handleCompress(nodes, 'gzip-tar'),
+      compressAsIso: (nodes) => void handleCompress(nodes, 'iso'),
       extractHere: (node) => void handleExtract(node),
       isArchiveFileName,
     }),

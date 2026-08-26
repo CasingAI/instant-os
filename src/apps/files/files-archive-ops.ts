@@ -30,7 +30,7 @@ export type FilesArchiveOpsContext = {
   alertError: (title: string, error: unknown) => Promise<void>
 }
 
-/** 压缩选中节点为 zip / tar.gz，写入当前目录 */
+/** 压缩选中节点为 zip / tar.gz / iso，写入当前目录 */
 export async function compressNodesToArchiveOp(
   nodes: readonly FilesNode[],
   format: FilesArchiveFormat,
@@ -53,7 +53,8 @@ export async function compressNodesToArchiveOp(
     })
 
     const baseName = nodes.length === 1 ? nodes[0]!.name : '归档'
-    const name = format === 'zip' ? `${baseName}.zip` : `${baseName}.tar.gz`
+    const extension = format === 'zip' ? '.zip' : format === 'iso' ? '.iso' : '.tar.gz'
+    const name = `${baseName}${extension}`
     const bytes = result.bytes.buffer.slice(
       result.bytes.byteOffset,
       result.bytes.byteOffset + result.bytes.byteLength,
@@ -63,7 +64,12 @@ export async function compressNodesToArchiveOp(
       parentId: context.folderId,
       name,
       bytes,
-      mimeType: format === 'zip' ? 'application/zip' : 'application/gzip',
+      mimeType:
+        format === 'zip'
+          ? 'application/zip'
+          : format === 'iso'
+            ? 'application/x-iso9660-image'
+            : 'application/gzip',
     })
     context.showToast(`已压缩 ${result.entryCount} 个文件`)
     await context.refresh({ quiet: true })

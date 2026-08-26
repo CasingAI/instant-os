@@ -1,19 +1,23 @@
 import { gzipSync, zipSync } from 'fflate'
+import { isIsoImageBytes } from './archive-iso.ts'
 
 /**
  * Archive Worker 与 node 测试共用的纯编解码函数。
  * 本模块不碰 VFS / Worker，可被 node --experimental-strip-types 直接加载。
  */
 
-export type ArchiveCodecFormat = 'zip' | 'tar' | 'gzip-tar' | 'gzip-file'
+export type ArchiveCodecFormat = 'zip' | 'tar' | 'gzip-tar' | 'gzip-file' | 'iso'
 
 const TAR_BLOCK_SIZE = 512
 const TAR_MAX_PATH = 255
 
-/** 魔数识别归档格式；无法识别返回 undefined。 */
+/** 魔数识别归档格式；无法识别返回 undefined。ISO 判定优先于扩展名。 */
 export function detectArchiveFormat(
   bytes: Uint8Array,
 ): Exclude<ArchiveCodecFormat, 'gzip-file'> | undefined {
+  if (isIsoImageBytes(bytes)) {
+    return 'iso'
+  }
   if (
     bytes.byteLength >= 4 &&
     bytes[0] === 0x50 &&

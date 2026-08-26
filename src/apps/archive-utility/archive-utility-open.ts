@@ -27,6 +27,10 @@ registerFilesContextMenuContribution({
         label: countLabel('压缩为 tar.gz'),
         onClick: () => ops.compressAsTarGz(targetNodes),
       },
+      {
+        label: countLabel('压缩为 ISO'),
+        onClick: () => ops.compressAsIso(targetNodes),
+      },
     ]
     if (!multi && node.kind === 'file' && ops.isArchiveFileName(node.name)) {
       items.push({

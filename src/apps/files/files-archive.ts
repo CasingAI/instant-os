@@ -9,16 +9,19 @@ import { extractZipToDirectory } from '../../archive/archive-extract.ts'
 import type { FilesNode } from './files-types.ts'
 import { listDirectory, readFileBlob } from './files-vfs.ts'
 
-export type FilesArchiveFormat = 'zip' | 'gzip-tar'
+export type FilesArchiveFormat = 'zip' | 'gzip-tar' | 'iso'
 
 export type FilesCompressResult = {
   bytes: Uint8Array
   entryCount: number
 }
 
-/** 按扩展名判断是否可解压的归档文件（不含路径） */
+/**
+ * 按扩展名判断是否可解压的归档文件（不含路径）。
+ * 与压缩包实用工具 resolveArchiveUtilityFormat 同口径：zip / tar / tar.gz / tgz / gz / iso。
+ */
 export function isArchiveFileName(name: string): boolean {
-  return /\.(zip|tar\.gz|tgz)$/i.test(name)
+  return /\.(zip|tar|tar\.gz|tgz|gz|iso)$/i.test(name)
 }
 
 export type FilesCompressPlanEntry = { path: string; node: FilesNode }
