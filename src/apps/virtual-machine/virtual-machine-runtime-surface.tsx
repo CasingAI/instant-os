@@ -3,7 +3,8 @@ import { useEffect, useRef } from 'preact/hooks'
 import type {
   InstantVmStartMessage,
 } from './virtual-machine-protocol.ts'
-import { buildVmRuntimeOriginWithMode } from './virtual-machine-runtime-config.ts'
+import { buildVmRuntimeOriginWithMode, appendVmCrashReportParam } from './virtual-machine-runtime-config.ts'
+import { loadExperimentalSettings } from '../../os/experimental-settings-storage.ts'
 import {
   useVirtualMachineRuntime,
   type VmRuntimeApi,
@@ -20,7 +21,7 @@ export type VmRuntimeSurfaceProps = {
   onStateChange: (machineId: string, snapshot: VmRuntimeSnapshot) => void
   onStarted: (machineId: string) => void
   onGuestPoweredOff: (machineId: string) => void
-  onBootError: (machineId: string, message: string) => void
+  onBootError: (machineId: string, message: string, detail?: string) => void
   onIframeLoadFailed: (machineId: string, detail: string) => void
   onDiskWriteFailed: (machineId: string, message: string) => void
   onCaptureKeyboard: () => void
@@ -48,6 +49,10 @@ export function VmRuntimeSurface({
   isDisplayed,
 }: VmRuntimeSurfaceProps) {
   const resolvedOrigin = buildMode ? buildVmRuntimeOriginWithMode(origin, buildMode) : origin
+  const crashReportOrigin = appendVmCrashReportParam(
+    resolvedOrigin,
+    loadExperimentalSettings().vmCrashReport,
+  )
   const {
     iframeRef,
     ready,
@@ -69,7 +74,7 @@ export function VmRuntimeSurface({
     resolvedOrigin,
     () => onGuestPoweredOff(machineId),
     (message) => onDiskWriteFailed(machineId, message),
-    (message) => onBootError(machineId, message),
+    (message, detail) => onBootError(machineId, message, detail),
     (detail) => onIframeLoadFailed(machineId, detail),
   )
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
@@ -163,7 +168,7 @@ export function VmRuntimeSurface({
           ref={iframeRef}
           class={frameClass}
           title={`虚拟机显示器 ${machineId}`}
-          src={resolvedOrigin}
+          src={crashReportOrigin ?? resolvedOrigin}
           tabIndex={-1}
           referrerPolicy="origin"
           sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"

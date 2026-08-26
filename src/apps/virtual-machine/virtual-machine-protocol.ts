@@ -282,6 +282,8 @@ export type InstantVmErrorMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.error
   requestId?: string
   message: string
+  /** record 模式下附带的崩溃原文，供宿主写入诊断日志 */
+  detail?: string
 }
 
 export type InstantVmProgressMessage = {
@@ -807,6 +809,9 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.error) {
     if (typeof value.message !== 'string' || !value.message.trim()) {
+      return false
+    }
+    if (value.detail !== undefined && typeof value.detail !== 'string') {
       return false
     }
     return value.requestId === undefined || isRequestId(value.requestId)

@@ -3,7 +3,7 @@
  * 运行：node --experimental-strip-types src/apps/virtual-machine/virtual-machine-runtime-config.test.ts
  */
 import assert from 'node:assert/strict'
-import { buildVmRuntimeOriginWithMode, defaultDevRuntimeOrigin } from './virtual-machine-runtime-config.ts'
+import { buildVmRuntimeOriginWithMode, appendVmCrashReportParam, defaultDevRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 
 function testOppositeLoopback(): void {
   assert.equal(defaultDevRuntimeOrigin('http://localhost:6173'), 'http://127.0.0.1:6175')
@@ -43,7 +43,25 @@ function testBuildVmRuntimeOriginWithMode(): void {
   assert.equal(buildVmRuntimeOriginWithMode('not a url', 'debug'), 'not a url')
 }
 
+function testAppendVmCrashReportParam(): void {
+  assert.equal(appendVmCrashReportParam(undefined, 'throw'), undefined)
+  assert.equal(
+    appendVmCrashReportParam('http://localhost:6175', 'off'),
+    'http://localhost:6175',
+    'off 不加参数',
+  )
+  assert.equal(
+    appendVmCrashReportParam('http://localhost:6175/?v86=debug', 'record'),
+    'http://localhost:6175/?v86=debug&vmcrash=record',
+  )
+  assert.equal(
+    appendVmCrashReportParam('http://127.0.0.1:6175/', 'throw'),
+    'http://127.0.0.1:6175/?vmcrash=throw',
+  )
+}
+
 testOppositeLoopback()
 testFallback()
 testBuildVmRuntimeOriginWithMode()
+testAppendVmCrashReportParam()
 console.log('virtual-machine-runtime-config.test.ts ok')

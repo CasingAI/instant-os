@@ -20,11 +20,22 @@ export type ExperimentalSettings = {
   generatedAppProcessIsolation: boolean
   /** Keep the system cursor visible during boot splash and cold-start transitions. */
   alwaysShowCursor: boolean
+  /**
+   * How v86 fatal crashes are reported by the VM runtime iframe.
+   * off: 只显示固定提示；record: 同时 console.error 原始错误；throw: Console 原样抛出且仍通知宿主。
+   */
+  vmCrashReport: 'off' | 'record' | 'throw'
 }
 
 export const EXPERIMENTAL_SETTINGS_CHANGED_EVENT = 'instant-os:experimental-settings-changed'
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.experimentalSettings
+
+export const VM_CRASH_REPORT_OPTIONS: { value: 'off' | 'record' | 'throw'; label: string }[] = [
+  { value: 'off', label: '关闭' },
+  { value: 'record', label: '记录' },
+  { value: 'throw', label: '抛出' },
+]
 
 const DEFAULT_SETTINGS: ExperimentalSettings = {
   fullscreenImmersiveChrome: false,
@@ -32,6 +43,11 @@ const DEFAULT_SETTINGS: ExperimentalSettings = {
   externalBridge: false,
   generatedAppProcessIsolation: true,
   alwaysShowCursor: false,
+  vmCrashReport: 'off',
+}
+
+function normalizeVmCrashReport(raw: unknown): ExperimentalSettings['vmCrashReport'] {
+  return raw === 'record' || raw === 'throw' ? raw : 'off'
 }
 
 function normalizeExperimentalSettings(raw: unknown): ExperimentalSettings {
@@ -51,6 +67,7 @@ function normalizeExperimentalSettings(raw: unknown): ExperimentalSettings {
     externalBridge: record.externalBridge === true,
     generatedAppProcessIsolation: processIsolation,
     alwaysShowCursor: record.alwaysShowCursor === true,
+    vmCrashReport: normalizeVmCrashReport(record.vmCrashReport),
   }
 }
 
@@ -73,6 +90,7 @@ export function saveExperimentalSettings(settings: ExperimentalSettings): boolea
     externalBridge: settings.externalBridge,
     generatedAppProcessIsolation: settings.generatedAppProcessIsolation,
     alwaysShowCursor: settings.alwaysShowCursor,
+    vmCrashReport: settings.vmCrashReport,
   })
   if (!writeLocalStorageItem(STORAGE_KEY, serialized)) {
     return false

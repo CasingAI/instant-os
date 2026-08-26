@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import {
   ExtAppManifestFetchError,
   useDevExtApps,
@@ -29,7 +30,6 @@ import {
   fillSystemStorageToCapacityForDev,
   getTotalLocalStorageBytes,
 } from '../../os/device-storage.ts'
-import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import {
   loadModelSourceSettings,
   MODEL_SOURCE_OPTIONS,
@@ -79,6 +79,9 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
   )
   const [alwaysShowCursor, setAlwaysShowCursor] = useState(
     () => loadExperimentalSettings().alwaysShowCursor,
+  )
+  const [vmCrashReport, setVmCrashReport] = useState(
+    () => loadExperimentalSettings().vmCrashReport,
   )
   const [systemDebugLog, setSystemDebugLog] = useState(
     () => loadSystemDebugLogSettings().enabled,
@@ -156,6 +159,16 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
 
     setSaveError(false)
     setAlwaysShowCursor(checked)
+  }
+
+  const handleVmCrashReportChange = (value: string) => {
+    const mode = value === 'record' || value === 'throw' ? value : 'off'
+    if (!patchExperimentalSettings({ vmCrashReport: mode })) {
+      setSaveError(true)
+      return
+    }
+    setSaveError(false)
+    setVmCrashReport(mode)
   }
 
   const handleToggleSystemDebugLog = (checked: boolean) => {
@@ -534,6 +547,22 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
                   {systemDebugLogClearing ? '正在清空…' : '清空诊断数据'}
                 </button>
               </div>
+            </div>
+            <div class="settings__experimental-feature">
+              <h3 class="settings__section-title settings__section-title--minor">虚拟机崩溃报告</h3>
+              <SettingsChoiceOptionList
+                ariaLabel="虚拟机崩溃报告模式"
+                options={[
+                  { id: 'off', label: '关闭' },
+                  { id: 'record', label: '记录' },
+                  { id: 'throw', label: '抛出' },
+                ]}
+                value={vmCrashReport}
+                onChange={handleVmCrashReportChange}
+              />
+              <p class="settings__section-footnote">
+                控制模拟器致命错误（WASM 崩溃 / 栈溢出）的呈现方式。关闭：只显示固定提示；记录：写入系统诊断日志（需开启黑匣子）并在运行时 Console 输出原文；抛出：原始错误原样进入 Console（完整堆栈），同时仍会停模拟器并通知宿主。切换后需重新开机虚拟机生效。
+              </p>
             </div>
             <DeveloperFeature
               title="停用窗口合成器加速"

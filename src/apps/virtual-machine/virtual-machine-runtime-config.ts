@@ -90,3 +90,23 @@ export function buildVmRuntimeOriginWithMode(
     return baseOrigin
   }
 }
+
+/**
+ * 在已解析的运行时地址上追加 `?vmcrash=` 参数，把崩溃报告模式传进跨域 iframe。
+ * mode 为 off 时不加参数（与默认行为一致）。
+ */
+export function appendVmCrashReportParam(
+  baseOrigin: string | undefined,
+  mode: 'off' | 'record' | 'throw',
+): string | undefined {
+  if (!baseOrigin || mode === 'off') {
+    return baseOrigin
+  }
+  try {
+    const url = new URL(baseOrigin)
+    url.searchParams.set('vmcrash', mode)
+    return url.origin + url.pathname + url.search + url.hash
+  } catch {
+    return baseOrigin
+  }
+}

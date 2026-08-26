@@ -63,6 +63,8 @@ function diskPresence(disks: Partial<InstantVmStartMessage>): {
 
 const REQUEST_TIMEOUT_MS = 60_000
 const REMOTE_DISK_REQUEST_TIMEOUT_MS = 180_000
+// 保存快照要同步序列化整个虚拟机物理内存（可达 2GB）并传回宿主，远超普通请求阈值。
+const SNAPSHOT_SAVE_TIMEOUT_MS = 10 * 60_000
 const DISK_LOAD_TIMEOUT_MS = 120_000
 // 运行时页面加载完成后会立刻发 ready 消息；超过这个时间还没来，
 // 基本可以断定 iframe 里是浏览器的网络错误页（服务器没起 / 不可达）。
@@ -220,7 +222,7 @@ export function useVirtualMachineRuntime(
   origin: string | undefined,
   onGuestPoweredOff?: () => void,
   onDiskWriteFailed?: (message: string) => void,
-  onRuntimeError?: (message: string) => void,
+  onRuntimeError?: (message: string, detail?: string) => void,
   onIframeLoadFailed?: (detail: string) => void,
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -312,7 +314,7 @@ export function useVirtualMachineRuntime(
         const pendingCount = pendingRef.current.size
         failAll(error)
         if (shouldSurfaceUnsolicitedVmError(message, pendingCount)) {
-          onRuntimeErrorRef.current?.(message.message)
+          onRuntimeErrorRef.current?.(message.message, message.detail)
         }
         return
       }
@@ -510,7 +512,7 @@ export function useVirtualMachineRuntime(
     const result = await request<InstantVmSaveStateResultMessage>(
       { type: INSTANT_VM_MESSAGE_TYPE.saveState, requestId: newVmRequestId() },
       [],
-      REMOTE_DISK_REQUEST_TIMEOUT_MS,
+      SNAPSHOT_SAVE_TIMEOUT_MS,
       (value) => value as InstantVmSaveStateResultMessage,
     )
     // 整个 VM 状态 ArrayBuffer 经结构化克隆回宿主：保存期间画面停顿
@@ -666,11 +668,13 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     [removeRunningId],
   )
 
-  const onBootError = useCallback((id: string, message: string) => {
+  const onBootError = useCallback((id: string, message: string, detail?: string) => {
     recordSystemDebugTimeline({
       layer: 'vm',
       op: 'boot-error',
-      detail: `${id}: ${message.slice(0, 200)}`,
+      detail: detail?.trim()
+        ? `${id}: ${detail.trim().slice(0, 4000)}`
+        : `${id}: ${message.slice(0, 200)}`,
     })
     void removeRunningId(id)
       .catch(() => undefined)

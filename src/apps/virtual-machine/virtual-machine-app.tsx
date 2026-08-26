@@ -521,6 +521,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     void (async () => {
       setPowerBusy(true)
       setPowerHint('正在保存快照，画面可能会停顿…')
+      const startedAt = performance.now()
+      const ticker = window.setInterval(() => {
+        const elapsed = Math.round((performance.now() - startedAt) / 1000)
+        setPowerHint(`正在保存快照，画面可能会停顿…（已 ${elapsed} 秒）`)
+      }, 2000)
       try {
         const state = await pool.saveInstanceState(machine.id)
         const result = await saveVirtualMachineSnapshot(machine, state)
@@ -528,6 +533,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       } catch (error) {
         showVmError(error instanceof Error ? error.message : '保存快照失败')
       } finally {
+        window.clearInterval(ticker)
         setPowerBusy(false)
       }
     })()
@@ -572,8 +578,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   }, [handleSendKeyPreset])
 
   const handleBootError = useCallback(
-    (machineId: string, message: string) => {
-      pool.onBootError(machineId, message)
+    (machineId: string, message: string, detail?: string) => {
+      pool.onBootError(machineId, message, detail)
       showVmError(message)
     },
     [pool, showVmError],
