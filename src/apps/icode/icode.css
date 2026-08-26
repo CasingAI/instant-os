@@ -1475,6 +1475,7 @@
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(140px, 36%) minmax(0, 1fr);
+  gap: 8px;
   overflow: hidden;
 }
 
@@ -1482,18 +1483,18 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid #c8c8c8;
-  background: linear-gradient(180deg, #f4f4f4 0%, #ececec 100%);
+  margin: 8px 0 8px 8px;
+  overflow: hidden;
+  border: 1px solid #a8a8a8;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .icode__data-keys-scroll {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .icode__data-keys-empty {
@@ -1512,35 +1513,31 @@
   gap: 3px;
   width: 100%;
   padding: 5px 9px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  border-bottom: 1px solid #ececec;
   font: inherit;
   text-align: left;
   color: #222;
-  background: transparent;
+  background: #fff;
   cursor: pointer;
 }
 
+.icode__data-key:last-child {
+  border-bottom: none;
+}
+
 .icode__data-key:hover {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.72) 0%,
-    rgba(255, 255, 255, 0.4) 100%
-  );
-  border-color: rgba(255, 255, 255, 0.7);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 1px 2px rgba(0, 0, 0, 0.08);
+  color: #fff;
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+}
+
+.icode__data-key:active {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
 }
 
 .icode__data-key--selected,
 .icode__data-key--selected:hover {
-  border-color: #145da8;
   color: #fff;
-  background: linear-gradient(180deg, #5b9be8 0%, #2f87e2 55%, #2068b8 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 1px 2px rgba(0, 0, 0, 0.18);
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
 }
 
 .icode__data-key-name {
@@ -1552,6 +1549,7 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.icode__data-key:hover .icode__data-key-name,
 .icode__data-key--selected .icode__data-key-name {
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
@@ -1571,6 +1569,7 @@
   white-space: nowrap;
 }
 
+.icode__data-key:hover .icode__data-key-preview,
 .icode__data-key--selected .icode__data-key-preview {
   color: rgba(255, 255, 255, 0.85);
 }
@@ -1605,6 +1604,7 @@
   background: rgba(0, 0, 0, 0.06);
 }
 
+.icode__data-key:hover .icode__data-kind,
 .icode__data-key--selected .icode__data-kind {
   color: #fff;
   background: rgba(255, 255, 255, 0.22);
@@ -1613,8 +1613,9 @@
 
 .icode__data-keys-add {
   padding: 6px;
-  border-top: 1px solid #c8c8c8;
-  background: linear-gradient(180deg, #ececec 0%, #e2e2e2 100%);
+  border-top: 1px solid #d8d8d8;
+  background: linear-gradient(180deg, #f3f3f3 0%, #e8e8e8 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .icode__data-keys-add-button {
