@@ -872,6 +872,11 @@ export class FatImageVolume {
     const state: {
       file: FatFile | undefined
       io: FatFileIo | undefined
+      /**
+       * 覆盖写：暂存用的同目录临时路径；close 改名交换提交，abort 只删它。
+       * 新建、或覆盖时目标已不存在（退化原地新建）则为 undefined
+       */
+      workPath: string | undefined
       clusterSize: number
       pending: Uint8Array
       totalWritten: number
@@ -880,6 +885,7 @@ export class FatImageVolume {
     } = {
       file: undefined,
       io: undefined,
+      workPath: undefined,
       clusterSize: 0,
       pending: new Uint8Array(0),
       totalWritten: 0,
@@ -889,25 +895,42 @@ export class FatImageVolume {
 
     const start = async (): Promise<void> => {
       if (state.file && state.io) return
-      // 建文件/覆盖截断/打开是短操作，整体一次重试即可；
+      // 建文件/打开是短操作，整体一次重试即可；
       // 预分配循环放在外面逐簇各自重试：单簇缺页只重跑这一簇，
       // 已落盘的分配进度不会被打回从头，也不会重跑 makeFile
       const opened = await this.withRoot(async (root) => {
-        const file = root.makeFile(relativePath)
-        if (!file) throw new Error('无法写入文件')
-        if (!isNew) {
-          // 覆盖已有文件：打开阶段立即截断原内容。
-          // 若后续 write/close 前调用 abort()，文件会保持为空；调用方应自行保证可接受此语义。
-          const trunc = file.open()
-          if (!trunc) throw new Error('无法写入文件')
-          trunc.writeData(new Uint8Array(0))
+        // 覆盖写 = 事务：目标在 close 交换前保持原样，新内容写同目录临时文件。
+        // 目标不存在（writeFileStreamed 固定按覆盖开流）时退化为原地新建，
+        // 返回 workPath: undefined，close/abort 按未暂存路径走
+        if (isNew || !root.getFile(relativePath)) {
+          const file = root.makeFile(relativePath)
+          if (!file) throw new Error('无法写入文件')
+          const io = file.open()
+          if (!io) throw new Error('无法写入文件')
+          return { file, io, workPath: undefined }
         }
+        const workPath = await (async () => {
+          for (let attempt = 0; attempt < 8; attempt += 1) {
+            const candidate = joinFatRelativePath(
+              posixDirname(relativePath),
+              `${posixBasename(relativePath)}.__instant-w__${Math.random().toString(36).slice(2, 10)}`,
+            )
+            if (!root.getFile(candidate)) return candidate
+          }
+          throw new Error('无法生成临时文件名')
+        })()
+        const file = root.makeFile(workPath)
+        if (!file) throw new Error('无法写入文件')
         const io = file.open()
         if (!io) throw new Error('无法写入文件')
-        return { file, io }
+        return { file, io, workPath }
       })
-      const clusterSize = this.clusterSize()
+      state.file = opened.file
+      state.io = opened.io
+      state.workPath = opened.workPath
+      state.clusterSize = this.clusterSize()
       if (expectedSize !== undefined && expectedSize > 0) {
+        const clusterSize = state.clusterSize
         const zeros = new Uint8Array(clusterSize)
         const needed = Math.ceil(expectedSize / clusterSize)
         for (let i = 0; i < needed; i += 1) {
@@ -923,9 +946,6 @@ export class FatImageVolume {
         }
         await this.withSectors(() => opened.io.rewind())
       }
-      state.file = opened.file
-      state.io = opened.io
-      state.clusterSize = clusterSize
       this.noteDirtyCache()
     }
 
@@ -993,9 +1013,49 @@ export class FatImageVolume {
               adaptFatFileNode(file).setLength(state.totalWritten)
               file.setLastModified(new Date())
             })
+            const stagedPath = state.workPath
+            if (!stagedPath) {
+              // 新建 / 目标不存在时退化的原地写：文件本体已就位，直接定稿
+              this.invalidateClusterCache(relativePath)
+              if (!state.file) throw new Error('无法写入文件')
+              return this.toEntry(state.file)
+            }
+            // 覆盖提交：同目录改名交换（moveTo 原子）。目标先挪备份名腾出原名，
+            // 临时文件转正后旧内容才释放；中途失败把备份挪回原名，旧内容不丢
+            const backupPath = await this.withRoot((root) => {
+              const target = root.getFile(relativePath)
+              if (!target) throw new Error('文件不存在')
+              const base = posixBasename(relativePath)
+              let backupPath: string | undefined
+              for (let attempt = 0; attempt < 8 && !backupPath; attempt += 1) {
+                const candidate = joinFatRelativePath(
+                  posixDirname(relativePath),
+                  `${base}.__instant-old__${Math.random().toString(36).slice(2, 10)}`,
+                )
+                if (!root.getFile(candidate)) backupPath = candidate
+              }
+              if (!backupPath) throw new Error('无法替换文件')
+              if (!target.moveTo(posixBasename(backupPath))) throw new Error('无法替换文件')
+              try {
+                const staged = root.getFile(stagedPath)
+                if (!staged || !staged.moveTo(base)) throw new Error('无法替换文件')
+              } catch (err) {
+                try {
+                  root.getFile(backupPath)?.moveTo(base)
+                } catch {
+                  // 还原失败只能尽力而为：备份仍在，数据未丢
+                }
+                throw err
+              }
+              root.getFile(backupPath)?.delete()
+              return backupPath
+            })
+            this.invalidateClusterCache(stagedPath)
+            this.invalidateClusterCache(backupPath)
             this.invalidateClusterCache(relativePath)
-            if (!state.file) throw new Error('无法写入文件')
-            return this.toEntry(state.file)
+            const finalFile = await this.withRoot((root) => root.getFile(relativePath))
+            if (!finalFile) throw new Error('无法替换文件')
+            return this.toEntry(finalFile)
           } finally {
             this.noteDirtyCache()
           }
@@ -1005,15 +1065,22 @@ export class FatImageVolume {
           if (state.closed) return
           state.aborted = true
           state.pending = new Uint8Array(0)
+          const workPath = state.workPath ?? relativePath
           try {
             await this.withRoot((root) => {
-              const file = state.file ?? root.getFile(relativePath)
-              if (!file) return
-              const io = file.open()
-              io?.writeData(new Uint8Array(0))
-              if (isNew) file.delete()
+              if (isNew) {
+                const file = state.file ?? root.getFile(relativePath)
+                if (!file) return
+                const io = file.open()
+                io?.writeData(new Uint8Array(0))
+                file.delete()
+              } else {
+                // 覆盖写回滚：暂存流只删临时文件（目标从未被改动）；
+                // 退化原地新建流删掉的只是本次写出的草稿
+                root.getFile(workPath)?.delete()
+              }
             })
-            this.invalidateClusterCache(relativePath)
+            this.invalidateClusterCache(isNew ? relativePath : workPath)
           } finally {
             this.noteDirtyCache()
           }

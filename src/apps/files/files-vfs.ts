@@ -2371,6 +2371,54 @@ async function copyNodeTree(
   return folder
 }
 
+/**
+ * 单文件覆盖事务：以源文件内容事务式覆盖目标文件。
+ * 打开目标文件的覆盖流（各后端保证提交前旧内容原样：内部卷 close 切换 blob 指针、
+ * 镜像卷补丁目录项、FAT/挂载卷临时名 + 改名交换），分块泵入源内容后 close 提交；
+ * 中途任何失败都 abort 回滚——目标保持旧内容，不出现「删了旧的、新的没进去」的中间态。
+ */
+export async function overwriteNodeWithSource(params: {
+  targetId: string
+  sourceId: string
+  signal?: AbortSignal
+  onProgress?: (bytesWritten: number, totalBytes: number) => void
+}): Promise<FilesNode> {
+  const [target, source] = await Promise.all([
+    getNodeOrThrow(params.targetId),
+    getNodeOrThrow(params.sourceId),
+  ])
+  if (target.kind !== 'file') throw new Error('目标不是文件')
+  if (source.kind !== 'file') throw new Error('源不是文件')
+  assertNodeWritable(target)
+  params.signal?.throwIfAborted?.()
+  const writer = await openStreamWrite({
+    node: target,
+    isNew: false,
+    metaBytes: 0,
+    previousByteSize: target.byteSize,
+    expectedSize: source.byteSize,
+  })
+  try {
+    const chunkSize = 1024 * 1024
+    let offset = 0
+    while (offset < source.byteSize) {
+      params.signal?.throwIfAborted?.()
+      const { blob } = await readFileBlobRange(
+        source.id,
+        offset,
+        Math.min(chunkSize, source.byteSize - offset),
+      )
+      await writer.write(new Uint8Array(await blob.arrayBuffer()))
+      offset += blob.size
+      params.onProgress?.(offset, source.byteSize)
+    }
+    return await writer.close()
+  } catch (err) {
+    await writer.abort().catch(() => undefined)
+    throw err
+  }
+}
+
 export type FilesUpsertBatchItem =
   | { path: string; text: string; expectedContentRevisionId?: string }
   | { path: string; bytes: ArrayBuffer; expectedContentRevisionId?: string }

@@ -132,6 +132,8 @@ import {
   resolveNodeByAbsolutePath,
   resolvePathNodes,
   restoreNode,
+  overwriteNodeWithSource,
+  runWithFilesVfsChangeBatch,
   trashNode,
 } from './files-vfs.ts'
 import {
@@ -2083,69 +2085,100 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         }
         keptEntries.push(item)
       }
-      let replacedCount = 0
-      for (const item of replaceEntries) {
-        const target = await findSiblingNode(locationId, folderId, item.name)
-        if (!target) {
-          keptEntries.push(item)
-          continue
-        }
-        try {
-          // 替换 = 永久删除旧文件腾出原名再按原名拷入（各卷型统一，不进废纸篓）；
-          // 失败则退回保留两者（靠自动改名兜底）
-          await removeNode(target.id)
-          replacedCount += 1
-        } catch (err) {
-          showToast(`无法替换「${item.name}」：${formatError(err)}`)
-        }
-        keptEntries.push(item)
-      }
       const pasteEntries = keptEntries
-      if (replacedCount > 0) invalidateFilesVfsPathCaches()
-      const workloads = await Promise.all(
-        pasteEntries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
-      )
-      const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+      const createdNodes: FilesNode[] = []
+      // 删除腾名 + 拷入整体为一次 VFS 批量：期间变更只合并不广播（缓存仍即时失效），
+      // 否则每删/每拷一个都触发列表重读，UI 会直播「旧文件删光→空文件夹→逐个长回」的中间态
+      await runWithFilesVfsChangeBatch(async () => {
+        // 文件→文件替换不再先删后拷：登记为覆盖目标，粘贴阶段走单文件覆盖事务
+        // （各后端 close 才提交，中途失败旧内容原样）；文件夹替换仍先删后拷。
+        // 覆盖项仍留在粘贴清单里（剪切语义要删源、进度要计数），只是不删目标、不复制
+        const overwriteTargets = new Map<string, string>()
+        for (const item of replaceEntries) {
+          const target = await findSiblingNode(locationId, folderId, item.name)
+          if (!target) {
+            keptEntries.push(item)
+            continue
+          }
+          if (item.kind === 'file' && target.kind === 'file') {
+            overwriteTargets.set(item.name, target.id)
+            continue
+          }
+          try {
+            // 文件夹替换 = 永久删除旧目录腾出原名再按原名拷入（各卷型统一，不进废纸篓）；
+            // 失败则退回保留两者（靠自动改名兜底）
+            await removeNode(target.id)
+          } catch (err) {
+            showToast(`无法替换「${item.name}」：${formatError(err)}`)
+          }
+          keptEntries.push(item)
+        }
+        const workloads = await Promise.all(
+          pasteEntries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
+        )
+        const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+        const pasteController = new AbortController()
+        await runFilesOpWithProgress({
+          kind: 'paste',
+          totalWork: totalUnits,
+          estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
+          onUiChange: setOpProgressUi,
+          signal: pasteController.signal,
+          cancel: () => pasteController.abort(),
+          task: async (report, signal) => {
+            let done = 0
+            for (let index = 0; index < pasteEntries.length; index += 1) {
+              signal?.throwIfAborted?.()
+              const item = pasteEntries[index]!
+              const itemWorkload = workloads[index]?.totalUnits ?? 1
+              const overwriteTargetId = overwriteTargets.get(item.name)
+              if (overwriteTargetId !== undefined) {
+                // 单文件覆盖事务：提交后目标节点仍在原地（仅内容更新），
+                // 无需加入 createdNodes，结束后的 quiet refresh 带回新大小/时间
+                await overwriteNodeWithSource({
+                  targetId: overwriteTargetId,
+                  sourceId: item.nodeId,
+                  signal,
+                  onProgress: (written, total) => {
+                    report({
+                      done:
+                        done +
+                        Math.round(
+                          (written / Math.max(1, total)) * (itemWorkload / totalUnits),
+                        ),
+                      total: totalUnits,
+                      detailLabel: `${index + 1} / ${pasteEntries.length} 项`,
+                    })
+                  },
+                })
+              } else {
+                const copied = await copyNodeTo({
+                  sourceId: item.nodeId,
+                  destLocationId: locationId,
+                  destParentId: folderId,
+                  signal,
+                  onProgress: (progress) => {
+                    report({
+                      done: done + Math.round(progress.done * (itemWorkload / totalUnits)),
+                      total: totalUnits,
+                      detailLabel: `${index + 1} / ${pasteEntries.length} 项`,
+                    })
+                  },
+                })
+                createdNodes.push(copied)
+              }
+              done += itemWorkload
+              if (entry.mode === 'cut') {
+                // 剪切语义：粘贴成功后删除源；源已不存在（重复粘贴）时跳过
+                await removeNode(item.nodeId).catch(() => undefined)
+              }
+            }
+          },
+        })
+      })
       // 剪切语义只删除实际粘贴过的源；跳过/替换中退回保留两者的项保留原位
       const cutSourceIds =
         entry.mode === 'cut' ? new Set(pasteEntries.map((item) => item.nodeId)) : undefined
-      const createdNodes: FilesNode[] = []
-      const pasteController = new AbortController()
-      await runFilesOpWithProgress({
-        kind: 'paste',
-        totalWork: totalUnits,
-        estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
-        onUiChange: setOpProgressUi,
-        signal: pasteController.signal,
-        cancel: () => pasteController.abort(),
-        task: async (report, signal) => {
-          let done = 0
-          for (let index = 0; index < pasteEntries.length; index += 1) {
-            signal?.throwIfAborted?.()
-            const item = pasteEntries[index]!
-            const itemWorkload = workloads[index]?.totalUnits ?? 1
-            const copied = await copyNodeTo({
-              sourceId: item.nodeId,
-              destLocationId: locationId,
-              destParentId: folderId,
-              signal,
-              onProgress: (progress) => {
-                report({
-                  done: done + Math.round(progress.done * (itemWorkload / totalUnits)),
-                  total: totalUnits,
-                  detailLabel: `${index + 1} / ${pasteEntries.length} 项`,
-                })
-              },
-            })
-            createdNodes.push(copied)
-            done += itemWorkload
-            if (entry.mode === 'cut') {
-              // 剪切语义：粘贴成功后删除源；源已不存在（重复粘贴）时跳过
-              await removeNode(item.nodeId).catch(() => undefined)
-            }
-          }
-        },
-      })
       setItems((prev) => {
         let next = prev
         if (cutSourceIds) {
@@ -2731,29 +2764,32 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           signal: dropController.signal,
           cancel: () => dropController.abort(),
           task: async (report, signal) => {
-            let done = 0
-            for (const id of ids) {
-              signal?.throwIfAborted?.()
-              const node = await getNodeOrThrow(id).catch(() => undefined)
-              if (!node) {
+            // 一次拖放 = 一次 VFS 批量：变更合并到结束才广播，列表不逐项抖动
+            await runWithFilesVfsChangeBatch(async () => {
+              let done = 0
+              for (const id of ids) {
+                signal?.throwIfAborted?.()
+                const node = await getNodeOrThrow(id).catch(() => undefined)
+                if (!node) {
+                  done += 1
+                  report({ done, total: ids.length, detailLabel: `${done} / ${ids.length} 项` })
+                  continue
+                }
+                const shouldMove = !copyMode && node.locationId === dest.destLocationId
+                if (shouldMove) {
+                  await moveNodeTo(id, dest.destLocationId, dest.destParentId, { signal })
+                } else {
+                  await copyNodeTo({
+                    sourceId: id,
+                    destLocationId: dest.destLocationId,
+                    destParentId: dest.destParentId,
+                    signal,
+                  })
+                }
                 done += 1
                 report({ done, total: ids.length, detailLabel: `${done} / ${ids.length} 项` })
-                continue
               }
-              const shouldMove = !copyMode && node.locationId === dest.destLocationId
-              if (shouldMove) {
-                await moveNodeTo(id, dest.destLocationId, dest.destParentId, { signal })
-              } else {
-                await copyNodeTo({
-                  sourceId: id,
-                  destLocationId: dest.destLocationId,
-                  destParentId: dest.destParentId,
-                  signal,
-                })
-              }
-              done += 1
-              report({ done, total: ids.length, detailLabel: `${done} / ${ids.length} 项` })
-            }
+            })
           },
         })
       } catch (err) {

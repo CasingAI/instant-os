@@ -1467,6 +1467,8 @@ export class ExfatImageVolume implements ImageVolume {
       parent: OpenDir | undefined
       slot: number | undefined
       slotCount: number
+      /** 覆盖写：旧内容的簇链，close 提交切换指向后才释放 */
+      oldStream: { firstCluster: number; dataLength: number; noFatChain: boolean } | undefined
       clusters: number[]
       clusterSize: number
       pending: Uint8Array
@@ -1479,6 +1481,7 @@ export class ExfatImageVolume implements ImageVolume {
       parent: undefined,
       slot: undefined,
       slotCount: 0,
+      oldStream: undefined,
       clusters: [],
       clusterSize: 0,
       pending: new Uint8Array(0),
@@ -1497,14 +1500,13 @@ export class ExfatImageVolume implements ImageVolume {
       const sb = this.requireSuperblock()
       state.clusterSize = sb.clusterSize
       if (node) {
-        // 覆盖已有文件：立即截断原内容；abort 语义与 FAT 卷一致（保持为空）
-        await this.freeStream(node)
-        patchStreamEntry(parent.handle.data, node.slot, {
-          firstCluster: 0,
-          dataLength: 0,
-          noFatChain: false,
-        })
-        parent.dirty = true
+        // 覆盖已有文件 = 事务：旧簇链原地保留、目录项不动，新内容写新分配的簇链；
+        // close 用一次目录项补丁切换指向（提交）后才释放旧链，abort 只释放新链
+        state.oldStream = {
+          firstCluster: node.firstCluster,
+          dataLength: node.dataLength,
+          noFatChain: node.noFatChain === true,
+        }
         state.slot = node.slot
         state.slotCount = node.slotCount
       } else {
@@ -1605,6 +1607,10 @@ export class ExfatImageVolume implements ImageVolume {
             patchFileModifiedTime(parent.handle.data, state.slot!, now)
             parent.dirty = true
             await this.commitDirs(chain)
+            // 提交完成（目录项已指向新链）后释放旧簇链；放最后，失败时旧内容仍完整
+            if (state.oldStream && state.oldStream.firstCluster !== 0) {
+              await this.freeStream(state.oldStream)
+            }
             const parsed = parseExfatDirectory(parent.handle.data)
             const node = parsed.nodes.find((item) => item.slot === state.slot)
             if (!node) throw new Error('无法写入文件')
@@ -1635,13 +1641,8 @@ export class ExfatImageVolume implements ImageVolume {
                   const base = (state.slot + i) * DIRENTRY_SIZE
                   parent.handle.data[base] = parent.handle.data[base]! & 0x7f
                 }
-              } else if (state.slot !== undefined) {
-                patchStreamEntry(parent.handle.data, state.slot, {
-                  firstCluster: 0,
-                  dataLength: 0,
-                  noFatChain: false,
-                })
               }
+              // 覆盖写回滚：目录项从未被改过，旧内容原样，只需释放新分配的簇链
               parent.dirty = true
               await this.commitDirs(chain)
             }

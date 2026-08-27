@@ -220,12 +220,18 @@ async function testExfatStreamWriteAndAbort(): Promise<void> {
   await doomed.abort()
   assert.equal((await volume.list('')).some((item) => item.name === 'doomed.bin'), false)
 
-  // abort 覆盖已有文件：文件保留但为空（与 FAT 卷语义一致）
+  // abort 覆盖已有文件：单文件事务——目录项从未被改过，旧内容原样，只释放新分配的簇链
   const overwrite = await volume.streamWriteFile('stream.bin', { isNew: false })
   await overwrite.write(new TextEncoder().encode('xx'))
   await overwrite.abort()
   const afterAbort = await volume.stat('stream.bin')
-  assert.equal(afterAbort?.byteSize, 0)
+  assert.equal(afterAbort?.byteSize, 9000)
+  const oldData = await volume.readFile('stream.bin')
+  const expected = new Uint8Array(9000)
+  for (let i = 0; i < 9; i += 1) {
+    expected.fill(i, i * 1000, (i + 1) * 1000)
+  }
+  assert.deepEqual(oldData, expected)
   await volume.flush()
 }
 

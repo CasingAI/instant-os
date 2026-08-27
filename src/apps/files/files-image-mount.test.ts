@@ -526,7 +526,7 @@ async function testStreamWriteOverwritesWithoutOldTail(): Promise<void> {
   await volume.close()
 }
 
-async function testStreamWriteOverwriteAbortLeavesEmpty(): Promise<void> {
+async function testStreamWriteOverwriteAbortKeepsOldContent(): Promise<void> {
   const volume = new FatImageVolume(memoryDisk(createFat12Image()))
   await volume.prepare()
   await volume.writeFile('cover.bin', new Uint8Array(2048).fill(1))
@@ -534,7 +534,14 @@ async function testStreamWriteOverwriteAbortLeavesEmpty(): Promise<void> {
   await writer.write(new Uint8Array(16).fill(2))
   await writer.abort()
   const got = await volume.readFile('cover.bin')
-  assert.equal(got.byteLength, 0)
+  // 单文件事务：abort 只丢弃临时暂存文件，目录项从未被改过，旧内容原样
+  assert.equal(got.byteLength, 2048)
+  assert.deepEqual(got, new Uint8Array(2048).fill(1))
+  // 暂存临时文件不应残留
+  assert.equal(
+    (await volume.list('')).some((item) => item.name.includes('__instant-w__')),
+    false,
+  )
   await volume.close()
 }
 
@@ -837,7 +844,7 @@ await testRangeWriteOnlyDirtiesHitSectors()
 await testBlankImageRangeIoAcceptance()
 await testFlushFailureKeepsDirtySectors()
 await testStreamWriteOverwritesWithoutOldTail()
-await testStreamWriteOverwriteAbortLeavesEmpty()
+await testStreamWriteOverwriteAbortKeepsOldContent()
 await testStreamWriteSerializesWithList()
 await testSectorCacheEvictsCleanKeepsDirty()
 await testSectorCacheAllDirtyEvictionIsBounded()

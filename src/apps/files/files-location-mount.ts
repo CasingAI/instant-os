@@ -450,6 +450,19 @@ export async function writeMountBlob(id: string, bytes: ArrayBuffer): Promise<Fi
   return makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified)
 }
 
+/** 探测一个当前不存在、可安全占用的同目录名（临时暂存 / 备份用） */
+async function mountSpareName(parent: FileSystemDirectoryHandle, base: string): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = `${base}.__instant-w__${Math.random().toString(36).slice(2, 10)}`
+    try {
+      await parent.getFileHandle(candidate)
+    } catch {
+      return candidate
+    }
+  }
+  throw new Error('无法生成临时文件名')
+}
+
 async function replaceMountFileWithTemp(params: {
   parent: FileSystemDirectoryHandle
   original: FileSystemFileHandle
@@ -458,12 +471,45 @@ async function replaceMountFileWithTemp(params: {
   tempName: string
 }): Promise<void> {
   if (typeof params.temp.move === 'function') {
+    // 原子改名交换：旧文件先挪备份名腾出原名，临时文件转正后才删备份。
+    // 任意一步失败旧内容都在备份里，不再先删后挪把旧文件暴露在丢失窗口里
+    const backupName = await mountSpareName(params.parent, `${params.name}.__instant-old__`)
+    let backedUp = false
     try {
-      await params.parent.removeEntry(params.name)
+      if (typeof params.original.move === 'function') {
+        await params.original.move(backupName)
+        backedUp = true
+      }
     } catch {
       // 原文件可能已被外部删掉
     }
-    await params.temp.move(params.name)
+    try {
+      await params.temp.move(params.name)
+    } catch (error) {
+      if (backedUp) {
+        try {
+          const backup = await params.parent.getFileHandle(backupName)
+          if (typeof backup.move === 'function') {
+            await backup.move(params.name)
+          }
+        } catch {
+          // 还原失败只能尽力而为：备份仍在，数据未丢
+        }
+      }
+      try {
+        await params.parent.removeEntry(params.tempName)
+      } catch {
+        // ignore
+      }
+      throw error
+    }
+    if (backedUp) {
+      try {
+        await params.parent.removeEntry(backupName)
+      } catch {
+        // 备份清不掉也不挡主路径
+      }
+    }
     return
   }
   const dest = await params.original.createWritable()
@@ -591,9 +637,10 @@ export async function writeMountBytesRange(
 
 /**
  * 挂载卷流式写：复用 FileSystemWritableFileStream 原生增量写（逐 chunk 落盘）。
- * `createWritable()` 默认清空既有文件，与 writeMountBlob 语义一致；
- * 因此 abort 无法恢复被覆盖文件的旧内容（与真实 curl 覆盖行为类似）。
- * isNew 时 abort 会移除刚创建的空文件。
+ * 新建文件直接写本体；覆盖已有文件为事务式：新内容先写同目录临时文件，
+ * close 时经 replaceMountFileWithTemp 改名交换提交（旧文件先挪备份名、临时转正后删备份），
+ * abort 只删临时文件——旧内容在提交前一直原样。move API 不可用的浏览器回退为
+ * 读临时文件覆盖写本体（非原子，与真实 curl 覆盖行为类似）。
  */
 export async function openMountStreamWrite(params: {
   locationId: MountFilesLocationId
@@ -608,11 +655,18 @@ export async function openMountStreamWrite(params: {
     throw new Error('父级不是文件夹')
   }
   const parent = await resolveDirectoryHandle(locationId, root, parentPath)
-  const handle = await parent.getFileHandle(name, { create: true })
+
+  // 覆盖写 = 事务：目标必须已存在，提交（close）前保持原样
+  const original = isNew ? undefined : await parent.getFileHandle(name)
+  const tempName = isNew ? undefined : await mountSpareName(parent, name)
+  const handle = isNew
+    ? await parent.getFileHandle(name, { create: true })
+    : await parent.getFileHandle(tempName!, { create: true })
   const writable = await handle.createWritable()
   const path = joinPath(parentPath, name)
 
   return {
+    // node 保持最终目标路径：VFS 写进度登记与 close 后的 modified 事件都按目标算
     node: makeFileNode(locationId, path),
     async write(chunk) {
       // FSA write 要求 ArrayBuffer 背板；拷贝后写入（写路径本就拷贝）
@@ -622,7 +676,11 @@ export async function openMountStreamWrite(params: {
     },
     async close() {
       await writable.close()
-      const blob = await handle.getFile()
+      if (original && tempName) {
+        // 提交：临时文件转正，旧内容（备份）随后释放
+        await replaceMountFileWithTemp({ parent, original, name, temp: handle, tempName })
+      }
+      const blob = await (await parent.getFileHandle(name)).getFile()
       invalidateMountDirHandleCache(locationId, parentPath)
       return makeFileNode(locationId, path, blob.size, blob.lastModified)
     },
@@ -631,6 +689,14 @@ export async function openMountStreamWrite(params: {
         await writable.abort()
       } catch {
         // 已关闭 / 未写入等：忽略
+      }
+      if (tempName !== undefined) {
+        // 覆盖写回滚：只删临时暂存文件，目标文件从未被改动
+        try {
+          await parent.removeEntry(tempName)
+        } catch {
+          // 临时文件可能已被外部改动 / 删除
+        }
       }
       if (isNew) {
         try {

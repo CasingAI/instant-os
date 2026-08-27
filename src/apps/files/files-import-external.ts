@@ -36,6 +36,7 @@ import {
   getNodeOrThrow,
   mkdir,
   resolveFilesAbsolutePath,
+  runWithFilesVfsChangeBatch,
   uniqueNodeName,
 } from './files-vfs.ts'
 
@@ -212,105 +213,109 @@ export async function importExternalNodes(params: {
     signal,
     cancel,
     task: async (report, taskSignal) => {
-      const aborted = () => {
-        if (taskSignal?.aborted) throw new FilesOpCancelledError()
-      }
-      let written = 0
-      let stepsDone = 0
-      const stepTotal = steps.length
-      // 目标目录绝对路径（文件夹 id → 路径；卷根 → 卷前缀）
-      let dirPath = filesLocationPathRoot(dest.destLocationId)
-      if (dest.destParentId !== undefined) {
-        const parentNode = await getNodeOrThrow(dest.destParentId)
-        dirPath = await resolveFilesAbsolutePath(parentNode)
-      }
-      // plan 已按深度优先拍平；用路径栈跟踪当前目录（含实际创建出的 id 与路径，
-      // mkdir 因冲突改名后以实际名为准，避免后续文件写进旧目录或再造同名结构）
-      const dirStack: { path: string; id: string | undefined }[] = [
-        { path: dirPath, id: dest.destParentId },
-      ]
-      let fileCount = 0
-      for (const step of steps) {
-        const current = dirStack[dirStack.length - 1]!
-        if (step.op === 'mkdir') {
-          aborted()
-          const created = await mkdir({
-            locationId: dest.destLocationId,
-            parentId: current.id,
-            name: step.name,
-          })
-          const actualPath = await resolveFilesAbsolutePath(created)
-          dirStack.push({ path: actualPath, id: created.id })
-          stepsDone += 1
-          continue
+      // 一次导入 = 一次 VFS 批量：变更合并到结束才广播，列表不逐文件抖动，
+      // 镜像卷上目录重读也不必与写入操作反复排队
+      return runWithFilesVfsChangeBatch(async () => {
+        const aborted = () => {
+          if (taskSignal?.aborted) throw new FilesOpCancelledError()
         }
-        // 冲突预检：提供询问回调时，撞名先问「替换 / 保留两者 / 跳过」，
-        // 关闭对话框视为取消整个导入。文件夹步骤不询问（无合并语义）。
-        let overwrite = false
-        if (params.resolveFileConflict) {
-          const existing = await findSiblingNode(dest.destLocationId, current.id, step.name)
-          if (existing) {
-            const conflict: FilesConflictInfo = {
-              name: step.name,
-              kind: 'file',
-              existingKind: existing.kind,
-              existingWritable: isFilesNodeWritable(existing),
-            }
-            const choice = await params.resolveFileConflict(conflict)
-            if (!choice) throw new FilesOpCancelledError()
-            if (choice === 'skip') {
-              stepsDone += 1
-              continue
-            }
-            // 双重校验：即使回调误答「替换」（目标不可替换/类型不符），也退回自动改名
-            if (choice === 'replace' && filesConflictAllowsReplace(conflict)) overwrite = true
-          }
+        let written = 0
+        let stepsDone = 0
+        const stepTotal = steps.length
+        // 目标目录绝对路径（文件夹 id → 路径；卷根 → 卷前缀）
+        let dirPath = filesLocationPathRoot(dest.destLocationId)
+        if (dest.destParentId !== undefined) {
+          const parentNode = await getNodeOrThrow(dest.destParentId)
+          dirPath = await resolveFilesAbsolutePath(parentNode)
         }
-        // 内部卷：直接按计划名打开，写入事务内查重加后缀（不依赖会过期的目录缓存）；
-        // 挂载卷无唯一索引与事务内取名，仍预先算不冲突名（FSA 自身保证无同名）。
-        // 「替换」按原名精确打开：已存在即覆盖写，未存在则新建。
-        let filePath: string
-        if (overwrite || !isMountLocationId(dest.destLocationId)) {
-          filePath = joinFilesAbsolutePath(current.path, step.name)
-        } else {
-          const name = await uniqueNodeName(dest.destLocationId, current.id, step.name)
-          filePath = joinFilesAbsolutePath(current.path, name)
-        }
-        const writer = await filesOpenStreamWrite(
-          filePath,
-          overwrite
-            ? { expectedSize: step.file.size }
-            : isMountLocationId(dest.destLocationId)
-              ? undefined
-              : { nameMode: 'unique-suffix', expectedSize: step.file.size },
-        )
-        // 拖入的大 File 用 slice 按块读并立刻落库：默认要攒到 5MB 才写盘，
-        // 前几兆只在内存里，下一次落库若卡住文件就一直是空的。
-        const sliceSize = 1024 * 1024
-        try {
-          for (let offset = 0; offset < step.file.size; ) {
+        // plan 已按深度优先拍平；用路径栈跟踪当前目录（含实际创建出的 id 与路径，
+        // mkdir 因冲突改名后以实际名为准，避免后续文件写进旧目录或再造同名结构）
+        const dirStack: { path: string; id: string | undefined }[] = [
+          { path: dirPath, id: dest.destParentId },
+        ]
+        let fileCount = 0
+        for (const step of steps) {
+          const current = dirStack[dirStack.length - 1]!
+          if (step.op === 'mkdir') {
             aborted()
-            const end = Math.min(offset + sliceSize, step.file.size)
-            const buf = await step.file.slice(offset, end).arrayBuffer()
-            const bytes = new Uint8Array(buf)
-            await writer.write(bytes)
-            written += bytes.byteLength
-            report({
-              done: written,
-              total: Math.max(1, totalBytes),
-              detailLabel: `${stepsDone + 1} / ${stepTotal} 项`,
+            const created = await mkdir({
+              locationId: dest.destLocationId,
+              parentId: current.id,
+              name: step.name,
             })
-            offset = end
+            const actualPath = await resolveFilesAbsolutePath(created)
+            dirStack.push({ path: actualPath, id: created.id })
+            stepsDone += 1
+            continue
           }
-          await writer.close()
-          fileCount += 1
-        } catch (error) {
-          await writer.abort().catch(() => undefined)
-          throw error
+          // 冲突预检：提供询问回调时，撞名先问「替换 / 保留两者 / 跳过」，
+          // 关闭对话框视为取消整个导入。文件夹步骤不询问（无合并语义）。
+          let overwrite = false
+          if (params.resolveFileConflict) {
+            const existing = await findSiblingNode(dest.destLocationId, current.id, step.name)
+            if (existing) {
+              const conflict: FilesConflictInfo = {
+                name: step.name,
+                kind: 'file',
+                existingKind: existing.kind,
+                existingWritable: isFilesNodeWritable(existing),
+              }
+              const choice = await params.resolveFileConflict(conflict)
+              if (!choice) throw new FilesOpCancelledError()
+              if (choice === 'skip') {
+                stepsDone += 1
+                continue
+              }
+              // 双重校验：即使回调误答「替换」（目标不可替换/类型不符），也退回自动改名
+              if (choice === 'replace' && filesConflictAllowsReplace(conflict)) overwrite = true
+            }
+          }
+          // 内部卷：直接按计划名打开，写入事务内查重加后缀（不依赖会过期的目录缓存）；
+          // 挂载卷无唯一索引与事务内取名，仍预先算不冲突名（FSA 自身保证无同名）。
+          // 「替换」按原名精确打开：已存在即覆盖写，未存在则新建。
+          let filePath: string
+          if (overwrite || !isMountLocationId(dest.destLocationId)) {
+            filePath = joinFilesAbsolutePath(current.path, step.name)
+          } else {
+            const name = await uniqueNodeName(dest.destLocationId, current.id, step.name)
+            filePath = joinFilesAbsolutePath(current.path, name)
+          }
+          const writer = await filesOpenStreamWrite(
+            filePath,
+            overwrite
+              ? { expectedSize: step.file.size }
+              : isMountLocationId(dest.destLocationId)
+                ? undefined
+                : { nameMode: 'unique-suffix', expectedSize: step.file.size },
+          )
+          // 拖入的大 File 用 slice 按块读并立刻落库：默认要攒到 5MB 才写盘，
+          // 前几兆只在内存里，下一次落库若卡住文件就一直是空的。
+          const sliceSize = 1024 * 1024
+          try {
+            for (let offset = 0; offset < step.file.size; ) {
+              aborted()
+              const end = Math.min(offset + sliceSize, step.file.size)
+              const buf = await step.file.slice(offset, end).arrayBuffer()
+              const bytes = new Uint8Array(buf)
+              await writer.write(bytes)
+              written += bytes.byteLength
+              report({
+                done: written,
+                total: Math.max(1, totalBytes),
+                detailLabel: `${stepsDone + 1} / ${stepTotal} 项`,
+              })
+              offset = end
+            }
+            await writer.close()
+            fileCount += 1
+          } catch (error) {
+            await writer.abort().catch(() => undefined)
+            throw error
+          }
+          stepsDone += 1
         }
-        stepsDone += 1
-      }
-      return { fileCount, byteCount: written }
+        return { fileCount, byteCount: written }
+      })
     },
   })
 }
