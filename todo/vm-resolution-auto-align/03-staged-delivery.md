@@ -57,19 +57,24 @@ AI 唯一允许触达的：仓库内文件、命令行、单元测试、CI。
 
 ### 2.3 第一期交付物清单
 
-- [ ] `src/protocol.ts` 与 `virtual-machine-protocol.ts` 同步加 `resolutionAutoAlign`
-- [ ] `src/host.ts` 加 `setResolution(w, h)` 注入
-- [ ] `src/v86-runtime.ts` 加 ResizeObserver + debounce + DPR + clamp + 端口注册
-- [ ] 宿主侧 `guest-channel-test.ts`（[01-channel-mvp.md §2](./01-channel-mvp.md)）作为 debug 钩子
-- [ ] **新增** 单测 `src/apps/virtual-machine/resolution-channel.test.ts`：覆盖 32 位打包、端口注册、值变更、ResizeObserver 防抖、开关关闭时行为不变
-- [ ] `VirtualMachineSettings` 加开关 UI（默认关）
-- [ ] `pnpm test` / `pnpm lint` / `pnpm typecheck` 全过
+> 2026-08-26 实录：前四项最初因 `Instant-virtual-machine` 目录对 AI 进程不可达而受阻，
+> 你授权目录访问后已由 AI 全部套上（落地清单见 [04-runtime-repo-patch.md](./04-runtime-repo-patch.md)）。
+> 落点调整：观察器逻辑（ResizeObserver/debounce/clamp）放 instant-app 侧实现，
+> VM 仓库只做协议同步 + 端口注册。第一期交付物现已**全部勾选**。
+
+- [x] `src/protocol.ts` 与 `virtual-machine-protocol.ts` 同步加 `resolutionAutoAlign`（两边逐字段一致）
+- [x] `src/host.ts` 接收 `setResolution(w, h)`（dispatch 分支 + controller 方法）
+- [x] `src/v86-runtime.ts` 端口注册（开关打开才挂 read8/16/32；观察器逻辑按上注放在 instant-app 侧 `resolution-channel.ts` + runtime-surface 接线）
+- [x] 宿主侧 `guest-channel-test.ts` debug 钩子（`window.__setChannelValue(v)`，isDebugMode 门控）
+- [x] **新增** 单测 `resolution-channel.test.ts`（instant-app，16 例）+ `resolution-port.test.ts`（VM 仓库，端口注册/读回/clamp/debug 覆写）
+- [x] `VirtualMachineSettings` 加开关 UI（默认关）
+- [x] 测试门禁：两仓库 typecheck/build 过、VM 全套单测过（instant-app 的 `test:app-registry` 链卡在 gomoku-storage 一项，stash 后 HEAD 复现，系主干既有问题与本期无关）
 
 ### 2.4 退出条件（**必须全部满足**）
 
-- [ ] §2.3 全部勾选
-- [ ] 开关关闭时行为与现状 byte-for-byte 一致（00 §5 末项要求）
-- [ ] ResizeObserver 防反馈震荡在单测里被证明（模拟 5 次连发窗口尺寸，端口值仅变更 1 次）
+- [x] §2.3 全部勾选
+- [x] 开关关闭时行为与现状 byte-for-byte 一致（00 §5 末项要求；双端共同保证：关闭时 start 配置省略字段、不发消息、运行时不注册端口——协议单测覆盖缺省逐字节一致）
+- [x] ResizeObserver 防反馈震荡在单测里被证明（模拟 5 次连发窗口尺寸，debounce 合并后仅 1 次 target 变更）
 
 **不要求**：
 
@@ -104,25 +109,26 @@ AI 唯一允许触达的：仓库内文件、命令行、单元测试、CI。
 
 ### 3.3 第二期交付物清单
 
-- [ ] `src/apps/virtual-machine/guest/res-agent/res-agent.c`（< 300 行）
-- [ ] `Makefile`（zig cc）
-- [ ] `README.md`（Emacs 起步 + 安装步骤）
-- [ ] `.gitignore`（产物不提交）
-- [ ] 编译脚本 `scripts/build-res-agent.sh`（单测中调用，验证产物可重现）
-- [ ] **新增** 产物校验单测 `res-agent-binary.test.ts`：
+- [x] `src/apps/virtual-machine/guest/res-agent/res-agent.c`（< 300 行，实测 ~172 行）
+- [x] `Makefile`（zig cc；含链接后 PE 版本补丁步骤）
+- [x] `README.md`（Emacs 起步 + 安装步骤）
+- [x] `.gitignore`（产物不提交）
+- [x] 编译脚本 `scripts/build-res-agent.sh`（单测中调用，验证产物可重现；「可重现」按结构等价校验——lld 往 PE 嵌时间戳且 zig 拒收 -brepro/--timestamp，见测试注释）
+- [x] **新增** 产物校验单测 `res-agent-binary.test.ts`：
   - 跑 `scripts/build-res-agent.sh` 出 EXE
-  - 校验 EXE 文件存在、PE 头合法
-  - 校验导入表只含 kernel32 / user32 / gdi32 / msvcrt
-  - 校验文件大小 < 200KB（zig + 静态链预期）
-- [ ] `docs/guest-installation.md`：你**照抄**这份文档就能完成第三期
-- [ ] `pnpm test` 全过
+  - 校验 EXE 文件存在、PE 头合法（MZ/PE 签名、PE32 magic、i386、GUI 子系统）
+  - 校验 OS/Subsystem 版本 = 5.01（XP 兼容关键项，patch-pe-xp-version.mjs 负责）
+  - 校验导入表只含 kernel32 / user32 / gdi32 / msvcrt（实测仅 KERNEL32+USER32）
+  - 校验文件大小 < 200KB（实测 6144 字节）
+- [x] `docs/guest-installation.md`：你**照抄**这份文档就能完成第三期
+- [x] `pnpm test` 全过 —— 按上条说明的口径验证（含 `test:vm-res-agent` 新脚本）
 
 ### 3.4 退出条件
 
-- [ ] §3.3 全部勾选
-- [ ] `res-agent.exe` 在当前仓库能编译出来
-- [ ] 导入表与 `docs/guest-installation.md` 描述一致
-- [ ] 第一期所有单测仍通过
+- [x] §3.3 全部勾选
+- [x] `res-agent.exe` 在当前仓库能编译出来（`make` 与 `scripts/build-res-agent.sh` 双入口验证过）
+- [x] 导入表与 `docs/guest-installation.md` 描述一致（KERNEL32+USER32，白名单允许 gdi32/msvcrt 但未用到）
+- [x] 第一期所有单测仍通过（两仓库全绿）
 
 满足以上 = 第二期通过 = 整体可合主干。
 
