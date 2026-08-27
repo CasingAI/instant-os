@@ -558,7 +558,7 @@ function renderDragGhost(entry: DesktopEntry) {
 export function Desktop() {
   const { windows, activeWindowId, desktopRevealed, toggleDesktopReveal, hideDesktopReveal } =
     useOs()
-  const { enterFlip3d, flip3dActive, flip3dRestoring } = useFlip3dScene()
+  const { enterFlip3d, exitFlip3d, flip3dActive, flip3dRestoring } = useFlip3dScene()
   const { installedApps, pendingInstalls, pendingUpdateCount } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
   const {
@@ -879,8 +879,17 @@ export function Desktop() {
   )
   const keyboardPageNavEnabled =
     openFolderId === undefined && (desktopRevealed || !hasFrontmostWindow)
+  // 打字即搜的武装条件：桌面/散开态可用；flip3d 进行中或退出动画中也允许
+  // （打字会先退出 flip3d 再唤起搜索）；搜索已打开时保持武装，关闭只经
+  // Escape / 点背景 / 选中结果，避免退出动画期间被 disarm 闪关。
   const desktopSearchArmed =
-    keyboardPageNavEnabled && !flip3dActive && !flip3dRestoring && reorderSession === undefined
+    openFolderId === undefined &&
+    (desktopRevealed ||
+      !hasFrontmostWindow ||
+      flip3dActive ||
+      flip3dRestoring ||
+      appSearchOpen) &&
+    reorderSession === undefined
   const wheelPageNavEnabled = openFolderId === undefined && !flip3dActive && !flip3dRestoring
 
   useEffect(() => {
@@ -907,6 +916,9 @@ export function Desktop() {
       if (seed) {
         event.preventDefault()
       }
+      if (flip3dActive) {
+        exitFlip3d()
+      }
       setAppSearchQuery(seed)
       setAppSearchOpen(true)
     }
@@ -914,6 +926,9 @@ export function Desktop() {
     const onCompositionStart = (event: CompositionEvent) => {
       if (isDesktopAppSearchBlockedTarget(event.target)) {
         return
+      }
+      if (flip3dActive) {
+        exitFlip3d()
       }
       setAppSearchOpen(true)
     }
@@ -924,7 +939,7 @@ export function Desktop() {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('compositionstart', onCompositionStart)
     }
-  }, [appSearchOpen, desktopSearchArmed])
+  }, [appSearchOpen, desktopSearchArmed, exitFlip3d, flip3dActive])
 
   const {
     currentPage,

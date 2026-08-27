@@ -538,6 +538,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       startDesktopRestore()
     }
     closeOpenDesktopFolder()
+    // 与散开同理：焦点残留原窗口（输入框/iframe）会让打字即搜收不到键
+    releaseDomFocusToShell()
     bumpFlip3dAnim()
     clearFlip3dFlight()
     clearFlip3dGhosts()
