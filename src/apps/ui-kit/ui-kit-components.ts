@@ -63,6 +63,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'checked', type: 'boolean', description: '勾选状态' },
       { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
       { name: 'label', type: 'string?', description: '可见文字，兼作无障碍标签' },
+      { name: 'ariaLabel', type: 'string?', description: '无可见文字时的无障碍标签' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
     ],
     codeExample: `<Checkbox

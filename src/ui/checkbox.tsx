@@ -5,18 +5,20 @@ type CheckboxProps = {
   onChange?: (checked: boolean) => void
   /** 可见文字，兼作无障碍标签 */
   label?: string
+  /** 无可见文字时的无障碍标签 */
+  ariaLabel?: string
   disabled?: boolean
 }
 
 /** macOS Aqua 风格方形勾选框：原生 input + 皮肤，勾选态固定系统蓝、不跟随主题色。 */
-export function Checkbox({ checked, onChange, label, disabled = false }: CheckboxProps) {
+export function Checkbox({ checked, onChange, label, ariaLabel, disabled = false }: CheckboxProps) {
   return (
     <label class={`checkbox${disabled ? ' checkbox--disabled' : ''}`}>
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
-        aria-label={label}
+        aria-label={label ?? ariaLabel}
         onChange={(event) => {
           if (disabled || !onChange) return
           onChange((event.currentTarget as HTMLInputElement).checked)
