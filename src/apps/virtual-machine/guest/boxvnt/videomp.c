@@ -136,7 +136,12 @@ static unsigned vmpInHostPort16( PHW_DEV_EXT pExt, unsigned port )
  * Called before mode list queries only; the slot never mutates elsewhere,
  * so a QUERY_NUM_AVAIL_MODES/QUERY_AVAIL_MODES pair always stays consistent.
  * No host (or switch off) reads 0xFFFF, fails the magic, and leaves the
- * miniport with zero dynamic modes - byte-for-byte upstream behavior. */
+ * miniport with zero dynamic modes - byte-for-byte upstream behavior.
+ * The pending mode alternates between the two tail slots on every target
+ * change, mirroring VirtualBox's XPDM miniport: a mode that reappears at
+ * the same index makes Windows ignore the mode change call
+ * ("We need to alternate mode index entry for a pending mode change, else
+ * windows will ignore actual mode change call", VBoxMPVidModes.cpp). */
 static void vmpRefreshDynamicMode( PHW_DEV_EXT pExt )
 {
     USHORT  w, h;
@@ -161,14 +166,19 @@ static void vmpRefreshDynamicMode( PHW_DEV_EXT pExt )
         { pExt->NumDynamicModes = 0; return; }
 
     /* Same target again: keep the slot (and its mode index) untouched. */
-    if( pExt->NumDynamicModes
-        && pExt->DynamicMode.HorzRes == w && pExt->DynamicMode.VertRes == h )
-        return;
+    if( pExt->NumDynamicModes ) {
+        const VIDEOMP_MODE  *pCur = &pExt->DynamicModes[pExt->DynamicModeSlot];
+        if( pCur->HorzRes == w && pCur->VertRes == h )
+            return;
+    }
 
-    pExt->DynamicMode.HorzRes = w;
-    pExt->DynamicMode.VertRes = h;
-    pExt->DynamicMode.Bpp = 32;
-    pExt->DynamicMode.bValid = TRUE;
+    /* New target: publish it in the other slot so its mode index differs
+     * from the previously applied one. */
+    pExt->DynamicModeSlot ^= 1;
+    pExt->DynamicModes[pExt->DynamicModeSlot].HorzRes = w;
+    pExt->DynamicModes[pExt->DynamicModeSlot].VertRes = h;
+    pExt->DynamicModes[pExt->DynamicModeSlot].Bpp = 32;
+    pExt->DynamicModes[pExt->DynamicModeSlot].bValid = TRUE;
     pExt->NumDynamicModes = 1;
 }
 
@@ -184,10 +194,13 @@ static BOOLEAN vmpGetModeDims( PHW_DEV_EXT pExt, ULONG modeNumber,
         *pBpp = VideoModes[modeNumber].Bpp;
         return( VideoModes[modeNumber].bValid );
     }
-    if( modeNumber == ulAllModes && pExt->NumDynamicModes > 0 ) {
-        *pHRes = pExt->DynamicMode.HorzRes;
-        *pVRes = pExt->DynamicMode.VertRes;
-        *pBpp = pExt->DynamicMode.Bpp;
+    if( pExt->NumDynamicModes
+        && (modeNumber == ulAllModes || modeNumber == ulAllModes + 1)
+        && modeNumber == ulAllModes + pExt->DynamicModeSlot ) {
+        const VIDEOMP_MODE  *pDyn = &pExt->DynamicModes[pExt->DynamicModeSlot];
+        *pHRes = pDyn->HorzRes;
+        *pVRes = pDyn->VertRes;
+        *pBpp = pDyn->Bpp;
         return( TRUE );
     }
     return( FALSE );
@@ -330,6 +343,7 @@ VP_STATUS HwVidFindAdapter( PVOID HwDevExt, PVOID HwContext, PWSTR ArgumentStrin
     pExt->CurrentModeNumber = 0;
     pExt->NumValidModes     = 0;
     pExt->NumDynamicModes   = 0;    /* Instant VM changes */
+    pExt->DynamicModeSlot   = 1;    /* Instant VM changes: first target lands in slot 0 */
 
     for( i = 0; i < ulAllModes; ++i ) {
         vmpValidateMode( &VideoModes[i], pExt->FramebufLen );
@@ -512,12 +526,14 @@ BOOLEAN HwVidStartIO( PVOID HwDevExt, PVIDEO_REQUEST_PACKET ReqPkt )
                     modeInfo++;
                 }
             }
-            /* Instant VM changes: append the dynamic mode (if any). */
+            /* Instant VM changes: append the dynamic mode (if any) at the
+             * slot it currently occupies - see vmpRefreshDynamicMode. */
             if( pExt->NumDynamicModes ) {
-                vmpFillModeInfo( modeInfo, pExt->DynamicMode.HorzRes,
-                                 pExt->DynamicMode.VertRes,
-                                 pExt->DynamicMode.Bpp );
-                modeInfo->ModeIndex = ulAllModes;
+                vmpFillModeInfo( modeInfo,
+                                 pExt->DynamicModes[pExt->DynamicModeSlot].HorzRes,
+                                 pExt->DynamicModes[pExt->DynamicModeSlot].VertRes,
+                                 pExt->DynamicModes[pExt->DynamicModeSlot].Bpp );
+                modeInfo->ModeIndex = ulAllModes + pExt->DynamicModeSlot;
             }
         }
         break;

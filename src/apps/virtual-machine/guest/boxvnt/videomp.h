@@ -63,11 +63,17 @@ typedef struct {
     PUCHAR              IOAddrVGA;              /* VGA I/O ports mapping */
     ULONG               ulSlot;                 /* PCI slot the adapter is in. */
     ULONG               PortVersion;            /* Video Port version */
-    /* Instant VM changes: dynamic mode slot. Refreshed from the host IO
-     * ports before every mode list query; mode index ulAllModes refers to
-     * this entry. NumDynamicModes is 0 or 1. */
-    VIDEOMP_MODE        DynamicMode;
+    /* Instant VM changes: dynamic mode slots. Refreshed from the host IO
+     * ports before every mode list query; mode indices ulAllModes and
+     * ulAllModes+1 address the two slots. Only the slot named by
+     * DynamicModeSlot is reported; on every target change the mode moves
+     * to the other slot. VirtualBox's XPDM miniport alternates the pending
+     * mode between two tail slots because "windows will ignore actual mode
+     * change call" when the index stays the same (VBoxMPVidModes.cpp);
+     * NumDynamicModes is 0 or 1. */
+    VIDEOMP_MODE        DynamicModes[2];
     ULONG               NumDynamicModes;
+    ULONG               DynamicModeSlot;
 } HW_DEV_EXT, *PHW_DEV_EXT;
 
 /* Variables defined in vidmpdat.c */

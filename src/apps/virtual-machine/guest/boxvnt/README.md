@@ -50,5 +50,6 @@ SKIP，不阻塞无工具链环境。
 - 开关打开：win32k 每次枚举模式表（`QUERY_NUM_AVAIL_MODES`）都会重读
   端口刷新动态项——宿主改目标 → res-agent 下一次 `EnumDisplaySettings`
   即见新档，`ChangeDisplaySettingsEx` 精确命中。
-- 动态项索引固定为 `ulAllModes`（静态表之后第一个）；同一目标重复刷新
-  不动槽位，防抖。
+- 动态项在 `ulAllModes`/`ulAllModes+1` 两个槽位间交替（目标变化时换槽）：
+  VirtualBox XPDM 的 pending-mode 技巧，防 win32k 因索引未变而忽略切换；
+  同一目标重复刷新不动槽位，防抖。

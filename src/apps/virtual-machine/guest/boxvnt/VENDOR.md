@@ -20,8 +20,8 @@
 |---|---|
 | `boxv.c` | ① 接受 dispi ID5（0xB0C5，v86 的 `svga_version`）；② `BOXV_detect` 显存探测改读 dispi index 0x0A（64KB 单位）——上游连读两次数据端口把 ID 当显存，且 v86 未注册的 read32 返回 0xFFFFFFFF，令显存校验彻底失效（R8）；③ `VBE_DISPI_MAX_XRES/MAX_YRES` 1024×768 → 2560×1600 |
 | `vidmpdat.c` | `VideoModes[]` 在上游 19 分辨率（×5 色深 = 95 项）之后追加密阶梯：宽度 640–2560 步长 8 × 纵横比 {4:3, 16:10, 16:9, 3:2}，仅 32bpp，共 821 项（`scripts/gen-boxvnt-modes.ts` 生成，勿手改）。用途：win32k 不重查模式列表时的兜底（R1），任何目标吸附误差 ≤4px |
-| `videomp.c` | ① 动态模式通道：`vmpRefreshDynamicMode()` 每次 `IOCTL_VIDEO_QUERY_NUM_AVAIL_MODES` 前读宿主端口 0xE003（握手魔数 0x5AB0）/0xE001（宽）/0xE002（高），校验后填 `pExt->DynamicMode`（无宿主→零动态模式，行为与上游一致）；② `QUERY_NUM/AVAIL_MODES` 计入动态项（ModeIndex = `ulAllModes`）；③ `QUERY_CURRENT_MODE`/`SET_CURRENT_MODE`/`SET_COLOR_REGISTERS` 统一经 `vmpGetModeDims()` 解析（顺带修复上游 `modeNumber > ulAllModes` 的越界 off-by-one）；④ `RESET_DEVICE` 清动态项 |
-| `videomp.h` | `HW_DEV_EXT` 增加 `DynamicMode`/`NumDynamicModes`；宿主端口常量 `VMP_PORT_MODE_*`/`VMP_MODE_MAGIC` |
+| `videomp.c` | ① 动态模式通道：`vmpRefreshDynamicMode()` 每次 `IOCTL_VIDEO_QUERY_NUM_AVAIL_MODES` 前读宿主端口 0xE003（握手魔数 0x5AB0）/0xE001（宽）/0xE002（高），校验后填动态槽（无宿主→零动态模式，行为与上游一致）；**目标每次变化时在两个表尾槽位间交替**（复刻 VirtualBox XPDM miniport 的 pending-mode 交替技巧——"windows will ignore actual mode change call" 当索引不变时，VBoxMPVidModes.cpp）；② `QUERY_NUM/AVAIL_MODES` 计入动态项（ModeIndex = `ulAllModes + DynamicModeSlot`）；③ `QUERY_CURRENT_MODE`/`SET_CURRENT_MODE`/`SET_COLOR_REGISTERS` 统一经 `vmpGetModeDims()` 解析（顺带修复上游 `modeNumber > ulAllModes` 的越界 off-by-one）；④ `RESET_DEVICE` 清动态项 |
+| `videomp.h` | `HW_DEV_EXT` 增加 `DynamicModes[2]`/`NumDynamicModes`/`DynamicModeSlot`；宿主端口常量 `VMP_PORT_MODE_*`/`VMP_MODE_MAGIC` |
 
 ### 构建/安装
 
