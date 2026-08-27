@@ -167,6 +167,8 @@ export function VmRuntimeSurface({
       return
     }
     const aligner = createResolutionAligner({
+      // 「原始」按「放得下的最大档」下取，其余走「可见面积最大化」选档（详见 selectResolutionMode）。
+      displayMode: startMessage?.config.displayMode,
       onTarget: (target) => {
         // 客机代理未安装 / 不支持时运行时静默忽略，宿主不弹错。
         void setResolution(target.width, target.height).catch(() => undefined)

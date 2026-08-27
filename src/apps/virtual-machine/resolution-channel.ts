@@ -7,8 +7,17 @@
  *     → 运行时把 (w<<16)|h 写进 v86 io 表 RESOLUTION_CHANNEL_PORT 的 read32 闭包
  *     → 客机代理主动 IN 轮询，值变化才 ChangeDisplaySettingsEx。
  *
- * 目标分辨率 = iframe 的 CSS 像素尺寸，1:1 不做 DPR 放大（2026-08-27 定案：
- * 客机画面按 CSS 像素渲染，不追求物理像素对齐）。
+ * 目标分辨率 = 从标准档位表里选出的客机档位（2026-08-27 定案，取代同日早些的
+ * 「CSS 1:1 直发」）。运行时日志（.zcode/debug/20260827-res-align.log）
+ * 证明直发 CSS 有两个致命伤：
+ *   a) DPR=2 的 Retina 上面板 CSS 高度常低于 480，clamp 返回 undefined 导致
+ *      对齐器全程沉默，客机停在旧的大分辨率；
+ *   b) 客机「只选覆盖档」向上跳档（1096×618 → 1152×864），配合「原始」
+ *      显示模式呈现为裁切放大——「画面被放大很多倍」的直接来源。
+ * 现改为宿主侧直接从标准档位表选档：拉伸/等比最大化实际可见面积（黑边最少），
+ * 「原始」只取放得下视口的最大档；发出的就是客机会应用的精确值，
+ * 精确命中代理的 exact 分支。小视口自然落到 640×480 地板，
+ * 「低于下限沉默」路径不复存在。测量基准仍是 CSS 像素，不涉及 DPR。
  *
  * 本模块只负责宿主这半条链，不触碰 v86，也不直接依赖 DOM 全局：
  * ResizeObserver、定时器全部可注入，因此防抖、阈值、
@@ -38,8 +47,9 @@ export type ResolutionTarget = {
 }
 
 /**
- * clamp 目标分辨率。超过 v86 硬上限压回上限（00 §9：clamp 后仍交给客机白名单裁决）；
- * 低于下限返回 undefined —— 视口太小时保持客机现状，而不是反向缩小字体到不可用。
+ * clamp 目标分辨率（协议层护栏：postMessage 值先过这里再打包）。
+ * 超过 v86 硬上限压回上限（00 §9）；低于客机最低可用模式返回 0（= 无目标，
+ * 客机代理保持现状）。视口→档位的语义换算不在这里，见 selectResolutionMode。
  */
 export function clampResolutionTarget(
   width: number,
@@ -83,12 +93,110 @@ export function unpackResolutionValue(value: number): ResolutionTarget | undefin
   return { width, height }
 }
 
-/** 视口 CSS 尺寸 → 客机目标像素（1:1，不乘 DPR；clamp 与取整在这里做）。 */
+/** XP/VGA·VBE 常见标准档位（宿主侧就近选档用；640×480/2560×1600 同时是协议地板与天花板）。 */
+export const INSTANT_VM_RESOLUTION_MODES = [
+  { width: 640, height: 480 },
+  { width: 800, height: 600 },
+  { width: 1024, height: 768 },
+  { width: 1152, height: 864 },
+  { width: 1280, height: 720 },
+  { width: 1280, height: 800 },
+  { width: 1280, height: 960 },
+  { width: 1280, height: 1024 },
+  { width: 1440, height: 900 },
+  { width: 1600, height: 900 },
+  { width: 1600, height: 1200 },
+  { width: 1680, height: 1050 },
+  { width: 1920, height: 1080 },
+  { width: 1920, height: 1200 },
+  { width: 2048, height: 1536 },
+  { width: 2560, height: 1440 },
+  { width: 2560, height: 1600 },
+] as const
+
+/**
+ * 从标准档位里挑客机目标。两种策略：
+ * - native（原始）：只在两维都放得下视口的档位里取面积最大的——画布按
+ *   客机px=CSS px 1:1 显示，任何超尺寸都会被裁切滚动，「看全桌面」优先；
+ *   连 640×480 都放不下时回落地板档（裁切不可避免）。
+ * - 其余（拉伸/等比会等比缩放适配视口）：最大化实际可见面积（黑边最少）；
+ *   同比例族并列时取面积最接近视口的一档。
+ * 发出去的都是客机枚举得到的真实档位——代理 find_matching_mode 的精确匹配
+ * 分支原样应用，不再触发「只选覆盖档」的向上跳档。
+ */
+/** 宿主选档参考的显示模式；取值与协议 InstantVmDisplayMode 一致。 */
+export type ResolutionDisplayMode = 'stretch' | 'contain' | 'native'
+
+export function selectResolutionMode(
+  cssWidth: number,
+  cssHeight: number,
+  displayMode?: ResolutionDisplayMode,
+): ResolutionTarget | undefined {
+  if (
+    !Number.isFinite(cssWidth) ||
+    !Number.isFinite(cssHeight) ||
+    cssWidth <= 0 ||
+    cssHeight <= 0
+  ) {
+    return undefined
+  }
+  const cssArea = cssWidth * cssHeight
+  let best: ResolutionTarget | undefined
+  let bestScore = 0
+  let bestTieLogDiff = Number.POSITIVE_INFINITY
+  let bestArea = 0
+  for (const mode of INSTANT_VM_RESOLUTION_MODES) {
+    const area = mode.width * mode.height
+    if (displayMode === 'native') {
+      // 下取：两维都放得下视口的档位里取面积最大者（放不下只会被裁切滚动）。
+      if (mode.width <= cssWidth && mode.height <= cssHeight && area > bestArea) {
+        best = { width: mode.width, height: mode.height }
+        bestArea = area
+      }
+      continue
+    }
+    // 可见画面最大化：显示管线把画布按 s=min(vw/mw, vh/mh) 等比缩放进视口，
+    // 实际画入面积 = s²·mw·mh = min(vw²·mh/mw, vh²·mw/mh)。最大化它即最小化
+    // 黑边占比；理论上限恰为视口自身面积，且只有宽高比与面板完全一致的档位
+    // 才能达到——评分天然「比例匹配优先、大小其次」。同一比例族的档位 m 值
+    // 完全相等，此时用 |ln(档位面积/视口面积)| 最近者定名次（同族里选密度
+    // 最接近视口的那档）。
+    const score = Math.min(
+      (cssWidth * cssWidth * mode.height) / mode.width,
+      (cssHeight * cssHeight * mode.width) / mode.height,
+    )
+    const tieLogDiff = Math.abs(Math.log(area / cssArea))
+    // 相对容差：分离浮点噪声、保留同族精确相等（1e-12 远大于 2^-52 舍入）。
+    if (best === undefined || score > bestScore * (1 + 1e-12)) {
+      best = { width: mode.width, height: mode.height }
+      bestScore = score
+      bestTieLogDiff = tieLogDiff
+      bestArea = area
+    } else if (score > bestScore * (1 - 1e-12) && tieLogDiff < bestTieLogDiff) {
+      best = { width: mode.width, height: mode.height }
+      bestScore = Math.max(bestScore, score)
+      bestTieLogDiff = tieLogDiff
+      bestArea = area
+    }
+  }
+  if (displayMode === 'native') {
+    // 连地板档都放不下的小视口：裁切已不可避免，落地板档保持「有目标可发」。
+    const [floor] = INSTANT_VM_RESOLUTION_MODES
+    return best ?? { width: floor.width, height: floor.height }
+  }
+  return best
+}
+
+/**
+ * 视口 CSS 尺寸 → 客机目标（标准档位就近吸附；不乘 DPR）。
+ * 非法输入仍返回 undefined；任何正尺寸都有合法档位可回。
+ */
 export function resolutionTargetFromViewport(
   cssWidth: number,
   cssHeight: number,
+  displayMode?: ResolutionDisplayMode,
 ): ResolutionTarget | undefined {
-  return clampResolutionTarget(cssWidth, cssHeight)
+  return selectResolutionMode(cssWidth, cssHeight, displayMode)
 }
 
 /** 与上次已生效目标相比，任一轴变化达到阈值才值得让客机重排。 */
@@ -120,10 +228,12 @@ export type ResizeLikeObserver = {
 }
 
 export type ResolutionAlignerOptions = {
-  /** 目标确定后回调（已 debounce、已过阈值、已 clamp）。 */
+  /** 目标确定后回调（已 debounce、已过阈值、已选档）。 */
   onTarget: (target: ResolutionTarget) => void
   debounceMs?: number
   thresholdPx?: number
+  /** 当前显示模式；native 走「放得下的最大档」下取策略，其余就近。 */
+  displayMode?: ResolutionDisplayMode
   /** 测量视口尺寸，默认 getBoundingClientRect；测试注入固定值。 */
   measure?: (element: Element) => { width: number; height: number }
   /** 定时器调度，默认 setTimeout；测试注入假时钟。 */
@@ -179,7 +289,7 @@ export function createResolutionAligner(options: ResolutionAlignerOptions): Reso
       return
     }
     const { width, height } = measure(element)
-    const target = resolutionTargetFromViewport(width, height)
+    const target = resolutionTargetFromViewport(width, height, options.displayMode)
     if (!target || !isResolutionTargetChanged(committed, target, thresholdPx)) {
       return
     }
