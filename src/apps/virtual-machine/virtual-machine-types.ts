@@ -97,6 +97,12 @@ export type VmDiskWriteModeId = (typeof VM_DISK_WRITE_MODE_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE: VmDiskWriteModeId = 'none'
 
+/**
+ * 分辨率自动对齐：宿主视口尺寸变化时把目标分辨率递给客机代理（经 io 端口），
+ * 客机内部走标准模式切换路径。默认关：不装客机代理的镜像完全不受影响。
+ */
+export const DEFAULT_VIRTUAL_MACHINE_RESOLUTION_AUTO_ALIGN = false
+
 /** V86 构建模式：`debug`（未压缩，可单步调试）；`release`（压缩混淆，性能更好）。 */
 export const VM_BUILD_MODE_IDS = ['debug', 'release'] as const
 
@@ -141,6 +147,7 @@ export type VirtualMachineSettings = {
   mouse: boolean
   pointerMode: VmPointerModeId
   diskWriteMode: VmDiskWriteModeId
+  resolutionAutoAlign: boolean
   network: VmNetworkId
   networkBackend: VmNetworkBackendId
   displayMode: VmDisplayModeId

@@ -10,6 +10,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   reset: 'instant-vm:reset',
   setDisplayMode: 'instant-vm:set-display-mode',
   setPointerMode: 'instant-vm:set-pointer-mode',
+  setResolution: 'instant-vm:set-resolution',
   saveState: 'instant-vm:save-state',
   saveStateResult: 'instant-vm:save-state-result',
   started: 'instant-vm:started',
@@ -132,6 +133,12 @@ export type InstantVmStartConfig = {
   pointerMode?: InstantVmPointerMode
   /** 硬盘回写时机；省略按 none。 */
   diskWriteMode?: InstantVmDiskWriteMode
+  /**
+   * 分辨率自动对齐：宿主把目标分辨率经 io 端口递给客机代理（见
+   * todo/vm-resolution-auto-align）。省略按 false：不挂 ResizeObserver、
+   * 不注册端口，行为与旧协议完全一致。
+   */
+  resolutionAutoAlign?: boolean
 }
 
 export type InstantVmReadyMessage = {
@@ -236,6 +243,18 @@ export type InstantVmSetPointerModeMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.setPointerMode
   requestId: string
   mode: InstantVmPointerMode
+}
+
+/**
+ * 宿主 → 运行时：注入目标分辨率。运行时收到后更新 v86 io 表上
+ * `RESOLUTION_CHANNEL_PORT` read32 的闭包值，客机代理轮询读取后自行切模式。
+ * width/height 必须已经过宿主 clamp（v86 上限 2560×1600）。
+ */
+export type InstantVmSetResolutionMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.setResolution
+  requestId: string
+  width: number
+  height: number
 }
 
 export type InstantVmSaveStateMessage = {
@@ -349,6 +368,7 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmResetMessage
   | InstantVmSetDisplayModeMessage
   | InstantVmSetPointerModeMessage
+  | InstantVmSetResolutionMessage
   | InstantVmSaveStateMessage
   | InstantVmKeyboardMessage
 
@@ -453,6 +473,9 @@ export function isInstantVmStartConfig(value: unknown): value is InstantVmStartC
     return false
   }
   if (value.diskWriteMode !== undefined && !isDiskWriteMode(value.diskWriteMode)) {
+    return false
+  }
+  if (value.resolutionAutoAlign !== undefined && typeof value.resolutionAutoAlign !== 'boolean') {
     return false
   }
   return true
@@ -653,6 +676,31 @@ export function isInstantVmSetPointerModeMessage(
   )
 }
 
+/** v86 `vga.js` 的硬上限（MAX_XRES/MAX_YRES）；宿主 clamp 与消息校验共用。 */
+export const INSTANT_VM_RESOLUTION_MAX_WIDTH = 2560
+export const INSTANT_VM_RESOLUTION_MAX_HEIGHT = 1600
+
+function isResolutionAxis(value: unknown, max: number): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value > 0 &&
+    value <= max
+  )
+}
+
+export function isInstantVmSetResolutionMessage(
+  value: unknown,
+): value is InstantVmSetResolutionMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.setResolution &&
+    isRequestId(value.requestId) &&
+    isResolutionAxis(value.width, INSTANT_VM_RESOLUTION_MAX_WIDTH) &&
+    isResolutionAxis(value.height, INSTANT_VM_RESOLUTION_MAX_HEIGHT)
+  )
+}
+
 export function isInstantVmSaveStateMessage(value: unknown): value is InstantVmSaveStateMessage {
   return (
     isRecord(value) &&
@@ -784,6 +832,7 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmResetMessage(value) ||
     isInstantVmSetDisplayModeMessage(value) ||
     isInstantVmSetPointerModeMessage(value) ||
+    isInstantVmSetResolutionMessage(value) ||
     isInstantVmSaveStateMessage(value) ||
     isInstantVmKeyboardMessage(value)
   )

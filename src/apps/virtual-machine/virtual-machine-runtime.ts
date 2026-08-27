@@ -196,6 +196,7 @@ export type VmRuntimeApi = {
   saveState(): Promise<ArrayBuffer>
   setDisplayMode(mode: InstantVmDisplayMode): Promise<void>
   setPointerMode(mode: InstantVmPointerMode): Promise<void>
+  setResolution(width: number, height: number): Promise<void>
   sendKeyboard(message: InstantVmKeyboardMessage): void
   captureKeyboard(): void
   releaseKeyboard(): void
@@ -387,7 +388,13 @@ export function useVirtualMachineRuntime(
 
   const request = useCallback(
     <T = void>(
-      message: { requestId: string; type?: string; mode?: InstantVmDisplayMode | InstantVmPointerMode },
+      message: {
+        requestId: string
+        type?: string
+        mode?: InstantVmDisplayMode | InstantVmPointerMode
+        width?: number
+        height?: number
+      },
       transfer: Transferable[] = [],
       timeoutMs = REQUEST_TIMEOUT_MS,
       resolver?: (message: unknown) => T,
@@ -472,6 +479,20 @@ export function useVirtualMachineRuntime(
     [request],
   )
 
+  // 分辨率自动对齐的注入点：运行时把值写进 v86 io 表的 read32 闭包。
+  // 无状态命令，重发无害；客机代理未安装时运行时静默忽略。
+  const setResolution = useCallback(
+    async (width: number, height: number) => {
+      await request({
+        type: INSTANT_VM_MESSAGE_TYPE.setResolution,
+        requestId: newVmRequestId(),
+        width,
+        height,
+      })
+    },
+    [request],
+  )
+
   const sendKeyboard = useCallback(
     (message: InstantVmKeyboardMessage) => {
       try {
@@ -539,6 +560,7 @@ export function useVirtualMachineRuntime(
     saveState,
     setDisplayMode,
     setPointerMode,
+    setResolution,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
@@ -819,6 +841,17 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     [],
   )
 
+  const setActiveResolution = useCallback(
+    async (id: string, width: number, height: number): Promise<void> => {
+      const api = apiByIdRef.current.get(id)
+      if (!api) {
+        return
+      }
+      await api.setResolution(width, height)
+    },
+    [],
+  )
+
   const sendKeyboard = useCallback((id: string, message: InstantVmKeyboardMessage) => {
     apiByIdRef.current.get(id)?.sendKeyboard(message)
   }, [])
@@ -848,6 +881,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     saveInstanceState,
     setActiveDisplayMode,
     setActivePointerMode,
+    setActiveResolution,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,

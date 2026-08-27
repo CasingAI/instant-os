@@ -434,6 +434,13 @@ export function VirtualMachineSettingsDialog({
               只影响画面呈现，不改客户机内部分辨率；运行中也能在工具栏切换。
             </p>
             <SwitchRow
+              label="分辨率自动对齐"
+              checked={draft.resolutionAutoAlign}
+              disabled={busy}
+              detail="窗口尺寸变化时，客机分辨率跟随宿主画面 1:1 切换（需客机内装有对齐代理，未装时静默无效果）。改动保存后重新开机生效。"
+              onChange={(resolutionAutoAlign) => patch({ resolutionAutoAlign })}
+            />
+            <SwitchRow
               label="快速启动"
               checked={draft.fastboot}
               disabled={busy}

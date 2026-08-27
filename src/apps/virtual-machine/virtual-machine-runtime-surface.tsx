@@ -10,6 +10,7 @@ import {
   type VmRuntimeApi,
   type VmRuntimeSnapshot,
 } from './virtual-machine-runtime.ts'
+import { createResolutionAligner, resolutionAutoAlignEnabled } from './resolution-channel.ts'
 
 export type VmRuntimeSurfaceProps = {
   machineId: string
@@ -67,6 +68,7 @@ export function VmRuntimeSurface({
     saveState,
     setDisplayMode,
     setPointerMode,
+    setResolution,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
@@ -87,6 +89,7 @@ export function VmRuntimeSurface({
       saveState,
       setDisplayMode,
       setPointerMode,
+      setResolution,
       sendKeyboard,
       captureKeyboard,
       releaseKeyboard,
@@ -102,6 +105,7 @@ export function VmRuntimeSurface({
     reset,
     setDisplayMode,
     setPointerMode,
+    setResolution,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
@@ -148,6 +152,29 @@ export function VmRuntimeSurface({
     start,
     startMessage,
   ])
+
+  // 分辨率自动对齐：只观察 iframe 元素本身 —— 它的尺寸完全由宿主布局决定
+  // （CSS 绝对定位填满屏幕容器），客机内部切模式不会反过来改变它，从根上
+  // 切断「切模式 → 容器变 → 再触发」的反馈震荡（00 §5）。
+  // 开关关闭时（默认）不创建 observer、不发消息，行为与现状一致。
+  const resolutionAlign = resolutionAutoAlignEnabled(startMessage)
+  useEffect(() => {
+    if (!ready || !resolutionAlign) {
+      return
+    }
+    const element = iframeRef.current
+    if (!element) {
+      return
+    }
+    const aligner = createResolutionAligner({
+      onTarget: (target) => {
+        // 客机代理未安装 / 不支持时运行时静默忽略，宿主不弹错。
+        void setResolution(target.width, target.height).catch(() => undefined)
+      },
+    })
+    aligner.observe(element)
+    return () => aligner.disconnect()
+  }, [ready, resolutionAlign, setResolution, iframeRef, startMessage])
 
   if (!resolvedOrigin) {
     return null

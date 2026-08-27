@@ -163,6 +163,10 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
       VM_DISK_WRITE_MODE_IDS,
       defaults.diskWriteMode,
     ),
+    resolutionAutoAlign: normalizeBoolean(
+      record.resolutionAutoAlign,
+      defaults.resolutionAutoAlign,
+    ),
     network: normalizeOneOf(record.network, VM_NETWORK_IDS, defaults.network),
     networkBackend: normalizeOneOf(
       record.networkBackend,

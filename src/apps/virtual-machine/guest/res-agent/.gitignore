@@ -1,0 +1,5 @@
+build/
+*.exe
+*.pdb
+*.obj
+res-agent-install.reg
