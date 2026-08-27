@@ -3,6 +3,8 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
+import { HelpHint } from '../../ui/help-hint.tsx'
+import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesNodeIcon } from '../files/files-node-icon.tsx'
 import { filesSetSparse } from '../files/files-api.ts'
@@ -365,6 +367,8 @@ function isIndexedDbManagedFile(node: FilesNode): boolean {
   )
 }
 
+const SPARSE_HINT_TEXT = '开启后尽量以稀疏分块存储：缺席的全零块不落库，写入全零自动打洞'
+
 function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
   const modal = useWindowModal()
   const [folderStats, setFolderStats] = useState<FolderStats | undefined>(undefined)
@@ -715,21 +719,16 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
                   </div>
                 ) : undefined}
                 <div class="file-info-app__info-row">
-                  <dt>
-                    机会压缩
-                    <span class="file-info-app__info-hint" title="开启后尽量以稀疏分块存储：缺席的全零块不落库，写入全零自动打洞">
-                      ？
-                    </span>
-                  </dt>
-                  <dd>
-                    <input
-                      class="file-info-app__info-checkbox"
-                      type="checkbox"
+                  <dt>机会压缩</dt>
+                  <dd class="file-info-app__info-toggle">
+                    <IosCheckToggle
+                      size="small"
                       checked={sparseBusy ? !sparseEnabled : sparseEnabled}
                       disabled={sparseBusy || blobStorageState !== 'ready' || isWriting}
-                      onChange={(event) => void handleSparseToggle(event.currentTarget.checked)}
-                      aria-label="机会压缩（稀疏存储）"
+                      label="机会压缩（稀疏存储）"
+                      onChange={(checked) => void handleSparseToggle(checked)}
                     />
+                    <HelpHint text={SPARSE_HINT_TEXT} label="机会压缩说明" />
                     {sparseBusy ? (
                       <span class="file-info-app__info-busy">处理中…</span>
                     ) : undefined}

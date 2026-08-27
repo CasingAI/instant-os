@@ -1,7 +1,9 @@
-import { useState } from 'preact/hooks'
+import { useRef, useState } from 'preact/hooks'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
+import { Checkbox } from '../../ui/checkbox.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
+import { Popover } from '../../ui/popover.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
@@ -15,6 +17,7 @@ import { DocumentTabBar, type DocumentTabItem } from '../../ui/document-tab-bar.
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
 import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
 import { AiModelCapabilityTags } from '../../ui/ai-model-capability-tags.tsx'
+import { HelpHint } from '../../ui/help-hint.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import '../settings/settings.css'
 import '../../ui/ios-nav-back.css'
@@ -61,6 +64,28 @@ export function IosSwitchDemo() {
         <div class="ui-kit-demo__row">
           <IosSwitch checked={c} onChange={setC} label="A" />
           <IosSwitch checked={!c} onChange={(next) => setC(!next)} label="B" />
+        </div>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function CheckboxDemo() {
+  const [a, setA] = useState(false)
+  const [b, setB] = useState(true)
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="未勾选 / 已勾选">
+        <div class="ui-kit-demo__row">
+          <Checkbox checked={a} onChange={setA} label="选项" />
+          <Checkbox checked={b} onChange={setB} label="选项" />
+        </div>
+      </DemoVariant>
+      <DemoVariant label="禁用">
+        <div class="ui-kit-demo__row">
+          <Checkbox checked={false} onChange={() => {}} disabled label="未勾选" />
+          <Checkbox checked onChange={() => {}} disabled label="已勾选" />
         </div>
       </DemoVariant>
     </DemoVariants>
@@ -800,6 +825,55 @@ export function AiModelCapabilityTagsDemo() {
             setCaps(supportsVision ? ['text', 'vision'] : ['text'])
           }
         />
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function PopoverDemo() {
+  const [open, setOpen] = useState(false)
+  const anchorRef = useRef<HTMLSpanElement>(null)
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="锚定气泡（箭头跟随触发器）" wide>
+        <div class="ui-kit-demo__row">
+          <span ref={anchorRef}>
+            <IosButton size="compact" onClick={() => setOpen(!open)}>
+              {open ? '关闭气泡' : '打开气泡'}
+            </IosButton>
+          </span>
+          <Popover
+            open={open}
+            anchorRef={anchorRef}
+            onClose={() => setOpen(false)}
+            ariaLabel="示例气泡"
+          >
+            我是带箭头的气泡：靠近视口底部自动向上翻，超出视口自动夹紧，箭头始终指向触发器。
+          </Popover>
+        </div>
+      </DemoVariant>
+      <DemoVariant label="窄窗自适应">
+        <span class="ui-kit-demo__hint">把窗口拖窄到 520px 以下，上面的气泡会变成居中模态对话框</span>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function HelpHintDemo() {
+  return (
+    <DemoVariants>
+      <DemoVariant label="行内提示">
+        <div class="ui-kit-demo__row ui-kit-demo__row--labeled">
+          <span class="ui-kit-demo__hint">机会压缩</span>
+          <HelpHint
+            text="开启后尽量以稀疏分块存储：缺席的全零块不落库，写入全零自动打洞"
+            label="机会压缩说明"
+          />
+        </div>
+      </DemoVariant>
+      <DemoVariant label="长文案（视口边缘自动翻转 / 夹紧）">
+        <HelpHint text="这是一段较长的说明文字，用于验证气泡在窗口边缘的定位：靠近视口底部时自动向上弹出，宽度超出视口时自动收窄夹紧。" />
       </DemoVariant>
     </DemoVariants>
   )

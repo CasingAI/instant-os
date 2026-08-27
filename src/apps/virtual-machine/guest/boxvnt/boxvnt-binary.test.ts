@@ -4,8 +4,9 @@
  *
  * 跑两遍 scripts/build-boxvnt.sh，对产物做 PE 结构断言：
  *   MZ/PE 签名 → PE32 (0x10b) → i386 → native 子系统（内核驱动）
- *   → 校验和字段非零（wlink option checksum）→ 入口点非零
- *   → 导入表只含 VIDEOPRT.SYS → 体积 < 200KB。
+ *   → SubsystemVersion 4.0 → 校验和与标准算法自洽（wlink 产物经
+ *   scripts/normalize-boxvnt-pe.mjs 规范化后的形态）→ 入口点非零
+ *   → 所有节 VirtualSize 非零 → 导入表只含 VIDEOPRT.SYS → 体积 < 200KB。
  * NT 驱动的入口是 PE entry point（makefile option start='_DriverEntry@8'），
  * 没有导出表——计划初稿写的「导出 DriverEntry@8」按此修正。
  * 再校验两次独立编译结构等价（wlink 嵌时间戳，等价级别同 res-agent）。
@@ -30,9 +31,12 @@ const MAX_SYS_BYTES = 200 * 1024
 interface PeInfo {
   machine: number
   subsystem: number
+  subsystemVersion: [number, number]
   checksum: number
+  checksumValid: boolean
   entryRva: number
   sectionNames: string[]
+  virtualSizes: number[]
   imports: string[]
 }
 
@@ -85,11 +89,69 @@ function parsePe(image: Buffer): PeInfo {
   return {
     machine: image.readUInt16LE(peOffset + 4),
     subsystem: image.readUInt16LE(optionalHeader + 68),
+    subsystemVersion: [image.readUInt16LE(optionalHeader + 48), image.readUInt16LE(optionalHeader + 50)],
     checksum: image.readUInt32LE(optionalHeader + 64),
+    checksumValid: verifyChecksum(image, optionalHeader + 64),
     entryRva: image.readUInt32LE(optionalHeader + 16),
     sectionNames,
+    virtualSizes: Array.from({ length: numSections }, (_, i) => image.readUInt32LE(sectionTable + i * 40 + 8)),
     imports,
   }
+}
+
+/** PE 标准校验和算法（scripts/normalize-boxvnt-pe.mjs 同款）：字段置 0 求和折叠，末尾加文件长度。 */
+function verifyChecksum(image: Buffer, checksumFieldOffset: number): boolean {
+  const stored = image.readUInt32LE(checksumFieldOffset)
+  const copy = Buffer.from(image)
+  copy.writeUInt32LE(0, checksumFieldOffset)
+  let sum = 0
+  const padded = copy.length + (copy.length % 2)
+  for (let offset = 0; offset < padded; offset += 2) {
+    sum += offset + 1 < copy.length ? copy.readUInt16LE(offset) : copy[offset]
+    sum = (sum & 0xffff) + (sum >> 16)
+  }
+  sum = (sum & 0xffff) + (sum >> 16)
+  return ((sum + copy.length) >>> 0) === stored
+}
+
+/**
+ * 是否残留「FF 15 间接调用 → FF 25 跳板槽」的自相矛盾导入派发。
+ * 判定：可执行节里的 FF 15，其操作数（减 ImageBase 后）落在某个以
+ * FF 25 开头的段内。normalize-boxvnt-pe.mjs 必须已把这类调用全部
+ * 改写为 E8 直调，此函数应恒为 false。
+ */
+function hasIndirectCallsIntoJumpThunks(image: Buffer): boolean {
+  const peOffset = image.readUInt32LE(0x3c)
+  const numSections = image.readUInt16LE(peOffset + 6)
+  const sizeOfOptionalHeader = image.readUInt16LE(peOffset + 20)
+  const optionalHeader = peOffset + 24
+  const imageBase = image.readUInt32LE(optionalHeader + 28)
+  const sectionTable = optionalHeader + sizeOfOptionalHeader
+  const thunkishSectionVas: number[] = []
+  const execSections: { va: number; ptr: number; rawSize: number }[] = []
+  for (let i = 0; i < numSections; i++) {
+    const s = sectionTable + i * 40
+    const va = image.readUInt32LE(s + 12)
+    const rawSize = image.readUInt32LE(s + 16)
+    const ptr = image.readUInt32LE(s + 20)
+    const chars = image.readUInt32LE(s + 36)
+    if (rawSize >= 2 && image[ptr] === 0xff && image[ptr + 1] === 0x25) {
+      thunkishSectionVas.push(va)
+    }
+    if ((chars & 0x60000000) === 0x60000000) {
+      execSections.push({ va, ptr, rawSize })
+    }
+  }
+  for (const section of execSections) {
+    for (let off = 0; off + 6 <= section.rawSize; off++) {
+      if (image[section.ptr + off] !== 0xff || image[section.ptr + off + 1] !== 0x15) continue
+      const targetRva = image.readUInt32LE(section.ptr + off + 2) - imageBase
+      if (thunkishSectionVas.some((va) => targetRva >= va && targetRva < va + 0x1000)) {
+        return true
+      }
+    }
+  }
+  return false
 }
 
 function buildInto(directory: string): string {
@@ -128,8 +190,12 @@ function buildAndAssert(directory: string): PeInfo {
   const pe = parsePe(image)
   assert.equal(pe.machine, 0x14c, 'CPU 架构必须是 i386（XP 32 位）')
   assert.equal(pe.subsystem, 1, '子系统必须是 native（IMAGE_SUBSYSTEM_NATIVE 内核驱动）')
-  assert.notEqual(pe.checksum, 0, '校验和字段非零（wlink option checksum）')
+  assert.deepEqual(pe.subsystemVersion, [4, 0], 'SubsystemVersion 必须是 DDK 标准的 4.0（normalize-boxvnt-pe.mjs 改写）')
+  assert.notEqual(pe.checksum, 0, '校验和字段非零')
+  assert.ok(pe.checksumValid, '校验和必须与 PE 标准算法自洽（跳过规范化步骤会挂这条）')
   assert.notEqual(pe.entryRva, 0, '入口点非零（DriverEntry，NT 驱动无导出表）')
+  assert.ok(pe.virtualSizes.every((vs) => vs > 0), '所有节的 VirtualSize 必须非零——wlink 原始产物的 VSize=0 段是 XP 加载蓝屏的嫌疑形态（normalize-boxvnt-pe.mjs 负责消灭）')
+  assert.ok(!hasIndirectCallsIntoJumpThunks(image), '禁止 FF 15 间接调用指向 FF 25 跳板槽——wlink 原始产物的自相矛盾导入派发，会把跳板指令字节当地址调用（XP 加载即蓝屏，normalize-boxvnt-pe.mjs 改写为 E8 直调）')
   assert.ok(pe.imports.length > 0, '导入表为空，构建疑似坏了')
   for (const dll of pe.imports) {
     assert.ok(IMPORT_DLL_WHITELIST.has(dll.toLowerCase()), `导入表出现白名单之外的模块：${dll}`)

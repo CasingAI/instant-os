@@ -1,0 +1,76 @@
+/* macOS Aqua 风格方形勾选框 */
+
+.checkbox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.checkbox input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.checkbox__box {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border-radius: 3.5px;
+  border: 1px solid #9d9da6;
+  background: linear-gradient(180deg, #ffffff 0%, #f2f2f4 55%, #e2e2e7 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.checkbox input:checked + .checkbox__box {
+  border-color: #1a5ec2;
+  background: linear-gradient(180deg, #63b0f8 0%, #2f7de1 55%, #1c63cf 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.14);
+}
+
+.checkbox input:checked + .checkbox__box::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1.5px;
+  width: 3.5px;
+  height: 7px;
+  border: solid #ffffff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.checkbox input:focus-visible + .checkbox__box {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 0 2px rgba(74, 144, 226, 0.35);
+}
+
+.checkbox--disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.checkbox--disabled input:disabled + .checkbox__box {
+  filter: grayscale(0.15);
+}
+
+.checkbox__text {
+  font-size: inherit;
+  line-height: 1.2;
+  color: inherit;
+}

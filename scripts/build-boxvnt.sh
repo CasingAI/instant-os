@@ -64,8 +64,16 @@ cd "$DRV_DIR"
 wmake clean >/dev/null 2>&1 || true
 wmake
 
+# 探针驱动 #2：零导入、裸 out 写 COM1（见 videomp-min2.c 头注释）。
+# 排查期间随正式驱动一并产出，定案后连同本段一起删除。
+wcc386 -q -s -ecd -wx -d1 -hc -fo=videomp-min2.obj videomp-min2.c
+wlink @boxvideo-min2.lnk
+
 mkdir -p "$OUT_DIR"
-cp "$DRV_DIR/boxvideo.sys" "$OUT_DIR/boxvideo.sys"
+# wlink 产物先过 PE 规范化（段 VSize=0 / SubsystemVersion 1.0 是 XP 加载路径
+# 蓝屏的嫌疑形态，见脚本头注释），规范化后的才是交付物。
+node "$ROOT/scripts/normalize-boxvnt-pe.mjs" "$DRV_DIR/boxvideo.sys" "$OUT_DIR/boxvideo.sys"
+node "$ROOT/scripts/normalize-boxvnt-pe.mjs" "$DRV_DIR/boxvideo-min2.sys" "$OUT_DIR/boxvideo-min2.sys"
 cp "$DRV_DIR/vidmini.inf" "$OUT_DIR/vidmini.inf"
 
 echo "built: $OUT_DIR/boxvideo.sys ($(wc -c < "$OUT_DIR/boxvideo.sys") bytes)"

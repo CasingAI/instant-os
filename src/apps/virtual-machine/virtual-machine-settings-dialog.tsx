@@ -54,6 +54,17 @@ import {
 } from './virtual-machine-disks.ts'
 import { isHttpDiskUrl } from './virtual-machine-protocol.ts'
 import {
+  isVmImeKeyEvent,
+  upsertVmKeyMappings,
+  vmKeySpecFromKeyboardEvent,
+  vmKeySpecIdentity,
+  vmKeySpecLabel,
+  VM_KEY_MAPPING_PRESETS,
+  VM_KEY_QUICK_PICKS,
+  VM_KEY_MAPPINGS_LIMIT,
+  type VmKeySpec,
+} from './virtual-machine-keymap.ts'
+import {
   VIRTUAL_MACHINE_NAME_MAX_LENGTH,
   type VirtualMachineSettings,
   type VmStorageDevice,
@@ -63,6 +74,9 @@ import {
 const THEME = '#3d5a80'
 
 type SettingsTab = 'general' | 'hardware' | 'storage' | 'devices'
+
+/** 添加映射的两步捕获：先按来源键，再按目标键或从快选里挑。 */
+type KeymapCapture = { step: 'from' } | { step: 'to'; from: VmKeySpec }
 
 type VirtualMachineSettingsDialogProps = {
   open: boolean
@@ -101,6 +115,10 @@ function cloneSettings(settings: VirtualMachineSettings): VirtualMachineSettings
   return {
     ...settings,
     devices: settings.devices.map((device) => ({ ...device })),
+    keyMappings: settings.keyMappings.map((mapping) => ({
+      from: { ...mapping.from },
+      to: { ...mapping.to },
+    })),
   }
 }
 
@@ -160,6 +178,8 @@ export function VirtualMachineSettingsDialog({
   const [createDiskSizeMb, setCreateDiskSizeMb] = useState(VM_BLANK_DISK_DEFAULT_SIZE_MB)
   const [createDiskName, setCreateDiskName] = useState('')
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [keyCapture, setKeyCapture] = useState<KeymapCapture | undefined>(undefined)
+  const [keyCaptureError, setKeyCaptureError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     if (!open) {
@@ -177,12 +197,67 @@ export function VirtualMachineSettingsDialog({
     setCreateDiskSizeMb(VM_BLANK_DISK_DEFAULT_SIZE_MB)
     setCreateDiskName('')
     setAddModalOpen(false)
+    setKeyCapture(undefined)
+    setKeyCaptureError(undefined)
   }, [open, initial])
 
   const patch = useCallback((partial: Partial<VirtualMachineSettings>) => {
     setDraft((current) => ({ ...current, ...partial }))
     setError(undefined)
   }, [])
+
+  const cancelKeyCapture = useCallback(() => {
+    setKeyCapture(undefined)
+    setKeyCaptureError(undefined)
+  }, [])
+
+  const commitKeyMapping = useCallback(
+    (from: VmKeySpec, to: VmKeySpec) => {
+      if (vmKeySpecIdentity(from) === vmKeySpecIdentity(to)) {
+        setKeyCaptureError('来源键和目标键相同，换一个目标键。')
+        return
+      }
+      const exists = draft.keyMappings.some(
+        (mapping) => vmKeySpecIdentity(mapping.from) === vmKeySpecIdentity(from),
+      )
+      if (!exists && draft.keyMappings.length >= VM_KEY_MAPPINGS_LIMIT) {
+        setKeyCaptureError(`映射已达上限（${VM_KEY_MAPPINGS_LIMIT} 条），先移除几条再添加。`)
+        return
+      }
+      patch({ keyMappings: upsertVmKeyMappings(draft.keyMappings, [{ from, to }]) })
+      setKeyCapture(undefined)
+      setKeyCaptureError(undefined)
+    },
+    [draft.keyMappings, patch],
+  )
+
+  // 捕获期间独占键盘：拦截一切按键，不透传给桌面快捷键或对话框表单。
+  useEffect(() => {
+    if (!keyCapture) {
+      return
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.key === 'Escape') {
+        cancelKeyCapture()
+        return
+      }
+      if (isVmImeKeyEvent(event) || !event.code) {
+        setKeyCaptureError('这个键无法识别（输入法状态或浏览器不上报），换个键试试。')
+        return
+      }
+      const spec = vmKeySpecFromKeyboardEvent(event)
+      if (keyCapture.step === 'from') {
+        setKeyCaptureError(undefined)
+        setKeyCapture({ step: 'to', from: spec })
+        return
+      }
+      commitKeyMapping(keyCapture.from, spec)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [cancelKeyCapture, commitKeyMapping, keyCapture])
 
   const selectedDeviceIndex = useMemo(() => {
     if (!selectedDeviceId) {
@@ -817,13 +892,170 @@ export function VirtualMachineSettingsDialog({
                   />
                 ) : null}
                 {selectedDevice === 'keyboard' ? (
-                  <SwitchRow
-                    label="键盘"
-                    checked={draft.keyboard}
-                    disabled={busy}
-                    detail="关闭后客户机收不到按键。"
-                    onChange={(keyboard) => patch({ keyboard })}
-                  />
+                  <>
+                    <SwitchRow
+                      label="键盘"
+                      checked={draft.keyboard}
+                      disabled={busy}
+                      detail="关闭后客户机收不到按键。"
+                      onChange={(keyboard) => patch({ keyboard })}
+                    />
+                    <div class="virtual-machine-settings__keymap">
+                      <SwitchRow
+                        label="按键映射"
+                        checked={draft.keyMappingEnabled}
+                        disabled={busy || !draft.keyboard}
+                        detail="把物理按键改写成目标按键后再送入客机。保存后立即生效，运行中的虚拟机也适用。"
+                        onChange={(keyMappingEnabled) => patch({ keyMappingEnabled })}
+                      />
+                      {draft.keyMappings.length > 0 ? (
+                        <ul
+                          class="virtual-machine-settings__keymap-list"
+                          aria-label="按键映射规则"
+                        >
+                          {draft.keyMappings.map((mapping) => {
+                            const identity = vmKeySpecIdentity(mapping.from)
+                            return (
+                              <li class="virtual-machine-settings__keymap-row" key={identity}>
+                                <span class="virtual-machine-settings__keymap-from">
+                                  {vmKeySpecLabel(mapping.from)}
+                                </span>
+                                <span class="virtual-machine-settings__keymap-arrow" aria-hidden="true">
+                                  →
+                                </span>
+                                <span class="virtual-machine-settings__keymap-to">
+                                  {vmKeySpecLabel(mapping.to)}
+                                </span>
+                                <IosButton
+                                  size="compact"
+                                  tone="secondary"
+                                  disabled={busy || keyCapture !== undefined}
+                                  onClick={() =>
+                                    patch({
+                                      keyMappings: draft.keyMappings.filter(
+                                        (item) => vmKeySpecIdentity(item.from) !== identity,
+                                      ),
+                                    })
+                                  }
+                                >
+                                  移除
+                                </IosButton>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      ) : (
+                        <p class="virtual-machine-settings__hint">
+                          还没有映射。Mac 键盘操作 Windows
+                          时，可以把 ⌘ Command 改写成 Ctrl，或给不存在的 Delete、PrintScreen
+                          等键找个替身。
+                        </p>
+                      )}
+                      <div class="virtual-machine-settings__keymap-actions">
+                        <IosButton
+                          size="compact"
+                          disabled={
+                            busy ||
+                            keyCapture !== undefined ||
+                            draft.keyMappings.length >= VM_KEY_MAPPINGS_LIMIT
+                          }
+                          onClick={() => {
+                            setKeyCaptureError(undefined)
+                            setKeyCapture({ step: 'from' })
+                          }}
+                        >
+                          添加映射…
+                        </IosButton>
+                        {VM_KEY_MAPPING_PRESETS.map((preset) => (
+                          <IosButton
+                            key={preset.id}
+                            size="compact"
+                            tone="secondary"
+                            title={preset.description}
+                            disabled={busy || keyCapture !== undefined}
+                            onClick={() => {
+                              setKeyCaptureError(undefined)
+                              patch({
+                                keyMappingEnabled: true,
+                                keyMappings: upsertVmKeyMappings(
+                                  draft.keyMappings,
+                                  preset.mappings,
+                                ),
+                              })
+                            }}
+                          >
+                            {preset.label}
+                          </IosButton>
+                        ))}
+                      </div>
+                      {keyCapture ? (
+                        <div
+                          class="virtual-machine-settings__keymap-capture"
+                          role="group"
+                          aria-label="捕获按键映射"
+                        >
+                          {keyCapture.step === 'from' ? (
+                            <>
+                              <span class="virtual-machine-settings__keymap-capture-title">
+                                按下要改写的键
+                              </span>
+                              <p class="virtual-machine-settings__hint">
+                                按任意一个键（如 ⌘ Command、CapsLock）。Esc
+                                取消；Fn 等浏览器捕获不到的键无法改写。
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <span class="virtual-machine-settings__keymap-capture-title">
+                                <span class="virtual-machine-settings__keymap-capture-key">
+                                  {vmKeySpecLabel(keyCapture.from)}
+                                </span>
+                                改成什么键？按下目标键，或从下面选一个
+                              </span>
+                              <div class="virtual-machine-settings__keymap-picks">
+                                {VM_KEY_QUICK_PICKS.map((pick) => (
+                                  <button
+                                    key={pick.spec.code}
+                                    type="button"
+                                    class="virtual-machine-settings__keymap-pick"
+                                    disabled={busy}
+                                    onClick={() => commitKeyMapping(keyCapture.from, pick.spec)}
+                                  >
+                                    {pick.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <p class="virtual-machine-settings__hint">
+                                Mac 键盘上通常没有这些 PC 键，点选即可当作目标。
+                              </p>
+                            </>
+                          )}
+                          {keyCaptureError ? (
+                            <p class="virtual-machine-settings__keymap-error" role="alert">
+                              {keyCaptureError}
+                            </p>
+                          ) : null}
+                          <div class="virtual-machine-settings__keymap-capture-actions">
+                            {keyCapture.step === 'to' ? (
+                              <IosButton
+                                size="compact"
+                                tone="secondary"
+                                onClick={() => {
+                                  setKeyCaptureError(undefined)
+                                  setKeyCapture({ step: 'from' })
+                                }}
+                              >
+                                重选来源键
+                              </IosButton>
+                            ) : null}
+                            <IosButton size="compact" tone="secondary" onClick={cancelKeyCapture}>
+                              取消
+                            </IosButton>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
                 ) : null}
                 {selectedDevice === 'mouse' ? (
                   <>

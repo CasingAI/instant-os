@@ -1,0 +1,12 @@
+# Instant VM changes: zero-import probe driver (see videomp-min2.c header).
+# No videoprt lib, no resource, no symf — the image must have NOTHING outside
+# its own bytes so an import-resolution fault can never be mistaken for an
+# image-load fault.
+op quiet, map
+name boxvideo-min2.sys
+format windows nt runtime native=1.0
+option start='_DriverEntry@8'
+option offset=0x10000, checksum, osversion=1.0, version=1.0
+option stack=0x100000, heapsize=0x100000
+file { videomp-min2.obj }
+libpath %WATCOM%/lib386/nt/ddk

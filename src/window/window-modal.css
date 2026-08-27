@@ -165,11 +165,8 @@
 .window-modal__apply-all {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   font-size: 11px;
   color: #444;
-  cursor: pointer;
-  user-select: none;
 }
 
 .window-modal__field {

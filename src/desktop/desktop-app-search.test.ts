@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import {
   buildDesktopAppSearchCatalog,
+  buildDesktopHelpPresetPrompt,
   desktopAppSearchSeedFromKey,
   filterDesktopAppSearchResults,
   isBuiltinAppSearchable,
@@ -130,6 +131,16 @@ function testBlockedTargets(): void {
   console.log('ok: blocked targets')
 }
 
+function testHelpPresetPrompt(): void {
+  assert.equal(buildDesktopHelpPresetPrompt(''), '')
+  assert.equal(buildDesktopHelpPresetPrompt('   '), '')
+  const prompt = buildDesktopHelpPresetPrompt('  清理存储空间 ')
+  assert.ok(prompt.includes('清理存储空间'))
+  assert.ok(prompt.startsWith('我想完成这件事'))
+  assert.ok(!prompt.includes('  '))
+  console.log('ok: help preset prompt')
+}
+
 testExcludedBuiltinsStayOutOfCatalog()
 testSpeechAppearsWhenExperimental()
 testCatalogMergesGeneratedAndExt()
@@ -138,4 +149,5 @@ testPrefixRanksBeforeSubstring()
 testNameAndIdMatch()
 testTriggerKeys()
 testBlockedTargets()
+testHelpPresetPrompt()
 console.log('desktop-app-search: all passed')

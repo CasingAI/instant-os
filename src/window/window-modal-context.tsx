@@ -7,6 +7,7 @@ import {
   type WindowModalAction,
   type WindowModalActionTone,
 } from './window-modal.tsx'
+import { Checkbox } from '../ui/checkbox.tsx'
 
 type PromptOptions = {
   title: string
@@ -103,7 +104,7 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
       }
     | undefined
   >(undefined)
-  const chooseCheckboxRef = useRef<HTMLInputElement | null>(null)
+  const [chooseApplyToAll, setChooseApplyToAll] = useState(false)
   const promptInputRef = useRef<HTMLInputElement | null>(null)
   const [overlayRoot, setOverlayRoot] = useState<HTMLDivElement | undefined>(undefined)
 
@@ -137,6 +138,7 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
   const choose = useCallback((options: WindowModalChooseOptions) => {
     return new Promise<WindowModalChooseResult | undefined>((resolve) => {
       setChooseState({ options, resolve })
+      setChooseApplyToAll(false)
     })
   }, [])
 
@@ -334,11 +336,11 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
       onClick: () => {
         closeChoose({
           key: option.key,
-          applyToAll: chooseCheckboxRef.current?.checked === true,
+          applyToAll: chooseApplyToAll,
         })
       },
     }))
-  }, [chooseState, closeChoose])
+  }, [chooseState, chooseApplyToAll, closeChoose])
 
   return (
     <WindowModalContext.Provider value={value}>
@@ -430,10 +432,13 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
             actions={chooseActions}
             footer={
               chooseState?.options.applyToAllLabel ? (
-                <label class="window-modal__apply-all">
-                  <input ref={chooseCheckboxRef} type="checkbox" />
-                  <span>{chooseState.options.applyToAllLabel}</span>
-                </label>
+                <div class="window-modal__apply-all">
+                  <Checkbox
+                    checked={chooseApplyToAll}
+                    onChange={setChooseApplyToAll}
+                    label={chooseState.options.applyToAllLabel}
+                  />
+                </div>
               ) : undefined
             }
           >

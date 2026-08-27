@@ -206,6 +206,34 @@ static BOOLEAN vmpGetModeDims( PHW_DEV_EXT pExt, ULONG modeNumber,
     return( FALSE );
 }
 
+/* debug: BSOD triage probe — write "[IVM]<tag>=<8 hex>\r\n" to COM1 (0x3F8).
+ * The host-side runtime tap picks these up via v86's serial0-output-byte;
+ * remove the probe and every vmpDbgSerial call once the crash is fixed.
+ * Writes go through a bare `out dx,al` (no import) so the probe still
+ * emits even if the import/thunk resolution path is what's crashing. */
+extern void vmpDbgOut( unsigned short port, unsigned char val );
+#pragma aux vmpDbgOut = "out dx, al" parm [dx] [al];
+
+static void vmpDbgSerial( const char *tag, ULONG val )
+{
+    static const char   hex[] = "0123456789abcdef";
+    int                 i;
+
+    vmpDbgOut( 0x3FB, 0x03 );     /* 8N1, DLAB off */
+    vmpDbgOut( 0x3F8, '[' );
+    vmpDbgOut( 0x3F8, 'I' );
+    vmpDbgOut( 0x3F8, 'V' );
+    vmpDbgOut( 0x3F8, 'M' );
+    vmpDbgOut( 0x3F8, ']' );
+    while( *tag )
+        vmpDbgOut( 0x3F8, (UCHAR)*tag++ );
+    vmpDbgOut( 0x3F8, '=' );
+    for( i = 28; i >= 0; i -= 4 )
+        vmpDbgOut( 0x3F8, hex[(val >> i) & 0xF] );
+    vmpDbgOut( 0x3F8, '\r' );
+    vmpDbgOut( 0x3F8, '\n' );
+}
+
 /* Determine whether the supported adapter is present. Note that this
  * function is not allowed to change the state of the adapter!
  */
@@ -236,6 +264,7 @@ VP_STATUS HwVidFindAdapter( PVOID HwDevExt, PVOID HwContext, PWSTR ArgumentStrin
     };
 
     VideoDebugPrint( (1, "videomp: HwVidFindAdapter\n") );
+    vmpDbgSerial( "F0", 0x22222222ul );     /* debug: FindAdapter entered */
 
     /* Fail if the passed structure is smaller than the NT 3.1 version. */
     if( ConfigInfo->Length < offsetof( VIDEO_PORT_CONFIG_INFO, DmaChannel ) ) {
@@ -286,6 +315,7 @@ VP_STATUS HwVidFindAdapter( PVOID HwDevExt, PVOID HwContext, PWSTR ArgumentStrin
     if( status != NO_ERROR ) {
         return( status );
     }
+    vmpDbgSerial( "F2", status );           /* debug: ranges verified */
 
     /* Indicate no emulator support. */
     ConfigInfo->NumEmulatorAccessEntries     = 0;
@@ -319,9 +349,12 @@ VP_STATUS HwVidFindAdapter( PVOID HwDevExt, PVOID HwContext, PWSTR ArgumentStrin
             return( ERROR_INVALID_PARAMETER );
         }
     }
+    vmpDbgSerial( "F3", 0x33333333ul );     /* debug: ranges mapped */
 
     /* Verify that supported hardware is present. */
     chip_id = BOXV_detect( pExt, &pExt->FramebufLen );
+    vmpDbgSerial( "F4", (ULONG)chip_id );   /* debug: dispi chip id */
+    vmpDbgSerial( "F5", pExt->FramebufLen );    /* debug: reported vram bytes */
     if( !chip_id ) {
         /* If supported hardware was not found, free allocated resources. */
         pVirtAddr = &pExt->IoPorts;
@@ -350,6 +383,7 @@ VP_STATUS HwVidFindAdapter( PVOID HwDevExt, PVOID HwContext, PWSTR ArgumentStrin
         if( VideoModes[i].bValid )
             ++pExt->NumValidModes;
     }
+    vmpDbgSerial( "F6", pExt->NumValidModes );  /* debug: static modes valid */
 
     /* Only one adapter supported, no need to call us again. */
     *Again = 0;
@@ -378,6 +412,7 @@ VP_STATUS HwVidFindAdapter( PVOID HwDevExt, PVOID HwContext, PWSTR ArgumentStrin
     cbVramSize = pExt->FramebufLen;
     VideoPortSetRegistryParameters( pExt, L"HardwareInformation.MemorySize",
                                     &cbVramSize, sizeof( ULONG ) );
+    vmpDbgSerial( "F9", 0x99999999ul );     /* debug: FindAdapter ok */
     /* All is well. */
     return( NO_ERROR );
 }
@@ -389,6 +424,7 @@ VP_STATUS HwVidFindAdapter( PVOID HwDevExt, PVOID HwContext, PWSTR ArgumentStrin
 BOOLEAN HwVidInitialize( PVOID HwDevExt )
 {
     VideoDebugPrint( (1, "videomp: HwVidInitialize\n") );
+    vmpDbgSerial( "I0", 0x11111111ul );     /* debug: HwInitialize */
     return( TRUE );
 }
 
@@ -488,6 +524,7 @@ BOOLEAN HwVidStartIO( PVOID HwDevExt, PVIDEO_REQUEST_PACKET ReqPkt )
     UCHAR                               ucBpp;          /* Instant VM changes */
 
     VideoDebugPrint( (2, "videomp: HwVidStartIO: ") );
+    vmpDbgSerial( "S", ReqPkt->IoControlCode );     /* debug: StartIO entry */
 
     /* Process the VRP. Required requests are handled first. */
     switch( ReqPkt->IoControlCode ) {
@@ -785,6 +822,7 @@ VP_STATUS HwGetChildDesc( PVOID HwDevExt, PVIDEO_CHILD_ENUM_INFO ChildEnumInfo,
     PHW_DEV_EXT     pExt = HwDevExt;
 
     VideoDebugPrint( (1, "videomp: HwGetChildDesc\n") );
+    vmpDbgSerial( "C", ChildEnumInfo->ChildIndex );     /* debug: child enum */
 
     if( ChildEnumInfo->ChildIndex > 0 ) {
         if( (int)ChildEnumInfo->ChildIndex <= pExt->NumMonitors ) {
@@ -803,6 +841,7 @@ BOOLEAN HwVidResetHw( PVOID HwDevExt, ULONG Columns, ULONG Rows )
     PHW_DEV_EXT     pExt = HwDevExt;
 
     VideoDebugPrint( (1, "videomp: HwVidResetHw\n") );
+    vmpDbgSerial( "R", 0xAAAAAAAAul );      /* debug: ResetHw */
 
     BOXV_ext_disable( pExt );
     /* Indicate that we didn't actually set the requested text mode. */
@@ -816,9 +855,19 @@ ULONG DriverEntry( PVOID Context1, PVOID Context2 )
     ULONG                           status;
 
     VideoDebugPrint( (1, "videomp: DriverEntry\n") );
+    vmpDbgSerial( "DE", 0xDEDEDEDEul );     /* debug: DriverEntry entered */
+    vmpDbgSerial( "Z0", 0x00000000ul );     /* debug: right before first import call */
+
+#ifdef VMP_BOOT_PROBE_ONLY
+    /* debug: bisect build — proves image load + DriverEntry execution only.
+     * Returning failure fails the device start gracefully (no mode takeover). */
+    vmpDbgSerial( "DR", 0x00000001ul );
+    return( 0xC0000001ul );
+#endif
 
     /* Prepare the initialization structure. */
     VideoPortZeroMemory( &hwInitData, sizeof( VIDEO_HW_INITIALIZATION_DATA ) );
+    vmpDbgSerial( "Z1", 0x00000001ul );     /* debug: first import call survived */
     hwInitData.HwInitDataSize = sizeof( VIDEO_HW_INITIALIZATION_DATA );
 
     /* Set up driver callbacks. */
@@ -892,5 +941,6 @@ ULONG DriverEntry( PVOID Context1, PVOID Context2 )
         status = VideoPortInitialize( Context1, Context2, &hwInitData, NULL );
     } while( 0 );
     VideoDebugPrint( (1, "videomp: VideoPortInitialize rc=%08x\n", status ) );
+    vmpDbgSerial( "DR", status );           /* debug: DriverEntry return */
     return( status );
 }

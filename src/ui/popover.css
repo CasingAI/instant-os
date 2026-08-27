@@ -1,0 +1,129 @@
+.popover {
+  position: fixed;
+  z-index: 2200;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 16px));
+  padding: 8px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 8px;
+  color: #222;
+  background: linear-gradient(180deg, #fafafa 0%, #ececec 100%);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  animation: popover-in 120ms ease;
+}
+
+.popover--below {
+  transform-origin: var(--popover-arrow-x, 50%) 0;
+}
+
+.popover--above {
+  transform-origin: var(--popover-arrow-x, 50%) 100%;
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 箭头：双层 border 三角（外层描边、内层填充盖出 1px 描边），X 位置由 JS 跟随锚点 */
+
+.popover--below::before,
+.popover--below::after,
+.popover--above::before,
+.popover--above::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  border-style: solid;
+}
+
+/* 气泡在锚点下方：顶边朝上箭头 */
+.popover--below::before {
+  top: -8px;
+  left: calc(var(--popover-arrow-x, 50%) - 8px);
+  border-width: 0 8px 8px;
+  border-color: transparent transparent rgba(0, 0, 0, 0.28) transparent;
+}
+
+.popover--below::after {
+  top: -7px;
+  left: calc(var(--popover-arrow-x, 50%) - 7px);
+  border-width: 0 7px 7px;
+  border-color: transparent transparent #fafafa transparent;
+}
+
+/* 气泡在锚点上方：底边朝下箭头 */
+.popover--above::before {
+  bottom: -8px;
+  left: calc(var(--popover-arrow-x, 50%) - 8px);
+  border-width: 8px 8px 0;
+  border-color: rgba(0, 0, 0, 0.28) transparent transparent transparent;
+}
+
+.popover--above::after {
+  bottom: -7px;
+  left: calc(var(--popover-arrow-x, 50%) - 7px);
+  border-width: 7px 7px 0;
+  border-color: #ececec transparent transparent transparent;
+}
+
+/* 窄屏：居中模态对话框 */
+
+.popover-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.28);
+  animation: popover-backdrop-in 150ms ease;
+}
+
+.popover-modal {
+  width: min(100%, 320px);
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 12px;
+  color: #222;
+  background: linear-gradient(180deg, #fafafa 0%, #ececec 100%);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  animation: popover-in 150ms ease;
+}
+
+.popover-modal__body {
+  padding: 14px 16px 4px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: normal;
+}
+
+.popover-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 12px 12px;
+}
+
+@keyframes popover-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -1,0 +1,13 @@
+op quiet, map
+name boxvideo-min.sys
+format windows nt runtime native=1.0
+debug codeview
+op symf, cvpack
+option start='_DriverEntry@8'
+option offset=0x10000, checksum, osversion=1.0, version=1.0
+option stack=0x100000, heapsize=0x100000
+segment class CODE nonpageable, class DATA nonpageable
+file { videomp-min.obj vidmpdat.obj boxv.obj }
+libpath /Users/john/.cache/boxvnt/ow-snapshot/lib386/nt/ddk
+lib videoprt
+resource videomp.res

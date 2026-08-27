@@ -53,6 +53,25 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'checkbox',
+    name: 'Checkbox',
+    description:
+      'macOS Aqua 风格方形勾选框；勾选态固定系统蓝，用于窗口弹窗等 Mac 风格界面（如重名冲突的「应用到全部」）',
+    category: 'form',
+    importPath: "import { Checkbox } from '../../ui/checkbox.tsx'",
+    props: [
+      { name: 'checked', type: 'boolean', description: '勾选状态' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
+      { name: 'label', type: 'string?', description: '可见文字，兼作无障碍标签' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    ],
+    codeExample: `<Checkbox
+  checked={applyToAll}
+  onChange={setApplyToAll}
+  label="应用到全部"
+/>`,
+  },
+  {
     id: 'ios-button',
     name: 'IosButton',
     description:
@@ -373,6 +392,45 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   capabilities={['text', 'vision']}
   visionEditable
   onVisionChange={setSupportsVision}
+/>`,
+  },
+  {
+    id: 'popover',
+    name: 'Popover',
+    description:
+      '通用锚定气泡；箭头自动跟随锚点，靠近视口底部向上翻、超出视口夹紧；宿主窗口宽 ≤520px 时自动退化为居中模态对话框（「好」按钮关闭）',
+    category: 'other',
+    importPath: "import { Popover } from '../../ui/popover.tsx'",
+    props: [
+      { name: 'open', type: 'boolean', description: '是否打开' },
+      { name: 'anchorRef', type: 'RefObject<HTMLElement>', description: '锚点元素；箭头指向它，窄屏判定也以它所在的窗口为准' },
+      { name: 'onClose', type: '() => void', description: '关闭回调（外部点按 / Esc / 窄屏按钮）' },
+      { name: 'children', type: 'ComponentChildren', description: '气泡内容' },
+      { name: 'ariaLabel', type: 'string?', description: '无障碍标签' },
+      { name: 'dismissLabel', type: 'string?', description: '窄屏模态关闭按钮文案，默认「好」' },
+    ],
+    codeExample: `const [open, setOpen] = useState(false)
+const buttonRef = useRef(null)
+
+<button ref={buttonRef} onClick={() => setOpen(!open)}>说明</button>
+<Popover open={open} anchorRef={buttonRef} onClose={() => setOpen(false)}>
+  这里是帮助说明文字。
+</Popover>`,
+  },
+  {
+    id: 'help-hint',
+    name: 'HelpHint',
+    description:
+      '帮助提示按钮；SVG 矢量「？」圆形按钮，点按经 Popover 弹出说明气泡（带指向箭头；宿主窗口很窄时变居中模态）',
+    category: 'other',
+    importPath: "import { HelpHint } from '../../ui/help-hint.tsx'",
+    props: [
+      { name: 'text', type: 'string', description: '说明内容，展示在弹出气泡里' },
+      { name: 'label', type: 'string?', description: '无障碍标签，缺省用「说明」' },
+    ],
+    codeExample: `<HelpHint
+  text="开启后尽量以稀疏分块存储：缺席的全零块不落库，写入全零自动打洞"
+  label="机会压缩说明"
 />`,
   },
   {

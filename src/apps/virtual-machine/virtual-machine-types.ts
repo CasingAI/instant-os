@@ -1,3 +1,5 @@
+import type { VmKeyMapping } from './virtual-machine-keymap.ts'
+
 export const VM_BACKEND_IDS = ['v86'] as const
 
 export type VmBackendId = (typeof VM_BACKEND_IDS)[number]
@@ -152,6 +154,10 @@ export type VirtualMachineSettings = {
   pointerMode: VmPointerModeId
   diskWriteMode: VmDiskWriteModeId
   resolutionAutoAlign: boolean
+  /** 按键映射总开关；关闭时不改写任何按键（规则保留）。 */
+  keyMappingEnabled: boolean
+  /** 物理键 → 目标键改写规则，注入客机前由宿主翻译。 */
+  keyMappings: VmKeyMapping[]
   network: VmNetworkId
   networkBackend: VmNetworkBackendId
   displayMode: VmDisplayModeId

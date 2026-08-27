@@ -220,6 +220,35 @@ function testNormalizeRecordRejectsInvalid(): void {
   assert.equal(normalizeVirtualMachineSettings({ name: '   ' }), undefined)
 }
 
+function testNormalizeKeyMappings(): void {
+  const mapping = {
+    from: { key: 'Meta', code: 'MetaLeft', keyCode: 91, location: 1 },
+    to: { key: 'Control', code: 'ControlLeft', keyCode: 17, location: 1 },
+  }
+  // 缺省：空映射 + 开关开（对存量用户零行为变化）。
+  const defaults = normalizeVirtualMachineSettings({ name: 'test' })
+  assert.deepEqual(defaults?.keyMappings, [])
+  assert.equal(defaults?.keyMappingEnabled, true)
+  // 合法映射原样保留，坏条目 / 重复来源 / 来源=目标丢弃。
+  const normalized = normalizeVirtualMachineSettings({
+    name: 'test',
+    keyMappings: [
+      mapping,
+      mapping,
+      { from: mapping.from, to: mapping.from },
+      { from: mapping.from, to: { key: 'Delete', code: 'Delete', keyCode: 'x', location: 0 } },
+      null,
+    ],
+  })
+  assert.equal(normalized?.keyMappings.length, 1)
+  assert.deepEqual(normalized?.keyMappings[0], mapping)
+  // 非 boolean 开关回落默认。
+  const badSwitch = normalizeVirtualMachineSettings({ name: 'test', keyMappingEnabled: 'yes' })
+  assert.equal(badSwitch?.keyMappingEnabled, true)
+  const off = normalizeVirtualMachineSettings({ name: 'test', keyMappingEnabled: false })
+  assert.equal(off?.keyMappingEnabled, false)
+}
+
 function testNextMachineName(): void {
   assert.equal(nextVirtualMachineName([]), DEFAULT_VIRTUAL_MACHINE_NAME)
   assert.equal(
@@ -274,6 +303,12 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
     networkBackend: 'fetch',
     devices: [{ id: 'd', type: 'hdd', source: 'local', path: '/user/vm/disk.img' }],
     acpi: true,
+    keyMappings: [
+      {
+        from: { key: 'Meta', code: 'MetaLeft', keyCode: 91, location: 1 },
+        to: { key: 'Control', code: 'ControlLeft', keyCode: 17, location: 1 },
+      },
+    ],
   })
   assert.equal(updated?.id, created.id)
   assert.equal(updated?.name, '改名')
@@ -283,6 +318,9 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
   assert.equal(updated?.networkBackend, 'fetch')
   assert.equal(updated?.devices[0]?.path, '/user/vm/disk.img')
   assert.equal(updated?.acpi, true)
+  assert.equal(updated?.keyMappings.length, 1)
+  assert.equal(updated?.keyMappings[0]?.from.code, 'MetaLeft')
+  assert.equal(updated?.keyMappings[0]?.to.code, 'ControlLeft')
   assert.equal(updated?.createdAt, created.createdAt)
 
   const missing = await updateVirtualMachine('no-such', defaultVirtualMachineSettings('x'))
@@ -305,6 +343,7 @@ testNormalizeBuildModeFallback()
 testNormalizeDiskWriteModeFallback()
 testNormalizeMemoryMbRange()
 testNormalizeCpuModelFallback()
+testNormalizeKeyMappings()
 testNextMachineName()
 await testFirstReadPersistsDefault()
 await testEmptyWriteDoesNotReseed()

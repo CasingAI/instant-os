@@ -1,3 +1,6 @@
+/* macOS 27 Golden Gate 风格的桌面搜索（Liquid Glass）：模糊玻璃底、
+   居中大面板、命中高亮、AI 建议常驻。 */
+
 .desktop-app-search__backdrop {
   position: fixed;
   inset: 0;
@@ -5,77 +8,144 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 88px 16px 24px;
-  background: rgba(0, 0, 0, 0.28);
+  padding: max(14vh, 76px) 16px 24px;
+  background: rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
 }
 
 .desktop-app-search {
   display: flex;
   flex-direction: column;
-  width: min(100%, 420px);
-  max-height: min(480px, calc(100% - 48px));
+  width: min(100%, 560px);
+  max-height: min(520px, calc(100% - 48px));
   overflow: hidden;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.45);
-  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: linear-gradient(
+    180deg,
+    rgba(252, 252, 254, 0.78) 0%,
+    rgba(244, 246, 250, 0.72) 100%
+  );
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    0 24px 70px rgba(0, 0, 0, 0.38),
+    0 4px 14px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .desktop-app-search__field {
+  position: relative;
   flex-shrink: 0;
-  padding: 12px 12px 10px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  background: linear-gradient(180deg, #f3f3f3 0%, #e6e6e6 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.desktop-app-search__magnifier {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: #6d7683;
+}
+
+.desktop-app-search__field .ios-text-field-wrap {
+  flex: 1;
 }
 
 .desktop-app-search__field .ios-text-field {
-  height: 32px;
-  font-size: 14px;
+  height: 38px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #1c2530;
+  font-size: 17px;
+  box-shadow: none;
+}
+
+.desktop-app-search__field .ios-text-field:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.desktop-app-search__field .ios-text-field::placeholder {
+  color: #9aa3ae;
 }
 
 .desktop-app-search__results {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 6px;
+  padding: 8px;
+}
+
+.desktop-app-search__section {
+  padding: 8px 10px 4px;
+  color: #67707c;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .desktop-app-search__empty {
   margin: 0;
-  padding: 18px 12px;
-  color: #666;
+  padding: 20px 12px 8px;
+  color: #6a727d;
   font-size: 13px;
   text-align: center;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .desktop-app-search__item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: 6px 8px;
+  min-height: 46px;
+  padding: 6px 10px 6px 13px;
   border: 0;
-  border-radius: 4px;
-  color: #222;
+  border-radius: 10px;
+  color: #232b35;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   text-align: left;
   background: transparent;
   cursor: pointer;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.desktop-app-search__item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.12s ease;
 }
 
 .desktop-app-search__item--active {
-  color: #fff;
-  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
+  color: #0d1b2a;
+  background: rgba(24, 90, 160, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 0 0 1px rgba(24, 90, 160, 0.16);
+  text-shadow: none;
+}
+
+.desktop-app-search__item--active::before {
+  background: #2f7cd6;
 }
 
 .desktop-app-search__icon {
@@ -83,8 +153,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
 }
 
 .desktop-app-search__name {
@@ -93,4 +163,52 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.desktop-app-search__hit {
+  margin: 0;
+  padding: 0 1px;
+  border-radius: 3px;
+  color: inherit;
+  background: rgba(255, 214, 0, 0.45);
+}
+
+.desktop-app-search__id {
+  flex-shrink: 0;
+  max-width: 38%;
+  overflow: hidden;
+  padding-left: 8px;
+  color: #8a929d;
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-app-search__item--help .desktop-app-search__name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: visible;
+  white-space: normal;
+}
+
+.desktop-app-search__help-title {
+  color: #1c5c9e;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.desktop-app-search__help-query {
+  overflow: hidden;
+  color: #5c6672;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-app-search__item--help .desktop-app-search__id {
+  color: #4b89c7;
+  font-weight: 600;
 }

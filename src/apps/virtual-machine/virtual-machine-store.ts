@@ -5,6 +5,7 @@ import {
   migrateLegacyDrivePaths,
   settingsFromRecord,
 } from './virtual-machine-config.ts'
+import { normalizeVmKeyMappings } from './virtual-machine-keymap.ts'
 import {
   DEFAULT_VIRTUAL_MACHINE_ID,
   DEFAULT_VIRTUAL_MACHINE_NAME,
@@ -167,6 +168,8 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
       record.resolutionAutoAlign,
       defaults.resolutionAutoAlign,
     ),
+    keyMappingEnabled: normalizeBoolean(record.keyMappingEnabled, defaults.keyMappingEnabled),
+    keyMappings: normalizeVmKeyMappings(record.keyMappings),
     network: normalizeOneOf(record.network, VM_NETWORK_IDS, defaults.network),
     networkBackend: normalizeOneOf(
       record.networkBackend,

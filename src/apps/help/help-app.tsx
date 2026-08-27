@@ -444,7 +444,7 @@ function HelpLiveTimeline({
 }
 
 export function HelpApp() {
-  const { setAppWindowTitle } = useOs()
+  const { setAppWindowTitle, windows, setAppWindowHelpQuery } = useOs()
   const [messages, setMessages] = useState<HelpMessage[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -716,6 +716,20 @@ export function HelpApp() {
   const handleSubmit = useCallback(() => {
     void sendMessage(draft)
   }, [draft, sendMessage])
+
+  // 桌面搜索「让 AI 代办」等入口经 openApp({ helpQuery }) 预设的问题：
+  // 空闲时自动发送；正在回答则等本轮结束后自动续发。消费后立即清空窗口
+  // 状态，同一问题再次带入会重新触发。
+  const pendingHelpQuery = windows.find(
+    (window) => window.appId === APP_ID && !window.closing,
+  )?.helpQuery
+  useEffect(() => {
+    if (!pendingHelpQuery || busy) {
+      return
+    }
+    setAppWindowHelpQuery(APP_ID, undefined)
+    void sendMessage(pendingHelpQuery)
+  }, [busy, pendingHelpQuery, sendMessage, setAppWindowHelpQuery])
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {

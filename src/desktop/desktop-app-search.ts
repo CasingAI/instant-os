@@ -1,5 +1,6 @@
 import { BUILTIN_APP_CATALOG_ORDER, BUILTIN_APP_DISPLAY_NAMES } from '../os/builtin-app-display-names.ts'
 import type { AppId, BuiltinAppId, ExtAppId, GeneratedAppId } from '../os/types.ts'
+import { rankDesktopAppSearchEntry, type AppSearchMatch } from './app-search-ranking.ts'
 
 export type DesktopAppSearchKind = 'builtin' | 'generated' | 'ext'
 
@@ -70,43 +71,62 @@ export function buildDesktopAppSearchCatalog(options: {
   return [...builtins, ...generated, ...ext]
 }
 
-function matchRank(haystack: string, needle: string): number | undefined {
-  if (haystack.startsWith(needle)) {
-    return 0
-  }
-  if (haystack.includes(needle)) {
-    return 1
-  }
-  return undefined
-}
-
 export function filterDesktopAppSearchResults(
   entries: readonly DesktopAppSearchEntry[],
   query: string,
 ): DesktopAppSearchEntry[] {
-  const needle = query.trim().toLowerCase()
-  if (!needle) {
+  if (!query.trim()) {
     return [...entries]
   }
-
-  const ranked: { entry: DesktopAppSearchEntry; rank: number; index: number }[] = []
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index]
-    const nameRank = matchRank(entry.name.toLowerCase(), needle)
-    const idRank = matchRank(entry.id.toLowerCase(), needle)
-    if (nameRank === undefined && idRank === undefined) {
-      continue
-    }
-    const rank = nameRank ?? (2 + (idRank ?? 1))
-    ranked.push({ entry, rank, index })
-  }
-
-  ranked.sort((left, right) => left.rank - right.rank || left.index - right.index)
-  return ranked.map((item) => item.entry)
+  return rankDesktopAppSearchResults(entries, query).map((item) => item.entry)
 }
 
-export function isDesktopAppSearchTriggerKey(event: DesktopAppSearchKeyEvent): boolean {
-  if (event.metaKey || event.ctrlKey || event.altKey) {
+export type DesktopAppSearchResult = {
+  entry: DesktopAppSearchEntry
+  /** 空查询直接罗列目录时缺省（无匹配/高亮信息） */
+  match?: AppSearchMatch
+}
+
+/** 过滤 + 分层排序（拼音/简拼/模糊，详见 app-search-ranking.ts），附高亮区间 */
+export function rankDesktopAppSearchResults(
+  entries: readonly DesktopAppSearchEntry[],
+  query: string,
+): DesktopAppSearchResult[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) {
+    return []
+  }
+  const ranked: DesktopAppSearchResult[] = []
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]
+    const match = rankDesktopAppSearchEntry(entry, needle)
+    if (match) {
+      ranked.push({ entry, match })
+    }
+  }
+  const catalogIndex = new Map(entries.map((entry, index) => [entry.id, index]))
+  ranked.sort(
+    (left, right) =>
+      (left.match?.tier ?? 0) - (right.match?.tier ?? 0) ||
+      (left.match?.tie ?? 0) - (right.match?.tie ?? 0) ||
+      (catalogIndex.get(left.entry.id) ?? 0) - (catalogIndex.get(right.entry.id) ?? 0),
+  )
+  return ranked
+}
+
+/**
+ * 桌面搜索「让帮助 AI 代办」预设项的自动发送提示词。
+ * 与帮助助手的能力对齐：给最短操作路径，必要时发起可确认的特权操作。
+ */
+export function buildDesktopHelpPresetPrompt(query: string): string {
+  const text = query.trim()
+  if (!text) {
+    return ''
+  }
+  return `我想完成这件事，请帮我办成：${text}。请给最短完成路径；需要动手或确认的操作请尽量直接发起（必要时打开终端让我确认）。`
+}
+
+export function isDesktopAppSearchTriggerKey(event: DesktopAppSearchKeyEvent): boolean {  if (event.metaKey || event.ctrlKey || event.altKey) {
     return false
   }
   if (event.isComposing || event.key === 'Process') {

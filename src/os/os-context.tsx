@@ -19,6 +19,7 @@ import {
   type SnapTarget,
 } from '../window/window-snap.ts'
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
+import { releaseDomFocusToShell } from './dom-focus.ts'
 import {
   appendFlip3dGhost,
   createFlip3dGhost,
@@ -95,6 +96,8 @@ type OsContextValue = {
   setAppWindowTitle: (appId: AppId, title: string) => void
   setAppWindowDocumentId: (appId: AppId, documentId: string | undefined) => void
   setAppWindowUrl: (appId: AppId, url: string | undefined) => void
+  /** 写入/清空帮助应用待自动发送的预设问题；帮助应用消费后传 undefined 清空 */
+  setAppWindowHelpQuery: (appId: AppId, helpQuery: string | undefined) => void
   setAppWindowDocumentEdited: (appId: AppId, edited: boolean) => void
   setWindowTitle: (windowId: string, title: string) => void
   setWindowDocumentId: (windowId: string, documentId: string | undefined) => void
@@ -236,6 +239,7 @@ function createWindow(
     enterAnimation?: WindowState['enterAnimation']
     documentId?: string
     url?: string
+    helpQuery?: string
   },
 ): WindowState {
   windowCounter += 1
@@ -271,6 +275,7 @@ function createWindow(
       title: defaults.title,
       documentId: options?.documentId,
       url: options?.url,
+      helpQuery: options?.helpQuery,
       minimized: false,
       maximized: false,
       fullscreen: false,
@@ -288,6 +293,7 @@ function createWindow(
       title: defaults.title,
       documentId: options?.documentId,
       url: options?.url,
+      helpQuery: options?.helpQuery,
       minimized: false,
       maximized: true,
       fullscreen: false,
@@ -389,6 +395,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       startDesktopRestore()
       return
     }
+    // 窗口散开相当于「显示桌面」：焦点若残留在原窗口内容（输入框/iframe），
+    // 打字即搜会收不到键盘事件，这里把 DOM 焦点交还外壳。
+    releaseDomFocusToShell()
     setActiveWindowId(undefined)
     setDesktopRevealed(true)
   }, [startDesktopRestore])
@@ -726,19 +735,21 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     let resolvedActiveId: string | undefined
     const documentId = options?.documentId
     const url = options?.url
+    const helpQuery = options?.helpQuery
     if (documentId !== undefined && url !== undefined) {
       throw new Error('documentId 与 url 不能同时指定')
     }
     const multiWindow = isMultiWindowApp(appId)
 
     const applyOpenPayload = <T extends WindowState>(window: T): T => {
+      const withHelpQuery = helpQuery !== undefined ? { ...window, helpQuery } : window
       if (documentId !== undefined) {
-        return { ...window, documentId, url: undefined }
+        return { ...withHelpQuery, documentId, url: undefined }
       }
       if (url !== undefined) {
-        return { ...window, url, documentId: undefined }
+        return { ...withHelpQuery, url, documentId: undefined }
       }
-      return window
+      return withHelpQuery
     }
 
     setWindows((current) => {
@@ -764,6 +775,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           enterAnimation: isWindowlessApp(appId) ? undefined : 'scale-in',
           documentId,
           url,
+          helpQuery,
         })
         resolvedActiveId = nextWindow.id
         const next = [...current, nextWindow]
@@ -813,6 +825,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         enterAnimation: 'scale-in',
         documentId,
         url,
+        helpQuery,
       })
       resolvedActiveId = nextWindow.id
       const next = [...current, nextWindow]
@@ -850,6 +863,14 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
               ...(url !== undefined ? { documentId: undefined } : {}),
             }
           : window,
+      ),
+    )
+  }, [])
+
+  const setAppWindowHelpQuery = useCallback((appId: AppId, helpQuery: string | undefined) => {
+    setWindows((current) =>
+      current.map((window) =>
+        window.appId === appId && !window.closing ? { ...window, helpQuery } : window,
       ),
     )
   }, [])
@@ -1537,6 +1558,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       setAppWindowTitle,
       setAppWindowDocumentId,
       setAppWindowUrl,
+      setAppWindowHelpQuery,
       setAppWindowDocumentEdited,
       setWindowTitle,
       setWindowDocumentId,
@@ -1545,7 +1567,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       revealWindowlessPanel,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowHelpQuery, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])

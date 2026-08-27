@@ -28,10 +28,6 @@ import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
 import { saveVirtualMachineSnapshot } from './virtual-machine-save-snapshot.ts'
 import { postVirtualMachineDiskWriteFailedNotification } from './virtual-machine-disk-write-notification.ts'
-import {
-  INSTANT_VM_MESSAGE_TYPE,
-  type InstantVmKeyboardMessage,
-} from './virtual-machine-protocol.ts'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
 import {
   pickDisplayedMachineId,
@@ -43,6 +39,11 @@ import {
   VM_FUNCTION_KEY_PRESETS,
   type VmSendKeyPreset,
 } from './virtual-machine-send-keys.ts'
+import {
+  compileVmKeyMappings,
+  isVmImeKeyEvent,
+  VmKeyboardTranslator,
+} from './virtual-machine-keymap.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 import { VirtualMachineSettingsDialog } from './virtual-machine-settings-dialog.tsx'
 import {
@@ -91,29 +92,6 @@ function isVmHostTypingTarget(target: EventTarget | null): boolean {
   }
   const tag = target.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-}
-
-function guestKeyboardFromEvent(
-  event: KeyboardEvent,
-  phase: InstantVmKeyboardMessage['phase'],
-): InstantVmKeyboardMessage {
-  return {
-    type: INSTANT_VM_MESSAGE_TYPE.keyboard,
-    phase,
-    key: event.key,
-    code: event.code,
-    keyCode: event.keyCode,
-    location: event.location,
-    repeat: event.repeat,
-    shiftKey: event.shiftKey,
-    ctrlKey: event.ctrlKey,
-    altKey: event.altKey,
-    metaKey: event.metaKey,
-  }
-}
-
-function isImeKey(event: KeyboardEvent): boolean {
-  return event.isComposing || event.keyCode === 229 || event.key === 'Process' || event.key === 'Unidentified'
 }
 
 export function VirtualMachineApp({ windowId }: { windowId?: string }) {
@@ -278,6 +256,19 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   )
   // 发送按键始终发给当前显示的画面，有运行中的画面就可用。
   const canSendKeys = displayedId !== undefined
+
+  // 按键映射：翻译器只服务当前显示的画面；设置保存后经 store 刷新自动生效（含运行中）。
+  const keyTranslatorRef = useRef(new VmKeyboardTranslator())
+  const displayedMachine = machines.find((machine) => machine.id === displayedId)
+  useEffect(() => {
+    keyTranslatorRef.current.setKeymap(
+      compileVmKeyMappings(
+        displayedMachine && displayedMachine.keyMappingEnabled
+          ? displayedMachine.keyMappings
+          : undefined,
+      ),
+    )
+  }, [displayedMachine?.keyMappingEnabled, displayedMachine?.keyMappings])
 
   const captureGuestKeyboard = useCallback(() => {
     // 不要把焦点交给 iframe：跨域画面看起来像聚焦了，按键却进不去。
@@ -703,6 +694,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     if (!isActiveWindow) {
       return
     }
+    // 键盘流中断过（切显示画面 / 开关弹窗）就作废按住集合，防修饰位粘住。
+    keyTranslatorRef.current.reset()
+    const onBlurWindow = () => keyTranslatorRef.current.reset()
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
         event.preventDefault()
@@ -714,13 +708,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         displayedId === undefined ||
         settingsOpen ||
         inspectorOpen ||
-        isImeKey(event) ||
+        isVmImeKeyEvent(event) ||
         isVmHostTypingTarget(event.target)
       ) {
         return
       }
       event.preventDefault()
-      pool.sendKeyboard(displayedId, guestKeyboardFromEvent(event, 'down'))
+      pool.sendKeyboard(displayedId, keyTranslatorRef.current.translate(event, 'down'))
     }
     const onKeyUp = (event: KeyboardEvent) => {
       if (
@@ -728,19 +722,21 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         displayedId === undefined ||
         settingsOpen ||
         inspectorOpen ||
-        isImeKey(event) ||
+        isVmImeKeyEvent(event) ||
         isVmHostTypingTarget(event.target)
       ) {
         return
       }
       event.preventDefault()
-      pool.sendKeyboard(displayedId, guestKeyboardFromEvent(event, 'up'))
+      pool.sendKeyboard(displayedId, keyTranslatorRef.current.translate(event, 'up'))
     }
     window.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('keyup', onKeyUp, true)
+    window.addEventListener('blur', onBlurWindow)
     return () => {
       window.removeEventListener('keydown', onKeyDown, true)
       window.removeEventListener('keyup', onKeyUp, true)
+      window.removeEventListener('blur', onBlurWindow)
     }
   }, [
     displayedId,

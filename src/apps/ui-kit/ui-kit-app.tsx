@@ -5,6 +5,7 @@ import type { ComponentDemo } from './ui-kit-components.ts'
 import {
   IosSwitchDemo,
   IosCheckToggleDemo,
+  CheckboxDemo,
   IosButtonDemo,
   IosTextFieldDemo,
   SegmentedControlDemo,
@@ -20,6 +21,8 @@ import {
   IosNavBackButtonDemo,
   EmojiPickerPopoverDemo,
   AiModelCapabilityTagsDemo,
+  HelpHintDemo,
+  PopoverDemo,
 } from './ui-kit-demo-instances.tsx'
 import './ui-kit.css'
 
@@ -34,6 +37,7 @@ type CategorySection = {
 const DEMO_COMPONENTS: Record<string, () => preact.JSX.Element> = {
   'ios-switch': IosSwitchDemo,
   'ios-check-toggle': IosCheckToggleDemo,
+  'checkbox': CheckboxDemo,
   'ios-button': IosButtonDemo,
   'ios-text-field': IosTextFieldDemo,
   'segmented-control': SegmentedControlDemo,
@@ -49,6 +53,8 @@ const DEMO_COMPONENTS: Record<string, () => preact.JSX.Element> = {
   'ios-nav-back-button': IosNavBackButtonDemo,
   'emoji-picker-popover': EmojiPickerPopoverDemo,
   'ai-model-capability-tags': AiModelCapabilityTagsDemo,
+  'help-hint': HelpHintDemo,
+  'popover': PopoverDemo,
 }
 
 function buildCategorySections(): CategorySection[] {

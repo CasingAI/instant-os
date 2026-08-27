@@ -1,0 +1,30 @@
+.help-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(120, 120, 128, 0.22);
+  color: #6d6d72;
+  cursor: pointer;
+}
+
+.help-hint:hover {
+  background: rgba(120, 120, 128, 0.32);
+}
+
+.help-hint:active,
+.help-hint--open {
+  background: rgba(120, 120, 128, 0.4);
+  color: #3c3c40;
+}
+
+.help-hint__icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+}

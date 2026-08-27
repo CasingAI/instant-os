@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
+import type { JSX } from 'preact'
 import { ExtAppIcon } from '../apps/ext/ext-app-icon.tsx'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
+import { HelpIcon } from '../icons/app-icons.tsx'
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { useDevExtApps } from '../os/dev-ext-apps-context.tsx'
 import { loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
@@ -14,8 +16,10 @@ import { useOverlayPresence } from '../ui/use-overlay-presence.ts'
 import '../ui/overlay-presence.css'
 import {
   buildDesktopAppSearchCatalog,
-  filterDesktopAppSearchResults,
+  buildDesktopHelpPresetPrompt,
+  rankDesktopAppSearchResults,
   type DesktopAppSearchEntry,
+  type DesktopAppSearchResult,
 } from './desktop-app-search.ts'
 import './desktop-app-search-overlay.css'
 
@@ -28,6 +32,51 @@ type DesktopAppSearchOverlayProps = {
 
 function optionId(index: number): string {
   return `desktop-app-search-option-${index}`
+}
+
+/** 命中区间（码点 [start, end)）转高亮片段；空区间原样返回 */
+function splitNameForHighlight(
+  name: string,
+  ranges: ReadonlyArray<readonly [number, number]>,
+): Array<{ text: string; hit: boolean }> {
+  const chars = [...name]
+  if (ranges.length === 0) {
+    return [{ text: name, hit: false }]
+  }
+  const hit = new Set<number>()
+  for (const [start, end] of ranges) {
+    for (let i = Math.max(0, start); i < Math.min(end, chars.length); i += 1) {
+      hit.add(i)
+    }
+  }
+  const parts: Array<{ text: string; hit: boolean }> = []
+  for (let i = 0; i < chars.length; i += 1) {
+    const isHit = hit.has(i)
+    const last = parts[parts.length - 1]
+    if (last && last.hit === isHit) {
+      last.text += chars[i]
+    } else {
+      parts.push({ text: chars[i]!, hit: isHit })
+    }
+  }
+  return parts
+}
+
+function SearchFieldIcon() {
+  return (
+    <svg
+      class="desktop-app-search__magnifier"
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+    >
+      <circle cx="8.5" cy="8.5" r="5.4" />
+      <line x1="12.6" y1="12.6" x2="17" y2="17" />
+    </svg>
+  )
 }
 
 export function DesktopAppSearchOverlay({
@@ -59,16 +108,23 @@ export function DesktopAppSearchOverlay({
     })
   }, [installedApps, pendingInstalls, sessionExtApps, speechApp])
 
-  const results = useMemo(
-    () => filterDesktopAppSearchResults(catalog, query),
-    [catalog, query],
-  )
+  const trimmedQuery = query.trim()
+  const results = useMemo<DesktopAppSearchResult[]>(() => {
+    if (!trimmedQuery) {
+      return catalog.map((entry) => ({ entry }))
+    }
+    return rankDesktopAppSearchResults(catalog, query)
+  }, [catalog, query, trimmedQuery])
+
+  // 「让帮助 AI 代办」预设项：只要有输入就常驻（无结果时是唯一推荐）
+  const helpActionIndex = trimmedQuery ? results.length : -1
+  const totalCount = results.length + (helpActionIndex >= 0 ? 1 : 0)
 
   useEffect(() => {
     setSelectedIndex(0)
   }, [query])
 
-  const activeIndex = results.length === 0 ? 0 : Math.min(selectedIndex, results.length - 1)
+  const activeIndex = totalCount === 0 ? 0 : Math.min(selectedIndex, totalCount - 1)
 
   useLayoutEffect(() => {
     if (!open || !mounted || exiting) {
@@ -102,6 +158,25 @@ export function DesktopAppSearchOverlay({
     [onClose, openApp, openInstalledApp, openSessionExtApp],
   )
 
+  const openHelpAction = useCallback(() => {
+    openApp('help', { helpQuery: buildDesktopHelpPresetPrompt(trimmedQuery) })
+    onClose()
+  }, [onClose, openApp, trimmedQuery])
+
+  const activateIndex = useCallback(
+    (index: number) => {
+      if (helpActionIndex >= 0 && index === helpActionIndex) {
+        openHelpAction()
+        return
+      }
+      const selected = results[index]
+      if (selected) {
+        openEntry(selected.entry)
+      }
+    },
+    [helpActionIndex, openEntry, openHelpAction, results],
+  )
+
   useEffect(() => {
     if (!open || exiting) {
       return
@@ -118,10 +193,10 @@ export function DesktopAppSearchOverlay({
       }
       if (event.key === 'ArrowDown') {
         event.preventDefault()
-        if (results.length === 0) {
+        if (totalCount === 0) {
           return
         }
-        setSelectedIndex(Math.min(activeIndex + 1, results.length - 1))
+        setSelectedIndex(Math.min(activeIndex + 1, totalCount - 1))
         return
       }
       if (event.key === 'ArrowUp') {
@@ -131,16 +206,13 @@ export function DesktopAppSearchOverlay({
       }
       if (event.key === 'Enter') {
         event.preventDefault()
-        const selected = results[activeIndex]
-        if (selected) {
-          openEntry(selected)
-        }
+        activateIndex(activeIndex)
       }
     }
 
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [activeIndex, exiting, onClose, open, openEntry, results])
+  }, [activateIndex, activeIndex, exiting, onClose, open, totalCount])
 
   const renderIcon = (entry: DesktopAppSearchEntry) => {
     if (entry.kind === 'builtin') {
@@ -149,14 +221,14 @@ export function DesktopAppSearchOverlay({
         return null
       }
       const Icon = definition.icon
-      return <Icon size={32} />
+      return <Icon size={28} />
     }
     if (entry.kind === 'generated') {
       const app = installedApps.find((item) => item.id === entry.id)
       if (!app) {
         return null
       }
-      return <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={32} />
+      return <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={28} />
     }
     const app = sessionExtApps.find((item) => item.id === entry.id)
     if (!app) {
@@ -167,13 +239,106 @@ export function DesktopAppSearchOverlay({
         name={app.manifest.name}
         themeColor={app.manifest.themeColor}
         iconUrl={app.iconUrl}
-        size={32}
+        size={28}
       />
+    )
+  }
+
+  const renderResultRow = (item: DesktopAppSearchResult, index: number) => {
+    const selected = index === activeIndex
+    const parts = splitNameForHighlight(item.entry.name, item.match?.nameRanges ?? [])
+    const showId = Boolean(item.match && item.match.idRanges.length > 0)
+    return (
+      <button
+        key={item.entry.id}
+        type="button"
+        id={optionId(index)}
+        class={`desktop-app-search__item${selected ? ' desktop-app-search__item--active' : ''}`}
+        role="option"
+        tabIndex={-1}
+        aria-selected={selected}
+        data-selected={selected ? 'true' : undefined}
+        onMouseEnter={() => setSelectedIndex(index)}
+        onClick={() => openEntry(item.entry)}
+      >
+        <span class="desktop-app-search__icon">{renderIcon(item.entry)}</span>
+        <span class="desktop-app-search__name">
+          {parts.map((part, partIndex) =>
+            part.hit ? (
+              <mark class="desktop-app-search__hit" key={partIndex}>
+                {part.text}
+              </mark>
+            ) : (
+              <span key={partIndex}>{part.text}</span>
+            ),
+          )}
+        </span>
+        {showId ? <span class="desktop-app-search__id">{item.entry.id}</span> : null}
+      </button>
+    )
+  }
+
+  const renderHelpActionRow = (index: number) => {
+    const selected = index === activeIndex
+    return (
+      <button
+        key="desktop-help-action"
+        type="button"
+        id={optionId(index)}
+        class={[
+          'desktop-app-search__item',
+          'desktop-app-search__item--help',
+          selected ? 'desktop-app-search__item--active' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        role="option"
+        tabIndex={-1}
+        aria-selected={selected}
+        data-selected={selected ? 'true' : undefined}
+        onMouseEnter={() => setSelectedIndex(index)}
+        onClick={openHelpAction}
+      >
+        <span class="desktop-app-search__icon">
+          <HelpIcon size={28} />
+        </span>
+        <span class="desktop-app-search__name">
+          <span class="desktop-app-search__help-title">让「帮助」AI 代办</span>
+          <span class="desktop-app-search__help-query">{trimmedQuery}</span>
+        </span>
+        <span class="desktop-app-search__id">回车发送</span>
+      </button>
     )
   }
 
   if (!mounted) {
     return null
+  }
+
+  const rows: JSX.Element[] = []
+  if (results.length > 0) {
+    rows.push(
+      <div class="desktop-app-search__section" key="section-apps">
+        应用
+      </div>,
+    )
+    results.forEach((item, index) => {
+      rows.push(renderResultRow(item, index))
+    })
+  } else if (trimmedQuery) {
+    rows.push(
+      <p class="desktop-app-search__empty" key="empty">
+        没有匹配的应用
+      </p>,
+    )
+  }
+  if (helpActionIndex >= 0) {
+    rows.push(
+      <div class="desktop-app-search__section" key="section-suggestions">
+        建议
+      </div>,
+    )
+    rows.push(renderHelpActionRow(helpActionIndex))
   }
 
   return createPortal(
@@ -202,18 +367,19 @@ export function DesktopAppSearchOverlay({
           .join(' ')}
         role="dialog"
         aria-modal="true"
-        aria-label="搜索应用"
+        aria-label="搜索"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div class="desktop-app-search__field" ref={fieldWrapRef}>
+          <SearchFieldIcon />
           <IosTextField
             type="text"
             voiceDictation={false}
             value={query}
-            placeholder="搜索应用"
+            placeholder="搜索应用，或让 AI 帮你完成"
             aria-autocomplete="list"
             aria-controls="desktop-app-search-results"
-            aria-activedescendant={results.length > 0 ? optionId(activeIndex) : undefined}
+            aria-activedescendant={totalCount > 0 ? optionId(activeIndex) : undefined}
             autoComplete="off"
             spellcheck={false}
             autoFocus
@@ -225,32 +391,9 @@ export function DesktopAppSearchOverlay({
           class="desktop-app-search__results"
           id="desktop-app-search-results"
           role="listbox"
-          aria-label="应用"
+          aria-label="搜索结果"
         >
-          {results.length === 0 ? (
-            <p class="desktop-app-search__empty">没有找到应用</p>
-          ) : (
-            results.map((entry, index) => {
-              const selected = index === activeIndex
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  id={optionId(index)}
-                  class={`desktop-app-search__item${selected ? ' desktop-app-search__item--active' : ''}`}
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={selected}
-                  data-selected={selected ? 'true' : undefined}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  onClick={() => openEntry(entry)}
-                >
-                  <span class="desktop-app-search__icon">{renderIcon(entry)}</span>
-                  <span class="desktop-app-search__name">{entry.name}</span>
-                </button>
-              )
-            })
-          )}
+          {rows}
         </div>
       </div>
     </div>,

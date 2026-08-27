@@ -1,6 +1,8 @@
 export type FloatingPanelPosition = {
   top: number
   left: number
+  /** 面板最终落在锚点下方还是上方（放不下上方时仍按 below 夹紧） */
+  placement: 'below' | 'above'
 }
 
 export const FLOATING_PANEL_GAP = 6
@@ -22,14 +24,20 @@ export function computeFloatingPanelPosition(
 
   let top = anchor.bottom + FLOATING_PANEL_GAP
   let left = align === 'right' ? anchor.right - panelWidth : anchor.left
+  let placement: 'below' | 'above' = 'below'
 
   if (top > maxTop) {
     const aboveTop = anchor.top - panelHeight - FLOATING_PANEL_GAP
-    top = aboveTop >= padding ? aboveTop : Math.max(padding, maxTop)
+    if (aboveTop >= padding) {
+      top = aboveTop
+      placement = 'above'
+    } else {
+      top = Math.max(padding, maxTop)
+    }
   }
 
   left = Math.min(Math.max(left, padding), Math.max(padding, maxLeft))
   top = Math.min(Math.max(top, padding), Math.max(padding, maxTop))
 
-  return { top, left }
+  return { top, left, placement }
 }
