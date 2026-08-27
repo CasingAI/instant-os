@@ -1141,6 +1141,10 @@ button.files__path-bar-segment:active {
   min-width: 148px;
   padding: 5px;
   border-radius: 8px;
+  /* 菜单经 portal 挂到 body 浮层根、不在 .files 内，token 需就地补定义：
+     否则文字色回退为继承，子菜单会拿到打开行 --open 的浅色 #fffaf0 */
+  --files-ink: #2a241c;
+  color: var(--files-ink);
   background: linear-gradient(180deg, #faf4e8 0%, #e8dcc4 100%);
   border: 1px solid #8a7050;
   box-shadow:
