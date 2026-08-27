@@ -1,0 +1,6 @@
+# 客机交付物目录：所有「要拷进 XP」的文件集中到这一个出口。
+# 02-user-phase.md 单一拷贝源；不要把这一目录提交进 git。
+boxvideo.sys
+vidmini.inf
+res-agent.exe
+install.reg

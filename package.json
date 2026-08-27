@@ -43,6 +43,7 @@
     "test:vm-res-agent": "node --experimental-strip-types src/apps/virtual-machine/guest/res-agent/res-agent-binary.test.ts",
     "test:vm-boxvnt": "node --experimental-strip-types src/apps/virtual-machine/guest/boxvnt/boxvnt-binary.test.ts",
     "test:vm-boxvnt-modes": "node --experimental-strip-types scripts/gen-boxvnt-modes.test.ts",
+    "test:vm-collect-guest-files": "bash scripts/collect-guest-files.sh",
     "test:app-storage": "node --experimental-strip-types src/apps/settings/app-storage.test.ts",
     "test:terminal-program-eval": "node --experimental-strip-types src/apps/terminal/terminal-repl-program-eval.smoke-test.ts",
     "test:terminal-repl-tab-complete": "node --experimental-strip-types src/apps/terminal/terminal-repl-tab-complete.test.ts",

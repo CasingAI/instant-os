@@ -8,9 +8,7 @@
 
 | 项 | 位置 | 状态 |
 |---|---|---|
-| `boxvideo.sys`（已校验：PE32、<200KB、校验和位、入口点） | `src/apps/virtual-machine/guest/boxvnt/out/` | 第一期产出（`scripts/build-boxvnt.sh`） |
-| `vidmini.inf`（设备段含 `VEN_1234&DEV_1111`） | 同上 | 第一期产出 |
-| res-agent（COM1 通道，已有） | `src/apps/virtual-machine/guest/res-agent/res-agent.exe` | 已存在 |
+| 4 个交付物（`boxvideo.sys` / `vidmini.inf` / `res-agent.exe` / `install.reg`） | `src/apps/virtual-machine/guest/out/` | `scripts/collect-guest-files.sh` 一次性收口产出 |
 | 宿主「分辨率自动对齐」开关 | instant-app 虚拟机设置 | 已存在 |
 
 > 注意（R9）：**虚拟机设置的显存调到 16MB**。新建机器默认已是 16MB；
@@ -20,23 +18,17 @@
 
 ## 第 1 步：拷文件进 XP
 
-把下面 4 个文件放进 XP（任选：拖进桌面后放 `C:\Tools\`，或烧第二块盘挂载）：
+`src/apps/virtual-machine/guest/out/` 里 4 个文件（`scripts/collect-guest-files.sh`
+一次性收口产出），把它们放进 XP 的 `C:\Tools\`（或烧第二块盘挂载）：
 
 ```
 boxvideo.sys
 vidmini.inf
 res-agent.exe
-install.reg   （内容见下）
+install.reg   （从 res-agent-install.reg.source 展开，路径默认 C:\Tools\res-agent.exe）
 ```
 
-`install.reg`（注册 res-agent 自启，沿用既有手册）：
-
-```reg
-Windows Registry Editor Version 5.00
-
-[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run]
-"ResAgent"="C:\\Tools\\res-agent.exe"
-```
+如果 res-agent 不放 `C:\Tools\`，先编辑 `install.reg` 里的路径再双击导入。
 
 ## 第 2 步：安装显示驱动
 

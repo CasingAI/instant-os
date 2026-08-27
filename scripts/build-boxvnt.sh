@@ -3,7 +3,8 @@
 # 单测 boxvnt-binary.test.ts 调用本脚本，验证产物可重现与 PE 结构。
 #
 # 用法：scripts/build-boxvnt.sh [输出目录]
-#   输出目录缺省为 src/apps/virtual-machine/guest/boxvnt/out。
+#   输出目录缺省为 src/apps/virtual-machine/guest/out（与 res-agent
+#   等其他客机交付物同目录，由 scripts/collect-guest-files.sh 统一收口）。
 #
 # 工具链：Open Watcom V2 快照（含 NT DDK 头 + videoprt.lib）。
 #   - 环境变量 BOXVNT_WATCOM 指向已有 OW 树（binl/binl64/bino64/armo64 任一）
@@ -14,7 +15,7 @@ set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DRV_DIR="$ROOT/src/apps/virtual-machine/guest/boxvnt"
-OUT_DIR="${1:-$DRV_DIR/out}"
+OUT_DIR="${1:-$ROOT/src/apps/virtual-machine/guest/out}"
 
 command -v node >/dev/null 2>&1 || { echo "error: 需要 node" >&2; exit 1; }
 
