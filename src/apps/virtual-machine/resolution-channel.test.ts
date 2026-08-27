@@ -2,9 +2,10 @@
  * 分辨率自动对齐 —— 宿主侧通道单测（第一期机制 + 语义层）。
  * 运行：node --experimental-strip-types src/apps/virtual-machine/resolution-channel.test.ts
  *
- * 覆盖：32 位打包、clamp 先于移位、DPR 换算、阈值、防抖合并（5 连发仅 1 次变更）、
- * disconnect 停发、DPR 变化重算、开关关闭时不挂 observer、协议消息与 start 配置映射。
- * ResizeObserver / 定时器 / matchMedia 全部注入假实现，Node 里即可完整验证。
+ * 覆盖：32 位打包、clamp 先于移位、视口 CSS 像素 1:1（不乘 DPR）、阈值、
+ * 防抖合并（5 连发仅 1 次变更）、disconnect 停发、开关关闭时不挂 observer、
+ * 协议消息与 start 配置映射。
+ * ResizeObserver / 定时器 全部注入假实现，Node 里即可完整验证。
  */
 import assert from 'node:assert/strict'
 import {
@@ -67,14 +68,13 @@ function testPackClampsBeforeShift() {
   assert.deepEqual(clampResolutionTarget(1000.4, 800.6), { width: 1000, height: 801 })
 }
 
-function testDprConversion() {
-  assert.deepEqual(resolutionTargetFromViewport(800, 500, 2), { width: 1600, height: 1000 })
-  assert.deepEqual(resolutionTargetFromViewport(800, 500, 1), { width: 800, height: 500 })
-  // 非法 DPR 按 1 处理。
-  assert.deepEqual(resolutionTargetFromViewport(800, 500, 0), { width: 800, height: 500 })
-  assert.deepEqual(resolutionTargetFromViewport(800, 500, Number.NaN), { width: 800, height: 500 })
-  // DPR 换算后低于下限同样保持现状。
-  assert.equal(resolutionTargetFromViewport(300, 200, 2), undefined)
+function testViewportCssPixelsOneToOne() {
+  // 目标 = iframe CSS 像素，1:1 不乘 DPR（2026-08-27 定案）。
+  assert.deepEqual(resolutionTargetFromViewport(800, 500), { width: 800, height: 500 })
+  assert.deepEqual(resolutionTargetFromViewport(1000.4, 800.6), { width: 1000, height: 801 })
+  // 视口小于最低模式（640×480）时保持现状，不反向缩水。
+  assert.equal(resolutionTargetFromViewport(300, 200), undefined)
+  assert.equal(resolutionTargetFromViewport(800, 400), undefined)
 }
 
 function testThreshold() {
@@ -157,19 +157,15 @@ type AlignerHarness = {
   targets: ResolutionTarget[]
   observers: FakeObserverInstance[]
   setSize(width: number, height: number): void
-  setDpr(value: number): void
-  notifyDprChange(): void
   aligner: ReturnType<typeof createResolutionAligner>
   element: Element
 }
 
-function createHarness(options?: { watchDpr?: boolean }): AlignerHarness {
+function createHarness(): AlignerHarness {
   const targets: ResolutionTarget[] = []
   const clock = createFakeClock()
   const observers = createFakeObserverFactory()
   let size = { width: 1000, height: 800 }
-  let dpr = 1
-  let dprListener: (() => void) | undefined
   const element = {} as Element
   const aligner = createResolutionAligner({
     onTarget: (target) => {
@@ -178,29 +174,12 @@ function createHarness(options?: { watchDpr?: boolean }): AlignerHarness {
     schedule: (callback, ms) => clock.schedule(callback, ms),
     createObserver: observers.factory,
     measure: () => size,
-    devicePixelRatio: () => dpr,
-    ...(options?.watchDpr
-      ? {
-          watchDprChange: (callback: () => void) => {
-            dprListener = callback
-            return () => {
-              dprListener = undefined
-            }
-          },
-        }
-      : {}),
   })
   return {
     targets,
     observers: observers.instances,
     setSize(width, height) {
       size = { width, height }
-    },
-    setDpr(value) {
-      dpr = value
-    },
-    notifyDprChange() {
-      dprListener?.()
     },
     aligner,
     element,
@@ -229,7 +208,6 @@ function testDebounceEmitsOnceAfterQuietPeriod() {
     schedule: (callback, ms) => clock.schedule(callback, ms),
     createObserver: observers.factory,
     measure: () => size,
-    devicePixelRatio: () => 1,
   })
   const element = {} as Element
   aligner.observe(element)
@@ -266,7 +244,6 @@ function testSubThresholdChangeIgnored() {
     schedule: (callback, ms) => clock.schedule(callback, ms),
     createObserver: observers.factory,
     measure: () => size,
-    devicePixelRatio: () => 1,
   })
   aligner.observe({} as Element)
   size = { width: 1030, height: 820 }
@@ -288,7 +265,6 @@ function testViewportTooSmallKeptSilent() {
     schedule: (callback, ms) => clock.schedule(callback, ms),
     createObserver: observers.factory,
     measure: () => size,
-    devicePixelRatio: () => 1,
   })
   aligner.observe({} as Element)
   size = { width: 400, height: 300 }
@@ -298,54 +274,17 @@ function testViewportTooSmallKeptSilent() {
 }
 
 function testDisconnectStopsEverything() {
-  const harness = createHarness({ watchDpr: true })
+  const harness = createHarness()
   harness.aligner.observe(harness.element)
   const observer = harness.observers[0]
   harness.setSize(1400, 1000)
   observer.fire()
   harness.aligner.disconnect()
-  // debounce 被取消、observer 被 disconnect、DPR 监听被释放。
+  // debounce 被取消、observer 被 disconnect。
   assert.equal(observer.disconnected, true)
   harness.setSize(2000, 1500)
   observer.fire()
-  harness.notifyDprChange()
   assert.deepEqual(harness.targets, [{ width: 1000, height: 800 }], 'disconnect 后不再发目标')
-  // DPR 监听已释放：再触发不会进入新的 debounce。
-  harness.notifyDprChange()
-}
-
-function testDprChangeRecomputes() {
-  const clock = createFakeClock()
-  const observers = createFakeObserverFactory()
-  let size = { width: 800, height: 500 }
-  let dpr = 1
-  let dprListener: (() => void) | undefined
-  const targets: ResolutionTarget[] = []
-  const aligner = createResolutionAligner({
-    onTarget: (target) => {
-      targets.push(target)
-    },
-    schedule: (callback, ms) => clock.schedule(callback, ms),
-    createObserver: observers.factory,
-    measure: () => size,
-    devicePixelRatio: () => dpr,
-    watchDprChange: (callback) => {
-      dprListener = callback
-      return () => {
-        dprListener = undefined
-      }
-    },
-  })
-  aligner.observe({} as Element)
-  assert.deepEqual(targets, [{ width: 800, height: 500 }])
-  // 跨屏拖动：DPR 变化不触发 ResizeObserver，靠 matchMedia change 重算。
-  dpr = 2
-  dprListener?.()
-  clock.advance(300)
-  assert.deepEqual(targets, [
-    { width: 800, height: 500 },
-    { width: 1600, height: 1000 },
-  ])
 }
 
 function testDisabledSwitchNeverAttaches() {
@@ -381,7 +320,6 @@ function testDisabledSwitchNeverAttaches() {
     schedule: () => () => undefined,
     createObserver: observers.factory,
     measure: () => ({ width: 1000, height: 800 }),
-    devicePixelRatio: () => 1,
   })
   assert.equal(observers.instances.length, 0)
   assert.equal(targets.length, 0)
@@ -470,14 +408,13 @@ function testStoreNormalizesFlag() {
 testPortAddress()
 testPackUnpackRoundtrip()
 testPackClampsBeforeShift()
-testDprConversion()
+testViewportCssPixelsOneToOne()
 testThreshold()
 testInitialAlignmentOnAttach()
 testDebounceEmitsOnceAfterQuietPeriod()
 testSubThresholdChangeIgnored()
 testViewportTooSmallKeptSilent()
 testDisconnectStopsEverything()
-testDprChangeRecomputes()
 testDisabledSwitchNeverAttaches()
 testSetResolutionMessage()
 testStartConfigCarriesFlagOnlyWhenEnabled()

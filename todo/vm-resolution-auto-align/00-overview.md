@@ -29,7 +29,7 @@ VMware 的体验：拖动宿主窗口，客机分辨率自动跟随，画面 1:1
 
 1. **过墙通道**：宿主 → 客机的单向小数据通道，传递目标分辨率（宽、高两个数，低频）。
 2. **客机代理**：XP 里常驻小工具，收到分辨率后**就近吸附**到驱动模式表里最合适的档位（精确 → 两维覆盖的最小面积 → 兜底最大档），再 `ChangeDisplaySettingsEx` 切换。
-3. **触发**：宿主侧 ResizeObserver + debounce + 阈值 + DPR 换算 + clamp。
+3. **触发**：宿主侧 ResizeObserver + debounce + 阈值 + clamp。目标分辨率 = iframe 的 **CSS 像素** 1:1，不乘 DPR（2026-08-27 定案：画面按浏览器换算后的像素渲染）。
 
 ## 4. 过墙通道选型（已收敛）：宿主注册 IO 读端口，不改 v86
 
@@ -94,7 +94,7 @@ VMware 的体验：拖动宿主窗口，客机分辨率自动跟随，画面 1:1
 
 - [x] `src/protocol.ts`：`InstantVmStartConfig` 增加 `resolutionAutoAlign?: boolean`（缺省 false）；与 `instant-app/src/apps/virtual-machine/virtual-machine-protocol.ts` 同步。
 - [x] ~~`src/host.ts`：`InstantVmController` 加 `setResolution(w, h)` 注入方法。~~ 按 dispatch 分支落地（controller 方法名同为 `setResolution`）。
-- [x] ~~`src/v86-runtime.ts`：挂 ResizeObserver → debounce → 阈值 → DPR 换算 → clamp → 注册 read32。~~ 观察逻辑在 instant-app 侧；VM 仓库 `start()` 里开关打开时注册 0xE000 的 read8/16/32。
+- [x] ~~`src/v86-runtime.ts`：挂 ResizeObserver → debounce → 阈值 → clamp → 注册 read32。~~ 观察逻辑在 instant-app 侧；VM 仓库 `start()` 里开关打开时注册 0xE000 的 read8/16/32。
 - [x] 开关未开时，不挂 observer、不注册端口，行为与现在完全一致（纯 CSS 缩放）。—— 双端共同保证：instant-app 关闭时不发消息、start 配置省略字段；运行时关闭时不注册端口。
 - [x] debug / release 两套产物都带这条改动（改动全在宿主 TS，不涉及 v86 wasm）—— `pnpm build` 通过。
 
@@ -148,7 +148,7 @@ VMware 的体验：拖动宿主窗口，客机分辨率自动跟随，画面 1:1
 
 ### 8.7 其他工程注记（2026-08-25 补充）
 
-- 浏览器跨屏拖动导致的 DPR 变化不触发 ResizeObserver，需 `matchMedia('(resolution: ...)')` 补监听。
+- ~~浏览器跨屏拖动导致的 DPR 变化不触发 ResizeObserver，需 `matchMedia('(resolution: ...)')` 补监听~~。**2026-08-27 作废**：目标分辨率定为 iframe CSS 像素 1:1（不乘 DPR），DPR 不再参与计算，matchMedia 监听与 devicePixelRatio 注入随之从宿主通道移除。
 - 快照恢复：打包值和广播泵都是宿主 JS 对象/定时器，不在 v86 `save_state` 序列化范围内，恢复后泵照常每秒重发当前值；快照里的旧会话状态不影响。恢复期间可能已错过的帧由下一轮重播天然补齐（串口版 §8.3）。
 - 反馈回路：见 §5 接入清单中 ResizeObserver 观察对象的注意事项。
 

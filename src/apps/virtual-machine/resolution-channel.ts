@@ -2,13 +2,16 @@
  * 分辨率自动对齐 —— 宿主侧通道（机制 + 语义层）。
  *
  * 数据流（见 todo/vm-resolution-auto-align/00-overview.md §4）：
- *   ResizeObserver → debounce → 阈值 → DPR 换算 → clamp
+ *   ResizeObserver → debounce → 阈值 → clamp
  *     → postMessage `instant-vm:set-resolution`
  *     → 运行时把 (w<<16)|h 写进 v86 io 表 RESOLUTION_CHANNEL_PORT 的 read32 闭包
  *     → 客机代理主动 IN 轮询，值变化才 ChangeDisplaySettingsEx。
  *
+ * 目标分辨率 = iframe 的 CSS 像素尺寸，1:1 不做 DPR 放大（2026-08-27 定案：
+ * 客机画面按 CSS 像素渲染，不追求物理像素对齐）。
+ *
  * 本模块只负责宿主这半条链，不触碰 v86，也不直接依赖 DOM 全局：
- * ResizeObserver、定时器、DPR、matchMedia 全部可注入，因此防抖、阈值、
+ * ResizeObserver、定时器全部可注入，因此防抖、阈值、
  * 32 位打包、开关语义都能在 Node 单测里完整验证。
  */
 
@@ -80,14 +83,12 @@ export function unpackResolutionValue(value: number): ResolutionTarget | undefin
   return { width, height }
 }
 
-/** 视口 CSS 尺寸 → 客机目标像素（device pixel ratio 换算 + clamp）。 */
+/** 视口 CSS 尺寸 → 客机目标像素（1:1，不乘 DPR；clamp 与取整在这里做）。 */
 export function resolutionTargetFromViewport(
   cssWidth: number,
   cssHeight: number,
-  devicePixelRatio: number,
 ): ResolutionTarget | undefined {
-  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1
-  return clampResolutionTarget(cssWidth * dpr, cssHeight * dpr)
+  return clampResolutionTarget(cssWidth, cssHeight)
 }
 
 /** 与上次已生效目标相比，任一轴变化达到阈值才值得让客机重排。 */
@@ -125,14 +126,10 @@ export type ResolutionAlignerOptions = {
   thresholdPx?: number
   /** 测量视口尺寸，默认 getBoundingClientRect；测试注入固定值。 */
   measure?: (element: Element) => { width: number; height: number }
-  /** 读当前 devicePixelRatio；跨屏拖动后由 dprWatcher 触发重算。 */
-  devicePixelRatio?: () => number
   /** 定时器调度，默认 setTimeout；测试注入假时钟。 */
   schedule?: (callback: () => void, ms: number) => () => void
   /** 构造 ResizeObserver；测试注入假观察器。 */
   createObserver?: (callback: () => void) => ResizeLikeObserver
-  /** 订阅 DPR 变化（matchMedia('(resolution: …)') 不触发 ResizeObserver，见 00 §8.7）。 */
-  watchDprChange?: (callback: () => void) => () => void
 }
 
 export type ResolutionAligner = {
@@ -155,9 +152,6 @@ export function createResolutionAligner(options: ResolutionAlignerOptions): Reso
       const rect = element.getBoundingClientRect()
       return { width: rect.width, height: rect.height }
     })
-  const devicePixelRatio =
-    options.devicePixelRatio ??
-    (() => (globalThis as { devicePixelRatio?: number }).devicePixelRatio || 1)
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {
@@ -173,11 +167,9 @@ export function createResolutionAligner(options: ResolutionAlignerOptions): Reso
         disconnect: () => observer.disconnect(),
       }
     })
-  const watchDprChange = options.watchDprChange ?? defaultWatchDprChange
 
   let element: Element | undefined
   let observer: ResizeLikeObserver | undefined
-  let unwatchDpr: (() => void) | undefined
   let cancelDebounce: (() => void) | undefined
   let committed: ResolutionTarget | undefined
   let disconnected = false
@@ -187,7 +179,7 @@ export function createResolutionAligner(options: ResolutionAlignerOptions): Reso
       return
     }
     const { width, height } = measure(element)
-    const target = resolutionTargetFromViewport(width, height, devicePixelRatio())
+    const target = resolutionTargetFromViewport(width, height)
     if (!target || !isResolutionTargetChanged(committed, target, thresholdPx)) {
       return
     }
@@ -205,10 +197,6 @@ export function createResolutionAligner(options: ResolutionAlignerOptions): Reso
         cancelDebounce?.()
         cancelDebounce = schedule(evaluate, debounceMs)
       })
-      unwatchDpr = watchDprChange(() => {
-        cancelDebounce?.()
-        cancelDebounce = schedule(evaluate, debounceMs)
-      })
       observer.observe(target)
       // 挂上就对齐一次当前视口，客机代理一开机轮询就能拿到现值。
       evaluate()
@@ -222,33 +210,7 @@ export function createResolutionAligner(options: ResolutionAlignerOptions): Reso
       cancelDebounce = undefined
       observer?.disconnect()
       observer = undefined
-      unwatchDpr?.()
-      unwatchDpr = undefined
       element = undefined
     },
-  }
-}
-
-function defaultWatchDprChange(callback: () => void): () => void {
-  try {
-    // 把当前 DPR 固化进查询串：跨屏拖动后 DPR 变化会让匹配状态翻转、触发 change。
-    // ResizeObserver 对 DPR 变化不敏感，这条监听是 00 §8.7 要求的补充。
-    const scope = globalThis as {
-      matchMedia?: (query: string) => {
-        addEventListener(type: 'change', listener: () => void): unknown
-        removeEventListener(type: 'change', listener: () => void): unknown
-      }
-      devicePixelRatio?: number
-    }
-    const matchMedia = scope.matchMedia
-    if (!matchMedia) {
-      return () => undefined
-    }
-    const media = matchMedia(`(resolution: ${scope.devicePixelRatio || 1}dppx)`)
-    const onChange = () => callback()
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
-  } catch {
-    return () => undefined
   }
 }
