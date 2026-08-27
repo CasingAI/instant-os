@@ -1,0 +1,11 @@
+# 构建产物不入库（与 ../res-agent 惯例一致）；交付物由 scripts/build-boxvnt.sh 产出。
+*.obj
+*.o
+*.err
+*.res
+*.sys
+*.sym
+*.map
+*.img
+out/
+dist/

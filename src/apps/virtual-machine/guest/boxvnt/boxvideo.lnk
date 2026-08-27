@@ -1,0 +1,18 @@
+# Instant VM changes: wlink directives moved from the makefile command line
+# into this response file. On POSIX hosts wmake passes argv through without
+# shell quote removal, and wlink then treats the '@' inside
+# option start='_DriverEntry@8' as an indirect-file reference ("cannot open
+# 8"). Directive files parse quotes correctly and expand %WATCOM%.
+op quiet, map
+name boxvideo.sys
+format windows nt runtime native=1.0
+debug codeview
+op symf, cvpack
+option start='_DriverEntry@8'
+option offset=0x10000, checksum, osversion=1.0, version=1.0
+option stack=0x100000, heapsize=0x100000
+segment class CODE nonpageable, class DATA nonpageable
+file { videomp.obj vidmpdat.obj boxv.obj }
+libpath %WATCOM%/lib386/nt/ddk
+lib videoprt
+resource videomp.res

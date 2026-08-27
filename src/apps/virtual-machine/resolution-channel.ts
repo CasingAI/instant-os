@@ -1,23 +1,21 @@
 /**
  * 分辨率自动对齐 —— 宿主侧通道（机制 + 语义层）。
  *
- * 数据流（见 todo/vm-resolution-auto-align/00-overview.md §4）：
- *   ResizeObserver → debounce → 阈值 → clamp
+ * 数据流（见 todo/vm-resolution-auto-align/00-overview.md §4 与
+ * todo/vm-arbitrary-resolution/00-overview.md §2）：
+ *   ResizeObserver → debounce → 阈值 → clamp → 8px 网格
  *     → postMessage `instant-vm:set-resolution`
- *     → 运行时把 (w<<16)|h 写进 v86 io 表 RESOLUTION_CHANNEL_PORT 的 read32 闭包
- *     → 客机代理主动 IN 轮询，值变化才 ChangeDisplaySettingsEx。
+ *     → 运行时把 (w<<16)|h 写进闭包：
+ *       a. COM1 串口帧 → res-agent（ring3，枚举→精确匹配→切换）；
+ *       b. io 读端口 0xE001/0xE002/0xE003 → boxvnt 驱动动态模式（ring0）。
  *
- * 目标分辨率 = 从标准档位表里选出的客机档位（2026-08-27 定案，取代同日早些的
- * 「CSS 1:1 直发」）。运行时日志（.zcode/debug/20260827-res-align.log）
- * 证明直发 CSS 有两个致命伤：
- *   a) DPR=2 的 Retina 上面板 CSS 高度常低于 480，clamp 返回 undefined 导致
- *      对齐器全程沉默，客机停在旧的大分辨率；
- *   b) 客机「只选覆盖档」向上跳档（1096×618 → 1152×864），配合「原始」
- *      显示模式呈现为裁切放大——「画面被放大很多倍」的直接来源。
- * 现改为宿主侧直接从标准档位表选档：拉伸/等比最大化实际可见面积（黑边最少），
- * 「原始」只取放得下视口的最大档；发出的就是客机会应用的精确值，
- * 精确命中代理的 exact 分支。小视口自然落到 640×480 地板，
- * 「低于下限沉默」路径不复存在。测量基准仍是 CSS 像素，不涉及 DPR。
+ * 目标分辨率 = 视口 CSS 像素任意直推（2026-08-27 vm-arbitrary-resolution
+ * 定案，取代同日早间的「标准档位选档」）。历史包袱说明：CSS 直发在无驱动
+ * 改造时有两个致命伤（Retina 小视口低于 480 导致沉默、「只选覆盖档」向上
+ * 跳档放大），当时改走 17 档吸附；boxvnt 驱动支持任意模式后，这两个问题
+ * 都不复存在——低于 640×480 仍沉默（保持现状），其余逐像素贴合视口。
+ * selectResolutionMode/17 档表保留：驱动未装等回退场景的程序化参考，
+ * 以及对未来「显式选档」功能的复用。
  *
  * 本模块只负责宿主这半条链，不触碰 v86，也不直接依赖 DOM 全局：
  * ResizeObserver、定时器全部可注入，因此防抖、阈值、
@@ -115,7 +113,9 @@ export const INSTANT_VM_RESOLUTION_MODES = [
 ] as const
 
 /**
- * 从标准档位里挑客机目标。两种策略：
+ * 从标准档位里挑客机目标（17 档表就近吸附；vm-arbitrary-resolution 后
+ * 已不是生产路径——resolutionTargetFromViewport 改为任意直推，本函数
+ * 保留给驱动未装等回退场景的程序化参考与既有测试）。两种策略：
  * - native（原始）：只在两维都放得下视口的档位里取面积最大的——画布按
  *   客机px=CSS px 1:1 显示，任何超尺寸都会被裁切滚动，「看全桌面」优先；
  *   连 640×480 都放不下时回落地板档（裁切不可避免）。
@@ -188,15 +188,31 @@ export function selectResolutionMode(
 }
 
 /**
- * 视口 CSS 尺寸 → 客机目标（标准档位就近吸附；不乘 DPR）。
- * 非法输入仍返回 undefined；任何正尺寸都有合法档位可回。
+ * 视口 CSS 尺寸 → 客机目标（任意直推，不再吸附档位表）。
+ *
+ * todo/vm-arbitrary-resolution 定案：客机装上 boxvnt 改造驱动后，任何
+ * 640×480–2560×1600 之间的分辨率都能精确设置（驱动动态模式 + 密阶梯
+ * 兜底），宿主直接把视口尺寸四舍五入到 8px 网格发下去即可——与驱动
+ * vmpValidateMode 的 HorzRes % 8 校验、密阶梯步长三方对齐。
+ * displayMode 不再影响目标（拉伸/等比/原始都追求逐像素贴合视口），
+ * 参数保留是为了兼容既有调用点。
+ * 低于 640×480 的视口仍返回 undefined（客机保持现状，02 手册第 4 步）。
  */
+export const RESOLUTION_GRID_PX = 8
+
 export function resolutionTargetFromViewport(
   cssWidth: number,
   cssHeight: number,
-  displayMode?: ResolutionDisplayMode,
+  _displayMode?: ResolutionDisplayMode,
 ): ResolutionTarget | undefined {
-  return selectResolutionMode(cssWidth, cssHeight, displayMode)
+  const target = clampResolutionTarget(cssWidth, cssHeight)
+  if (!target) {
+    return undefined
+  }
+  return {
+    width: Math.round(target.width / RESOLUTION_GRID_PX) * RESOLUTION_GRID_PX,
+    height: Math.round(target.height / RESOLUTION_GRID_PX) * RESOLUTION_GRID_PX,
+  }
 }
 
 /** 与上次已生效目标相比，任一轴变化达到阈值才值得让客机重排。 */

@@ -1,0 +1,57 @@
+# boxvnt 驱动构建管线（todo/vm-arbitrary-resolution/ §5）。
+# 仓库里唯一的 workflow：产出并校验 XP 显示驱动 boxvideo.sys。
+# 本地等价物：scripts/build-boxvnt.sh（macOS arm64/x64 与 Linux 均可跑）。
+name: build-boxvnt
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'src/apps/virtual-machine/guest/boxvnt/**'
+      - 'scripts/build-boxvnt.sh'
+      - 'scripts/gen-boxvnt-modes.ts'
+      - '.github/workflows/build-boxvnt.yml'
+  pull_request:
+    paths:
+      - 'src/apps/virtual-machine/guest/boxvnt/**'
+      - 'scripts/build-boxvnt.sh'
+      - 'scripts/gen-boxvnt-modes.ts'
+      - '.github/workflows/build-boxvnt.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Open Watcom 快照 ~150MB 下载 + ~1.5GB 解压，按 tar.xz 内容哈希缓存。
+      - name: Cache Open Watcom snapshot
+        id: ow-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/boxvnt/ow-snapshot
+          key: boxvnt-ow-snapshot-${{ hashFiles('scripts/build-boxvnt.sh') }}
+
+      - name: Build boxvideo.sys
+        run: bash scripts/build-boxvnt.sh dist
+
+      - name: Generator drift check
+        run: node --experimental-strip-types scripts/gen-boxvnt-modes.ts --check
+
+      - name: Binary validation tests
+        run: |
+          node --experimental-strip-types scripts/gen-boxvnt-modes.test.ts
+          node --experimental-strip-types src/apps/virtual-machine/guest/boxvnt/boxvnt-binary.test.ts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boxvideo
+          path: |
+            dist/boxvideo.sys
+            dist/vidmini.inf
+          if-no-files-found: error

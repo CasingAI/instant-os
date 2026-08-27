@@ -17,12 +17,16 @@ export const VM_MEMORY_MB_MAX = 2032
 export const VM_MEMORY_MB_STEP = 16
 export const DEFAULT_VIRTUAL_MACHINE_MEMORY_MB: VmMemoryMb = 64
 
-/** 对应 v86 `vga_memory_size`。 */
+/**
+ * 对应 v86 `vga_memory_size`。默认 16MB：任意分辨率直推后密阶梯最大档
+ * 需 ~15.5MiB（2552×1595×32），8MB 会让高分辨率模式被驱动显存校验拒绝
+ * （todo/vm-arbitrary-resolution R9）。
+ */
 export const VM_VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16] as const
 
 export type VmVgaMemoryMb = (typeof VM_VGA_MEMORY_MB_OPTIONS)[number]
 
-export const DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB: VmVgaMemoryMb = 8
+export const DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB: VmVgaMemoryMb = 16
 
 /**
  * v86 能调整的「处理器」参数只有 `cpuid_level`。

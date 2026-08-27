@@ -68,41 +68,35 @@ function testPackClampsBeforeShift() {
   assert.deepEqual(clampResolutionTarget(1000.4, 800.6), { width: 1000, height: 801 })
 }
 
-function testViewportMaximizesVisibleArea() {
-  // 拉伸/等比按「可见画面最大化」选档：等比缩放后真正画进视口的面积最大，
-  // 等价于黑边最少；宽高比一致的档位里再取面积最接近视口的（密度最匹配）。
-  // 800×500(16:10)：16:10 族完美铺满，族内最小面积档胜出。
-  assert.deepEqual(resolutionTargetFromViewport(800, 500), { width: 1280, height: 800 })
-  // 1204×672：近 16:9 面板选 1280×720（可见面积远大于旧「面积最近」的 1024×768）。
-  assert.deepEqual(resolutionTargetFromViewport(1204, 672), { width: 1280, height: 720 })
-  // 恰为标准档位时原样通过。
+function testViewportPushesExactGridValue() {
+  // 任意直推：目标就是视口尺寸（8px 网格取整），不再吸附 17 档表。
+  assert.deepEqual(resolutionTargetFromViewport(800, 500), { width: 800, height: 504 })
+  // 非标准尺寸按四舍五入贴到最近网格点：1204→1208（1204/8=150.5）。
+  assert.deepEqual(resolutionTargetFromViewport(1204, 672), { width: 1208, height: 672 })
+  // 恰在网格上的值原样通过。
   assert.deepEqual(resolutionTargetFromViewport(1280, 800), { width: 1280, height: 800 })
-  // 真实用户面板（超宽短）：1096×441 下 1280×720 比 4:3 档少约 18 个百分点的黑边。
-  assert.deepEqual(resolutionTargetFromViewport(1096, 441), { width: 1280, height: 720 })
-  // 近方形视口没有对应比例，5:4 族已是可见面积最大的选择。
-  assert.deepEqual(resolutionTargetFromViewport(640, 600), { width: 1280, height: 1024 })
-  // 超大视口被天花板档接住。
+  // 计划手册里的非标准例子：1371×913 → 网格 1368×912（驱动支持下逐像素贴合）。
+  assert.deepEqual(resolutionTargetFromViewport(1371, 913), { width: 1368, height: 912 })
+  // 超大视口被天花板接住（2560/1600 本就是网格点）。
   assert.deepEqual(resolutionTargetFromViewport(3000, 2000), { width: 2560, height: 1600 })
   // 非法输入仍无目标。
   assert.equal(resolutionTargetFromViewport(0, 500), undefined)
   assert.equal(resolutionTargetFromViewport(Number.NaN, 500), undefined)
+  // 低于客机最低模式：保持现状（02 手册第 4 步：极小窗口不跟随）。
+  assert.equal(resolutionTargetFromViewport(630, 500), undefined)
+  assert.equal(resolutionTargetFromViewport(700, 478), undefined)
+  assert.equal(resolutionTargetFromViewport(1096, 441), undefined, '高度低于 480 沉默')
 }
 
-function testNativeModeTakesLargestFittingMode() {
-  // 「原始」模式画布 1 客机px = 1 CSS px 原样显示，超尺寸必被裁切滚动——
-  // 所以只从两维都放得下的档位里取面积最大的。
-  // 1096×618 装得下 800×600（600≤618），装不下 1024×768。
-  assert.deepEqual(resolutionTargetFromViewport(1096, 618, 'native'), { width: 800, height: 600 })
-  // 高度不够时宁小勿裁：1204×672 也只放得下 800×600（768 超 96px）。
-  assert.deepEqual(resolutionTargetFromViewport(1204, 672, 'native'), { width: 800, height: 600 })
-  // 视口够高才轮到更大的档：1150×800 恰好容纳 1024×768（1152×864 宽度超出）。
-  assert.deepEqual(resolutionTargetFromViewport(1150, 800, 'native'), { width: 1024, height: 768 })
-  // 只有 640×480 放得下。
-  assert.deepEqual(resolutionTargetFromViewport(842, 545, 'native'), { width: 640, height: 480 })
-  // 连地板档都放不下的小视口：裁切已不可避免，落地板保持「有目标可发」。
-  assert.deepEqual(resolutionTargetFromViewport(443, 280, 'native'), { width: 640, height: 480 })
-  // 对照：等比/拉伸会缩放画布适配视口，走「可见面积最大化」，不要求放得下。
-  assert.deepEqual(resolutionTargetFromViewport(1204, 672, 'contain'), { width: 1280, height: 720 })
+function testDisplayModeNoLongerAffectsTarget() {
+  // 任意直推后拉伸/等比/原始的目标都是「视口本身」：显示管线负责缩放，
+  // 目标分辨率不再因模式而异（旧 native 下取/拉伸就近的策略已退役）。
+  for (const mode of ['stretch', 'contain', 'native'] as const) {
+    assert.deepEqual(resolutionTargetFromViewport(1096, 618, mode), { width: 1096, height: 616 })
+  }
+  assert.deepEqual(resolutionTargetFromViewport(1204, 672, 'native'), { width: 1208, height: 672 })
+  // 640×600（旧策略会选 1280×1024）现在直发 600→600（网格点）。
+  assert.deepEqual(resolutionTargetFromViewport(640, 600), { width: 640, height: 600 })
 }
 
 function testThreshold() {
@@ -257,8 +251,8 @@ function testDebounceEmitsOnceAfterQuietPeriod() {
   }
   assert.equal(targets.length, 1, '连发期间不触发')
   clock.advance(300)
-  // 终值 1400×1000：可见面积最大的是 4:3 族里密度最匹配的 1280×960。
-  assert.deepEqual(targets, [{ width: 1024, height: 768 }, { width: 1280, height: 960 }])
+  // 终值 1400×1000 恰在 8px 网格上，任意直推原样发出。
+  assert.deepEqual(targets, [{ width: 1024, height: 768 }, { width: 1400, height: 1000 }])
   assert.equal(targets.length, 2, '5 次连发只产生 1 次新目标')
 }
 
@@ -279,11 +273,12 @@ function testSubThresholdChangeIgnored() {
   size = { width: 1030, height: 782 }
   observers.instances[0].fire()
   clock.advance(400)
-  // 1030×782 与 1024×768 落在同一档：不重切，不发消息。
+  // 1030×782 → 网格 1032×784，与已生效的 1024×768 双轴都低于 80px 阈值：
+  // 不值得让客机重排，不发消息。
   assert.deepEqual(targets, [{ width: 1024, height: 768 }])
 }
 
-function testSmallViewportSnapsToFloorMode() {
+function testSmallViewportKeepsCurrentMode() {
   const clock = createFakeClock()
   const observers = createFakeObserverFactory()
   let size = { width: 1024, height: 768 }
@@ -300,8 +295,9 @@ function testSmallViewportSnapsToFloorMode() {
   size = { width: 400, height: 300 }
   observers.instances[0].fire()
   clock.advance(400)
-  // 小视口不再沉默（旧 clamp 路径会丢掉目标、客机停在旧的大档位被裁切放大）。
-  assert.deepEqual(targets, [{ width: 1024, height: 768 }, { width: 640, height: 480 }])
+  // 小视口（低于客机最低可用模式 640×480）：目标为 undefined，客机保持
+  // 当前分辨率（02 手册第 4 步的钳制语义，不再有「落地板档」路径）。
+  assert.deepEqual(targets, [{ width: 1024, height: 768 }])
 }
 
 function testDisconnectStopsEverything() {
@@ -439,13 +435,13 @@ function testStoreNormalizesFlag() {
 testPortAddress()
 testPackUnpackRoundtrip()
 testPackClampsBeforeShift()
-testViewportMaximizesVisibleArea()
-testNativeModeTakesLargestFittingMode()
+testViewportPushesExactGridValue()
+testDisplayModeNoLongerAffectsTarget()
 testThreshold()
 testInitialAlignmentOnAttach()
 testDebounceEmitsOnceAfterQuietPeriod()
 testSubThresholdChangeIgnored()
-testSmallViewportSnapsToFloorMode()
+testSmallViewportKeepsCurrentMode()
 testDisconnectStopsEverything()
 testDisabledSwitchNeverAttaches()
 testSetResolutionMessage()
