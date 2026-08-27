@@ -2091,8 +2091,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           continue
         }
         try {
-          // 先移入废纸篓腾出原名再按原名拷入；失败则退回保留两者（靠自动改名兜底）
-          await trashNode(target.id)
+          // 替换 = 永久删除旧文件腾出原名再按原名拷入（各卷型统一，不进废纸篓）；
+          // 失败则退回保留两者（靠自动改名兜底）
+          await removeNode(target.id)
           replacedCount += 1
         } catch (err) {
           showToast(`无法替换「${item.name}」：${formatError(err)}`)
