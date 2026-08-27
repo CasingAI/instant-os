@@ -185,14 +185,16 @@ if (rewrittenCalls > 0) {
     count++
   }
   flush()
-  image.writeUInt32LE(0, w) // 终止块头（page=0,size=0）
-  image.writeUInt32LE(0, w + 4)
-  w += 8
-  if (w > relFo + relSize) {
+  // 注意：PE 重定位目录没有「终止块」概念——加载器按 SizeOfBlock 链式走表，
+  // 尾部追加 page=0/size=0 的块会让 XP 判镜像无效（拒绝加载，DriverEntry 不执行）。
+  // 目录尺寸 = 最后一个真实块的末尾（必须在补零前定格——补零会推进 w，
+  // 拿补零后的 w 算尺寸等于永远写回原始尺寸，终止块/残余就全进了行走范围）。
+  const newRelSize = w - relFo
+  if (newRelSize > relSize) {
     throw new Error('重建的 .reloc 表超过原尺寸——不应发生（只减不增）')
   }
   while (w < relFo + relSize) image[w++] = 0
-  image.writeUInt32LE(w - relFo, baserelocDir + 4)
+  image.writeUInt32LE(newRelSize, baserelocDir + 4)
   changes.push(`导入派发 ${rewrittenCalls} 处 FF 15 → E8 直调跳板；.reloc 剔除 ${dropped} 项失效操作数并重建`)
 }
 

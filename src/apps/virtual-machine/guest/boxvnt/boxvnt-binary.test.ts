@@ -116,9 +116,10 @@ function verifyChecksum(image: Buffer, checksumFieldOffset: number): boolean {
 
 /**
  * 是否残留「FF 15 间接调用 → FF 25 跳板槽」的自相矛盾导入派发。
- * 判定：可执行节里的 FF 15，其操作数（减 ImageBase 后）落在某个以
- * FF 25 开头的段内。normalize-boxvnt-pe.mjs 必须已把这类调用全部
- * 改写为 E8 直调，此函数应恒为 false。
+ * 判定：可执行节里的 FF 15，其操作数（减 ImageBase 后）指向的字节
+ * 恰是 FF 25——即把跳板槽的指令字节当地址去调用。wlink-2026-beta
+ * 的原始产物正是这种形态（XP 加载即蓝屏）；normalize-boxvnt-pe.mjs
+ * 必须已把它们全部改写为 E8 直调，此函数应恒为 false。
  */
 function hasIndirectCallsIntoJumpThunks(image: Buffer): boolean {
   const peOffset = image.readUInt32LE(0x3c)
@@ -127,31 +128,72 @@ function hasIndirectCallsIntoJumpThunks(image: Buffer): boolean {
   const optionalHeader = peOffset + 24
   const imageBase = image.readUInt32LE(optionalHeader + 28)
   const sectionTable = optionalHeader + sizeOfOptionalHeader
-  const thunkishSectionVas: number[] = []
-  const execSections: { va: number; ptr: number; rawSize: number }[] = []
+  const sections: { va: number; rawSize: number; ptr: number; chars: number }[] = []
   for (let i = 0; i < numSections; i++) {
     const s = sectionTable + i * 40
-    const va = image.readUInt32LE(s + 12)
-    const rawSize = image.readUInt32LE(s + 16)
-    const ptr = image.readUInt32LE(s + 20)
-    const chars = image.readUInt32LE(s + 36)
-    if (rawSize >= 2 && image[ptr] === 0xff && image[ptr + 1] === 0x25) {
-      thunkishSectionVas.push(va)
-    }
-    if ((chars & 0x60000000) === 0x60000000) {
-      execSections.push({ va, ptr, rawSize })
-    }
+    sections.push({
+      va: image.readUInt32LE(s + 12),
+      rawSize: image.readUInt32LE(s + 16),
+      ptr: image.readUInt32LE(s + 20),
+      chars: image.readUInt32LE(s + 36),
+    })
   }
-  for (const section of execSections) {
+  const rvaToOffset = (rva: number): number => {
+    for (const section of sections) {
+      if (rva >= section.va && rva < section.va + section.rawSize) {
+        return section.ptr + (rva - section.va)
+      }
+    }
+    return -1
+  }
+  for (const section of sections) {
+    if ((section.chars & 0x60000000) !== 0x60000000) continue
     for (let off = 0; off + 6 <= section.rawSize; off++) {
       if (image[section.ptr + off] !== 0xff || image[section.ptr + off + 1] !== 0x15) continue
       const targetRva = image.readUInt32LE(section.ptr + off + 2) - imageBase
-      if (thunkishSectionVas.some((va) => targetRva >= va && targetRva < va + 0x1000)) {
+      const targetOff = rvaToOffset(targetRva)
+      if (targetOff >= 0 && image[targetOff] === 0xff && image[targetOff + 1] === 0x25) {
         return true
       }
     }
   }
   return false
+}
+
+/**
+ * .reloc 目录结构校验：PE 重定位目录没有「终止块」，加载器按 SizeOfBlock
+ * 链式走表直到目录末尾。链中任何 SizeOfBlock=0 或越界的块都会让 XP 拒载
+ * （DriverEntry 不执行，StartService 干净失败）。要求：链恰好走满目录尺寸。
+ */
+function relocChainIsWellFormed(image: Buffer): boolean {
+  const peOffset = image.readUInt32LE(0x3c)
+  const sizeOfOptionalHeader = image.readUInt16LE(peOffset + 20)
+  const optionalHeader = peOffset + 24
+  const baserelocDir = optionalHeader + 96 + 5 * 8
+  const dirRva = image.readUInt32LE(baserelocDir)
+  const dirSize = image.readUInt32LE(baserelocDir + 4)
+  if (dirSize === 0) return true
+  const numSections = image.readUInt16LE(peOffset + 6)
+  const sectionTable = optionalHeader + sizeOfOptionalHeader
+  let tableOffset = -1
+  for (let i = 0; i < numSections; i++) {
+    const s = sectionTable + i * 40
+    const va = image.readUInt32LE(s + 12)
+    const rawSize = image.readUInt32LE(s + 16)
+    if (dirRva >= va && dirRva < va + rawSize) {
+      tableOffset = image.readUInt32LE(s + 20) + (dirRva - va)
+      break
+    }
+  }
+  if (tableOffset < 0) return false
+  let walk = 0
+  while (walk < dirSize) {
+    if (walk + 8 > dirSize) return false
+    const blockSize = image.readUInt32LE(tableOffset + walk + 4)
+    if (blockSize < 8 || blockSize % 4 !== 0 || walk + blockSize > dirSize) return false
+    walk += blockSize
+  }
+  return walk === dirSize
 }
 
 function buildInto(directory: string): string {
@@ -196,6 +238,7 @@ function buildAndAssert(directory: string): PeInfo {
   assert.notEqual(pe.entryRva, 0, '入口点非零（DriverEntry，NT 驱动无导出表）')
   assert.ok(pe.virtualSizes.every((vs) => vs > 0), '所有节的 VirtualSize 必须非零——wlink 原始产物的 VSize=0 段是 XP 加载蓝屏的嫌疑形态（normalize-boxvnt-pe.mjs 负责消灭）')
   assert.ok(!hasIndirectCallsIntoJumpThunks(image), '禁止 FF 15 间接调用指向 FF 25 跳板槽——wlink 原始产物的自相矛盾导入派发，会把跳板指令字节当地址调用（XP 加载即蓝屏，normalize-boxvnt-pe.mjs 改写为 E8 直调）')
+  assert.ok(relocChainIsWellFormed(image), '.reloc 链必须恰好走满目录尺寸——链中的零尺寸/越界块会让 XP 拒载（无蓝屏、DriverEntry 不执行的干净失败，FAILED 2001 现象）')
   assert.ok(pe.imports.length > 0, '导入表为空，构建疑似坏了')
   for (const dll of pe.imports) {
     assert.ok(IMPORT_DLL_WHITELIST.has(dll.toLowerCase()), `导入表出现白名单之外的模块：${dll}`)

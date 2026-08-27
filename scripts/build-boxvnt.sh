@@ -16,6 +16,12 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DRV_DIR="$ROOT/src/apps/virtual-machine/guest/boxvnt"
 OUT_DIR="${1:-$ROOT/src/apps/virtual-machine/guest/out}"
+# 相对路径先钉到仓库根——第 63 行 wmake 前 cd 进了 DRV_DIR，
+# 相对 OUT_DIR 会被解析到 boxvnt/ 下的嵌套目录里。
+case "$OUT_DIR" in
+  /*) ;;
+  *) OUT_DIR="$ROOT/$OUT_DIR" ;;
+esac
 
 command -v node >/dev/null 2>&1 || { echo "error: 需要 node" >&2; exit 1; }
 
