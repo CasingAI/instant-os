@@ -8,6 +8,12 @@
  *   [本代理] 打开 \\.\COM1，流式解帧；校验通过且值有变化时枚举显示模式，
  *     按就近吸附选档（find_matching_mode），ChangeDisplaySettingsExA 切换。
  *
+ * v2 协议扩展（todo/vm-remote-control/00-overview.md §6，全部在
+ * `#region vm-agent v2` 内）：len≠4 的帧按 payload[0] 分发——
+ *   PING(0x01)/SHUTDOWN(0x02)/REBOOT(0x03)/EXEC(0x10)/CLICK(0x20)/DBLCLICK(0x21)，
+ *   回执走 ring3 WriteFile 的 `[IVM]xxx=...\r\n` 行，与 ring0 驱动的裸 OUT
+ *   字节流交错无害（宿主 tap 按行收）。v1 的 7 字节分辨率帧行为完全不变。
+ *
  * 血泪教训（v5 定案）：COM1 必须显式 SetCommState 成 8N1。XP 对这个虚拟
  * 串口的初始配置是 7 数据位，驱动按 7-bit 接收会把每个字节的最高位剥掉
  * （魔数 0xA5 变成 0x25），帧永远无法解析——「只弹首字节框、有效帧永不
@@ -24,6 +30,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <winsvc.h>
 #include <stdarg.h>
 #include <stddef.h>
 
@@ -36,7 +43,7 @@
 #define FRAME_PAYLOAD_LEN 4
 
 /*
- * 无 CRT 链接（-nostdlib）：导入表只剩 kernel32/user32，XP 裸机可加载。
+ * 无 CRT 链接（-nostdlib）：导入表只剩 kernel32/user32/advapi32，XP 裸机可加载。
  * 编译器会把大结构清零/拷贝降级成 memset/memcpy 调用，这里自带实现；
  * 用 volatile 写循环，防止 LLVM 循环惯用语识别再把它们变回库调用。
  */
@@ -78,16 +85,21 @@ static void log_line(const char *fmt, ...)
 
 /*
  * 帧解析状态机。校验和从魔数字节开始累加，所以收到魔数时就要记住；
- * 返回 1 表示拿到完整且校验通过的帧，此时 *out_value 有效。
+ * 返回 1 表示拿到完整且校验通过的帧，此时 fp->len / fp->payload 有效，
+ * 调用方处理完必须 frame_reset（payload 与解析状态都在 fp 里）。
  */
 #define RX_WAIT_MAGIC 0
 #define RX_WAIT_LEN 1
 #define RX_PAYLOAD 2
 #define RX_CHECKSUM 3
+#define RX_DONE 4 /* 完整帧已交付、等待调用方 reset；期间喂进的字节全忽略 */
+
+#define MAX_FRAME_PAYLOAD 200 /* EXEC cmdline 上限（len 是单字节，留余量） */
 
 typedef struct {
     unsigned char phase;
-    unsigned char payload[FRAME_PAYLOAD_LEN];
+    unsigned char len;
+    unsigned char payload[MAX_FRAME_PAYLOAD];
     unsigned char payload_idx;
     unsigned short sum;
 } frame_parser_t;
@@ -99,9 +111,8 @@ static void frame_reset(frame_parser_t *fp)
     *fp = g_zero_parser;
 }
 
-static int frame_feed(frame_parser_t *fp, unsigned char byte, unsigned long *out_value)
+static int frame_feed(frame_parser_t *fp, unsigned char byte)
 {
-    *out_value = 0;
     switch (fp->phase) {
     case RX_WAIT_MAGIC:
         if (byte == FRAME_MAGIC) {
@@ -110,8 +121,10 @@ static int frame_feed(frame_parser_t *fp, unsigned char byte, unsigned long *out
         }
         return 0;
     case RX_WAIT_LEN:
-        if (byte == FRAME_PAYLOAD_LEN) {
+        /* v1 只认 len=4（分辨率）；v2 放开到 1..MAX_FRAME_PAYLOAD。 */
+        if (byte >= 1 && byte <= MAX_FRAME_PAYLOAD) {
             fp->sum += byte;
+            fp->len = byte;
             fp->payload_idx = 0;
             fp->phase = RX_PAYLOAD;
         } else if (byte != FRAME_MAGIC) {
@@ -121,27 +134,176 @@ static int frame_feed(frame_parser_t *fp, unsigned char byte, unsigned long *out
     case RX_PAYLOAD:
         fp->sum += byte;
         fp->payload[fp->payload_idx++] = byte;
-        if (fp->payload_idx >= FRAME_PAYLOAD_LEN) {
+        if (fp->payload_idx >= fp->len) {
             fp->phase = RX_CHECKSUM;
         }
         return 0;
-    default: { /* RX_CHECKSUM：此时 sum 已累完前 6 字节，恰等于宿主的校验和 */
-        unsigned short computed = fp->sum;
-        unsigned long value =
-            (unsigned long)fp->payload[0] |
-            ((unsigned long)fp->payload[1] << 8) |
-            ((unsigned long)fp->payload[2] << 16) |
-            ((unsigned long)fp->payload[3] << 24);
-        int ok = (unsigned char)computed == byte;
-        frame_reset(fp);
-        if (ok) {
-            *out_value = value;
-            return 1;
+    case RX_CHECKSUM: { /* 此时 sum 已累完 len+2 个前导字节，恰等于宿主校验和 */
+        int ok = (unsigned char)fp->sum == byte;
+        if (!ok) {
+            /* 校验失败必须立刻复位：调用方只在返回 1 时 reset，
+             * 残留状态会吞掉后续所有字节。 */
+            frame_reset(fp);
+            return 0;
         }
+        fp->phase = RX_DONE; /* 交付：payload 保持有效，等调用方处理完 reset */
+        return 1;
+    }
+    default: /* RX_DONE：交付后的残余字节丢弃，等调用方 reset */
         return 0;
     }
+}
+
+/* #region vm-agent v2 —— 远程操控命令（PING/EXEC/CLICK/DBLCLICK/SHUTDOWN/REBOOT） */
+
+static void handle_packed_value(unsigned long packed);
+
+#define OP_PING 0x01
+#define OP_SHUTDOWN 0x02
+#define OP_REBOOT 0x03
+#define OP_EXEC 0x10
+#define OP_CLICK 0x20
+#define OP_DBLCLICK 0x21
+
+/* 当前 COM1 句柄：命令回执（[IVM]…\r\n）从这里写回宿主。 */
+static HANDLE g_port;
+
+static void reply_line(const char *fmt, ...)
+{
+    if (g_port == NULL) {
+        return;
+    }
+    char body[144];
+    char line[176];
+    va_list args;
+    va_start(args, fmt);
+    wvsprintfA(body, fmt, args);
+    va_end(args);
+    lstrcpyA(line, "[IVM]");
+    lstrcatA(line, body);
+    lstrcatA(line, "\r\n");
+    DWORD written = 0;
+    WriteFile(g_port, line, lstrlenA(line), &written, NULL);
+}
+
+/* ExitWindowsEx 要求 SE_SHUTDOWN_NAME 特权（服务令牌里默认禁用）。 */
+static void enable_shutdown_privilege(void)
+{
+    HANDLE token;
+    TOKEN_PRIVILEGES tp;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
+        return;
+    }
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    if (!LookupPrivilegeValueA(NULL, "SeShutdownPrivilege", &tp.Privileges[0].Luid)) {
+        CloseHandle(token);
+        return;
+    }
+    AdjustTokenPrivileges(token, FALSE, &tp, 0, NULL, NULL);
+    CloseHandle(token);
+}
+
+static void power_off(UINT flags)
+{
+    enable_shutdown_privilege();
+    if (!ExitWindowsEx(flags, 0)) {
+        log_line("res-agent: ExitWindowsEx failed (%lu)", GetLastError());
     }
 }
+
+static void handle_exec(unsigned char len, const unsigned char *payload)
+{
+    /* payload: 0x10 | cmdline（含结尾 NUL）。CreateProcessA 的命令行参数
+     * 是 IN/OUT，必须放进可写缓冲。CREATE_NO_WINDOW 只抑制控制台闪窗，
+     * GUI 程序照常显示。 */
+    static char cmdline[MAX_FRAME_PAYLOAD + 1];
+    int n = len - 1;
+    if (n <= 0) {
+        reply_line("EXEC=0");
+        return;
+    }
+    for (int i = 0; i < n; i++) {
+        cmdline[i] = (char)payload[1 + i];
+    }
+    cmdline[n] = 0;
+
+    static const STARTUPINFOA zero_si;
+    static const PROCESS_INFORMATION zero_pi;
+    STARTUPINFOA si = zero_si;
+    PROCESS_INFORMATION pi = zero_pi;
+    si.cb = sizeof(si);
+    if (CreateProcessA(NULL, cmdline, NULL, NULL, FALSE, CREATE_NO_WINDOW,
+                       NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        reply_line("EXEC=1");
+    } else {
+        reply_line("EXEC=0 err=%lu", GetLastError());
+    }
+}
+
+static void handle_click(unsigned char opcode, const unsigned char *p)
+{
+    DWORD x = (DWORD)p[0] | ((DWORD)p[1] << 8);
+    DWORD y = (DWORD)p[2] | ((DWORD)p[3] << 8);
+    if (!SetCursorPos((int)x, (int)y)) {
+        reply_line("CLICK=0 err=%lu", GetLastError());
+        return;
+    }
+    int rounds = (opcode == OP_DBLCLICK) ? 2 : 1;
+    for (int i = 0; i < rounds; i++) {
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+        if (rounds == 2) {
+            Sleep(60);
+        }
+    }
+    reply_line("%s=1", (opcode == OP_DBLCLICK) ? "DBLCLK" : "CLICK");
+}
+
+static void handle_frame(unsigned char len, const unsigned char *payload)
+{
+    if (len == FRAME_PAYLOAD_LEN) {
+        /* v1 分辨率帧：与旧版行为逐字节一致。 */
+        unsigned long packed =
+            (unsigned long)payload[0] |
+            ((unsigned long)payload[1] << 8) |
+            ((unsigned long)payload[2] << 16) |
+            ((unsigned long)payload[3] << 24);
+        handle_packed_value(packed);
+        return;
+    }
+    switch (payload[0]) {
+    case OP_PING:
+        reply_line("PONG=%lu", GetTickCount());
+        break;
+    case OP_SHUTDOWN:
+        reply_line("SDWN=1");
+        power_off(EWX_SHUTDOWN | EWX_POWEROFF | EWX_FORCE);
+        break;
+    case OP_REBOOT:
+        reply_line("RBOOT=1");
+        power_off(EWX_REBOOT | EWX_FORCE);
+        break;
+    case OP_EXEC:
+        handle_exec(len, payload);
+        break;
+    case OP_CLICK:
+    case OP_DBLCLICK:
+        if (len == 5) {
+            handle_click(payload[0], payload + 1);
+        } else {
+            log_line("res-agent: click frame len=%u ignored", len);
+        }
+        break;
+    default:
+        log_line("res-agent: unknown opcode 0x%02X", payload[0]);
+        break;
+    }
+}
+
+/* #endregion */
 
 /*
  * 在驱动枚举的模式表里为任意目标 (tw,th) 选档。XP 驱动的模式表是固定档位，
@@ -260,7 +422,7 @@ static void apply_resolution(DWORD width, DWORD height)
 
 static unsigned long last_applied = 0;
 
-/* 收到完整帧后的统一入口：拆包、溢出守卫、去重，再决定是否应用。 */
+/* 收到完整帧后的统一入口（v1）：拆包、溢出守卫、去重，再决定是否应用。 */
 static void handle_packed_value(unsigned long packed)
 {
     if (packed == 0 || packed == last_applied) {
@@ -279,25 +441,17 @@ static void handle_packed_value(unsigned long packed)
 }
 
 /*
- * 进程入口（链接器 -e 直接指到这，无 CRT 启动对象）。
- * 外层：打开/重开 COM1；内层：读块喂状态机，直到设备出错才重开。
+ * 主循环（交互/服务共用）：打开/重开 COM1；读块喂状态机，
+ * 直到设备出错才重开。v2 后 COM1 是 GENERIC_READ|GENERIC_WRITE。
  */
-void res_agent_entry(void)
+static void agent_loop(void)
 {
-    /* 单实例：已有本代理在跑就直接退出（避免两个进程抢同一串口）。 */
-    CreateMutexA(NULL, TRUE, "InstantVmResAgent");
-    if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        MessageBoxA(NULL, "res-agent is already running.",
-                    "res-agent", MB_OK | MB_ICONINFORMATION);
-        ExitProcess(0);
-    }
-
     static frame_parser_t parser;
     frame_reset(&parser);
     log_line("res-agent: started, listening on COM1");
 
     for (;;) {
-        HANDLE port = CreateFileA("\\\\.\\COM1", GENERIC_READ, 0, NULL,
+        HANDLE port = CreateFileA("\\\\.\\COM1", GENERIC_READ | GENERIC_WRITE, 0, NULL,
                                   OPEN_EXISTING, 0, NULL);
         if (port == INVALID_HANDLE_VALUE) {
             DWORD gle = GetLastError();
@@ -305,6 +459,7 @@ void res_agent_entry(void)
             Sleep(RES_BROADCAST_REOPEN_MS);
             continue;
         }
+        g_port = port;
 
         /* 必须显式 8N1（见文件头）：驱动初始是 7 位，DCB 往返无效。 */
         DCB dcb;
@@ -322,6 +477,7 @@ void res_agent_entry(void)
             log_line("res-agent: SetCommState(8N1) failed (%lu), reopening",
                      GetLastError());
             CloseHandle(port);
+            g_port = NULL;
             frame_reset(&parser);
             Sleep(RES_BROADCAST_REOPEN_MS);
             continue;
@@ -346,14 +502,89 @@ void res_agent_entry(void)
                 break;
             }
             for (DWORD k = 0; k < got; k++) {
-                unsigned long value = 0;
-                if (frame_feed(&parser, chunk[k], &value)) {
-                    handle_packed_value(value);
+                if (frame_feed(&parser, chunk[k])) {
+                    handle_frame(parser.len, parser.payload);
+                    frame_reset(&parser);
                 }
             }
             Sleep(10);
         }
         CloseHandle(port);
+        g_port = NULL;
         frame_reset(&parser);
     }
+}
+
+/* #region vm-agent v2 —— XP 服务化（开机即起免登录，todo/vm-remote-control §7 预防层） */
+
+static int agent_single_instance(void)
+{
+    CreateMutexA(NULL, TRUE, "InstantVmResAgent");
+    return GetLastError() != ERROR_ALREADY_EXISTS;
+}
+
+static SERVICE_STATUS_HANDLE g_svc_status;
+
+static void svc_set_state(DWORD state)
+{
+    static const SERVICE_STATUS zero_status;
+    SERVICE_STATUS st = zero_status;
+    st.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    st.dwCurrentState = state;
+    st.dwControlsAccepted = (state == SERVICE_RUNNING) ? SERVICE_ACCEPT_STOP : 0;
+    if (g_svc_status != NULL) {
+        SetServiceStatus(g_svc_status, &st);
+    }
+}
+
+static void WINAPI svc_handler(DWORD control)
+{
+    if (control == SERVICE_CONTROL_STOP) {
+        svc_set_state(SERVICE_STOPPED);
+        ExitProcess(0);
+    }
+}
+
+static void WINAPI svc_main(DWORD argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    if (!agent_single_instance()) {
+        return; /* 已有实例：直接报告停止，SCM 不会反复拉起（start= auto 只开机起一次） */
+    }
+    g_svc_status = RegisterServiceCtrlHandlerA("InstantVmResAgent", svc_handler);
+    if (g_svc_status == NULL) {
+        return;
+    }
+    svc_set_state(SERVICE_RUNNING);
+    agent_loop();
+    svc_set_state(SERVICE_STOPPED);
+}
+
+/* #endregion */
+
+/*
+ * 进程入口（链接器 -e 直接指到这，无 CRT 启动对象）。
+ * SCM 启动 → 走服务调度器（阻塞到服务停止）；否则交互运行（双击/HKCU Run）。
+ */
+void res_agent_entry(void)
+{
+    /* #region vm-agent v2 —— 服务调度器优先：SCM 启动时交互弹框永远出不来 */
+    static SERVICE_TABLE_ENTRYA svc_table[2];
+    svc_table[0].lpServiceName = "InstantVmResAgent";
+    svc_table[0].lpServiceProc = svc_main;
+    svc_table[1].lpServiceName = NULL;
+    svc_table[1].lpServiceProc = NULL;
+    if (StartServiceCtrlDispatcherA(svc_table)) {
+        return; /* 服务路径：svc_main 已跑完主循环 */
+    }
+    /* #endregion */
+
+    /* 交互路径：单实例失败弹框退出（保留 v1 产品行为）。 */
+    if (!agent_single_instance()) {
+        MessageBoxA(NULL, "res-agent is already running.",
+                    "res-agent", MB_OK | MB_ICONINFORMATION);
+        ExitProcess(0);
+    }
+    agent_loop();
 }

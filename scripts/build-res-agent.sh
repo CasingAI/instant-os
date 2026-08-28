@@ -28,7 +28,7 @@ zig cc -target x86-windows-gnu -O2 -Wall -nostdlib \
   "-isystem$WIN_HEADERS" \
   -Wl,--subsystem,windows,-e,res_agent_entry \
   -o "$OUT" "$AGENT_DIR/res-agent.c" \
-  -lkernel32 -luser32 -lgdi32
+  -lkernel32 -luser32 -lgdi32 -ladvapi32
 node "$AGENT_DIR/patch-pe-xp-version.mjs" "$OUT"
 
 echo "built: $OUT ($(wc -c < "$OUT") bytes)"

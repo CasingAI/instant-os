@@ -24,6 +24,8 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   diskWriteResult: 'instant-vm:disk-write-result',
   diskWriteFailed: 'instant-vm:disk-write-failed',
   keyboard: 'instant-vm:keyboard',
+  agentCommand: 'instant-vm:agent-command',
+  agentResult: 'instant-vm:agent-result',
 } as const
 
 /** 运行时 fetch 拦截器识别的本地镜像流 URL 前缀（挂在运行时 origin 上）。 */
@@ -286,6 +288,24 @@ export type InstantVmKeyboardMessage = {
   metaKey: boolean
 }
 
+/**
+ * 宿主下发的控制面命令：method/args 转调运行时页 `window.__vm` 白名单方法
+ * （readText/screenshot/exec/click/shutdown 等）。命令失败走既有 error 回执。
+ */
+export type InstantVmAgentCommandMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.agentCommand
+  requestId: string
+  method: string
+  args?: unknown[]
+}
+
+/** 控制面命令成功回执；value 结构化克隆传回宿主（无返回值时省略）。 */
+export type InstantVmAgentResultMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.agentResult
+  requestId: string
+  value?: unknown
+}
+
 export type InstantVmStartedMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.started
   requestId: string
@@ -371,6 +391,7 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmSetResolutionMessage
   | InstantVmSaveStateMessage
   | InstantVmKeyboardMessage
+  | InstantVmAgentCommandMessage
 
 export type InstantVmRuntimeToHostMessage =
   | InstantVmReadyMessage
@@ -383,6 +404,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmStatsMessage
   | InstantVmDiskReadMessage
   | InstantVmDiskWriteMessage
+  | InstantVmAgentResultMessage
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 2032
@@ -739,6 +761,33 @@ export function isInstantVmKeyboardMessage(value: unknown): value is InstantVmKe
   )
 }
 
+/** 单条控制面命令的参数个数上限（防呆，不承载安全语义）。 */
+const VM_AGENT_ARGS_MAX = 8
+
+export function isInstantVmAgentCommandMessage(
+  value: unknown,
+): value is InstantVmAgentCommandMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.agentCommand &&
+    isRequestId(value.requestId) &&
+    typeof value.method === 'string' &&
+    value.method.trim().length > 0 &&
+    (value.args === undefined ||
+      (Array.isArray(value.args) && value.args.length <= VM_AGENT_ARGS_MAX))
+  )
+}
+
+export function isInstantVmAgentResultMessage(
+  value: unknown,
+): value is InstantVmAgentResultMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.agentResult &&
+    isRequestId(value.requestId)
+  )
+}
+
 export function emptyVmDiskStats(present = false): InstantVmDiskStats {
   return {
     present,
@@ -834,7 +883,8 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmSetPointerModeMessage(value) ||
     isInstantVmSetResolutionMessage(value) ||
     isInstantVmSaveStateMessage(value) ||
-    isInstantVmKeyboardMessage(value)
+    isInstantVmKeyboardMessage(value) ||
+    isInstantVmAgentCommandMessage(value)
   )
 }
 
@@ -879,6 +929,9 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.diskWrite) {
     return isInstantVmDiskWriteMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.agentResult) {
+    return isInstantVmAgentResultMessage(value)
   }
   return false
 }

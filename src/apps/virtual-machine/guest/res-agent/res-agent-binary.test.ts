@@ -19,8 +19,9 @@ import { fileURLToPath } from 'node:url'
 const AGENT_DIR = dirname(fileURLToPath(import.meta.url))
 const BUILD_SCRIPT = join(AGENT_DIR, '..', '..', '..', '..', '..', 'scripts', 'build-res-agent.sh')
 
-/** 导入表白名单（03 §3.1）：XP 裸机上必须都自带。比较时忽略大小写与 .dll 后缀。 */
-const IMPORT_DLL_WHITELIST = new Set(['kernel32', 'user32', 'gdi32', 'msvcrt'])
+/** 导入表白名单（03 §3.1）：XP 裸机上必须都自带。比较时忽略大小写与 .dll 后缀。
+ * vm-agent v2 增加 advapi32（ExitWindowsEx 的关机特权 + 服务调度器）。 */
+const IMPORT_DLL_WHITELIST = new Set(['kernel32', 'user32', 'gdi32', 'advapi32', 'msvcrt'])
 
 const MAX_EXE_BYTES = 200 * 1024
 
@@ -137,9 +138,9 @@ function main() {
     return
   }
   // 03 §3.3：源码控制在 300 行内。产品逻辑（就近吸附选档 + 8N1 串口初始化 +
-  // CDS 降级重试）比初版多，守卫放宽到 400。
+  // CDS 降级重试）比初版多，守卫放宽到 400；vm-agent v2（六命令 + 服务化）再放宽到 700。
   const sourceLines = readFileSync(join(AGENT_DIR, 'res-agent.c'), 'utf8').split('\n').length
-  assert.ok(sourceLines < 400, `res-agent.c 应保持 < 400 行，当前 ${sourceLines} 行`)
+  assert.ok(sourceLines < 700, `res-agent.c 应保持 < 700 行，当前 ${sourceLines} 行`)
 
   // 两次独立编译：第一次拿属性基线，第二次验证可重现性。
   const infoA = buildAndAssert(mkdtempSync(join(tmpdir(), 'res-agent-a-')))
@@ -148,6 +149,11 @@ function main() {
   assert.deepEqual(infoB.sectionNames, infoA.sectionNames, '两次编译的节表不一致')
   assert.deepEqual(infoB.osVersion, infoA.osVersion, '两次编译的 OS 版本不一致')
   assert.deepEqual(infoB.subsystemVersion, infoA.subsystemVersion, '两次编译的 Subsystem 版本不一致')
+  // vm-agent v2 断言：命令面依赖的 DLL 必须真实出现在导入表（链接丢了会在实机才暴雷）。
+  const importBases = infoA.imports.map((dll) => dll.replace(/\.dll$/i, '').toLowerCase())
+  for (const required of ['kernel32', 'user32', 'advapi32']) {
+    assert.ok(importBases.includes(required), `导入表缺少 v2 依赖 ${required}：${infoA.imports.join(', ')}`)
+  }
 
   console.log(`res-agent-binary.test.ts ok (${infoA.imports.join(', ')})`)
 }

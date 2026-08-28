@@ -72,6 +72,7 @@ export function VmRuntimeSurface({
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
+    agentCommand,
   } = useVirtualMachineRuntime(
     resolvedOrigin,
     () => onGuestPoweredOff(machineId),
@@ -93,6 +94,7 @@ export function VmRuntimeSurface({
       sendKeyboard,
       captureKeyboard,
       releaseKeyboard,
+      agentCommand,
     })
     return () => onUnregister(machineId)
   }, [
@@ -109,6 +111,7 @@ export function VmRuntimeSurface({
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
+    agentCommand,
   ])
 
   useEffect(() => {

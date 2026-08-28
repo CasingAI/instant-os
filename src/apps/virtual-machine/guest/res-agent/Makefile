@@ -14,7 +14,7 @@ WIN_INC := $(shell zig env | sed -n 's/^ *\.lib_dir = "\(.*\)",$$/\1/p')/libc/in
 
 CFLAGS  ?= -target x86-windows-gnu -O2 -Wall -nostdlib -isystem$(WIN_INC)
 LDFLAGS ?= -Wl,--subsystem,windows,-e,res_agent_entry
-LDLIBS  ?= -lkernel32 -luser32 -lgdi32
+LDLIBS  ?= -lkernel32 -luser32 -lgdi32 -ladvapi32
 
 res-agent.exe: res-agent.c patch-pe-xp-version.mjs
 	$(ZIG) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)

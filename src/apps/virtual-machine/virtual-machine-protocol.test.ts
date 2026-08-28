@@ -27,6 +27,8 @@ import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
   isAllowedOrigin,
+  isInstantVmAgentCommandMessage,
+  isInstantVmAgentResultMessage,
   isInstantVmDiskWriteMessage,
   isInstantVmDiskWriteResultMessage,
   isInstantVmHostToRuntimeMessage,
@@ -526,6 +528,52 @@ function testDiskWriteFailedMessage(): void {
   )
 }
 
+function testAgentCommandMessages(): void {
+  const command = {
+    type: INSTANT_VM_MESSAGE_TYPE.agentCommand,
+    requestId: 'ag-1',
+    method: 'click',
+    args: [512, 384],
+  }
+  assert.equal(isInstantVmAgentCommandMessage(command), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(command), true)
+  assert.equal(isInstantVmRuntimeToHostMessage(command), false)
+  assert.equal(
+    isInstantVmAgentCommandMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.agentCommand,
+      requestId: 'ag-2',
+      method: '',
+      args: [],
+    }),
+    false,
+  )
+  assert.equal(
+    isInstantVmAgentCommandMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.agentCommand,
+      requestId: 'ag-3',
+      method: 'exec',
+      args: Array.from({ length: 9 }, () => 0),
+    }),
+    false,
+  )
+
+  const result = { type: INSTANT_VM_MESSAGE_TYPE.agentResult, requestId: 'ag-1', value: 'ok' }
+  assert.equal(isInstantVmAgentResultMessage(result), true)
+  assert.equal(isInstantVmRuntimeToHostMessage(result), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(result), false)
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.agentResult,
+      requestId: 'ag-4',
+    }),
+    true,
+  )
+  assert.equal(
+    isInstantVmAgentResultMessage({ type: INSTANT_VM_MESSAGE_TYPE.agentResult, requestId: '' }),
+    false,
+  )
+}
+
 testBootOrderMatchesV86()
 testMountedDiskSlots()
 testHasBootMedia()
@@ -549,4 +597,5 @@ testStoppedWithoutRequestId()
 testKeyboardMessage()
 testDiskWriteMessages()
 testDiskWriteFailedMessage()
+testAgentCommandMessages()
 console.log('virtual-machine-protocol.test.ts ok')

@@ -11,6 +11,7 @@ import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
   isInstantVmRuntimeToHostMessage,
+  type InstantVmAgentResultMessage,
   type InstantVmDisplayMode,
   type InstantVmKeyboardMessage,
   type InstantVmPointerMode,
@@ -200,6 +201,8 @@ export type VmRuntimeApi = {
   sendKeyboard(message: InstantVmKeyboardMessage): void
   captureKeyboard(): void
   releaseKeyboard(): void
+  /** 转调运行时页 window.__vm 白名单方法；失败（含控制面未启用）时 reject。 */
+  agentCommand(method: string, args?: readonly unknown[]): Promise<unknown>
 }
 
 /**
@@ -336,7 +339,10 @@ export function useVirtualMachineRuntime(
         return
       }
       pendingRef.current.delete(requestId)
-      if (message.type === INSTANT_VM_MESSAGE_TYPE.saveStateResult) {
+      if (
+        message.type === INSTANT_VM_MESSAGE_TYPE.saveStateResult ||
+        message.type === INSTANT_VM_MESSAGE_TYPE.agentResult
+      ) {
         pending.resolve(message)
       } else {
         pending.resolve()
@@ -394,6 +400,8 @@ export function useVirtualMachineRuntime(
         mode?: InstantVmDisplayMode | InstantVmPointerMode
         width?: number
         height?: number
+        method?: string
+        args?: unknown[]
       },
       transfer: Transferable[] = [],
       timeoutMs = REQUEST_TIMEOUT_MS,
@@ -514,6 +522,26 @@ export function useVirtualMachineRuntime(
     iframeRef.current?.blur()
   }, [])
 
+  // 控制面命令转调。snapshot 要序列化整个物理内存，与 saveState 同用长超时；
+  // 其余命令在运行时页是同步动作，普通超时足够。
+  const agentCommand = useCallback(
+    async (method: string, args: readonly unknown[] = []): Promise<unknown> => {
+      const result = await request<InstantVmAgentResultMessage>(
+        {
+          type: INSTANT_VM_MESSAGE_TYPE.agentCommand,
+          requestId: newVmRequestId(),
+          method,
+          args: [...args],
+        },
+        [],
+        method === 'snapshot' ? SNAPSHOT_SAVE_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
+        (value) => value as InstantVmAgentResultMessage,
+      )
+      return result.value
+    },
+    [request],
+  )
+
   // 注意：Chrome 对「连接被拒」也会用内置错误页完成一次文档加载，iframe 的 load
   // 事件照样触发，所以 load 不能作为「运行时可用」的依据；唯一可信信号是 ready 消息。
   const handleIframeLoad = useCallback(() => {
@@ -564,6 +592,7 @@ export function useVirtualMachineRuntime(
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
+    agentCommand,
   }
 }
 
@@ -819,6 +848,17 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     return await api.saveState()
   }, [])
 
+  const agentCommand = useCallback(
+    async (id: string, method: string, args: readonly unknown[] = []): Promise<unknown> => {
+      const api = apiByIdRef.current.get(id)
+      if (!api) {
+        throw new Error('虚拟机未在运行')
+      }
+      return await api.agentCommand(method, args)
+    },
+    [],
+  )
+
   const setActiveDisplayMode = useCallback(
     async (id: string, mode: InstantVmDisplayMode): Promise<void> => {
       const api = apiByIdRef.current.get(id)
@@ -879,6 +919,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     shutdown,
     resetInstance,
     saveInstanceState,
+    agentCommand,
     setActiveDisplayMode,
     setActivePointerMode,
     setActiveResolution,
