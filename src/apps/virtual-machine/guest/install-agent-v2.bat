@@ -38,6 +38,27 @@ echo [2/8] removing old services...
 sc delete InstantVmResAgent >nul 2>&1
 sc delete InstantVmShm >nul 2>&1
 
+rem sc delete marks the record for deletion; a same-name `sc create` right
+rem after can fail with 1072 (marked for delete). Wait until both services
+rem are really gone (sc query errors = gone), capped at ~15s.
+echo [2b/8] waiting for old service records to disappear...
+set /a waited=0
+:wait_services
+sc query InstantVmShm >nul 2>&1
+if not errorlevel 1 goto svc_still_there
+sc query InstantVmResAgent >nul 2>&1
+if not errorlevel 1 goto svc_still_there
+goto services_gone
+:svc_still_there
+if %waited% geq 15 (
+  echo WARNING: old services still present after 15s; continuing anyway.
+  goto services_gone
+)
+ping -n 2 127.0.0.1 >nul
+set /a waited+=1
+goto wait_services
+:services_gone
+
 echo [3/8] removing legacy HKCU Run autorun (old agent install)...
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ResAgent /f >nul 2>&1
 
