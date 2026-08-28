@@ -277,12 +277,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   // 只陈述事实的提示，不带「请启动」之类的操作指令；只在屏幕中央显示，不进顶部工具栏。
   const runtimeUnreachableHint = `虚拟机运行时未响应（${runtimeOrigin}）`
   const selectedHint = selected ? pool.hints.get(selected.id) : undefined
-  const [agentConnected, setAgentConnected] = useState(false)
+  const [agentLink, setAgentLink] = useState<'off' | 'command' | 'full'>('off')
 
-  // agent 连通探测：轮询 __vm.state().lastPongAgeMs（PING→PONG 通路），
-  // 活着就显示「Agent 已连通」，作为正常运行时右上角唯一的常驻提示。
+  // agent 连通探测：轮询 __vm.state()。两条链独立判定——串口命令链看
+  // lastPongAgeMs（PING→PONG），剪贴板信箱看 shmBase（SHM= 握手）；
+  // 只亮命令链也要如实显示，否则信箱半通/全断会被误读成全通。
   useEffect(() => {
-    setAgentConnected(false)
+    setAgentLink('off')
     if (!selectedId || !selectedRunning) {
       return
     }
@@ -291,15 +292,18 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     const check = async () => {
       try {
         const state = (await pool.agentCommand(selectedId, 'state')) as
-          | { lastPongAgeMs?: number | null }
+          | { lastPongAgeMs?: number | null; shmBase?: number | null }
           | undefined
-        const pongAge = state?.lastPongAgeMs
+        const commandOk =
+          typeof state?.lastPongAgeMs === 'number' &&
+          state.lastPongAgeMs < VM_AGENT_PONG_MAX_AGE_MS
+        const mailboxOk = typeof state?.shmBase === 'number' && state.shmBase > 0
         if (!cancelled) {
-          setAgentConnected(typeof pongAge === 'number' && pongAge < VM_AGENT_PONG_MAX_AGE_MS)
+          setAgentLink(!commandOk ? 'off' : mailboxOk ? 'full' : 'command')
         }
       } catch {
         if (!cancelled) {
-          setAgentConnected(false)
+          setAgentLink('off')
         }
       }
     }
@@ -320,7 +324,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
   }, [pool.agentCommand, selectedId, selectedRunning])
 
-  const statusHint = powerHint ?? selectedHint ?? (agentConnected ? 'Agent 已连通' : undefined)
+  const statusHint =
+    powerHint ??
+    selectedHint ??
+    (agentLink === 'full'
+      ? 'Agent 已连通'
+      : agentLink === 'command'
+        ? 'Agent 已连通 · 剪贴板信箱未就绪'
+        : undefined)
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
   settingsOpenRef.current = settingsOpen
@@ -382,7 +393,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       return
     }
     let cancelled = false
-    // readText 需要剪贴板读权限：被拒时静默降级为只收客机→宿主方向。
+    let readErrorLogged = false
+    // readText 需要剪贴板读权限：被拒时宿主→客机方向停用，但必须把原因
+    // 报出来（只报一次）——静默降级曾让「权限被拒」和「信箱没通」无法区分。
     const tick = () => {
       navigator.clipboard
         ?.readText()
@@ -397,7 +410,12 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               .catch(() => {})
           }
         })
-        .catch(() => {})
+        .catch((error: unknown) => {
+          if (!cancelled && !readErrorLogged) {
+            readErrorLogged = true
+            console.warn('[vm] 宿主剪贴板读取失败，宿主→客机同步停用：', error)
+          }
+        })
     }
     const timer = window.setInterval(tick, VM_CLIPBOARD_SYNC_POLL_MS)
     return () => {
@@ -612,8 +630,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         trace('power-skipped', { reason: 'not-running' })
         return
       }
-      // 软关机依赖客机 agent：未连通时命令无法送达，立即弹窗，不干等命令超时。
-      if (action === 'shutdown' && !agentConnected) {
+      // 软关机只依赖串口命令链；信箱没就绪不影响关机，不必拦。
+      if (action === 'shutdown' && agentLink === 'off') {
         trace('power-skipped', { reason: 'agent-not-connected' })
         showVmError('客机 Agent 未连通，关机命令无法送达')
         return
@@ -662,7 +680,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         }
       })()
     },
-    [agentConnected, pool, runtimeOrigin, selected, selectedBackend, showVmError],
+    [agentLink, pool, runtimeOrigin, selected, selectedBackend, showVmError],
   )
 
   const handleSaveSnapshot = useCallback(() => {
