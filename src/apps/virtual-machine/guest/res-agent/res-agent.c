@@ -14,6 +14,11 @@
  *   回执走 ring3 WriteFile 的 `[IVM]xxx=...\r\n` 行，与 ring0 驱动的裸 OUT
  *   字节流交错无害（宿主 tap 按行收）。v1 的 7 字节分辨率帧行为完全不变。
  *
+ * v3 增加 EXEC_R(0x11)：受理回 `EXEC=1`（槽忙回 `EXEC=0 err=busy`），
+ * 之后主循环每轮轮询退出码（单线程无锁，PING 等命令照常响应），
+ * 15 秒未退出先 TerminateProcess 再等收尸，完成回 `EXIT=<码>`，
+ * 超时击杀的回 `EXIT=<码> to=1`。
+ *
  * 血泪教训（v5 定案）：COM1 必须显式 SetCommState 成 8N1。XP 对这个虚拟
  * 串口的初始配置是 7 数据位，驱动按 7-bit 接收会把每个字节的最高位剥掉
  * （魔数 0xA5 变成 0x25），帧永远无法解析——「只弹首字节框、有效帧永不
@@ -162,6 +167,7 @@ static void handle_packed_value(unsigned long packed);
 #define OP_SHUTDOWN 0x02
 #define OP_REBOOT 0x03
 #define OP_EXEC 0x10
+#define OP_EXEC_R 0x11
 #define OP_CLICK 0x20
 #define OP_DBLCLICK 0x21
 
@@ -171,7 +177,7 @@ static void handle_packed_value(unsigned long packed);
 #endif
 
 /* 产品版本号：PONG 回执与单实例弹窗共用，改动协议/行为时递增。 */
-#define AGENT_VERSION "2"
+#define AGENT_VERSION "3"
 
 /* 当前 COM1 句柄：命令回执（[IVM]…\r\n）从这里写回宿主。 */
 static HANDLE g_port;
@@ -220,11 +226,22 @@ static void power_off(UINT flags)
     }
 }
 
+/* 进程启动共用：cmdline 必须在可写缓冲（CreateProcessA 的命令行是 IN/OUT），
+ * CREATE_NO_WINDOW 只抑制控制台闪窗，GUI 程序照常显示。成功返回 1。 */
+static int launch_no_window(const char *cmdline, PROCESS_INFORMATION *pi)
+{
+    static const STARTUPINFOA zero_si;
+    static const PROCESS_INFORMATION zero_pi;
+    STARTUPINFOA si = zero_si;
+    *pi = zero_pi;
+    si.cb = sizeof(si);
+    return CreateProcessA(NULL, (char *)cmdline, NULL, NULL, FALSE,
+                          CREATE_NO_WINDOW, NULL, NULL, &si, pi);
+}
+
 static void handle_exec(unsigned char len, const unsigned char *payload)
 {
-    /* payload: 0x10 | cmdline（含结尾 NUL）。CreateProcessA 的命令行参数
-     * 是 IN/OUT，必须放进可写缓冲。CREATE_NO_WINDOW 只抑制控制台闪窗，
-     * GUI 程序照常显示。 */
+    /* payload: 0x10 | cmdline（含结尾 NUL）。 */
     static char cmdline[MAX_FRAME_PAYLOAD + 1];
     int n = len - 1;
     if (n <= 0) {
@@ -236,18 +253,73 @@ static void handle_exec(unsigned char len, const unsigned char *payload)
     }
     cmdline[n] = 0;
 
-    static const STARTUPINFOA zero_si;
-    static const PROCESS_INFORMATION zero_pi;
-    STARTUPINFOA si = zero_si;
-    PROCESS_INFORMATION pi = zero_pi;
-    si.cb = sizeof(si);
-    if (CreateProcessA(NULL, cmdline, NULL, NULL, FALSE, CREATE_NO_WINDOW,
-                       NULL, NULL, &si, &pi)) {
+    PROCESS_INFORMATION pi;
+    if (launch_no_window(cmdline, &pi)) {
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
         reply_line("EXEC=1");
     } else {
         reply_line("EXEC=0 err=%lu", GetLastError());
+    }
+}
+
+/*
+ * EXEC_R 任务槽（v3）：受理后不等待，主循环每轮 poll_exec_r 查退出码。
+ * 状态 1=运行中；超时 TerminateProcess 后转 2（已杀待收尸），下一次轮询
+ * 收到句柄信号才回 EXIT——绝不阻塞 ReadFile，PING 照常走。
+ */
+#define EXEC_R_TIMEOUT_MS 15000
+
+static HANDLE g_exec_r_process;
+static DWORD g_exec_r_started;
+static unsigned char g_exec_r_state; /* 0 空闲 1 运行中 2 已杀待收尸 */
+
+static void handle_exec_r(unsigned char len, const unsigned char *payload)
+{
+    if (g_exec_r_state != 0) {
+        reply_line("EXEC=0 err=busy");
+        return;
+    }
+    static char cmdline[MAX_FRAME_PAYLOAD + 1];
+    int n = len - 1;
+    if (n <= 0) {
+        reply_line("EXEC=0 err=args");
+        return;
+    }
+    for (int i = 0; i < n; i++) {
+        cmdline[i] = (char)payload[1 + i];
+    }
+    cmdline[n] = 0;
+
+    PROCESS_INFORMATION pi;
+    if (!launch_no_window(cmdline, &pi)) {
+        reply_line("EXEC=0 err=%lu", GetLastError());
+        return;
+    }
+    CloseHandle(pi.hThread);
+    g_exec_r_process = pi.hProcess;
+    g_exec_r_started = GetTickCount();
+    g_exec_r_state = 1;
+    reply_line("EXEC=1");
+}
+
+static void poll_exec_r(void)
+{
+    if (g_exec_r_state == 0) {
+        return;
+    }
+    DWORD code = 0;
+    if (WaitForSingleObject(g_exec_r_process, 0) == WAIT_OBJECT_0 &&
+        GetExitCodeProcess(g_exec_r_process, &code)) {
+        reply_line(g_exec_r_state == 2 ? "EXIT=%lu to=1" : "EXIT=%lu", code);
+        CloseHandle(g_exec_r_process);
+        g_exec_r_process = NULL;
+        g_exec_r_state = 0;
+        return;
+    }
+    if (g_exec_r_state == 1 && GetTickCount() - g_exec_r_started > EXEC_R_TIMEOUT_MS) {
+        TerminateProcess(g_exec_r_process, 1);
+        g_exec_r_state = 2; /* 击杀是异步的：下一轮等句柄信号再报退出码 */
     }
 }
 
@@ -297,6 +369,9 @@ static void handle_frame(unsigned char len, const unsigned char *payload)
         break;
     case OP_EXEC:
         handle_exec(len, payload);
+        break;
+    case OP_EXEC_R:
+        handle_exec_r(len, payload);
         break;
     case OP_CLICK:
     case OP_DBLCLICK:
@@ -505,6 +580,7 @@ static void agent_loop(void)
 
         unsigned char chunk[64];
         for (;;) {
+            poll_exec_r();
             DWORD got = 0;
             if (!ReadFile(port, chunk, sizeof(chunk), &got, NULL)) {
                 log_line("res-agent: COM1 read failed (%lu), reopening", GetLastError());

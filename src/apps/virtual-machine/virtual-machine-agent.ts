@@ -18,6 +18,7 @@ export const VM_AGENT_METHODS = [
   'keyEvent',
   'ping',
   'exec',
+  'execResult',
   'click',
   'dblclick',
   'shutdown',
@@ -32,6 +33,15 @@ export const VM_AGENT_METHODS = [
 export type VmAgentMethodName = (typeof VM_AGENT_METHODS)[number]
 
 export type VmAgentSend = (method: string, args?: readonly unknown[]) => Promise<unknown>
+
+/** execResult 的收敛结果：成功带退出码（timedOut=客机 15s 超时击杀）。 */
+export type VmExecResult =
+  | { ok: true; exitCode: number; timedOut: boolean }
+  | {
+      ok: false
+      error: 'busy' | 'timeout' | 'launch' | 'args' | 'ascii' | 'unbound'
+      detail?: string
+    }
 
 /** 巡检帧：文本模式带 text，图形模式带缩略 dataUrl（与运行时 ring buffer 一致）。 */
 export type VmAgentRingFrame = {
@@ -53,6 +63,8 @@ export type VmAgentController = {
   keyEvent(message: InstantVmKeyboardMessage): Promise<void>
   ping(): Promise<void>
   exec(cmdline: string): Promise<void>
+  /** 等待退出码的 EXEC（客机 15s、宿主 30s 超时；同时只允许一单）。 */
+  execResult(cmdline: string): Promise<VmExecResult>
   click(x: number, y: number): Promise<void>
   dblclick(x: number, y: number): Promise<void>
   shutdown(): Promise<void>
@@ -83,6 +95,7 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
     keyEvent: (message) => call('keyEvent', [message]),
     ping: () => call('ping'),
     exec: (cmdline) => call('exec', [cmdline]),
+    execResult: (cmdline) => call('execResult', [cmdline]) as Promise<VmExecResult>,
     click: (x, y) => call('click', [x, y]),
     dblclick: (x, y) => call('dblclick', [x, y]),
     shutdown: () => call('shutdown'),

@@ -12,6 +12,7 @@ function testMethodWhitelistCoversFacade(): void {
     'screenshot',
     'state',
     'exec',
+    'execResult',
     'click',
     'dblclick',
     'shutdown',
@@ -33,11 +34,19 @@ async function testFacadePassesMethodAndArgs(): Promise<void> {
     if (method === 'screenshot') {
       return 'data:image/png;base64,AAAA'
     }
+    if (method === 'execResult') {
+      return { ok: true, exitCode: 2, timedOut: false }
+    }
     return undefined
   })
   assert.equal(await agent.readText(), 'SeaBIOS\nBooting from Hard Disk...')
   assert.equal(await agent.screenshot(), 'data:image/png;base64,AAAA')
   await agent.exec('notepad.exe')
+  assert.deepEqual(await agent.execResult('cmd /c exit 2'), {
+    ok: true,
+    exitCode: 2,
+    timedOut: false,
+  })
   await agent.click(512, 384)
   await agent.shutdown()
   await agent.ping()
@@ -47,6 +56,7 @@ async function testFacadePassesMethodAndArgs(): Promise<void> {
     { method: 'readText', args: undefined },
     { method: 'screenshot', args: undefined },
     { method: 'exec', args: ['notepad.exe'] },
+    { method: 'execResult', args: ['cmd /c exit 2'] },
     { method: 'click', args: [512, 384] },
     { method: 'shutdown', args: undefined },
     { method: 'ping', args: undefined },
