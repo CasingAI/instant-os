@@ -601,7 +601,19 @@ export function useVirtualMachineRuntime(
  * - 每个运行中的 machineId 挂载一个 `VmRuntimeSurface`（独立 iframe，见 virtual-machine-runtime-surface.tsx）。
  * - 提供开机/关机/重置/显示比例等命令，命令按 machineId 路由到对应实例。
  */
-export function useVirtualMachineRuntimePool(origin: string | undefined) {
+export type VmRuntimePoolOptions = {
+  /** 硬盘回写 30s 超时被强制停机后触发（App 层用它弹窗，替代右上角小字）。 */
+  onDiskWriteForceStop?: (id: string) => void
+  /** 关机落盘失败（磁盘流释放异常）后触发。 */
+  onDiskWriteIncomplete?: (id: string) => void
+}
+
+export function useVirtualMachineRuntimePool(
+  origin: string | undefined,
+  options: VmRuntimePoolOptions = {},
+) {
+  const optionsRef = useRef(options)
+  optionsRef.current = options
   const [runningIds, setRunningIds] = useState<readonly string[]>([])
   const [startMessages, setStartMessages] = useState<ReadonlyMap<string, InstantVmStartMessage>>(
     new Map(),
@@ -673,7 +685,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
           void removeRunningId(id)
             .catch(() => undefined)
             .finally(() => {
-              setHints((current) => new Map(current).set(id, DISK_WRITE_FAILED_FORCE_STOP_HINT))
+              optionsRef.current.onDiskWriteForceStop?.(id)
             })
         },
       }),
@@ -713,7 +725,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
     (id: string) => {
       recordSystemDebugTimeline({ layer: 'vm', op: 'guest-powered-off', detail: id })
       void removeRunningId(id).catch(() => {
-        setHints((current) => new Map(current).set(id, DISK_IMAGE_INCOMPLETE_HINT))
+        optionsRef.current.onDiskWriteIncomplete?.(id)
       })
     },
     [removeRunningId],
@@ -825,7 +837,7 @@ export function useVirtualMachineRuntimePool(origin: string | undefined) {
         try {
           await removeRunningId(id)
         } catch {
-          setHints((current) => new Map(current).set(id, DISK_IMAGE_INCOMPLETE_HINT))
+          optionsRef.current.onDiskWriteIncomplete?.(id)
         }
       }
     },

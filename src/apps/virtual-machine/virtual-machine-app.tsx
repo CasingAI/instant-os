@@ -30,6 +30,8 @@ import { saveVirtualMachineSnapshot } from './virtual-machine-save-snapshot.ts'
 import { postVirtualMachineDiskWriteFailedNotification } from './virtual-machine-disk-write-notification.ts'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
 import {
+  DISK_IMAGE_INCOMPLETE_HINT,
+  DISK_WRITE_FAILED_FORCE_STOP_HINT,
   pickDisplayedMachineId,
   useVirtualMachineRuntimePool,
 } from './virtual-machine-runtime.ts'
@@ -61,6 +63,10 @@ import './virtual-machine.css'
 const APP_ID = 'virtual-machine' as const
 const THEME = '#3d5a80'
 const POWER_HINT_MS = 4000
+/** agent 探测周期：运行时控制面每 5s 下发一次 PING，宿主按同周期轮询 state()。 */
+const VM_AGENT_POLL_MS = 5_000
+/** PONG 年龄超过约 3 个 PING 周期视为失联（agent 挂了 hint 自动消失）。 */
+const VM_AGENT_PONG_MAX_AGE_MS = 15_000
 
 const DISPLAY_MODE_SEGMENTS: readonly { id: VmDisplayModeId; label: string }[] =
   VM_DISPLAY_MODE_IDS.map((id) => ({
@@ -99,7 +105,23 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const isActiveWindow = windowId === undefined || windowId === activeWindowId
   const modal = useWindowModal()
   const runtimeOrigin = getVmRuntimeOrigin()
-  const pool = useVirtualMachineRuntimePool(runtimeOrigin)
+  const pool = useVirtualMachineRuntimePool(runtimeOrigin, {
+    // 硬盘回写类警告升级为弹窗：右上角小字没人看，关键事件必须打断
+    onDiskWriteForceStop: () => {
+      void modal.alert({
+        title: '硬盘回写失败',
+        message: DISK_WRITE_FAILED_FORCE_STOP_HINT,
+        themeColor: THEME,
+      })
+    },
+    onDiskWriteIncomplete: () => {
+      void modal.alert({
+        title: '关机落盘未完成',
+        message: DISK_IMAGE_INCOMPLETE_HINT,
+        themeColor: THEME,
+      })
+    },
+  })
   const [machines, setMachines] = useState<VirtualMachineRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [powerBusy, setPowerBusy] = useState(false)
@@ -221,7 +243,50 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   // 只陈述事实的提示，不带「请启动」之类的操作指令；只在屏幕中央显示，不进顶部工具栏。
   const runtimeUnreachableHint = `虚拟机运行时未响应（${runtimeOrigin}）`
   const selectedHint = selected ? pool.hints.get(selected.id) : undefined
-  const statusHint = powerHint ?? selectedHint
+  const [agentConnected, setAgentConnected] = useState(false)
+
+  // agent 连通探测：轮询 __vm.state().lastPongAgeMs（PING→PONG 通路），
+  // 活着就显示「Agent 已连通」，作为正常运行时右上角唯一的常驻提示。
+  useEffect(() => {
+    setAgentConnected(false)
+    if (!selectedId || !selectedRunning) {
+      return
+    }
+    let cancelled = false
+    let timer = 0
+    const check = async () => {
+      try {
+        const state = (await pool.agentCommand(selectedId, 'state')) as
+          | { lastPongAgeMs?: number | null }
+          | undefined
+        const pongAge = state?.lastPongAgeMs
+        if (!cancelled) {
+          setAgentConnected(typeof pongAge === 'number' && pongAge < VM_AGENT_PONG_MAX_AGE_MS)
+        }
+      } catch {
+        if (!cancelled) {
+          setAgentConnected(false)
+        }
+      }
+    }
+    const loop = () => {
+      timer = window.setTimeout(() => {
+        void check().finally(() => {
+          if (!cancelled) {
+            loop()
+          }
+        })
+      }, VM_AGENT_POLL_MS)
+    }
+    void check()
+    loop()
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [pool.agentCommand, selectedId, selectedRunning])
+
+  const statusHint = powerHint ?? selectedHint ?? (agentConnected ? 'Agent 已连通' : undefined)
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
   settingsOpenRef.current = settingsOpen
