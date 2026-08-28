@@ -74,6 +74,10 @@ const VM_AGENT_POLL_MS = 5_000
 const VM_AGENT_PONG_MAX_AGE_MS = 15_000
 /** 宿主剪贴板轮询周期（推给客机的方向）；客机→宿主由客机侧 150ms 轮询自发上行。 */
 const VM_CLIPBOARD_SYNC_POLL_MS = 1_000
+/** 页面失焦时浏览器拒绝读写剪贴板；连续失败到该秒数才提示（首次失败属预期）。 */
+const VM_CLIPBOARD_READ_WARN_AFTER_FAILURES = 5
+/** 客机文本补写重试上限（1s 一次）；页面持续失焦超过则放弃并提示。 */
+const VM_CLIPBOARD_WRITE_MAX_ATTEMPTS = 30
 /** 「关机」（XP 软关机）命令发出后，等客机断电的最大时限；超时安静解锁，不提示不指挥。 */
 const GUEST_SHUTDOWN_TIMEOUT_MS = 90_000
 const GUEST_SHUTDOWN_SENT_HINT = '正在关机（XP 软关机）…'
@@ -383,9 +387,12 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   // #region 剪贴板双向同步（ivm-shm 信箱；todo/vm-remote-control）
   // 只同步当前显示的虚拟机：多机并发时背景机不应悄悄改写宿主剪贴板。
   const clipboardSyncRef = useRef(createVmClipboardSyncState())
+  /** 客机→宿主写失败待补的文本（页面失焦被拒时排队，聚焦后补写）。 */
+  const clipboardPendingWriteRef = useRef<{ text: string; attempts: number } | null>(null)
   useEffect(() => {
     // 切换显示目标 = 换了剪贴板域：清空回声指纹，避免旧文本被误判。
     clipboardSyncRef.current = createVmClipboardSyncState()
+    clipboardPendingWriteRef.current = null
   }, [displayedId])
 
   useEffect(() => {
@@ -393,55 +400,70 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       return
     }
     let cancelled = false
-    let readErrorLogged = false
-    // readText 需要剪贴板读权限：被拒时宿主→客机方向停用，但必须把原因
-    // 报出来（只报一次）——静默降级曾让「权限被拒」和「信箱没通」无法区分。
-    const tick = () => {
-      navigator.clipboard
-        ?.readText()
-        .then((hostText) => {
-          if (cancelled) {
-            return
+    let readFailures = 0
+    const tick = async () => {
+      if (cancelled) {
+        return
+      }
+      // 失败补写：客机文本曾因页面失焦写不进系统剪贴板，聚焦恢复后 1s 内补上。
+      const pending = clipboardPendingWriteRef.current
+      if (pending !== null) {
+        try {
+          await navigator.clipboard?.writeText(pending.text)
+          if (!cancelled) {
+            clipboardPendingWriteRef.current = null
           }
-          const push = onHostClipboardChanged(clipboardSyncRef.current, hostText)
-          if (push !== null) {
-            void pool
-              .agentCommand(displayedId, 'clipboardWrite', [push])
-              .catch(() => {})
+        } catch {
+          pending.attempts += 1
+          if (!cancelled && pending.attempts >= VM_CLIPBOARD_WRITE_MAX_ATTEMPTS) {
+            clipboardPendingWriteRef.current = null
+            console.warn('[vm] 客机剪贴板文本补写放弃（页面持续失焦）：', JSON.stringify(pending.text))
           }
-        })
-        .catch((error: unknown) => {
-          if (!cancelled && !readErrorLogged) {
-            readErrorLogged = true
-            console.warn('[vm] 宿主剪贴板读取失败，宿主→客机同步停用：', error)
-          }
-        })
+        }
+      }
+      try {
+        const hostText = await navigator.clipboard?.readText()
+        if (cancelled || hostText === undefined) {
+          return
+        }
+        readFailures = 0
+        const push = onHostClipboardChanged(clipboardSyncRef.current, hostText)
+        if (push !== null) {
+          void pool
+            .agentCommand(displayedId, 'clipboardWrite', [push])
+            .catch(() => {})
+        }
+      } catch {
+        // 页面失焦期间浏览器拒绝访问剪贴板属预期，聚焦后下一秒自愈；
+        // 只在持续失败时提示一次，避免「权限被拒」与「暂时失焦」无法区分。
+        readFailures += 1
+        if (!cancelled && readFailures === VM_CLIPBOARD_READ_WARN_AFTER_FAILURES) {
+          console.warn(
+            '[vm] 宿主剪贴板连续读取失败——页面失焦期间属预期会自愈；若聚焦后仍出现，检查浏览器剪贴板权限',
+          )
+        }
+      }
     }
-    const timer = window.setInterval(tick, VM_CLIPBOARD_SYNC_POLL_MS)
+    const timer = window.setInterval(() => void tick(), VM_CLIPBOARD_SYNC_POLL_MS)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
   }, [displayedId, pool.agentCommand])
 
-  const clipboardWriteErrorLoggedRef = useRef(false)
   const handleGuestClipboard = useCallback(
     (machineId: string, text: string) => {
       if (machineId !== displayedId) {
         return
       }
       const write = onGuestClipboardReceived(clipboardSyncRef.current, text)
-      if (write !== null) {
-        // 写失败（权限/焦点）= 客机→宿主方向无声死亡，必须报出来（只报一次）。
-        navigator.clipboard
-          ?.writeText(write)
-          .catch((error: unknown) => {
-            if (!clipboardWriteErrorLoggedRef.current) {
-              clipboardWriteErrorLoggedRef.current = true
-              console.warn('[vm] 宿主剪贴板写入失败，客机→宿主同步停用：', error)
-            }
-          })
+      if (write === null) {
+        return
       }
+      // 入补写队列再立即试一次：聚焦时 ~350ms 内落进系统剪贴板；页面失焦
+      // 被拒属预期（用户正切去外部应用），由轮询 tick 持续补写直到成功。
+      clipboardPendingWriteRef.current = { text: write, attempts: 0 }
+      navigator.clipboard?.writeText(write).catch(() => {})
     },
     [displayedId],
   )
