@@ -416,7 +416,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               JSON.stringify(pending.text.slice(0, 60)),
               `(第 ${pending.attempts + 1} 次尝试)`,
             )
-            clipboardPendingWriteRef.current = null
+            if (clipboardPendingWriteRef.current === pending) {
+              clipboardPendingWriteRef.current = null
+            }
           }
         } catch {
           pending.attempts += 1
@@ -477,9 +479,16 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       )
       // 入补写队列再立即试一次：聚焦时 ~350ms 内落进系统剪贴板；页面失焦
       // 被拒属预期（用户正切去外部应用），由轮询 tick 持续补写直到成功。
-      clipboardPendingWriteRef.current = { text: write, attempts: 0 }
+      const entry = { text: write, attempts: 0 }
+      clipboardPendingWriteRef.current = entry
       navigator.clipboard?.writeText(write).then(
-        () => console.info('[vm-clipboard] 宿主: writeText 成功'),
+        () => {
+          // 立即写入已成功：清掉队列，防止 tick 再补写一遍。
+          if (clipboardPendingWriteRef.current === entry) {
+            clipboardPendingWriteRef.current = null
+          }
+          console.info('[vm-clipboard] 宿主: writeText 成功')
+        },
         (error: unknown) =>
           console.info(
             '[vm-clipboard] 宿主: writeText 首次失败（已入补写队列，聚焦后自动补）:',
