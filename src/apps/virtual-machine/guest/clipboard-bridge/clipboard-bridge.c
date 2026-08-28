@@ -137,20 +137,27 @@ static int shm_open(void)
     shm_info_t info = zero_info;
     DWORD got = 0;
 
-    HANDLE dev = CreateFileA("\\\\.\\IVMSHM", 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
+    /* 必须带读权限打开：IOCTL 声明了 FILE_READ_ACCESS，I/O 管理器先按句柄
+     * 权限做访问检查——0 权限句柄直接 ACCESS_DENIED，请求到不了驱动。 */
+    HANDLE dev = CreateFileA("\\\\.\\IVMSHM", GENERIC_READ | GENERIC_WRITE, 0,
                              NULL, OPEN_EXISTING, 0, NULL);
     if (dev == INVALID_HANDLE_VALUE) {
         char detail[80];
-        wsprintfA(detail, "CreateFileA GetLastError=%lu（2=驱动没起）", GetLastError());
-        fatal_box("打不开信箱驱动设备 \\\\.\\IVMSHM", detail);
+        wsprintfA(detail, "CreateFileA GetLastError=%lu (2=driver not running)", GetLastError());
+        fatal_box("cannot open mailbox device \\\\.\\IVMSHM", detail);
         return 0;
     }
+    DWORD ioctl_gle = 0;
     int ok = DeviceIoControl(dev, ioctl_info, NULL, 0, &info, sizeof(info), &got, NULL);
+    if (!ok) {
+        ioctl_gle = GetLastError();
+    }
     CloseHandle(dev);
     if (!ok || got < sizeof(info) || info.size < 2 * SHM_BLOCK_SIZE || info.user_va == 0) {
-        char detail[96];
-        wsprintfA(detail, "ok=%lu got=%lu size=%lu", (unsigned long)ok, got, info.size);
-        fatal_box("信箱驱动查询失败", detail);
+        char detail[128];
+        wsprintfA(detail, "gle=%lu ok=%lu got=%lu size=%lu",
+                  (unsigned long)ioctl_gle, (unsigned long)ok, got, info.size);
+        fatal_box("mailbox query failed", detail);
         return 0;
     }
     g_shm = (void *)info.user_va;

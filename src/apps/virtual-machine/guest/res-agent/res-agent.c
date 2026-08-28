@@ -352,7 +352,9 @@ static void shm_probe(void)
     shm_info_t info = zero_info;
     DWORD got = 0;
 
-    HANDLE dev = CreateFileA("\\\\.\\IVMSHM", 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
+    /* 必须带读权限打开：IOCTL 声明了 FILE_READ_ACCESS，I/O 管理器先按句柄
+     * 权限做访问检查——0 权限句柄直接 ACCESS_DENIED，请求到不了驱动。 */
+    HANDLE dev = CreateFileA("\\\\.\\IVMSHM", GENERIC_READ | GENERIC_WRITE, 0,
                              NULL, OPEN_EXISTING, 0, NULL);
     if (dev == INVALID_HANDLE_VALUE) {
         log_line("res-agent: ivm-shm open failed (%lu)", GetLastError());

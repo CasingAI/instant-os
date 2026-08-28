@@ -125,8 +125,9 @@ function main() {
     console.log('SKIP: 未安装 zig（brew install zig），clipboard-bridge 产物校验只在装了工具链的环境跑')
     return
   }
+  // 行数守卫：< 300 起步；v3.1 加 fatal_box 启动诊断弹窗放宽到 340。
   const sourceLines = readFileSync(join(AGENT_DIR, 'clipboard-bridge.c'), 'utf8').split('\n').length
-  assert.ok(sourceLines < 320, `clipboard-bridge.c 应保持 < 320 行，当前 ${sourceLines} 行`)
+  assert.ok(sourceLines < 340, `clipboard-bridge.c 应保持 < 340 行，当前 ${sourceLines} 行`)
 
   const infoA = buildAndAssert(mkdtempSync(join(tmpdir(), 'clip-bridge-a-')))
   const infoB = buildAndAssert(mkdtempSync(join(tmpdir(), 'clip-bridge-b-')))
