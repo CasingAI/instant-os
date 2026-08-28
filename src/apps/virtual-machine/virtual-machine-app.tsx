@@ -424,6 +424,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
   }, [displayedId, pool.agentCommand])
 
+  const clipboardWriteErrorLoggedRef = useRef(false)
   const handleGuestClipboard = useCallback(
     (machineId: string, text: string) => {
       if (machineId !== displayedId) {
@@ -431,7 +432,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       }
       const write = onGuestClipboardReceived(clipboardSyncRef.current, text)
       if (write !== null) {
-        void navigator.clipboard?.writeText(write).catch(() => {})
+        // 写失败（权限/焦点）= 客机→宿主方向无声死亡，必须报出来（只报一次）。
+        navigator.clipboard
+          ?.writeText(write)
+          .catch((error: unknown) => {
+            if (!clipboardWriteErrorLoggedRef.current) {
+              clipboardWriteErrorLoggedRef.current = true
+              console.warn('[vm] 宿主剪贴板写入失败，客机→宿主同步停用：', error)
+            }
+          })
       }
     },
     [displayedId],
