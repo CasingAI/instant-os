@@ -14,8 +14,10 @@
  * 布局常量与 Instant-virtual-machine src/ivm-shm.ts 一一对应。
  *
  * 数据面零系统调用，驱动里没有线程、DPC、中断；用户态映射按 FILE_OBJECT
- * 缓存（每个进程第一次 ioctl 建立，之后复用），随系统常驻不回收——驱动
- * 不提供卸载（虚拟机场景重开机即回收，泄漏上限是每次开机几个 VAD）。
+ * 缓存（每个进程第一次 ioctl 建立，之后复用）。提供 DriverUnload 供
+ * install-agent-v2.bat 重装循环使用（sc stop 真正停掉再重建）；卸载时
+ * 用户态映射无法跨进程撤销——各进程残留的 VA 靠「安装脚本先 taskkill
+ * clipboard-bridge 再停驱动」的顺序兜住，残页随进程退出整体回收。
  *
  * 构建管线与 boxvideo.sys 相同（Open Watcom + ntoskrnl.lib，产物过
  * normalize-boxvnt-pe.mjs 规范化——wlink 的间接 import 调用与 VSize=0 段
@@ -51,6 +53,25 @@ typedef struct _IVM_SHM_INFO {
 static PVOID g_buffer;
 static PMDL g_mdl;
 static ULONG g_phys_addr;
+
+static VOID ivm_unload(PDRIVER_OBJECT driver)
+{
+    UNICODE_STRING symname;
+    RtlInitUnicodeString(&symname, L"\\??\\IVMSHM");
+    IoDeleteSymbolicLink(&symname);
+    /* 映射 VA 残留在曾 ioctl 的进程里（见头注释），这里只拆驱动侧资源。 */
+    if (g_mdl != NULL) {
+        IoFreeMdl(g_mdl);
+        g_mdl = NULL;
+    }
+    if (g_buffer != NULL) {
+        MmFreeContiguousMemory(g_buffer);
+        g_buffer = NULL;
+    }
+    if (driver->DeviceObject != NULL) {
+        IoDeleteDevice(driver->DeviceObject);
+    }
+}
 
 static NTSTATUS ivm_create_close(PDEVICE_OBJECT device, PIRP irp)
 {
@@ -161,7 +182,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT driver, PUNICODE_STRING registry)
     driver->MajorFunction[IRP_MJ_CREATE] = ivm_create_close;
     driver->MajorFunction[IRP_MJ_CLOSE] = ivm_create_close;
     driver->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ivm_device_control;
+    driver->DriverUnload = ivm_unload;
     device->Flags &= ~DO_DEVICE_INITIALIZING;
-    /* 不设 DriverUnload：常驻到关机（用户态映射无法安全撤销，见头注释）。 */
     return STATUS_SUCCESS;
 }
