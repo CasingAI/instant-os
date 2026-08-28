@@ -411,6 +411,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         try {
           await navigator.clipboard?.writeText(pending.text)
           if (!cancelled) {
+            console.info(
+              '[vm-clipboard] 宿主: 补写成功',
+              JSON.stringify(pending.text.slice(0, 60)),
+              `(第 ${pending.attempts + 1} 次尝试)`,
+            )
             clipboardPendingWriteRef.current = null
           }
         } catch {
@@ -429,6 +434,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         readFailures = 0
         const push = onHostClipboardChanged(clipboardSyncRef.current, hostText)
         if (push !== null) {
+          console.info(
+            `[vm-clipboard] 宿主: 剪贴板变化，推向客机(${push.length}字符) ${JSON.stringify(push.slice(0, 60))}`,
+          )
           void pool
             .agentCommand(displayedId, 'clipboardWrite', [push])
             .catch(() => {})
@@ -454,16 +462,30 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const handleGuestClipboard = useCallback(
     (machineId: string, text: string) => {
       if (machineId !== displayedId) {
+        console.info(
+          `[vm-clipboard] 宿主: 文本来自 ${machineId}，当前显示 ${displayedId ?? '无'}，忽略`,
+        )
         return
       }
       const write = onGuestClipboardReceived(clipboardSyncRef.current, text)
       if (write === null) {
+        console.info('[vm-clipboard] 宿主: 重复/回声文本，跳过写入', JSON.stringify(text.slice(0, 60)))
         return
       }
+      console.info(
+        `[vm-clipboard] 宿主: 待写系统剪贴板(${write.length}字符) ${JSON.stringify(write.slice(0, 60))}`,
+      )
       // 入补写队列再立即试一次：聚焦时 ~350ms 内落进系统剪贴板；页面失焦
       // 被拒属预期（用户正切去外部应用），由轮询 tick 持续补写直到成功。
       clipboardPendingWriteRef.current = { text: write, attempts: 0 }
-      navigator.clipboard?.writeText(write).catch(() => {})
+      navigator.clipboard?.writeText(write).then(
+        () => console.info('[vm-clipboard] 宿主: writeText 成功'),
+        (error: unknown) =>
+          console.info(
+            '[vm-clipboard] 宿主: writeText 首次失败（已入补写队列，聚焦后自动补）:',
+            error instanceof Error ? error.message : String(error),
+          ),
+      )
     },
     [displayedId],
   )

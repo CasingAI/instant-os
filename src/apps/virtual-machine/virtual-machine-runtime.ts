@@ -305,6 +305,9 @@ export function useVirtualMachineRuntime(
       }
 
       if (message.type === INSTANT_VM_MESSAGE_TYPE.guestClipboard) {
+        console.info(
+          `[vm-clipboard] 宿主: 收到 iframe 转发的客机文本(${message.text.length}字符) ${JSON.stringify(message.text.slice(0, 60))}`,
+        )
         onGuestClipboardRef.current?.(message.text)
         return
       }
