@@ -91,8 +91,9 @@ opcode，宿主经运行时串口发送下发（resolution-serial 泵每秒的�
 | 0x05 | DBLCLICK（0x21） | `0x21 <x:u16><y:u16>` LE | 同上双击（两次单击间隔 60ms）；回 `[IVM]DBLCLK=1` |
 
 关机路径：`ExitWindowsEx` 触发客机 ACPI 切电 → 宿主 `guest-poweroff`
-watcher → `destroyCurrent`（stop → 写回落盘 → 销毁）——即「软关机」，
-宿主 `scripts/vm-safe-reload.sh` 依赖这条链路，禁止直接断电 reload。
+watcher → `destroyCurrent`（stop → 写回落盘 → 销毁）——即「软关机」。
+（2026-08-29 起 `vm-safe-reload.sh` 与调试桥已删除，改虚拟机代码为普通刷新，
+需落盘时用产品侧「关机」按钮走这条链路。）
 
 ## COM1 已知坑（§8.8，勿再踩）
 

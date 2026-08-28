@@ -68,10 +68,10 @@ magic/seq/status/len + UTF-16LE 数据）：
 readText/screenshot/snapshot/dumpRing/freeze——是「AI 自主操作 VM」目标的专属产物，
 该目标实测效率低被用户取消，且感知层零产品依赖、实机还暴露误冻结回归（XP 启动
 画面被蓝屏指纹误判即 stop()，表现为开机卡死）。已整层删除（git 历史可寻回），
-保留命令通道与调试桥：
+保留命令通道：
 
 - 保留：PING/SHUTDOWN/REBOOT（关机按钮）、EXEC/EXEC_R、ivm-shm 剪贴板、
-  agentCommand 转发、installAgentBridge（vm-safe-reload 的软关机靠它）；
+  agentCommand 转发；
 - 移除：感知层全部 + 对应 __vm 方法与两侧白名单条目。
 
 ### 3.1 二次瘦身（2026-08-28）
@@ -79,6 +79,14 @@ readText/screenshot/snapshot/dumpRing/freeze——是「AI 自主操作 VM」目
 UI 重置按钮走独立 `instant-vm:reset` 消息（emulator.restart + scheduleEnter），
 不经白名单，`restartVm` 属纯冗余；`serialSend` 裸串口调试口无调用方。
 两者连同门面包装一并移除，白名单缩至 11 项。
+
+### 3.2 调试桥移除（2026-08-29）
+
+`installAgentBridge`（/poll 领 eval、/result 回传）、`/log` 上报（postLog/
+vmAgentLogEvent，含 vm-destroyed / guest-powered-off 事件）与 instant-app 的
+`scripts/vm-safe-reload.sh` 整体删除——桥只服务于该脚本，且 dev 模式下桥不在线
+时每次开机都刷 `ERR_CONNECTION_REFUSED`。改虚拟机代码后为普通刷新，落盘顾虑由
+产品侧软关机按钮承担。
 
 ## 4. 后续候选（未排期）
 
