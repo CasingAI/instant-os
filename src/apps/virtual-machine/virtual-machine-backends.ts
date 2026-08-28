@@ -30,8 +30,9 @@ export function formatVmBackendLabel(id: VmBackendId): string {
   return getVmBackend(id).label
 }
 
-export function vmPowerUnavailableMessage(action: 'start' | 'stop' | 'reset'): string {
-  const verb = action === 'start' ? '开机' : action === 'stop' ? '关机' : '重置'
+export function vmPowerUnavailableMessage(action: 'start' | 'shutdown' | 'stop' | 'reset'): string {
+  const verb =
+    action === 'start' ? '开机' : action === 'shutdown' ? '关机' : action === 'stop' ? '断电' : '重置'
   const reason = getVmBackend('v86').unavailableReason || '尚未接入模拟器'
   return `无法${verb}：${reason}`
 }

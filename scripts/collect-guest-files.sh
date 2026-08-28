@@ -42,5 +42,9 @@ fi
 # 要装到别处，先编辑源模板再 collect。
 cp -f "$GUEST_DIR/res-agent/res-agent-install.reg.source" "$OUT_DIR/install.reg"
 
-echo "collected 4 files into $OUT_DIR:"
+# install-agent-v2.bat：服务化安装脚本（删 Run 键 + sc create + start），
+# 与 res-agent.exe 一起拷进 XP 使用。服务方式是当前推荐安装形态。
+cp -f "$GUEST_DIR/install-agent-v2.bat" "$OUT_DIR/install-agent-v2.bat"
+
+echo "collected 5 files into $OUT_DIR:"
 ls -la "$OUT_DIR"

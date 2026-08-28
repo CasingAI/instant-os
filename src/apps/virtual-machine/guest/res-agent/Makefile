@@ -11,8 +11,10 @@
 
 ZIG     ?= zig cc
 WIN_INC := $(shell zig env | sed -n 's/^ *\.lib_dir = "\(.*\)",$$/\1/p')/libc/include/any-windows-any
+# 构建时间戳进二进制：PONG 回执的 built= 字段，判断 XP 里跑的是哪次构建。
+BUILD_TS := $(shell date +%Y%m%d-%H%M%S)
 
-CFLAGS  ?= -target x86-windows-gnu -O2 -Wall -nostdlib -isystem$(WIN_INC)
+CFLAGS  ?= -target x86-windows-gnu -O2 -Wall -nostdlib -isystem$(WIN_INC) -DVM_AGENT_BUILD=\"$(BUILD_TS)\"
 LDFLAGS ?= -Wl,--subsystem,windows,-e,res_agent_entry
 LDLIBS  ?= -lkernel32 -luser32 -lgdi32 -ladvapi32
 

@@ -24,8 +24,11 @@ mkdir -p "$OUT_DIR"
 # res-agent.c 自带 memset/memcpy，入口直接指到 res_agent_entry。
 # -nostdlib 下 zig 不再自动提供 Windows 头文件，要显式 -isystem。
 # 链接后补 PE OS/Subsystem 版本 5.01，否则 XP 加载器拒绝（patch-pe-xp-version.mjs）。
+# -DVM_AGENT_BUILD 注入构建时间戳：PONG 回执的 built= 字段（判断 XP 里的构建版本）。
+BUILD_TS="$(date +%Y%m%d-%H%M%S)"
 zig cc -target x86-windows-gnu -O2 -Wall -nostdlib \
   "-isystem$WIN_HEADERS" \
+  "-DVM_AGENT_BUILD=\"$BUILD_TS\"" \
   -Wl,--subsystem,windows,-e,res_agent_entry \
   -o "$OUT" "$AGENT_DIR/res-agent.c" \
   -lkernel32 -luser32 -lgdi32 -ladvapi32

@@ -37,7 +37,9 @@ sc description InstantVmResAgent "Instant VM guest agent (resolution + remote co
 - exe 内已实现 `StartServiceCtrlDispatcherA`：SCM 启动走服务入口
   （报告 RUNNING 后进主循环），非 SCM 启动自动落回交互模式，同一 exe 两用；
 - 服务入口的单实例冲突直接报告停止（session 0 弹框会挂死 SCM），
-  交互入口保留弹框提示；
+  交互入口保留弹框提示；弹框内容带版本号与构建日期
+  （`res-agent is already running. version 2, built <时间戳>`）——
+  双击 exe 即可确认 XP 里跑的是哪次构建；
 - 移除：`sc delete InstantVmResAgent`。
 
 ### 旧形态：HKCU Run（需登录，保留兼容）
@@ -81,7 +83,7 @@ opcode，宿主经 `__vm.serialSend` 下发（resolution-serial 泵每秒的分�
 | len | 命令 | payload | 行为 / 回执（`[IVM]…\r\n`，COM1 回传） |
 |---|---|---|---|
 | 0x04 | 分辨率（v1） | `(w<<16)\|h` LE | 就近吸附切换显示模式 |
-| 0x01 | PING（0x01） | — | 回 `[IVM]PONG=<GetTickCount>` |
+| 0x01 | PING（0x01） | — | 回 `[IVM]PONG=<tick> ver=2 built=<YYYYMMDD-HHMMSS>`（构建时间戳由构建脚本注入） |
 | 0x01 | SHUTDOWN（0x02） | — | 回 `[IVM]SDWN=1` 后 `ExitWindowsEx(EWX_SHUTDOWN\|EWX_POWEROFF\|EWX_FORCE)` |
 | 0x01 | REBOOT（0x03） | — | 回 `[IVM]RBOOT=1` 后 `ExitWindowsEx(EWX_REBOOT\|EWX_FORCE)` |
 | N | EXEC（0x10） | `0x10 <cmdline\0>`（ASCII，≤198 字符） | `CreateProcessA`（CREATE_NO_WINDOW）；回 `[IVM]EXEC=1` 或 `[IVM]EXEC=0 err=<GLE>` |

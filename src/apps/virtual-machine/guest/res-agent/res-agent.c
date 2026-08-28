@@ -165,6 +165,14 @@ static void handle_packed_value(unsigned long packed);
 #define OP_CLICK 0x20
 #define OP_DBLCLICK 0x21
 
+/* 构建时间戳由构建脚本 -DVM_AGENT_BUILD= 注入（YYYYMMDD-HHMMSS）；直接的构建无注入。 */
+#ifndef VM_AGENT_BUILD
+#define VM_AGENT_BUILD "unknown"
+#endif
+
+/* 产品版本号：PONG 回执与单实例弹窗共用，改动协议/行为时递增。 */
+#define AGENT_VERSION "2"
+
 /* 当前 COM1 句柄：命令回执（[IVM]…\r\n）从这里写回宿主。 */
 static HANDLE g_port;
 
@@ -276,7 +284,8 @@ static void handle_frame(unsigned char len, const unsigned char *payload)
     }
     switch (payload[0]) {
     case OP_PING:
-        reply_line("PONG=%lu", GetTickCount());
+        /* ver + 构建时间戳：宿主日志一眼分辨 agent 版本（v1 不回 PING，见到 PONG 即 v2+）。 */
+        reply_line("PONG=%lu ver=" AGENT_VERSION " built=" VM_AGENT_BUILD, GetTickCount());
         break;
     case OP_SHUTDOWN:
         reply_line("SDWN=1");
@@ -580,9 +589,12 @@ void res_agent_entry(void)
     }
     /* #endregion */
 
-    /* 交互路径：单实例失败弹框退出（保留 v1 产品行为）。 */
+    /* 交互路径：单实例失败弹框退出（保留 v1 产品行为）。
+     * 弹框兼作版本告示牌：双击 exe 就能看到当前跑的是哪个版本的构建。 */
     if (!agent_single_instance()) {
-        MessageBoxA(NULL, "res-agent is already running.",
+        MessageBoxA(NULL,
+                    "res-agent is already running.\r\n"
+                    "version " AGENT_VERSION ", built " VM_AGENT_BUILD,
                     "res-agent", MB_OK | MB_ICONINFORMATION);
         ExitProcess(0);
     }

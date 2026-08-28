@@ -67,6 +67,9 @@ const POWER_HINT_MS = 4000
 const VM_AGENT_POLL_MS = 5_000
 /** PONG 年龄超过约 3 个 PING 周期视为失联（agent 挂了 hint 自动消失）。 */
 const VM_AGENT_PONG_MAX_AGE_MS = 15_000
+/** 「关机」（XP 软关机）命令发出后，等客机断电的最大时限；超时安静解锁，不提示不指挥。 */
+const GUEST_SHUTDOWN_TIMEOUT_MS = 90_000
+const GUEST_SHUTDOWN_SENT_HINT = '正在关机（XP 软关机）…'
 
 const DISPLAY_MODE_SEGMENTS: readonly { id: VmDisplayModeId; label: string }[] =
   VM_DISPLAY_MODE_IDS.map((id) => ({
@@ -126,6 +129,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [powerBusy, setPowerBusy] = useState(false)
   const [powerHint, setPowerHint] = useState<string | undefined>(undefined)
+  /** 客机关机命令已发出、正等客机断电的时间点；null = 无待收口的关机。 */
+  const guestShutdownAtRef = useRef<number | null>(null)
+  const selected = useMemo(
+    () => machines.find((machine) => machine.id === selectedId),
+    [machines, selectedId],
+  )
+  const selectedRunning = Boolean(selected && pool.runningIds.includes(selected.id))
   // 运行时存活：true=已就绪；false=未响应；undefined=探测中。
   // 点开机之前 iframe 还不存在，没人能发 postMessage，只能由宿主发请求确认。
   const [runtimeAlive, setRuntimeAlive] = useState<boolean | undefined>(undefined)
@@ -179,6 +189,28 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     return () => window.clearTimeout(timer)
   }, [powerBusy, powerHint])
 
+  // 客机关机收口：命令已发出的状态下，runningIds 移除（onGuestPoweredOff →
+  // 切电 → 写回落盘完成）即解锁；超时未断电则安静解锁——系统没关成用户自己
+  // 看得见屏幕，不需要宿主提示原因或指挥下一步，按钮恢复可用即可。
+  useEffect(() => {
+    if (!selectedRunning) {
+      guestShutdownAtRef.current = null
+      setPowerBusy(false)
+      setPowerHint(undefined)
+      return
+    }
+    if (guestShutdownAtRef.current === null) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      guestShutdownAtRef.current = null
+      setPowerBusy(false)
+      // 不提示：用户自己会看到机器仍在运行。
+      setPowerHint(undefined)
+    }, GUEST_SHUTDOWN_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
+  }, [selectedRunning])
+
   // 运行时存活探测：未就绪期间每 2 秒重试，服务器慢启动也能自动恢复为可点；
   // 一旦就绪就停止重试（正常运行零后台流量），只在窗口聚焦时复查一次。
   const probeRuntimeAlive = useCallback(async (): Promise<boolean> => {
@@ -230,16 +262,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
   }, [probeRuntimeAlive])
 
-  const selected = useMemo(
-    () => machines.find((machine) => machine.id === selectedId),
-    [machines, selectedId],
-  )
   const selectedBackend = selected ? getVmBackend(selected.backend) : undefined
   const runningMachines = useMemo(
     () => machines.filter((machine) => pool.runningIds.includes(machine.id)),
     [machines, pool.runningIds],
   )
-  const selectedRunning = Boolean(selected && pool.runningIds.includes(selected.id))
   // 只陈述事实的提示，不带「请启动」之类的操作指令；只在屏幕中央显示，不进顶部工具栏。
   const runtimeUnreachableHint = `虚拟机运行时未响应（${runtimeOrigin}）`
   const selectedHint = selected ? pool.hints.get(selected.id) : undefined
@@ -486,7 +513,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   }, [machines, modal, pool, selected, showVmError])
 
   const handlePower = useCallback(
-    (action: 'start' | 'stop' | 'reset') => {
+    (action: 'start' | 'shutdown' | 'stop' | 'reset') => {
       const powerStartAt = performance.now()
       const machineId = selected?.id
       const trace = (op: string, extra?: Record<string, unknown>) => {
@@ -523,15 +550,33 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           return
         }
       } else if (!pool.runningIds.includes(selected.id)) {
-        setPowerHint(action === 'stop' ? '这台虚拟机未在运行' : '请先开机')
+        setPowerHint(action === 'reset' ? '请先开机' : '这台虚拟机未在运行')
         trace('power-skipped', { reason: 'not-running' })
+        return
+      }
+      // 软关机依赖客机 agent：未连通时命令无法送达，立即弹窗，不干等命令超时。
+      if (action === 'shutdown' && !agentConnected) {
+        trace('power-skipped', { reason: 'agent-not-connected' })
+        showVmError('客机 Agent 未连通，关机命令无法送达')
         return
       }
 
       const machine = selected
       void (async () => {
         setPowerBusy(true)
+        let waitForGuestShutdown = false
         try {
+          if (action === 'shutdown') {
+            // XP 软关机：agent SHUTDOWN → ExitWindowsEx → 客机切电 →
+            // guest-poweroff watcher → 宿主侧写回落盘 → runningIds 移除（收口）。
+            // 成功后保持 busy，等待收口 effect；失败（agent 不可达）弹窗告知。
+            await pool.agentCommand(machine.id, 'shutdown')
+            trace('power-guest-shutdown-sent')
+            setPowerHint(GUEST_SHUTDOWN_SENT_HINT)
+            guestShutdownAtRef.current = Date.now()
+            waitForGuestShutdown = true
+            return
+          }
           if (action === 'stop') {
             await pool.shutdown(machine.id)
             trace('power-stop-done')
@@ -553,11 +598,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           })
           showVmError(error instanceof Error ? error.message : '操作失败')
         } finally {
-          setPowerBusy(false)
+          if (!waitForGuestShutdown) {
+            setPowerBusy(false)
+          }
         }
       })()
     },
-    [pool, runtimeOrigin, selected, selectedBackend, showVmError],
+    [agentConnected, pool, runtimeOrigin, selected, selectedBackend, showVmError],
   )
 
   const handleSaveSnapshot = useCallback(() => {
@@ -722,6 +769,12 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             type: 'action',
             label: '关机',
             disabled: !canStop,
+            onClick: () => handlePower('shutdown'),
+          },
+          {
+            type: 'action',
+            label: '断电',
+            disabled: !canStop,
             onClick: () => handlePower('stop'),
           },
           {
@@ -852,8 +905,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           >
             开机
           </IosButton>
-          <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('stop')}>
+          <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('shutdown')}>
             关机
+          </IosButton>
+          <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('stop')}>
+            断电
           </IosButton>
           <IosButton size="compact" disabled={!canReset} onClick={() => handlePower('reset')}>
             重置

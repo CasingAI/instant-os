@@ -201,7 +201,7 @@ freeze: boolean                         // 蓝屏自动冻结开关（默认开�
 | len | 含义 | payload | 行为 |
 |---|---|---|---|
 | 0x04 | 分辨率（**现协议原样**） | `(w<<16)|h` LE | 行为完全不变 |
-| 0x01 | PING | `0x01` | 回 `[IVM]PONG=<tick>\r\n` |
+| 0x01 | PING | `0x01` | 回 `[IVM]PONG=<tick> ver=2 built=<构建时间戳>\r\n`（版本/构建日期由构建脚本注入；单实例弹窗同源展示，双击 exe 即见） |
 | 0x01 | SHUTDOWN | `0x02` | 回 `[IVM]SDWN=1` 后 `ExitWindowsEx(EWX_SHUTDOWN\|EWX_POWEROFF)` |
 | 0x01 | REBOOT | `0x03` | 回 `[IVM]RBOOT=1` 后 `ExitWindowsEx(EWX_REBOOT)` |
 | N | EXEC | `0x10 <cmdline\0>` | CreateProcess 执行；回 `[IVM]EXEC=1`（完成检测靠产物文件/PING） |

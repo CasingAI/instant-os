@@ -11,7 +11,8 @@
 | 文件 | 是干什么的 | 放到 XP 哪里 |
 |---|---|---|
 | `res-agent.exe` | COM1 遥控代理：响应宿主的 PING / EXEC（执行命令）/ CLICK（点击）/ SHUTDOWN / REBOOT | 建议 `C:\Tools\res-agent.exe` |
-| `install.reg` | 注册表导入文件：让 res-agent.exe 开机自启（HKCU Run 键） | 双击导入即可 |
+| `install-agent-v2.bat` | **推荐安装方式**：右键管理员运行，一键删旧 Run 键 + 拷 exe + 注册 XP 服务（开机自启免登录） | 和 `res-agent.exe` 放同一目录，双击运行 |
+| `install.reg` | 旧安装方式（HKCU Run 开机自启，需登录才起）；不推荐，仅兼容保留 | 双击导入即可 |
 | `boxvideo.sys` + `vidmini.inf` | 显卡驱动（boxvnt，分辨率自动对齐用） | 设备管理器装驱动，见 `boxvnt/README.md` |
 
 > `out/` 里如出现 `.pdb`、`triage*.bat`、`boxvideo-min*.sys` 等其他文件，
@@ -20,7 +21,7 @@
 ## 怎么构建 / 更新 out/
 
 ```sh
-# 一键把 4 个交付物备齐（缺哪个补哪个，已存在的不重复构建）
+# 一键把 5 个交付物备齐（缺哪个补哪个，已存在的不重复构建）
 sh scripts/collect-guest-files.sh
 
 # 或者单独构建
