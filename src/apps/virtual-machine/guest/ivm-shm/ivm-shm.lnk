@@ -1,0 +1,14 @@
+# 与 boxvideo.lnk 同构（wlink 在 POSIX 主机只能用响应文件传含 '@' 的选项，
+# 见 boxvnt/boxvideo.lnk 头注释）。
+op quiet, map
+name ivm-shm.sys
+format windows nt runtime native=1.0
+debug codeview
+op symf
+option start='_DriverEntry@8'
+option offset=0x10000, checksum, osversion=1.0, version=1.0
+option stack=0x100000, heapsize=0x100000
+segment class CODE nonpageable, class DATA nonpageable
+file { ivm-shm.obj }
+libpath %WATCOM%/lib386/nt/ddk
+lib ntoskrnl

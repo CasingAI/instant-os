@@ -3,6 +3,8 @@
 boxvideo.sys
 vidmini.inf
 res-agent.exe
+ivm-shm.sys
+clipboard-bridge.exe
 install.reg
 install-agent-v2.bat
 *.pdb

@@ -228,6 +228,7 @@ export function useVirtualMachineRuntime(
   onDiskWriteFailed?: (message: string) => void,
   onRuntimeError?: (message: string, detail?: string) => void,
   onIframeLoadFailed?: (detail: string) => void,
+  onGuestClipboard?: (text: string) => void,
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
@@ -239,6 +240,8 @@ export function useVirtualMachineRuntime(
   onRuntimeErrorRef.current = onRuntimeError
   const onIframeLoadFailedRef = useRef(onIframeLoadFailed)
   onIframeLoadFailedRef.current = onIframeLoadFailed
+  const onGuestClipboardRef = useRef(onGuestClipboard)
+  onGuestClipboardRef.current = onGuestClipboard
   const [ready, setReady] = useState(false)
   const readyRef = useRef(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
@@ -298,6 +301,11 @@ export function useVirtualMachineRuntime(
 
       if (message.type === INSTANT_VM_MESSAGE_TYPE.diskWriteFailed) {
         onDiskWriteFailedRef.current?.(message.message)
+        return
+      }
+
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.guestClipboard) {
+        onGuestClipboardRef.current?.(message.text)
         return
       }
 

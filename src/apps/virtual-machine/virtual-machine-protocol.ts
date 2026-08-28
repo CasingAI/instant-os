@@ -26,6 +26,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   keyboard: 'instant-vm:keyboard',
   agentCommand: 'instant-vm:agent-command',
   agentResult: 'instant-vm:agent-result',
+  guestClipboard: 'instant-vm:guest-clipboard',
 } as const
 
 /** 运行时 fetch 拦截器识别的本地镜像流 URL 前缀（挂在运行时 origin 上）。 */
@@ -306,6 +307,15 @@ export type InstantVmAgentResultMessage = {
   value?: unknown
 }
 
+/**
+ * 客机 → 宿主：客机剪贴板文本（ivm-shm 信箱 G2H 读出，XP 桥负责采集）。
+ * 无请求号的自发上行；文本上限与信箱 data 区一致（16376 码元）。
+ */
+export type InstantVmGuestClipboardMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.guestClipboard
+  text: string
+}
+
 export type InstantVmStartedMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.started
   requestId: string
@@ -405,6 +415,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmDiskReadMessage
   | InstantVmDiskWriteMessage
   | InstantVmAgentResultMessage
+  | InstantVmGuestClipboardMessage
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 2032
@@ -788,6 +799,20 @@ export function isInstantVmAgentResultMessage(
   )
 }
 
+/** 与 Instant-virtual-machine `ivm-shm.ts` 的 IVM_SHM_MAX_TEXT_CHARS 一致。 */
+const GUEST_CLIPBOARD_MAX_CHARS = 16376
+
+export function isInstantVmGuestClipboardMessage(
+  value: unknown,
+): value is InstantVmGuestClipboardMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.guestClipboard &&
+    typeof value.text === 'string' &&
+    value.text.length <= GUEST_CLIPBOARD_MAX_CHARS
+  )
+}
+
 export function emptyVmDiskStats(present = false): InstantVmDiskStats {
   return {
     present,
@@ -932,6 +957,9 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.agentResult) {
     return isInstantVmAgentResultMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.guestClipboard) {
+    return isInstantVmGuestClipboardMessage(value)
   }
   return false
 }

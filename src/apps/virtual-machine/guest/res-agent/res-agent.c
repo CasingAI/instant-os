@@ -19,6 +19,10 @@
  * 15 秒未退出先 TerminateProcess 再等收尸，完成回 `EXIT=<码>`，
  * 超时击杀的回 `EXIT=<码> to=1`。
  *
+ * v3 另增 SHM_QUERY(0x12)：上报 ivm-shm.sys 共享内存信箱的物理基址
+ * （剪贴板通道底座）。进程启动时向 \\.\IVMSHM 查询一次并缓存；
+ * 驱动不在时回 `SHM=0`，宿主据此停止重试。
+ *
  * 血泪教训（v5 定案）：COM1 必须显式 SetCommState 成 8N1。XP 对这个虚拟
  * 串口的初始配置是 7 数据位，驱动按 7-bit 接收会把每个字节的最高位剥掉
  * （魔数 0xA5 变成 0x25），帧永远无法解析——「只弹首字节框、有效帧永不
@@ -168,6 +172,7 @@ static void handle_packed_value(unsigned long packed);
 #define OP_REBOOT 0x03
 #define OP_EXEC 0x10
 #define OP_EXEC_R 0x11
+#define OP_SHM_QUERY 0x12
 #define OP_CLICK 0x20
 #define OP_DBLCLICK 0x21
 
@@ -323,6 +328,47 @@ static void poll_exec_r(void)
     }
 }
 
+/*
+ * ivm-shm 信箱握手（v3）：启动时向 \\.\IVMSHM 查一次物理基址并缓存，
+ * 之后宿主随时用 SHM_QUERY 帧取（宿主页面重载后客机不重开串口，靠重问
+ * 重新拿到基址）。驱动/桥负责数据面，这里只做寻址。
+ */
+static DWORD g_shm_phys;
+static DWORD g_shm_size;
+
+typedef struct {
+    DWORD phys;
+    DWORD va;
+    DWORD size;
+} shm_info_t;
+
+static void shm_probe(void)
+{
+    /* CTL_CODE(FILE_DEVICE_UNKNOWN=0x22, 0x801, METHOD_BUFFERED, FILE_READ_ACCESS=1)，
+     * 展开式与 guest/ivm-shm/ivm-shm.c、guest/clipboard-bridge/clipboard-bridge.c 一致。 */
+    const DWORD ioctl_info =
+        ((DWORD)0x22 << 16) | ((DWORD)1 << 14) | ((DWORD)0x801 << 2);
+    static const shm_info_t zero_info;
+    shm_info_t info = zero_info;
+    DWORD got = 0;
+
+    HANDLE dev = CreateFileA("\\\\.\\IVMSHM", 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                             NULL, OPEN_EXISTING, 0, NULL);
+    if (dev == INVALID_HANDLE_VALUE) {
+        log_line("res-agent: ivm-shm open failed (%lu)", GetLastError());
+        return;
+    }
+    if (DeviceIoControl(dev, ioctl_info, NULL, 0, &info, sizeof(info), &got, NULL) &&
+        got >= sizeof(info) && info.size >= 0x10000) {
+        g_shm_phys = info.phys;
+        g_shm_size = info.size;
+        log_line("res-agent: ivm-shm phys=%lu size=%lu", g_shm_phys, g_shm_size);
+    } else {
+        log_line("res-agent: ivm-shm info invalid (got=%lu size=%lu)", got, info.size);
+    }
+    CloseHandle(dev);
+}
+
 static void handle_click(unsigned char opcode, const unsigned char *p)
 {
     DWORD x = (DWORD)p[0] | ((DWORD)p[1] << 8);
@@ -372,6 +418,18 @@ static void handle_frame(unsigned char len, const unsigned char *payload)
         break;
     case OP_EXEC_R:
         handle_exec_r(len, payload);
+        break;
+    case OP_SHM_QUERY:
+        /* 驱动在且有缓存 → 报物理基址；否则重探一次（驱动可能后装）再报，
+         * 仍没有就显式报 0，宿主按 5s 周期继续问。 */
+        if (g_shm_phys == 0) {
+            shm_probe();
+        }
+        if (g_shm_phys != 0) {
+            reply_line("SHM=%lu size=%lu", g_shm_phys, g_shm_size);
+        } else {
+            reply_line("SHM=0");
+        }
         break;
     case OP_CLICK:
     case OP_DBLCLICK:
@@ -654,6 +712,9 @@ static void WINAPI svc_main(DWORD argc, char **argv)
  */
 void res_agent_entry(void)
 {
+    /* 信箱寻址先于一切路径：服务/交互共用一份缓存。 */
+    shm_probe();
+
     /* #region vm-agent v2 —— 服务调度器优先：SCM 启动时交互弹框永远出不来 */
     static SERVICE_TABLE_ENTRYA svc_table[2];
     svc_table[0].lpServiceName = "InstantVmResAgent";

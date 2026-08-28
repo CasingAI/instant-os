@@ -19,6 +19,7 @@ export const VM_AGENT_METHODS = [
   'ping',
   'exec',
   'execResult',
+  'clipboardWrite',
   'click',
   'dblclick',
   'shutdown',
@@ -65,6 +66,8 @@ export type VmAgentController = {
   exec(cmdline: string): Promise<void>
   /** 等待退出码的 EXEC（客机 15s、宿主 30s 超时；同时只允许一单）。 */
   execResult(cmdline: string): Promise<VmExecResult>
+  /** 宿主 → 客机剪贴板文本（ivm-shm 信箱；未握手时运行时排队，失败仅参数无效）。 */
+  clipboardWrite(text: string): Promise<boolean>
   click(x: number, y: number): Promise<void>
   dblclick(x: number, y: number): Promise<void>
   shutdown(): Promise<void>
@@ -96,6 +99,7 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
     ping: () => call('ping'),
     exec: (cmdline) => call('exec', [cmdline]),
     execResult: (cmdline) => call('execResult', [cmdline]) as Promise<VmExecResult>,
+    clipboardWrite: (text) => call('clipboardWrite', [text]) as Promise<boolean>,
     click: (x, y) => call('click', [x, y]),
     dblclick: (x, y) => call('dblclick', [x, y]),
     shutdown: () => call('shutdown'),

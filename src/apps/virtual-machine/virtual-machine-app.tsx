@@ -26,6 +26,11 @@ import { virtualMachineHasBootMedia, vmMountedDiskSlots } from './virtual-machin
 import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
+import {
+  createVmClipboardSyncState,
+  onGuestClipboardReceived,
+  onHostClipboardChanged,
+} from './virtual-machine-clipboard.ts'
 import { saveVirtualMachineSnapshot } from './virtual-machine-save-snapshot.ts'
 import { postVirtualMachineDiskWriteFailedNotification } from './virtual-machine-disk-write-notification.ts'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
@@ -67,6 +72,8 @@ const POWER_HINT_MS = 4000
 const VM_AGENT_POLL_MS = 5_000
 /** PONG 年龄超过约 3 个 PING 周期视为失联（agent 挂了 hint 自动消失）。 */
 const VM_AGENT_PONG_MAX_AGE_MS = 15_000
+/** 宿主剪贴板轮询周期（推给客机的方向）；客机→宿主由客机侧 150ms 轮询自发上行。 */
+const VM_CLIPBOARD_SYNC_POLL_MS = 1_000
 /** 「关机」（XP 软关机）命令发出后，等客机断电的最大时限；超时安静解锁，不提示不指挥。 */
 const GUEST_SHUTDOWN_TIMEOUT_MS = 90_000
 const GUEST_SHUTDOWN_SENT_HINT = '正在关机（XP 软关机）…'
@@ -361,6 +368,57 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       ),
     )
   }, [displayedMachine?.keyMappingEnabled, displayedMachine?.keyMappings])
+
+  // #region 剪贴板双向同步（ivm-shm 信箱；todo/vm-remote-control）
+  // 只同步当前显示的虚拟机：多机并发时背景机不应悄悄改写宿主剪贴板。
+  const clipboardSyncRef = useRef(createVmClipboardSyncState())
+  useEffect(() => {
+    // 切换显示目标 = 换了剪贴板域：清空回声指纹，避免旧文本被误判。
+    clipboardSyncRef.current = createVmClipboardSyncState()
+  }, [displayedId])
+
+  useEffect(() => {
+    if (displayedId === undefined) {
+      return
+    }
+    let cancelled = false
+    // readText 需要剪贴板读权限：被拒时静默降级为只收客机→宿主方向。
+    const tick = () => {
+      navigator.clipboard
+        ?.readText()
+        .then((hostText) => {
+          if (cancelled) {
+            return
+          }
+          const push = onHostClipboardChanged(clipboardSyncRef.current, hostText)
+          if (push !== null) {
+            void pool
+              .agentCommand(displayedId, 'clipboardWrite', [push])
+              .catch(() => {})
+          }
+        })
+        .catch(() => {})
+    }
+    const timer = window.setInterval(tick, VM_CLIPBOARD_SYNC_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [displayedId, pool.agentCommand])
+
+  const handleGuestClipboard = useCallback(
+    (machineId: string, text: string) => {
+      if (machineId !== displayedId) {
+        return
+      }
+      const write = onGuestClipboardReceived(clipboardSyncRef.current, text)
+      if (write !== null) {
+        void navigator.clipboard?.writeText(write).catch(() => {})
+      }
+    },
+    [displayedId],
+  )
+  // #endregion
 
   const captureGuestKeyboard = useCallback(() => {
     // 不要把焦点交给 iframe：跨域画面看起来像聚焦了，按键却进不去。
@@ -1036,6 +1094,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     onBootError={handleBootError}
                     onIframeLoadFailed={handleIframeLoadFailed}
                     onDiskWriteFailed={handleDiskWriteFailed}
+                    onGuestClipboard={handleGuestClipboard}
                     onCaptureKeyboard={captureGuestKeyboard}
                     isDisplayed={isDisplayed}
                   />

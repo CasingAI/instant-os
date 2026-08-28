@@ -25,6 +25,7 @@ export type VmRuntimeSurfaceProps = {
   onBootError: (machineId: string, message: string, detail?: string) => void
   onIframeLoadFailed: (machineId: string, detail: string) => void
   onDiskWriteFailed: (machineId: string, message: string) => void
+  onGuestClipboard: (machineId: string, text: string) => void
   onCaptureKeyboard: () => void
   isDisplayed: boolean
 }
@@ -46,6 +47,7 @@ export function VmRuntimeSurface({
   onBootError,
   onIframeLoadFailed,
   onDiskWriteFailed,
+  onGuestClipboard,
   onCaptureKeyboard,
   isDisplayed,
 }: VmRuntimeSurfaceProps) {
@@ -79,6 +81,7 @@ export function VmRuntimeSurface({
     (message) => onDiskWriteFailed(machineId, message),
     (message, detail) => onBootError(machineId, message, detail),
     (detail) => onIframeLoadFailed(machineId, detail),
+    (text) => onGuestClipboard(machineId, text),
   )
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 

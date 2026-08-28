@@ -31,6 +31,7 @@ import {
   isInstantVmAgentResultMessage,
   isInstantVmDiskWriteMessage,
   isInstantVmDiskWriteResultMessage,
+  isInstantVmGuestClipboardMessage,
   isInstantVmHostToRuntimeMessage,
   isInstantVmKeyboardMessage,
   isInstantVmRuntimeToHostMessage,
@@ -574,6 +575,32 @@ function testAgentCommandMessages(): void {
   )
 }
 
+function testGuestClipboardMessage(): void {
+  const message = { type: INSTANT_VM_MESSAGE_TYPE.guestClipboard, text: '来自 XP' }
+  assert.equal(isInstantVmGuestClipboardMessage(message), true)
+  assert.equal(isInstantVmRuntimeToHostMessage(message), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(message), false)
+  // 非字符串 / 超信箱上限（16376 码元）→ 拒绝
+  assert.equal(
+    isInstantVmGuestClipboardMessage({ type: INSTANT_VM_MESSAGE_TYPE.guestClipboard, text: 7 }),
+    false,
+  )
+  assert.equal(
+    isInstantVmGuestClipboardMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.guestClipboard,
+      text: 'x'.repeat(16377),
+    }),
+    false,
+  )
+  assert.equal(
+    isInstantVmGuestClipboardMessage({
+      type: INSTANT_VM_MESSAGE_TYPE.guestClipboard,
+      text: 'x'.repeat(16376),
+    }),
+    true,
+  )
+}
+
 testBootOrderMatchesV86()
 testMountedDiskSlots()
 testHasBootMedia()
@@ -598,4 +625,5 @@ testKeyboardMessage()
 testDiskWriteMessages()
 testDiskWriteFailedMessage()
 testAgentCommandMessages()
+testGuestClipboardMessage()
 console.log('virtual-machine-protocol.test.ts ok')
