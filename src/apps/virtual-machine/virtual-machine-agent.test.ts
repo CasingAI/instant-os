@@ -1,6 +1,6 @@
 /**
- * 虚拟机控制面宿主侧门面单测。
- * 运行：node --experimental-strip-types src/apps/virtual-machine/virtual-machine-agent.test.ts
+ * 虚拟机命令通道宿主侧门面单测。
+ * 运行行：node --experimental-strip-types src/apps/virtual-machine/virtual-machine-agent.test.ts
  */
 import assert from 'node:assert/strict'
 import { createVmAgent, VM_AGENT_METHODS, vmAgentFor } from './virtual-machine-agent.ts'
@@ -8,19 +8,26 @@ import { INSTANT_VM_MESSAGE_TYPE, isInstantVmAgentCommandMessage } from './virtu
 
 function testMethodWhitelistCoversFacade(): void {
   for (const method of [
-    'readText',
-    'screenshot',
     'state',
     'exec',
     'execResult',
-    'click',
-    'dblclick',
+    'clipboardWrite',
     'shutdown',
     'reboot',
-    'snapshot',
-    'dumpRing',
   ]) {
     assert.ok((VM_AGENT_METHODS as readonly string[]).includes(method), method)
+  }
+  // 感知层方法（2026-08-29 移除）不得回流白名单
+  for (const removed of [
+    'readText',
+    'screenshot',
+    'snapshot',
+    'dumpRing',
+    'captureStart',
+    'captureStop',
+    'freeze',
+  ]) {
+    assert.ok(!(VM_AGENT_METHODS as readonly string[]).includes(removed), removed)
   }
 }
 
@@ -28,56 +35,37 @@ async function testFacadePassesMethodAndArgs(): Promise<void> {
   const calls: { method: string; args?: readonly unknown[] }[] = []
   const agent = createVmAgent(async (method, args) => {
     calls.push({ method, args })
-    if (method === 'readText') {
-      return 'SeaBIOS\nBooting from Hard Disk...'
-    }
-    if (method === 'screenshot') {
-      return 'data:image/png;base64,AAAA'
+    if (method === 'state') {
+      return { lastPongAgeMs: 12 }
     }
     if (method === 'execResult') {
       return { ok: true, exitCode: 2, timedOut: false }
     }
+    if (method === 'clipboardWrite') {
+      return true
+    }
     return undefined
   })
-  assert.equal(await agent.readText(), 'SeaBIOS\nBooting from Hard Disk...')
-  assert.equal(await agent.screenshot(), 'data:image/png;base64,AAAA')
+  assert.deepEqual(await agent.state(), { lastPongAgeMs: 12 })
   await agent.exec('notepad.exe')
   assert.deepEqual(await agent.execResult('cmd /c exit 2'), {
     ok: true,
     exitCode: 2,
     timedOut: false,
   })
+  assert.equal(await agent.clipboardWrite('文本'), true)
   await agent.click(512, 384)
   await agent.shutdown()
   await agent.ping()
-  await agent.dumpRing()
-  await agent.dumpRing('bsod')
   assert.deepEqual(calls, [
-    { method: 'readText', args: undefined },
-    { method: 'screenshot', args: undefined },
+    { method: 'state', args: undefined },
     { method: 'exec', args: ['notepad.exe'] },
     { method: 'execResult', args: ['cmd /c exit 2'] },
+    { method: 'clipboardWrite', args: ['文本'] },
     { method: 'click', args: [512, 384] },
     { method: 'shutdown', args: undefined },
     { method: 'ping', args: undefined },
-    { method: 'dumpRing', args: ['manual'] },
-    { method: 'dumpRing', args: ['bsod'] },
   ])
-}
-
-async function testFreezeGetAndSet(): Promise<void> {
-  let frozen = true
-  const agent = createVmAgent(async (method, args) => {
-    assert.equal(method, 'freeze')
-    if (args === undefined || args.length === 0) {
-      return frozen
-    }
-    frozen = args[0] as boolean
-    return frozen
-  })
-  assert.equal(await agent.freeze(), true)
-  assert.equal(await agent.freeze(false), false)
-  assert.equal(await agent.freeze(), false)
 }
 
 async function testVmAgentForBindsMachineId(): Promise<void> {
@@ -91,8 +79,8 @@ async function testVmAgentForBindsMachineId(): Promise<void> {
     },
     'machine-7',
   )
-  assert.equal(await agent.readText(), 'done')
-  assert.deepEqual(seen, ['machine-7:readText'])
+  assert.equal(await agent.shutdown(), 'done')
+  assert.deepEqual(seen, ['machine-7:shutdown'])
 }
 
 async function testFacadeMessagePassesProtocolValidator(): Promise<void> {
@@ -125,7 +113,6 @@ async function testFacadeMessagePassesProtocolValidator(): Promise<void> {
 
 testMethodWhitelistCoversFacade()
 await testFacadePassesMethodAndArgs()
-await testFreezeGetAndSet()
 await testVmAgentForBindsMachineId()
 await testFacadeMessagePassesProtocolValidator()
 console.log('virtual-machine-agent.test.ts ok')

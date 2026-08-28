@@ -1,17 +1,19 @@
 /**
- * 虚拟机控制面的宿主侧包装：把「发 agentCommand 消息等回执」包成普通异步方法。
+ * 虚拟机命令通道的宿主侧包装：把「发 agentCommand 消息等回执」包成普通异步方法。
  *
  * 运行时页（跨域 iframe）里的 `window.__vm` 是唯一事实源；本文件只是 postMessage
  * 转发的类型化门面，方法名与运行时的 VM_AGENT_METHODS 白名单一一对应。
  * 控制面未启用（非 debug 构建且无 ?agent= 参数）时，所有方法都会 reject。
+ *
+ * 感知层方法（readText/screenshot/snapshot/dumpRing/freeze 等）已于 2026-08-29
+ * 随运行时侧一并移除（AI 自主操作残留清理）；保留的只有产品功能与剪贴板
+ * 依赖的命令面。
  */
 
 import type { InstantVmKeyboardMessage } from './virtual-machine-protocol.ts'
 
 /** 与 Instant-virtual-machine `vm-agent-control.ts` 的 VM_AGENT_METHODS 保持一致。 */
 export const VM_AGENT_METHODS = [
-  'readText',
-  'screenshot',
   'state',
   'serialSend',
   'key',
@@ -25,10 +27,6 @@ export const VM_AGENT_METHODS = [
   'shutdown',
   'reboot',
   'restartVm',
-  'snapshot',
-  'captureStart',
-  'captureStop',
-  'dumpRing',
 ] as const
 
 export type VmAgentMethodName = (typeof VM_AGENT_METHODS)[number]
@@ -44,20 +42,8 @@ export type VmExecResult =
       detail?: string
     }
 
-/** 巡检帧：文本模式带 text，图形模式带缩略 dataUrl（与运行时 ring buffer 一致）。 */
-export type VmAgentRingFrame = {
-  t: number
-  kind: 'text' | 'jpeg'
-  text?: string
-  dataUrl?: string
-}
-
 export type VmAgentController = {
-  /** 文本层内容（BIOS/自检/蓝屏等文字画面可直接读，等于免费 OCR）。 */
-  readText(): Promise<string>
-  /** 画布截图 PNG data URL；纯文本模式下返回 undefined（画面证据走 readText）。 */
-  screenshot(): Promise<string | undefined>
-  /** 控制面状态快照（启动阶段、蓝屏、ring 帧数、最近 PONG 年龄等）。 */
+  /** 控制面状态快照（连通探测读 lastPongAgeMs；关机按钮前置检查依赖）。 */
   state(): Promise<Record<string, unknown>>
   serialSend(bytes: number[] | string): Promise<void>
   key(text: string): Promise<void>
@@ -73,15 +59,6 @@ export type VmAgentController = {
   shutdown(): Promise<void>
   reboot(): Promise<void>
   restartVm(): Promise<void>
-  /** 序列化整个虚拟机内存（耗时与 saveState 相当，超时按 10 分钟计）。 */
-  snapshot(): Promise<ArrayBuffer>
-  captureStart(): Promise<void>
-  captureStop(): Promise<void>
-  /** 取出瞬态环形缓冲（崩溃前后画面），并照常往桥日志落一份。 */
-  dumpRing(reason?: string): Promise<VmAgentRingFrame[]>
-  /** 崩溃自动冻结开关：无参读当前值，传布尔切换。 */
-  freeze(): Promise<boolean>
-  freeze(next: boolean): Promise<boolean>
   /** 白名单外的原始通道（method 直接透传，运行时白名单校验兜底）。 */
   raw(method: string, args?: readonly unknown[]): Promise<unknown>
 }
@@ -90,8 +67,6 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
   const call = async (method: VmAgentMethodName, args?: readonly unknown[]) =>
     (await send(method, args)) as never
   return {
-    readText: () => call('readText'),
-    screenshot: () => call('screenshot'),
     state: () => call('state'),
     serialSend: (bytes) => call('serialSend', [bytes]),
     key: (text) => call('key', [text]),
@@ -105,11 +80,6 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
     shutdown: () => call('shutdown'),
     reboot: () => call('reboot'),
     restartVm: () => call('restartVm'),
-    snapshot: () => call('snapshot'),
-    captureStart: () => call('captureStart'),
-    captureStop: () => call('captureStop'),
-    dumpRing: (reason = 'manual') => call('dumpRing', [reason]),
-    freeze: (...args: unknown[]) => send('freeze', args) as Promise<boolean>,
     raw: (method, args) => send(method, args),
   }
 }

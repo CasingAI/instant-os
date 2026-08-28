@@ -62,7 +62,19 @@ magic/seq/status/len + UTF-16LE 数据）：
 - 非交互会话剪贴板：clipboard-bridge 走 HKCU Run（服务摸不到交互会话剪贴板）；
 - `read_memory` 的 ABI 依赖：v86 提供；XP 非 PAE 下物理地址 32 位封顶。
 
-## 3. 后续候选（未排期）
+## 3. 感知层移除（2026-08-29）
+
+原控制面里的「感知层」——100ms 巡检、canvas 蓝屏守卫、环形帧缓冲、启动时间线、
+readText/screenshot/snapshot/dumpRing/freeze——是「AI 自主操作 VM」目标的专属产物，
+该目标实测效率低被用户取消，且感知层零产品依赖、实机还暴露误冻结回归（XP 启动
+画面被蓝屏指纹误判即 stop()，表现为开机卡死）。已整层删除（git 历史可寻回），
+保留命令通道与调试桥：
+
+- 保留：PING/SHUTDOWN/REBOOT（关机按钮）、EXEC/EXEC_R、ivm-shm 剪贴板、
+  agentCommand 转发、installAgentBridge（vm-safe-reload 的软关机靠它）；
+- 移除：感知层全部 + 对应 __vm 方法与两侧白名单条目。
+
+## 4. 后续候选（未排期）
 
 - 剪贴板：图片格式（位图进信箱数据区，len 按字节计）、客机主动查询方向开关；
 - EXEC：stdout 捕获（信箱做数据面，EXEC_R 只报退出码的现状可平滑升级）；
