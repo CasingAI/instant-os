@@ -328,3 +328,19 @@ postMessage ◀── {agentResult, requestId, value}  ◀── 成功；失败
 - **用法**：`vmAgentFor(pool, machineId)` 拿门面；或池级 `pool.agentCommand(id, method, args)`
   原始调用。`scripts/vm-safe-reload.sh` 仍走桥 /eval（桥离线时脚本自身会起桥），
   不受本通路影响。
+
+## 13. v3 扩展（2026-08-28 当日）：EXEC 退出码 + 共享内存信箱 + 剪贴板
+
+原五期任务（双向通讯 / EXEC 返回值 / 键盘 / 剪贴板 / 文件调研）已完成重构与
+部分落地，**完整路线图与状态台账见 `01-roadmap.md`，文件传输调研见
+`05-file-transfer.md`**。要点：
+
+- **通道形态改版**：键盘/剪贴板/文件等数据面一律不走串口——v86 是模拟器，
+  宿主 JS 用 `read_memory/write_memory` 直接读写 XP 物理内存（DMA 语义）；
+  串口保持控制面（命令帧 + 回执行），双向通讯由共享内存信箱天然提供。
+- **已落地**：EXEC_R(0x11) 任务槽回退出码（`EXIT=<码>[ to=1]`，不阻塞 PING）；
+  ivm-shm.sys（64KB 连续物理内存信箱驱动，Watcom 构建）+ clipboard-bridge.exe
+  （XP 剪贴板 ↔ 信箱双向桥）+ res-agent v3 `SHM_QUERY` 握手 + 宿主侧
+  `guestClipboard` 上行 / `clipboardWrite` 下行 + 显示中虚拟机的宿主剪贴板
+  1s 轮询同步（回声抑制）。键盘确认无需开发（v86 `keyboard_send_text` 现成）。
+- **res-agent 版本 v2 → v3**（`AGENT_VERSION` 3），PONG 回执 ver 字段可辨。
