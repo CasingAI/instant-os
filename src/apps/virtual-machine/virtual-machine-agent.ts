@@ -15,7 +15,6 @@ import type { InstantVmKeyboardMessage } from './virtual-machine-protocol.ts'
 /** 与 Instant-virtual-machine `vm-agent-control.ts` 的 VM_AGENT_METHODS 保持一致。 */
 export const VM_AGENT_METHODS = [
   'state',
-  'serialSend',
   'key',
   'keyEvent',
   'ping',
@@ -26,7 +25,6 @@ export const VM_AGENT_METHODS = [
   'dblclick',
   'shutdown',
   'reboot',
-  'restartVm',
 ] as const
 
 export type VmAgentMethodName = (typeof VM_AGENT_METHODS)[number]
@@ -45,7 +43,6 @@ export type VmExecResult =
 export type VmAgentController = {
   /** 控制面状态快照（连通探测读 lastPongAgeMs；关机按钮前置检查依赖）。 */
   state(): Promise<Record<string, unknown>>
-  serialSend(bytes: number[] | string): Promise<void>
   key(text: string): Promise<void>
   keyEvent(message: InstantVmKeyboardMessage): Promise<void>
   ping(): Promise<void>
@@ -58,7 +55,6 @@ export type VmAgentController = {
   dblclick(x: number, y: number): Promise<void>
   shutdown(): Promise<void>
   reboot(): Promise<void>
-  restartVm(): Promise<void>
   /** 白名单外的原始通道（method 直接透传，运行时白名单校验兜底）。 */
   raw(method: string, args?: readonly unknown[]): Promise<unknown>
 }
@@ -68,7 +64,6 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
     (await send(method, args)) as never
   return {
     state: () => call('state'),
-    serialSend: (bytes) => call('serialSend', [bytes]),
     key: (text) => call('key', [text]),
     keyEvent: (message) => call('keyEvent', [message]),
     ping: () => call('ping'),
@@ -79,7 +74,6 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
     dblclick: (x, y) => call('dblclick', [x, y]),
     shutdown: () => call('shutdown'),
     reboot: () => call('reboot'),
-    restartVm: () => call('restartVm'),
     raw: (method, args) => send(method, args),
   }
 }

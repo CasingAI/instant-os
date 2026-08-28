@@ -74,6 +74,12 @@ readText/screenshot/snapshot/dumpRing/freeze——是「AI 自主操作 VM」目
   agentCommand 转发、installAgentBridge（vm-safe-reload 的软关机靠它）；
 - 移除：感知层全部 + 对应 __vm 方法与两侧白名单条目。
 
+### 3.1 二次瘦身（2026-08-28）
+
+UI 重置按钮走独立 `instant-vm:reset` 消息（emulator.restart + scheduleEnter），
+不经白名单，`restartVm` 属纯冗余；`serialSend` 裸串口调试口无调用方。
+两者连同门面包装一并移除，白名单缩至 11 项。
+
 ## 4. 后续候选（未排期）
 
 - 剪贴板：图片格式（位图进信箱数据区，len 按字节计）、客机主动查询方向开关；

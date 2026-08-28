@@ -77,7 +77,7 @@ Windows Registry Editor Version 5.00
 ### v2 操控帧（todo/vm-remote-control §6）
 
 帧格式 `[A5][len][payload...][csum]` 与 v1 同构，`len≠4` 时 `payload[0]` 是
-opcode，宿主经 `__vm.serialSend` 下发（resolution-serial 泵每秒的分辨率帧
+opcode，宿主经运行时串口发送下发（resolution-serial 泵每秒的分辨率帧
 与 v2 命令帧在同一字节流上交错，逐字节+校验和解析天然免疫）：
 
 | len | 命令 | payload | 行为 / 回执（`[IVM]…\r\n`，COM1 回传） |
