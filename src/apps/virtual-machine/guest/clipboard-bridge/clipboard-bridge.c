@@ -115,10 +115,22 @@ static volatile void *h2g(void)
     return (volatile void *)((char *)g_shm + SHM_BLOCK_SIZE);
 }
 
+/* 启动失败现场：弹窗 + DebugView 双写。后台工具不该无声消失——
+ * 实机排查（2026-08-29）证明静默 ExitProcess 让用户完全无从下手。 */
+static void fatal_box(const char *what, const char *detail)
+{
+    char text[256];
+    lstrcpyA(text, what);
+    lstrcatA(text, "\r\n");
+    lstrcatA(text, detail);
+    log_line("clip-bridge: %s (%s)", what, detail);
+    MessageBoxA(NULL, text, "clipboard-bridge", MB_OK | MB_ICONERROR);
+}
+
 static int shm_open(void)
 {
     /* CTL_CODE(FILE_DEVICE_UNKNOWN=0x22, 0x801, METHOD_BUFFERED, FILE_READ_ACCESS=1)，
-     * 展开式与 guest/ivm-shm/ivm-shm.c 一致。 */
+     * 展开式与 guest/ivm-shm/ivm-shm.c、guest/res-agent/res-agent.c 一致。 */
     const unsigned long ioctl_info =
         ((unsigned long)0x22 << 16) | ((unsigned long)1 << 14) | ((unsigned long)0x801 << 2);
     static const shm_info_t zero_info;
@@ -128,13 +140,17 @@ static int shm_open(void)
     HANDLE dev = CreateFileA("\\\\.\\IVMSHM", 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
                              NULL, OPEN_EXISTING, 0, NULL);
     if (dev == INVALID_HANDLE_VALUE) {
-        log_line("clip-bridge: open ivm-shm failed (%lu)", GetLastError());
+        char detail[80];
+        wsprintfA(detail, "CreateFileA GetLastError=%lu（2=驱动没起）", GetLastError());
+        fatal_box("打不开信箱驱动设备 \\\\.\\IVMSHM", detail);
         return 0;
     }
     int ok = DeviceIoControl(dev, ioctl_info, NULL, 0, &info, sizeof(info), &got, NULL);
     CloseHandle(dev);
     if (!ok || got < sizeof(info) || info.size < 2 * SHM_BLOCK_SIZE || info.user_va == 0) {
-        log_line("clip-bridge: ivm-shm info invalid (ok=%d got=%lu size=%lu)", ok, got, info.size);
+        char detail[96];
+        wsprintfA(detail, "ok=%lu got=%lu size=%lu", (unsigned long)ok, got, info.size);
+        fatal_box("信箱驱动查询失败", detail);
         return 0;
     }
     g_shm = (void *)info.user_va;
