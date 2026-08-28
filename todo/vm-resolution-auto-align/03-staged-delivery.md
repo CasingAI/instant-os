@@ -149,7 +149,7 @@ AI 唯一允许触达的：仓库内文件、命令行、单元测试、CI。
 
 ### 4.2 你需要做的全部动作（**一次性、按顺序**）
 
-1. **确认 EXE 路径**：从 `src/apps/virtual-machine/guest/res-agent/res-agent.exe` 取
+1. **确认 EXE 路径**：从 `src/apps/virtual-machine/guest/out/res-agent.exe` 取（构建产物统一落 `guest/out/`）
 2. **拷入镜像**（任选其一）：
    - A. 拖到 `C:\Tools\res-agent.exe`
    - B. 烧进第二块盘

@@ -16,16 +16,21 @@ CFLAGS  ?= -target x86-windows-gnu -O2 -Wall -nostdlib -isystem$(WIN_INC)
 LDFLAGS ?= -Wl,--subsystem,windows,-e,res_agent_entry
 LDLIBS  ?= -lkernel32 -luser32 -lgdi32 -ladvapi32
 
+# 产物统一落到 ../out（客机交付物目录），源码目录不放构建产物。
+OUT_DIR := ../out
+
 res-agent.exe: res-agent.c patch-pe-xp-version.mjs
-	$(ZIG) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
-	node patch-pe-xp-version.mjs $@
+	mkdir -p $(OUT_DIR)
+	$(ZIG) $(CFLAGS) $(LDFLAGS) -o $(OUT_DIR)/$@ $< $(LDLIBS)
+	node patch-pe-xp-version.mjs $(OUT_DIR)/$@
 
 # 诊断版（入口不同）：真 XP 上启动崩溃时，双击它按弹框序号定位病灶。
 # 崩在 diag 4 与 5 之间 = ring3 IN 不可达；diag 1 都不出 = 加载层问题。
 res-agent-diag.exe: res-agent-diag.c patch-pe-xp-version.mjs
-	$(ZIG) $(CFLAGS) -Wl,--subsystem,windows,-e,res_diag_entry -o $@ $< $(LDLIBS)
-	node patch-pe-xp-version.mjs $@
+	mkdir -p $(OUT_DIR)
+	$(ZIG) $(CFLAGS) -Wl,--subsystem,windows,-e,res_diag_entry -o $(OUT_DIR)/$@ $< $(LDLIBS)
+	node patch-pe-xp-version.mjs $(OUT_DIR)/$@
 
 .PHONY: clean
 clean:
-	rm -f res-agent.exe res-agent-diag.exe
+	rm -f $(OUT_DIR)/res-agent.exe $(OUT_DIR)/res-agent-diag.exe

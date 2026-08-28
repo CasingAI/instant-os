@@ -4,3 +4,4 @@ boxvideo.sys
 vidmini.inf
 res-agent.exe
 install.reg
+*.pdb

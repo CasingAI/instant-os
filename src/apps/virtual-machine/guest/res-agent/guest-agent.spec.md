@@ -7,7 +7,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文件 | `res-agent.exe`（构建：`make` 或 `scripts/build-res-agent.sh`） |
+| 文件 | `res-agent.exe`（构建：`make` 或 `scripts/build-res-agent.sh`，产物统一落 `guest/out/`） |
 | 架构 | PE32 i386，GUI 子系统，OS/Subsystem 版本 5.01 |
 | 导入表 | 仅 kernel32.dll / user32.dll / advapi32.dll（XP 裸机自带） |
 | 体积 | < 200 KB（实测 ~9.7 KB） |

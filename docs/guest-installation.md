@@ -19,7 +19,7 @@
 brew install zig        # 已装可跳过
 cd ~/Documents/GitHub/instant-app
 scripts/build-res-agent.sh
-# → built: src/apps/virtual-machine/guest/res-agent/res-agent.exe (7680 bytes 附近，串口版，产品态无弹框)
+# → built: src/apps/virtual-machine/guest/out/res-agent.exe (9728 bytes 附近，产品态无弹框)
 ```
 
 （或者 `make -C src/apps/virtual-machine/guest/res-agent`。单测 `pnpm test:vm-res-agent`
@@ -27,7 +27,7 @@ scripts/build-res-agent.sh
 
 ### 第 1 步：确认 EXE 路径
 
-`src/apps/virtual-machine/guest/res-agent/res-agent.exe`
+`src/apps/virtual-machine/guest/out/res-agent.exe`（构建产物统一落 `guest/out/`）
 
 > 单实例：代理带互斥锁，重复双击会弹「res-agent is already running.」后退出，
 > 不影响已在跑的那份（避免两个进程抢同一串口）。

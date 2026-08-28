@@ -12,9 +12,9 @@ brew install zig        # 一次性
 make                    # 或 scripts/build-res-agent.sh
 ```
 
-产物 `res-agent.exe`：PE32 i386、GUI 子系统（开机自启不闪控制台）、
-导入表只有 kernel32 / user32 / gdi32 / msvcrt（XP 自带，无需额外运行库）。
-产物不进 git（见本目录 `.gitignore`）。
+产物统一落到 `../out`（`src/apps/virtual-machine/guest/out/`，客机交付物目录）：
+`res-agent.exe` 为 PE32 i386、GUI 子系统（开机自启不闪控制台）。
+产物不进 git（见 `out/.gitignore`）。
 
 ## Emacs 闭环
 

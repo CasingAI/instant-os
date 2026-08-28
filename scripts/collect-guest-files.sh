@@ -7,20 +7,19 @@
 #
 # 同步 4 个文件：
 #   boxvideo.sys + vidmini.inf  —— 由 scripts/build-boxvnt.sh 产出
-#   res-agent.exe               —— 仓库入 git 副本，out/ 是 staging
+#   res-agent.exe               —— 由 scripts/build-res-agent.sh 产出（缺则现编）
 #   install.reg                 —— 由 res-agent-install.reg.source 展开
 #                                  （去掉 .source 扩展名、就地变 reg）
 #
-# build 脚本会输出 boxvideo.sys / vidmini.inf；本脚本负责另外 2 个文件
-# 并保证 boxvnt 产物落位（若已存在则跳过重新构建）。
+# 两个二进制已存在就跳过重新构建；本脚本还负责 install.reg 展开。
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GUEST_DIR="$ROOT/src/apps/virtual-machine/guest"
 OUT_DIR="${1:-$GUEST_DIR/out}"
-RES_AGENT_DIR="$GUEST_DIR/res-agent"
 BOXVNT_DIR="$GUEST_DIR/boxvnt"
 BUILD_SCRIPT="$ROOT/scripts/build-boxvnt.sh"
+RES_AGENT_BUILD="$ROOT/scripts/build-res-agent.sh"
 
 mkdir -p "$OUT_DIR"
 
@@ -33,13 +32,15 @@ else
   cp -f "$BOXVNT_DIR/vidmini.inf"  "$OUT_DIR/vidmini.inf"
 fi
 
-# res-agent：仓库里就有 res-agent.exe（已入 git），拷过来当 staging 副本。
-cp -f "$RES_AGENT_DIR/res-agent.exe" "$OUT_DIR/res-agent.exe"
+# res-agent：与 boxvnt 同策略——out/ 里没有就现编一份。
+if [ ! -f "$OUT_DIR/res-agent.exe" ]; then
+  sh "$RES_AGENT_BUILD" "$OUT_DIR"
+fi
 
 # install.reg：模板在 res-agent 目录里以 .source 后缀入 git，展开成
 # 可双击导入的 .reg。路径硬编码 C:\Tools\res-agent.exe；如果 res-agent
 # 要装到别处，先编辑源模板再 collect。
-cp -f "$RES_AGENT_DIR/res-agent-install.reg.source" "$OUT_DIR/install.reg"
+cp -f "$GUEST_DIR/res-agent/res-agent-install.reg.source" "$OUT_DIR/install.reg"
 
 echo "collected 4 files into $OUT_DIR:"
 ls -la "$OUT_DIR"

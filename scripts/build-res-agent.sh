@@ -3,12 +3,12 @@
 # 单测 res-agent-binary.test.ts 调用本脚本，验证产物可重现。
 #
 # 用法：scripts/build-res-agent.sh [输出目录]
-#   输出目录缺省为 src/apps/virtual-machine/guest/res-agent。
+#   输出目录缺省为 src/apps/virtual-machine/guest/out（客机交付物统一出口）。
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AGENT_DIR="$ROOT/src/apps/virtual-machine/guest/res-agent"
-OUT_DIR="${1:-$AGENT_DIR}"
+OUT_DIR="${1:-$ROOT/src/apps/virtual-machine/guest/out}"
 OUT="$OUT_DIR/res-agent.exe"
 
 command -v zig >/dev/null 2>&1 || { echo "error: 需要 zig（brew install zig）" >&2; exit 1; }
