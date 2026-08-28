@@ -400,6 +400,64 @@ export function useVirtualMachineRuntime(
     [targetOrigin],
   )
 
+  // 「原始」模式视窗平移：跨源 iframe 收不到宿主区域（侧栏/工具栏）的 mousemove，
+  // 把光标位置换算成 iframe 本地坐标中继给运行时；rAF 节流。仅当光标位于该
+  // 画面外扩 48px 范围内才发送，多画面时天然只命中光标附近的那一块。
+  useEffect(() => {
+    if (!targetOrigin) {
+      return
+    }
+    const HINT_BAND_PX = 48
+    let rafId = 0
+    let clientX = 0
+    let clientY = 0
+    let pending = false
+    const flush = () => {
+      rafId = 0
+      if (!pending) {
+        return
+      }
+      pending = false
+      const frame = iframeRef.current
+      if (!frame) {
+        return
+      }
+      const rect = frame.getBoundingClientRect()
+      if (
+        clientX < rect.left - HINT_BAND_PX ||
+        clientX > rect.right + HINT_BAND_PX ||
+        clientY < rect.top - HINT_BAND_PX ||
+        clientY > rect.bottom + HINT_BAND_PX
+      ) {
+        return
+      }
+      try {
+        post({
+          type: INSTANT_VM_MESSAGE_TYPE.pointerHint,
+          x: clientX - rect.left,
+          y: clientY - rect.top,
+        })
+      } catch {
+        // 运行时未就绪/不可达时丢弃；指针提示是高频可再生的，下一次移动会再试。
+      }
+    }
+    const onMove = (event: MouseEvent) => {
+      clientX = event.clientX
+      clientY = event.clientY
+      pending = true
+      if (rafId === 0) {
+        rafId = window.requestAnimationFrame(flush)
+      }
+    }
+    window.addEventListener('mousemove', onMove, { passive: true })
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      if (rafId !== 0) {
+        window.cancelAnimationFrame(rafId)
+      }
+    }
+  }, [post, targetOrigin])
+
   const request = useCallback(
     <T = void>(
       message: {

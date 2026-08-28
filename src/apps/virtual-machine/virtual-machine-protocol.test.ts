@@ -34,6 +34,7 @@ import {
   isInstantVmGuestClipboardMessage,
   isInstantVmHostToRuntimeMessage,
   isInstantVmKeyboardMessage,
+  isInstantVmPointerHintMessage,
   isInstantVmRuntimeToHostMessage,
   isInstantVmStartMessage,
   parseAllowedOrigins,
@@ -473,6 +474,15 @@ function testKeyboardMessage(): void {
   assert.equal(isInstantVmKeyboardMessage({ ...message, phase: 'hold' }), false)
 }
 
+function testPointerHintMessage(): void {
+  const message = { type: INSTANT_VM_MESSAGE_TYPE.pointerHint, x: -12.5, y: 700 }
+  assert.equal(isInstantVmPointerHintMessage(message), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(message), true)
+  assert.equal(isInstantVmPointerHintMessage({ ...message, x: Number.NaN }), false)
+  assert.equal(isInstantVmPointerHintMessage({ ...message, y: '700' }), false)
+  assert.equal(isInstantVmPointerHintMessage({ x: 0, y: 0 }), false)
+}
+
 function testDiskWriteMessages(): void {
   const bytes = new Uint8Array([1, 2, 3, 4]).buffer
   const write = {
@@ -622,6 +632,7 @@ testStatsMessage()
 testSaveStateMessage()
 testStoppedWithoutRequestId()
 testKeyboardMessage()
+testPointerHintMessage()
 testDiskWriteMessages()
 testDiskWriteFailedMessage()
 testAgentCommandMessages()

@@ -24,6 +24,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   diskWriteResult: 'instant-vm:disk-write-result',
   diskWriteFailed: 'instant-vm:disk-write-failed',
   keyboard: 'instant-vm:keyboard',
+  pointerHint: 'instant-vm:pointer-hint',
   agentCommand: 'instant-vm:agent-command',
   agentResult: 'instant-vm:agent-result',
   guestClipboard: 'instant-vm:guest-clipboard',
@@ -290,6 +291,18 @@ export type InstantVmKeyboardMessage = {
 }
 
 /**
+ * 宿主中继的光标位置（iframe 视口本地坐标）。跨源 iframe 收不到宿主侧栏/
+ * 工具栏区域的 mousemove，由宿主转发供「原始」模式视窗贴边平移判定推边方向；
+ * 坐标可为负或超出视口。无请求号的高频自发消息。
+ * Keep in sync with Instant-virtual-machine `src/protocol.ts`.
+ */
+export type InstantVmPointerHintMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.pointerHint
+  x: number
+  y: number
+}
+
+/**
  * 宿主下发的控制面命令：method/args 转调运行时页 `window.__vm` 白名单方法
  * （readText/screenshot/exec/click/shutdown 等）。命令失败走既有 error 回执。
  */
@@ -401,6 +414,7 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmSetResolutionMessage
   | InstantVmSaveStateMessage
   | InstantVmKeyboardMessage
+  | InstantVmPointerHintMessage
   | InstantVmAgentCommandMessage
 
 export type InstantVmRuntimeToHostMessage =
@@ -772,6 +786,19 @@ export function isInstantVmKeyboardMessage(value: unknown): value is InstantVmKe
   )
 }
 
+export function isInstantVmPointerHintMessage(
+  value: unknown,
+): value is InstantVmPointerHintMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.pointerHint &&
+    typeof value.x === 'number' &&
+    Number.isFinite(value.x) &&
+    typeof value.y === 'number' &&
+    Number.isFinite(value.y)
+  )
+}
+
 /** 单条控制面命令的参数个数上限（防呆，不承载安全语义）。 */
 const VM_AGENT_ARGS_MAX = 8
 
@@ -909,6 +936,7 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmSetResolutionMessage(value) ||
     isInstantVmSaveStateMessage(value) ||
     isInstantVmKeyboardMessage(value) ||
+    isInstantVmPointerHintMessage(value) ||
     isInstantVmAgentCommandMessage(value)
   )
 }
