@@ -14,6 +14,7 @@ import {
   type InstantVmAgentResultMessage,
   type InstantVmDisplayMode,
   type InstantVmKeyboardMessage,
+  type InstantVmNativeKeyMessage,
   type InstantVmPointerMode,
   type InstantVmSaveStateResultMessage,
   type InstantVmStartMessage,
@@ -233,6 +234,7 @@ export function useVirtualMachineRuntime(
   onIframeLoadFailed?: (detail: string) => void,
   onGuestClipboard?: (text: string) => void,
   onGuestFileEvent?: (event: VmGuestFileEvent) => void,
+  onNativeKey?: (message: InstantVmNativeKeyMessage) => void,
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
@@ -248,6 +250,8 @@ export function useVirtualMachineRuntime(
   onGuestClipboardRef.current = onGuestClipboard
   const onGuestFileEventRef = useRef(onGuestFileEvent)
   onGuestFileEventRef.current = onGuestFileEvent
+  const onNativeKeyRef = useRef(onNativeKey)
+  onNativeKeyRef.current = onNativeKey
   const [ready, setReady] = useState(false)
   const readyRef = useRef(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
@@ -307,6 +311,11 @@ export function useVirtualMachineRuntime(
 
       if (message.type === INSTANT_VM_MESSAGE_TYPE.diskWriteFailed) {
         onDiskWriteFailedRef.current?.(message.message)
+        return
+      }
+
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.nativeKey) {
+        onNativeKeyRef.current?.(message)
         return
       }
 

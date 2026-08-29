@@ -34,6 +34,7 @@ import {
   isInstantVmGuestClipboardMessage,
   isInstantVmHostToRuntimeMessage,
   isInstantVmKeyboardMessage,
+  isInstantVmNativeKeyMessage,
   isInstantVmPointerHintMessage,
   isInstantVmRuntimeToHostMessage,
   isInstantVmStartMessage,
@@ -474,6 +475,26 @@ function testKeyboardMessage(): void {
   assert.equal(isInstantVmKeyboardMessage({ ...message, phase: 'hold' }), false)
 }
 
+function testNativeKeyMessage(): void {
+  const message = {
+    type: INSTANT_VM_MESSAGE_TYPE.nativeKey,
+    phase: 'up' as const,
+    key: 'Meta',
+    code: 'MetaLeft',
+    keyCode: 91,
+    location: 1,
+    repeat: false,
+    shiftKey: false,
+    ctrlKey: false,
+    altKey: false,
+    metaKey: true,
+  }
+  assert.equal(isInstantVmNativeKeyMessage(message), true)
+  assert.equal(isInstantVmRuntimeToHostMessage(message), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(message), false)
+  assert.equal(isInstantVmNativeKeyMessage({ ...message, keyCode: '91' }), false)
+}
+
 function testPointerHintMessage(): void {
   const message = { type: INSTANT_VM_MESSAGE_TYPE.pointerHint, x: -12.5, y: 700 }
   assert.equal(isInstantVmPointerHintMessage(message), true)
@@ -632,6 +653,7 @@ testStatsMessage()
 testSaveStateMessage()
 testStoppedWithoutRequestId()
 testKeyboardMessage()
+testNativeKeyMessage()
 testPointerHintMessage()
 testDiskWriteMessages()
 testDiskWriteFailedMessage()

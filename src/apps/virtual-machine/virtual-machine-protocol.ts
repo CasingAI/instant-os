@@ -25,6 +25,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   diskWriteResult: 'instant-vm:disk-write-result',
   diskWriteFailed: 'instant-vm:disk-write-failed',
   keyboard: 'instant-vm:keyboard',
+  nativeKey: 'instant-vm:native-key',
   pointerHint: 'instant-vm:pointer-hint',
   agentCommand: 'instant-vm:agent-command',
   agentResult: 'instant-vm:agent-result',
@@ -311,6 +312,26 @@ export type InstantVmKeyboardMessage = {
 }
 
 /**
+ * 运行时拦截到的真实按键（isTrusted）。跨域 iframe 偶尔会抢到焦点，真实按键直接
+ * 落进 iframe、绕开宿主的按键映射；运行时拦截后原样上报，由宿主过映射再注回来。
+ * 字段与 InstantVmKeyboardMessage 一致（不带 type 语义差异，仅方向不同）。
+ * Keep in sync with Instant-virtual-machine `src/protocol.ts`.
+ */
+export type InstantVmNativeKeyMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.nativeKey
+  phase: InstantVmKeyboardPhase
+  key: string
+  code: string
+  keyCode: number
+  location: number
+  repeat: boolean
+  shiftKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  metaKey: boolean
+}
+
+/**
  * 宿主中继的光标位置（iframe 视口本地坐标）。跨源 iframe 收不到宿主侧栏/
  * 工具栏区域的 mousemove，由宿主转发供「原始」模式视窗贴边平移判定推边方向；
  * 坐标可为负或超出视口。无请求号的高频自发消息。
@@ -496,6 +517,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmGuestFileReqMessage
   | InstantVmGuestFileDataMessage
   | InstantVmGuestFileDoneMessage
+  | InstantVmNativeKeyMessage
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 2032
@@ -863,6 +885,25 @@ export function isInstantVmKeyboardMessage(value: unknown): value is InstantVmKe
   )
 }
 
+export function isInstantVmNativeKeyMessage(value: unknown): value is InstantVmNativeKeyMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.nativeKey &&
+    (value.phase === 'down' || value.phase === 'up') &&
+    typeof value.key === 'string' &&
+    typeof value.code === 'string' &&
+    typeof value.keyCode === 'number' &&
+    Number.isFinite(value.keyCode) &&
+    typeof value.location === 'number' &&
+    Number.isFinite(value.location) &&
+    typeof value.repeat === 'boolean' &&
+    typeof value.shiftKey === 'boolean' &&
+    typeof value.ctrlKey === 'boolean' &&
+    typeof value.altKey === 'boolean' &&
+    typeof value.metaKey === 'boolean'
+  )
+}
+
 export function isInstantVmPointerHintMessage(
   value: unknown,
 ): value is InstantVmPointerHintMessage {
@@ -1164,6 +1205,9 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.guestFileDone) {
     return isInstantVmGuestFileDoneMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.nativeKey) {
+    return isInstantVmNativeKeyMessage(value)
   }
   return false
 }

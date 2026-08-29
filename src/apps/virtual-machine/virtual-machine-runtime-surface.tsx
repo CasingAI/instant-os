@@ -1,6 +1,7 @@
 import { countSystemDebugHot, recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { useEffect, useRef } from 'preact/hooks'
 import type {
+  InstantVmNativeKeyMessage,
   InstantVmStartMessage,
   VmGuestFileEvent,
 } from './virtual-machine-protocol.ts'
@@ -30,6 +31,8 @@ export type VmRuntimeSurfaceProps = {
   onDiskWriteFailed: (machineId: string, message: string) => void
   onGuestClipboard: (machineId: string, text: string) => void
   onGuestFileEvent: (machineId: string, event: VmGuestFileEvent) => void
+  /** iframe 抢到焦点时真实按键会上报到这里，由宿主过按键映射后注回。 */
+  onNativeKey: (machineId: string, message: InstantVmNativeKeyMessage) => void
   onCaptureKeyboard: () => void
   isDisplayed: boolean
 }
@@ -54,6 +57,7 @@ export function VmRuntimeSurface({
   onDiskWriteFailed,
   onGuestClipboard,
   onGuestFileEvent,
+  onNativeKey,
   onCaptureKeyboard,
   isDisplayed,
 }: VmRuntimeSurfaceProps) {
@@ -90,6 +94,7 @@ export function VmRuntimeSurface({
     (detail) => onIframeLoadFailed(machineId, detail),
     (text) => onGuestClipboard(machineId, text),
     (event) => onGuestFileEvent(machineId, event),
+    (message) => onNativeKey(machineId, message),
   )
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 

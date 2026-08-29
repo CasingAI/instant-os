@@ -40,7 +40,10 @@ import {
 } from './virtual-machine-file-transfer.ts'
 import { postOsNotification } from '../../os/os-notifications.ts'
 import { vmAgentFor } from './virtual-machine-agent.ts'
-import type { VmGuestFileEvent } from './virtual-machine-protocol.ts'
+import type {
+  InstantVmNativeKeyMessage,
+  VmGuestFileEvent,
+} from './virtual-machine-protocol.ts'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
 import {
   DISK_IMAGE_INCOMPLETE_HINT,
@@ -530,6 +533,20 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       handleVmFileEvent(event)
     },
     [displayedId, enhanceFileTransfer],
+  )
+
+  /**
+   * iframe 抢到焦点时真实按键经此回宿主：与 armed 路径共用同一个翻译器，
+   * 按键映射在两条路上行为一致。仅当前显示的机器接（背景机 iframe 拿不到焦点）。
+   */
+  const handleNativeKey = useCallback(
+    (machineId: string, message: InstantVmNativeKeyMessage) => {
+      if (machineId !== displayedId) {
+        return
+      }
+      pool.sendKeyboard(machineId, keyTranslatorRef.current.translate(message, message.phase))
+    },
+    [displayedId, pool.sendKeyboard],
   )
 
   // 传输服务后端随显示机器切换注册/注销（文件APP 经此调用当前虚拟机）。
@@ -1241,6 +1258,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     onDiskWriteFailed={handleDiskWriteFailed}
                     onGuestClipboard={handleGuestClipboard}
                     onGuestFileEvent={handleGuestFileEvent}
+                    onNativeKey={handleNativeKey}
                     onCaptureKeyboard={captureGuestKeyboard}
                     isDisplayed={isDisplayed}
                   />
