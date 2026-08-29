@@ -12,12 +12,14 @@ import { defaultVirtualMachineSettings } from './virtual-machine-config.ts'
 import {
   addVirtualMachine,
   createDefaultVirtualMachine,
+  moveVirtualMachine,
   nextVirtualMachineName,
   normalizeVirtualMachineRecord,
   normalizeVirtualMachineSettings,
   normalizeVirtualMachines,
   readVirtualMachineStore,
   removeVirtualMachine,
+  setLastSelectedVirtualMachine,
   updateVirtualMachine,
   writeVirtualMachineStore,
 } from './virtual-machine-store.ts'
@@ -332,6 +334,56 @@ async function testAddUpdateAndRemoveRoundTrip(): Promise<void> {
   assert.deepEqual(afterRemove.machines, [])
 }
 
+async function testMoveVirtualMachineReorders(): Promise<void> {
+  await resetState()
+  await writeVirtualMachineStore({ machines: [] })
+  const a = await addVirtualMachine(defaultVirtualMachineSettings('A'))
+  const b = await addVirtualMachine(defaultVirtualMachineSettings('B'))
+  const c = await addVirtualMachine(defaultVirtualMachineSettings('C'))
+  const ids = (store: { machines: { id: string }[] }) => store.machines.map((m) => m.id)
+  assert.deepEqual(ids(await readVirtualMachineStore()), [a.id, b.id, c.id])
+
+  // B 挪到最前，重读保持。
+  assert.deepEqual(ids({ machines: await moveVirtualMachine(b.id, 0) }), [b.id, a.id, c.id])
+  assert.deepEqual(ids(await readVirtualMachineStore()), [b.id, a.id, c.id])
+
+  // 越界 clamp 到末尾。
+  assert.deepEqual(ids({ machines: await moveVirtualMachine(a.id, 99) }), [b.id, c.id, a.id])
+
+  // 不存在的 id：无副作用。
+  assert.deepEqual(ids({ machines: await moveVirtualMachine('no-such', 0) }), [
+    b.id,
+    c.id,
+    a.id,
+  ])
+}
+
+async function testLastSelectedPersistsAcrossWrites(): Promise<void> {
+  await resetState()
+  await writeVirtualMachineStore({ machines: [] })
+  const a = await addVirtualMachine(defaultVirtualMachineSettings('A'))
+  const b = await addVirtualMachine(defaultVirtualMachineSettings('B'))
+
+  await setLastSelectedVirtualMachine(a.id)
+  assert.equal((await readVirtualMachineStore()).lastSelectedId, a.id)
+  // 重复写同一 id 幂等。
+  await setLastSelectedVirtualMachine(a.id)
+  assert.equal((await readVirtualMachineStore()).lastSelectedId, a.id)
+  await setLastSelectedVirtualMachine(b.id)
+  assert.equal((await readVirtualMachineStore()).lastSelectedId, b.id)
+
+  // 只传 machines 的常规写入（add/update/remove/move）不得清掉 lastSelectedId。
+  await addVirtualMachine(defaultVirtualMachineSettings('C'))
+  assert.equal((await readVirtualMachineStore()).lastSelectedId, b.id)
+  await updateVirtualMachine(b.id, defaultVirtualMachineSettings('B2'))
+  assert.equal((await readVirtualMachineStore()).lastSelectedId, b.id)
+  await moveVirtualMachine(b.id, 0)
+  assert.equal((await readVirtualMachineStore()).lastSelectedId, b.id)
+  // 删除后悬空保留，由读取方（applyStore）校验成员后忽略。
+  await removeVirtualMachine(b.id)
+  assert.equal((await readVirtualMachineStore()).lastSelectedId, b.id)
+}
+
 testNormalizeMissingSeedsDefault()
 testNormalizeEmptyArrayStaysEmpty()
 testNormalizeDropsGarbageAndDuplicates()
@@ -348,4 +400,6 @@ testNextMachineName()
 await testFirstReadPersistsDefault()
 await testEmptyWriteDoesNotReseed()
 await testAddUpdateAndRemoveRoundTrip()
+await testMoveVirtualMachineReorders()
+await testLastSelectedPersistsAcrossWrites()
 console.log('virtual-machine-store.test.ts ok')

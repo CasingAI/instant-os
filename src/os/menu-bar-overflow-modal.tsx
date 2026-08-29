@@ -4,7 +4,12 @@ import { ForwardIcon } from '../icons/app-icons.tsx'
 import { ActionMenuSheet } from '../ui/action-menu-sheet.tsx'
 import { getFloatingOverlayRoot } from '../ui/floating-overlay-root.ts'
 import { useOverlayPresence } from '../ui/use-overlay-presence.ts'
-import type { MenuDefinition, MenuItemLeaf } from './menu-bar-types.ts'
+import type {
+  MenuDefinition,
+  MenuItemLeaf,
+  MenuItemSubItem,
+  MenuItemSubmenu,
+} from './menu-bar-types.ts'
 
 type MenuOverflowModalProps = {
   open: boolean
@@ -12,10 +17,31 @@ type MenuOverflowModalProps = {
   onClose: () => void
 }
 
+type MenuSubmenuItem = Extract<MenuDefinition['items'][number], { type: 'submenu' }>
+
 type OverflowView =
   | { kind: 'menus' }
   | { kind: 'menu'; menu: MenuDefinition }
-  | { kind: 'submenu'; parentMenu: MenuDefinition; item: Extract<MenuDefinition['items'][number], { type: 'submenu' }> }
+  | {
+      kind: 'submenu'
+      parentMenu: MenuDefinition
+      item: MenuSubmenuItem
+      /** 进入当前子菜单前逐层经过的子菜单，返回时按栈回退。 */
+      trail: MenuItemSubmenu[]
+    }
+
+function popSubmenuView(view: Extract<OverflowView, { kind: 'submenu' }>): OverflowView {
+  const previous = view.trail[view.trail.length - 1]
+  if (previous) {
+    return {
+      kind: 'submenu',
+      parentMenu: view.parentMenu,
+      item: previous,
+      trail: view.trail.slice(0, -1),
+    }
+  }
+  return { kind: 'menu', menu: view.parentMenu }
+}
 
 export function MenuOverflowModal({ open, menus, onClose }: MenuOverflowModalProps) {
   const [view, setView] = useState<OverflowView>({ kind: 'menus' })
@@ -38,7 +64,7 @@ export function MenuOverflowModal({ open, menus, onClose }: MenuOverflowModalPro
       }
       if (view.kind !== 'menus') {
         if (view.kind === 'submenu') {
-          setView({ kind: 'menu', menu: view.parentMenu })
+          setView(popSubmenuView(view))
           return
         }
         setView({ kind: 'menus' })
@@ -68,7 +94,7 @@ export function MenuOverflowModal({ open, menus, onClose }: MenuOverflowModalPro
 
   const handleBack = () => {
     if (view.kind === 'submenu') {
-      setView({ kind: 'menu', menu: view.parentMenu })
+      setView(popSubmenuView(view))
       return
     }
     if (view.kind === 'menu') {
@@ -101,10 +127,34 @@ export function MenuOverflowModal({ open, menus, onClose }: MenuOverflowModalPro
     >
       <div class="action-menu-sheet__list" role="menu">
         {view.kind === 'submenu'
-          ? view.item.items.map((item, index) => {
+          ? view.item.items.map((item: MenuItemSubItem, index) => {
               if (item.type === 'separator') {
                 return (
                   <div key={`sep-${index}`} class="action-menu-sheet__separator" role="separator" />
+                )
+              }
+
+              if (item.type === 'submenu') {
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    class="action-menu-sheet__item action-menu-sheet__item--nav"
+                    role="menuitem"
+                    onClick={() =>
+                      setView({
+                        kind: 'submenu',
+                        parentMenu: view.parentMenu,
+                        item,
+                        trail: [...view.trail, view.item],
+                      })
+                    }
+                  >
+                    <span class="action-menu-sheet__item-label">{item.label}</span>
+                    <span class="action-menu-sheet__item-chevron" aria-hidden="true">
+                      <ForwardIcon size={13} />
+                    </span>
+                  </button>
                 )
               }
 
@@ -139,7 +189,7 @@ export function MenuOverflowModal({ open, menus, onClose }: MenuOverflowModalPro
                       type="button"
                       class="action-menu-sheet__item action-menu-sheet__item--nav"
                       role="menuitem"
-                      onClick={() => setView({ kind: 'submenu', parentMenu: view.menu, item })}
+                      onClick={() => setView({ kind: 'submenu', parentMenu: view.menu, item, trail: [] })}
                     >
                       <span class="action-menu-sheet__item-label">{item.label}</span>
                       <span class="action-menu-sheet__item-chevron" aria-hidden="true">

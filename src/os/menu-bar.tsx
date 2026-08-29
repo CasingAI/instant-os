@@ -9,7 +9,7 @@ import { getAppDefinition } from './app-registry.tsx'
 import { getThisDeviceAbout } from './builtin-app-about.ts'
 import { useDevExtApps } from './dev-ext-apps-context.tsx'
 import { useMenuBar } from './menu-bar-context.tsx'
-import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
+import type { MenuDefinition, MenuItem, MenuItemLeaf, MenuItemSubItem } from './menu-bar-types.ts'
 import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
 import { BatteryStatusPanel, CloudServiceStatusPanel } from './menu-bar-status-panels.tsx'
 import { MenuBarVolumeIcon, MenuBarVolumePanel } from './menu-bar-volume-panel.tsx'
@@ -135,25 +135,32 @@ function useMenuBarNarrowLayout(): boolean {
   return narrowLayout
 }
 
+// 窄屏 sheet 无法钻取子菜单，嵌套的子菜单递归平铺成一级列表（分隔线保留层级间分隔）。
 function toAdaptiveMenuItems(
-  items: MenuItemLeaf[],
+  items: MenuItemSubItem[],
   onParentClose: () => void,
 ): AdaptiveActionMenuItem[] {
-  return items.map((item) => {
+  return items.flatMap((item) => {
     if (item.type === 'separator') {
-      return { type: 'separator' }
+      return [{ type: 'separator' as const }]
     }
 
-    return {
-      type: 'action',
-      label: item.label,
-      disabled: item.disabled,
-      shortcut: item.shortcut,
-      onClick: () => {
-        item.onClick()
-        onParentClose()
-      },
+    if (item.type === 'submenu') {
+      return toAdaptiveMenuItems(item.items, onParentClose)
     }
+
+    return [
+      {
+        type: 'action' as const,
+        label: item.label,
+        disabled: item.disabled,
+        shortcut: item.shortcut,
+        onClick: () => {
+          item.onClick()
+          onParentClose()
+        },
+      },
+    ]
   })
 }
 
@@ -275,6 +282,16 @@ function MenuDropdownSubmenu({
           {item.items.map((subItem, index) => {
             if (subItem.type === 'separator') {
               return <div key={`sep-${index}`} class="menu-bar__separator" role="separator" />
+            }
+            if (subItem.type === 'submenu') {
+              return (
+                <MenuDropdownSubmenu
+                  key={`${item.label}-${subItem.label}`}
+                  item={subItem}
+                  onClose={onClose}
+                  narrowLayout={narrowLayout}
+                />
+              )
             }
             return (
               <MenuDropdownAction

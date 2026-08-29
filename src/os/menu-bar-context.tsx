@@ -3,7 +3,7 @@ import { createContext } from 'preact'
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { bindMenusToLive } from './menu-bar-live-handlers.ts'
 import type { AppId } from './types.ts'
-import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
+import type { MenuDefinition, MenuItem } from './menu-bar-types.ts'
 
 type MenuBarContextValue = {
   menusByApp: Record<string, MenuDefinition[]>
@@ -13,20 +13,20 @@ type MenuBarContextValue = {
 
 const MenuBarContext = createContext<MenuBarContextValue | undefined>(undefined)
 
-function leafItemSignature(item: MenuItemLeaf): string | [string, boolean, string, string] {
+type MenuEntrySignature =
+  | string
+  | [string, boolean, string, string]
+  | [string, 'submenu', MenuEntrySignature[]]
+
+function menuItemSignature(item: MenuItem): MenuEntrySignature {
+  if (item.type === 'submenu') {
+    // 子菜单可嵌套：签名随条目树递归展开。
+    return [item.label, 'submenu', item.items.map(menuItemSignature)]
+  }
   if (item.type === 'separator') {
     return '|'
   }
   return [item.label, item.disabled ?? false, item.shortcut ?? '', item.id ?? '']
-}
-
-function menuItemSignature(
-  item: MenuItem,
-): string | [string, boolean, string, string] | [string, 'submenu', unknown[]] {
-  if (item.type === 'submenu') {
-    return [item.label, 'submenu', item.items.map(leafItemSignature)]
-  }
-  return leafItemSignature(item)
 }
 
 function menuSignature(menus: MenuDefinition[]): string {

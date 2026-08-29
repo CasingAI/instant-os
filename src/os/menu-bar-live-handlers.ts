@@ -24,7 +24,7 @@ function bindItem(getLive: () => MenuItem | undefined, item: MenuItem): MenuItem
     return {
       ...item,
       items: item.items.map((child, childIndex) =>
-        bindLeaf(() => {
+        bindItem(() => {
           const liveItem = getLive()
           if (!liveItem || liveItem.type !== 'submenu') {
             return undefined

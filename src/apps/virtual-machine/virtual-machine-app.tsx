@@ -5,10 +5,6 @@ import { useOs } from '../../os/os-context.tsx'
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
-import {
-  AdaptiveActionMenu,
-  type AdaptiveActionMenuItem,
-} from '../../ui/adaptive-action-menu.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
@@ -66,14 +62,17 @@ import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 import { VirtualMachineSettingsDialog } from './virtual-machine-settings-dialog.tsx'
 import {
   addVirtualMachine,
+  moveVirtualMachine,
   nextVirtualMachineName,
   readVirtualMachineStore,
   removeVirtualMachine,
+  setLastSelectedVirtualMachine,
   subscribeVirtualMachineStore,
   updateVirtualMachine,
 } from './virtual-machine-store.ts'
 import type { VirtualMachineRecord, VirtualMachineSettings } from './virtual-machine-types.ts'
 import { VM_DISPLAY_MODE_IDS, type VmDisplayModeId } from './virtual-machine-types.ts'
+import { useVirtualMachineRowReorder } from './use-virtual-machine-row-reorder.ts'
 import './virtual-machine.css'
 
 const APP_ID = 'virtual-machine' as const
@@ -129,9 +128,82 @@ function isVmHostTypingTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 }
 
+type VirtualMachineListRowProps = {
+  machine: VirtualMachineRecord
+  index: number
+  active: boolean
+  running: boolean
+  starting: boolean
+  dragging: boolean
+  reorderingEnabled: boolean
+  onFocus: () => void
+  onOpenSettings: () => void
+  onReorderStart: (itemId: string, index: number) => void
+  onReorderMove: (clientY: number) => void
+  onReorderEnd: () => void
+}
+
+function VirtualMachineListRow({
+  machine,
+  index,
+  active,
+  running,
+  starting,
+  dragging,
+  reorderingEnabled,
+  onFocus,
+  onOpenSettings,
+  onReorderStart,
+  onReorderMove,
+  onReorderEnd,
+}: VirtualMachineListRowProps) {
+  const { onClick, onPointerDown } = useVirtualMachineRowReorder({
+    itemId: machine.id,
+    index,
+    reorderingEnabled,
+    onOpen: onFocus,
+    onReorderStart,
+    onReorderMove,
+    onReorderEnd,
+  })
+  const statusClass = starting
+    ? 'virtual-machine__status-dot virtual-machine__status-dot--starting'
+    : running
+      ? 'virtual-machine__status-dot virtual-machine__status-dot--running'
+      : 'virtual-machine__status-dot'
+  const statusLabel = starting ? '启动中' : running ? '运行中' : '已停止'
+  return (
+    <li>
+      <button
+        type="button"
+        class={
+          'virtual-machine__row' +
+          (active ? ' virtual-machine__row--active' : '') +
+          (dragging ? ' virtual-machine__row--dragging' : '')
+        }
+        aria-current={active ? 'true' : undefined}
+        onClick={onClick}
+        onDblClick={onOpenSettings}
+        onPointerDown={onPointerDown}
+      >
+        <span class="virtual-machine__row-name">
+          {machine.name}
+          <span class={statusClass} aria-label={statusLabel} />
+        </span>
+        <span class="virtual-machine__row-meta">{formatMachineMeta(machine)}</span>
+      </button>
+    </li>
+  )
+}
+
 export function VirtualMachineApp({ windowId }: { windowId?: string }) {
-  const { activeWindowId } = useOs()
+  const { activeWindowId, toggleFullscreen, windows } = useOs()
   const isActiveWindow = windowId === undefined || windowId === activeWindowId
+  // 「视图 > 全屏」作用于本窗口；windowId 缺省时退回当前活动窗口。
+  const ownWindowId = windowId ?? activeWindowId
+  const vmWindowFullscreen =
+    ownWindowId !== undefined &&
+    windows.find((window) => window.id === ownWindowId)?.fullscreen === true
   const modal = useWindowModal()
   const runtimeOrigin = getVmRuntimeOrigin()
   const pool = useVirtualMachineRuntimePool(runtimeOrigin, {
@@ -153,6 +225,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   })
   const [machines, setMachines] = useState<VirtualMachineRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
+  /** 列表拖拽会话：拖拽中条目在 displayMachines 里实时让位，松手才 moveVirtualMachine 落盘。 */
+  const [reorder, setReorder] = useState<{ id: string; toIndex: number } | undefined>(undefined)
+  const reorderRef = useRef<{ id: string; toIndex: number } | undefined>(undefined)
+  const listRef = useRef<HTMLUListElement>(null)
   const [powerBusy, setPowerBusy] = useState(false)
   const [powerHint, setPowerHint] = useState<string | undefined>(undefined)
   /** 客机关机命令已发出、正等客机断电的时间点；null = 无待收口的关机。 */
@@ -161,6 +237,20 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     () => machines.find((machine) => machine.id === selectedId),
     [machines, selectedId],
   )
+  // 拖拽中的临时顺序：把拖拽条目实时挪到 toIndex，其余条目让位；松手才落盘。
+  const displayMachines = useMemo(() => {
+    if (!reorder) {
+      return machines
+    }
+    const from = machines.findIndex((machine) => machine.id === reorder.id)
+    if (from === -1) {
+      return machines
+    }
+    const next = [...machines]
+    const [moved] = next.splice(from, 1)
+    next.splice(Math.min(Math.max(reorder.toIndex, 0), next.length), 0, moved)
+    return next
+  }, [machines, reorder])
   const selectedRunning = Boolean(selected && pool.runningIds.includes(selected.id))
   // 运行时存活：true=已就绪；false=未响应；undefined=探测中。
   // 点开机之前 iframe 还不存在，没人能发 postMessage，只能由宿主发请求确认。
@@ -170,20 +260,21 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const [settingsSession, setSettingsSession] = useState<SettingsSession | undefined>(undefined)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [guestKeyboardArmed, setGuestKeyboardArmed] = useState(false)
-  const [sendKeysAnchor, setSendKeysAnchor] = useState<{ x: number; y: number } | undefined>(
-    undefined,
-  )
-  const { hostRef: narrowHostRef, narrowLayout } = useAppNarrowLayout()
+  const { hostRef: narrowHostRef } = useAppNarrowLayout()
   const keyboardSinkRef = useRef<HTMLDivElement>(null)
   const settingsOpenRef = useRef(false)
   const inspectorOpenRef = useRef(false)
   const stealFocusTokenRef = useRef(0)
 
-  const applyStore = useCallback((next: VirtualMachineRecord[]) => {
+  const applyStore = useCallback((next: VirtualMachineRecord[], preferredId?: string) => {
     setMachines(next)
     setSelectedId((current) => {
       if (current && next.some((machine) => machine.id === current)) {
         return current
+      }
+      // 没有有效选中时优先恢复「上一次选中的机器」（打开 App / 选中机器被删后的回落）。
+      if (preferredId && next.some((machine) => machine.id === preferredId)) {
+        return preferredId
       }
       return next[0]?.id
     })
@@ -195,7 +286,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     const refresh = () => {
       void readVirtualMachineStore().then((store) => {
         if (!cancelled) {
-          applyStore(store.machines)
+          applyStore(store.machines, store.lastSelectedId)
         }
       })
     }
@@ -720,6 +811,58 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     setPowerHint(undefined)
   }, [selected])
 
+  const focusMachine = useCallback((machineId: string) => {
+    setSelectedId(machineId)
+    setPowerHint(undefined)
+    // 记住「上一次选中的机器」，下次打开 App 自动恢复。落盘失败不阻断交互。
+    void setLastSelectedVirtualMachine(machineId).catch(() => {})
+  }, [])
+
+  // 拖拽落点：指针 Y 越过多少行的垂直中点，就是目标插入位。
+  // 会话以 ref 为准：hook 在 pointerdown 时就闭包了 onReorderEnd，
+  // 拖拽中的 state 更新它读不到，只有 ref 能把最新落点带到松手那一刻。
+  const handleReorderStart = useCallback((itemId: string, index: number) => {
+    const session = { id: itemId, toIndex: index }
+    reorderRef.current = session
+    setReorder(session)
+  }, [])
+
+  const handleReorderMove = useCallback((clientY: number) => {
+    const list = listRef.current
+    const current = reorderRef.current
+    if (!list || !current) {
+      return
+    }
+    let toIndex = 0
+    for (const row of Array.from(list.querySelectorAll<HTMLLIElement>(':scope > li'))) {
+      const rect = row.getBoundingClientRect()
+      if (clientY > rect.top + rect.height / 2) {
+        toIndex += 1
+      }
+    }
+    if (current.toIndex === toIndex) {
+      return
+    }
+    const next = { ...current, toIndex }
+    reorderRef.current = next
+    setReorder(next)
+  }, [])
+
+  const handleReorderEnd = useCallback(() => {
+    const session = reorderRef.current
+    reorderRef.current = undefined
+    setReorder(undefined)
+    if (!session) {
+      return
+    }
+    const from = machines.findIndex((machine) => machine.id === session.id)
+    if (from !== -1 && session.toIndex !== from) {
+      void moveVirtualMachine(session.id, session.toIndex).catch((error: unknown) => {
+        showVmError(error instanceof Error ? error.message : '调整虚拟机顺序失败')
+      })
+    }
+  }, [machines, showVmError])
+
   const handleSaveSettings = useCallback(
     async (settings: VirtualMachineSettings) => {
       if (!settingsSession) {
@@ -727,7 +870,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       }
       if (settingsSession.mode === 'create') {
         const machine = await addVirtualMachine(settings)
-        setSelectedId(machine.id)
+        focusMachine(machine.id)
       } else {
         await updateVirtualMachine(settingsSession.id, settings)
         if (pool.runningIds.includes(settingsSession.id)) {
@@ -744,7 +887,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       setSettingsSession(undefined)
       setPowerHint(undefined)
     },
-    [pool, settingsSession, showVmError],
+    [focusMachine, pool, settingsSession, showVmError],
   )
 
   const handleDisplayMode = useCallback(
@@ -797,10 +940,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       const index = machines.findIndex((machine) => machine.id === target.id)
       const remaining = await removeVirtualMachine(target.id)
       const next = remaining[Math.min(Math.max(index, 0), Math.max(remaining.length - 1, 0))]
-      setSelectedId(next?.id)
+      if (next) {
+        focusMachine(next.id)
+      } else {
+        setSelectedId(undefined)
+      }
       setPowerHint(undefined)
     })()
-  }, [machines, modal, pool, selected, showVmError])
+  }, [focusMachine, machines, modal, pool, selected, showVmError])
 
   const handlePower = useCallback(
     (action: 'start' | 'shutdown' | 'stop' | 'reset') => {
@@ -962,26 +1109,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [displayedId, pool.sendKeyboard],
   )
 
-  const sendKeysMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
-    return [
-      ...VM_COMBO_KEY_PRESETS.map((preset) => ({
-        type: 'action' as const,
-        label: preset.label,
-        onClick: () => handleSendKeyPreset(preset),
-      })),
-      { type: 'separator' as const },
-      {
-        type: 'submenu',
-        label: '功能键',
-        items: VM_FUNCTION_KEY_PRESETS.map((preset) => ({
-          type: 'action' as const,
-          label: preset.label,
-          onClick: () => handleSendKeyPreset(preset),
-        })),
-      },
-    ]
-  }, [handleSendKeyPreset])
-
   const handleBootError = useCallback(
     (machineId: string, message: string, detail?: string) => {
       pool.onBootError(machineId, message, detail)
@@ -1025,6 +1152,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [machines, pool.armDiskWriteFailedWatchdog],
   )
 
+  const selectedDisplayMode = selected?.displayMode
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
@@ -1062,28 +1190,57 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           },
           { type: 'separator' },
           {
-            type: 'action',
-            label: '开机',
-            disabled: !canStart,
-            onClick: () => handlePower('start'),
+            type: 'submenu',
+            label: '电源',
+            items: [
+              {
+                type: 'action',
+                label: '开机',
+                disabled: !canStart,
+                onClick: () => handlePower('start'),
+              },
+              {
+                type: 'action',
+                label: '关机',
+                disabled: !canStop,
+                onClick: () => handlePower('shutdown'),
+              },
+              {
+                type: 'action',
+                label: '断电',
+                disabled: !canStop,
+                onClick: () => handlePower('stop'),
+              },
+              {
+                type: 'action',
+                label: '重置',
+                disabled: !canReset,
+                onClick: () => handlePower('reset'),
+              },
+            ],
           },
           {
-            type: 'action',
-            label: '关机',
-            disabled: !canStop,
-            onClick: () => handlePower('shutdown'),
-          },
-          {
-            type: 'action',
-            label: '断电',
-            disabled: !canStop,
-            onClick: () => handlePower('stop'),
-          },
-          {
-            type: 'action',
-            label: '重置',
-            disabled: !canReset,
-            onClick: () => handlePower('reset'),
+            type: 'submenu',
+            label: '发送按键',
+            items: [
+              ...VM_COMBO_KEY_PRESETS.map((preset) => ({
+                type: 'action' as const,
+                label: preset.label,
+                disabled: !canSendKeys,
+                onClick: () => handleSendKeyPreset(preset),
+              })),
+              { type: 'separator' as const },
+              {
+                type: 'submenu' as const,
+                label: '功能键',
+                items: VM_FUNCTION_KEY_PRESETS.map((preset) => ({
+                  type: 'action' as const,
+                  label: preset.label,
+                  disabled: !canSendKeys,
+                  onClick: () => handleSendKeyPreset(preset),
+                })),
+              },
+            ],
           },
           {
             type: 'action',
@@ -1091,21 +1248,63 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             disabled: !canSaveSnapshot,
             onClick: handleSaveSnapshot,
           },
+          {
+            type: 'action',
+            label: '详细信息',
+            disabled: !hasSelection,
+            onClick: () => setInspectorOpen(true),
+          },
+        ],
+      },
+      {
+        label: '视图',
+        items: [
+          {
+            type: 'submenu',
+            label: '屏幕比例',
+            items: VM_DISPLAY_MODE_IDS.map((mode) => ({
+              type: 'action' as const,
+              label:
+                selectedDisplayMode === mode
+                  ? `✓ ${formatVmDisplayModeLabel(mode)}`
+                  : formatVmDisplayModeLabel(mode),
+              disabled: !hasSelection,
+              onClick: () => void handleDisplayMode(mode),
+            })),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: vmWindowFullscreen ? '✓ 全屏' : '全屏',
+            disabled: ownWindowId === undefined,
+            onClick: () => {
+              if (ownWindowId !== undefined) {
+                toggleFullscreen(ownWindowId)
+              }
+            },
+          },
         ],
       },
     ]
   }, [
     canReset,
     canSaveSnapshot,
+    canSendKeys,
     canStart,
     canStop,
-    handleSaveSnapshot,
     handleDelete,
+    handleDisplayMode,
     handleNew,
     handlePower,
+    handleSaveSnapshot,
+    handleSendKeyPreset,
     handleSettings,
     hasSelection,
+    ownWindowId,
     powerBusy,
+    selectedDisplayMode,
+    toggleFullscreen,
+    vmWindowFullscreen,
   ])
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)
@@ -1182,16 +1381,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               ? '已关机。点开机启动。'
               : undefined
 
-  const focusMachine = useCallback(
-    (machineId: string) => {
-      setSelectedId(machineId)
-      setPowerHint(undefined)
-    },
-    [],
-  )
-
   return (
-    <div class="virtual-machine" ref={narrowHostRef}>
+    <div
+      class={`virtual-machine${vmWindowFullscreen ? ' virtual-machine--fullscreen' : ''}`}
+      ref={narrowHostRef}
+    >
       <div class="virtual-machine__toolbar" onPointerDown={releaseGuestKeyboard}>
         <div class="virtual-machine__toolbar-actions">
           <IosButton size="compact" onClick={handleNew}>
@@ -1215,22 +1409,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           </IosButton>
           <IosButton size="compact" disabled={!canReset} onClick={() => handlePower('reset')}>
             重置
-          </IosButton>
-          <IosButton
-            size="compact"
-            disabled={!canSendKeys}
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect()
-              setSendKeysAnchor({ x: rect.left, y: rect.bottom + 4 })
-            }}
-          >
-            发送按键
-          </IosButton>
-          <IosButton size="compact" disabled={!canSaveSnapshot} onClick={handleSaveSnapshot}>
-            保存快照
-          </IosButton>
-          <IosButton size="compact" disabled={!selected} onClick={() => setInspectorOpen(true)}>
-            详细信息
           </IosButton>
         </div>
         {selected ? (
@@ -1259,47 +1437,40 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           {machines.length === 0 && ready ? (
             <p class="virtual-machine__list-empty">还没有虚拟机。点「新建」添加一台。</p>
           ) : (
-            <ul class="virtual-machine__list">
-              {machines.map((machine) => {
-                const active = machine.id === selectedId
+            <ul
+              class={
+                reorder
+                  ? 'virtual-machine__list virtual-machine__list--reordering'
+                  : 'virtual-machine__list'
+              }
+              ref={listRef}
+            >
+              {displayMachines.map((machine, index) => {
                 const running = pool.runningIds.includes(machine.id)
                 const snapshot = pool.snapshots.get(machine.id)
-                const starting = running && snapshot && !snapshot.ready
-                const statusClass = starting
-                  ? 'virtual-machine__status-dot virtual-machine__status-dot--starting'
-                  : running
-                    ? 'virtual-machine__status-dot virtual-machine__status-dot--running'
-                    : 'virtual-machine__status-dot'
-                const statusLabel = starting ? '启动中' : running ? '运行中' : '已停止'
                 return (
-                  <li key={machine.id}>
-                    <button
-                      type="button"
-                      class={
-                        active
-                          ? 'virtual-machine__row virtual-machine__row--active'
-                          : 'virtual-machine__row'
-                      }
-                      aria-current={active ? 'true' : undefined}
-                      onClick={() => focusMachine(machine.id)}
-                      onDblClick={() => {
-                        focusMachine(machine.id)
-                        setSettingsSession({
-                          mode: 'edit',
-                          id: machine.id,
-                          initial: settingsFromRecord(machine),
-                        })
-                      }}
-                    >
-                      <span class="virtual-machine__row-name">
-                        {machine.name}
-                        <span class={statusClass} aria-label={statusLabel} />
-                      </span>
-                      <span class="virtual-machine__row-meta">
-                        {formatMachineMeta(machine)}
-                      </span>
-                    </button>
-                  </li>
+                  <VirtualMachineListRow
+                    key={machine.id}
+                    machine={machine}
+                    index={index}
+                    active={machine.id === selectedId}
+                    running={running}
+                    starting={Boolean(running && snapshot && !snapshot.ready)}
+                    dragging={reorder?.id === machine.id}
+                    reorderingEnabled={reorder !== undefined}
+                    onFocus={() => focusMachine(machine.id)}
+                    onOpenSettings={() => {
+                      focusMachine(machine.id)
+                      setSettingsSession({
+                        mode: 'edit',
+                        id: machine.id,
+                        initial: settingsFromRecord(machine),
+                      })
+                    }}
+                    onReorderStart={handleReorderStart}
+                    onReorderMove={handleReorderMove}
+                    onReorderEnd={handleReorderEnd}
+                  />
                 )
               })}
             </ul>
@@ -1359,7 +1530,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               <div class="virtual-machine__screen-message">正在连接模拟器…</div>
             ) : null}
           </div>
-          <div onPointerDown={releaseGuestKeyboard}>
+          <div
+            class="virtual-machine__activity-slot"
+            onPointerDown={releaseGuestKeyboard}
+          >
             <VirtualMachineActivity
               stats={selectedSnapshot?.stats}
               running={selectedRunning && !displayedBusy}
@@ -1377,15 +1551,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           ) : null}
         </section>
       </div>
-      <AdaptiveActionMenu
-        open={sendKeysAnchor !== undefined}
-        title="发送按键"
-        items={sendKeysMenuItems}
-        narrowLayout={narrowLayout}
-        mount="portal"
-        anchor={sendKeysAnchor}
-        onClose={() => setSendKeysAnchor(undefined)}
-      />
       <VirtualMachineSettingsDialog
         open={settingsOpen}
         mode={settingsSession?.mode ?? 'create'}

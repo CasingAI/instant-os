@@ -62,6 +62,26 @@
   font-size: 11px;
 }
 
+/* 全屏（视图 > 全屏）：窗口内只留屏幕画面，工具栏、列表、运行详情全部让位。 */
+.virtual-machine--fullscreen .virtual-machine__toolbar,
+.virtual-machine--fullscreen .virtual-machine__list-pane,
+.virtual-machine--fullscreen .virtual-machine__activity-slot {
+  display: none;
+}
+
+.virtual-machine--fullscreen .virtual-machine__body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.virtual-machine--fullscreen .virtual-machine__monitors {
+  margin: 0;
+  gap: 0;
+}
+
+.virtual-machine--fullscreen .virtual-machine__screen {
+  border-radius: 0;
+}
+
 .virtual-machine__body {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -109,6 +129,10 @@
   font: inherit;
   text-align: left;
   cursor: default;
+  /* 长按拖拽排序：按住期间不让浏览器起文本选择/长按弹单。 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .virtual-machine__row:hover {
@@ -123,6 +147,23 @@
 
 .virtual-machine__row--active:hover {
   background: linear-gradient(180deg, #7fc0ff 0%, #3a92ea 55%, #2578d4 100%);
+}
+
+/* 拖拽中的行：压在让位的行之上并浮起。 */
+.virtual-machine__row--dragging {
+  position: relative;
+  z-index: 1;
+  opacity: 0.85;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.virtual-machine__list--reordering .virtual-machine__row:hover {
+  background: transparent;
+}
+
+.virtual-machine__list--reordering .virtual-machine__row--active,
+.virtual-machine__list--reordering .virtual-machine__row--active:hover {
+  background: var(--vm-selected);
 }
 
 .virtual-machine__row-name {

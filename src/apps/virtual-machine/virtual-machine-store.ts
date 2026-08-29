@@ -281,6 +281,16 @@ const registryStore = createRegistryStore<VirtualMachineStore>({
       write: (value, draft) => ({ ...draft, machines: value }),
       normalize: normalizeVirtualMachines,
     },
+    {
+      key: 'lastSelectedId',
+      read: (store) => store.lastSelectedId,
+      write: (value, draft) => ({ ...draft, lastSelectedId: value }),
+      serialize: (value) => value ?? '',
+      deserialize: (raw) => {
+        const trimmed = raw?.trim()
+        return trimmed ? trimmed : undefined
+      },
+    },
   ],
   changedEventName: VIRTUAL_MACHINE_STORE_CHANGED_EVENT,
 })
@@ -299,7 +309,11 @@ export async function readVirtualMachineStore(): Promise<VirtualMachineStore> {
 }
 
 export async function writeVirtualMachineStore(store: VirtualMachineStore): Promise<void> {
+  // 调用方通常只传 machines；合并当前值，避免把 lastSelectedId 等其他字段清掉。
+  const current = await readVirtualMachineStore()
   await registryStore.write({
+    ...current,
+    ...store,
     machines: normalizeVirtualMachines(store.machines),
   })
 }
@@ -342,6 +356,31 @@ export async function updateVirtualMachine(
 export async function removeVirtualMachine(id: string): Promise<VirtualMachineRecord[]> {
   const store = await readVirtualMachineStore()
   const machines = store.machines.filter((machine) => machine.id !== id)
+  await writeVirtualMachineStore({ machines })
+  return machines
+}
+
+export async function setLastSelectedVirtualMachine(id: string): Promise<void> {
+  const store = await readVirtualMachineStore()
+  if (store.lastSelectedId === id) {
+    return
+  }
+  await registryStore.write({ ...store, lastSelectedId: id })
+}
+
+export async function moveVirtualMachine(
+  id: string,
+  toIndex: number,
+): Promise<VirtualMachineRecord[]> {
+  const store = await readVirtualMachineStore()
+  const from = store.machines.findIndex((machine) => machine.id === id)
+  if (from === -1) {
+    return store.machines
+  }
+  const machines = [...store.machines]
+  const [moved] = machines.splice(from, 1)
+  const target = Math.min(Math.max(toIndex, 0), machines.length)
+  machines.splice(target, 0, moved)
   await writeVirtualMachineStore({ machines })
   return machines
 }
