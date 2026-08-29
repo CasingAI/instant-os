@@ -83,6 +83,10 @@ const POWER_HINT_MS = 4000
 const VM_AGENT_POLL_MS = 5_000
 /** PONG 年龄超过约 3 个 PING 周期视为失联（agent 挂了 hint 自动消失）。 */
 const VM_AGENT_PONG_MAX_AGE_MS = 15_000
+/** 现场验证时补发 PING，等一个串口往返的余量再重读 state。 */
+const VM_AGENT_PONG_RECHECK_DELAY_MS = 300
+/** 点关机遇状态灯 off 的现场验证上限；超过即按真失联处理。 */
+const VM_AGENT_VERIFY_TIMEOUT_MS = 3_000
 /** 宿主剪贴板轮询周期（推给客机的方向）；客机→宿主由客机侧 150ms 轮询自发上行。 */
 const VM_CLIPBOARD_SYNC_POLL_MS = 1_000
 /** 页面失焦时浏览器拒绝读写剪贴板；连续失败到该秒数才提示（首次失败属预期）。 */
@@ -294,6 +298,34 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const selectedHint = selected ? pool.hints.get(selected.id) : undefined
   const [agentLink, setAgentLink] = useState<'off' | 'command' | 'full'>('off')
 
+  // 现场连通验证：补一刀 PING，等一个串口往返的余量后重读 state，以新鲜的
+  // lastPongAgeMs 为准。后台标签页节流会把 PING 拖过期，状态灯 off 里大量是
+  // 这种假掉线；真断（agent 进程没了）不会有新 PONG，读数依旧过期。
+  const verifyAgentAlive = useCallback(
+    async (machineId: string): Promise<boolean> => {
+      try {
+        await pool.agentCommand(machineId, 'ping')
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, VM_AGENT_PONG_RECHECK_DELAY_MS)
+        })
+        const state = (await pool.agentCommand(machineId, 'state')) as
+          | { lastPongAgeMs?: number | null; shmBase?: number | null }
+          | undefined
+        const commandOk =
+          typeof state?.lastPongAgeMs === 'number' &&
+          state.lastPongAgeMs < VM_AGENT_PONG_MAX_AGE_MS
+        if (!document.hidden) {
+          const mailboxOk = typeof state?.shmBase === 'number' && state.shmBase > 0
+          setAgentLink(!commandOk ? 'off' : mailboxOk ? 'full' : 'command')
+        }
+        return commandOk
+      } catch {
+        return false
+      }
+    },
+    [pool.agentCommand],
+  )
+
   // agent 连通探测：轮询 __vm.state()。两条链独立判定——串口命令链看
   // lastPongAgeMs（PING→PONG），剪贴板信箱看 shmBase（SHM= 握手）；
   // 只亮命令链也要如实显示，否则信箱半通/全断会被误读成全通。
@@ -304,7 +336,26 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
     let cancelled = false
     let timer = 0
+    let checking = false
+    // 隐藏期间 setTimeout 被浏览器节流，PING→PONG 读数必然失真，据其降级只会
+    // 制造「切回来变未连接」的假象；读数照刷，状态只在可见时更新。
+    const applyState = (
+      state: { lastPongAgeMs?: number | null; shmBase?: number | null } | undefined,
+    ) => {
+      if (cancelled || document.hidden) {
+        return
+      }
+      const commandOk =
+        typeof state?.lastPongAgeMs === 'number' &&
+        state.lastPongAgeMs < VM_AGENT_PONG_MAX_AGE_MS
+      const mailboxOk = typeof state?.shmBase === 'number' && state.shmBase > 0
+      setAgentLink(!commandOk ? 'off' : mailboxOk ? 'full' : 'command')
+    }
     const check = async () => {
+      if (checking) {
+        return
+      }
+      checking = true
       try {
         const state = (await pool.agentCommand(selectedId, 'state')) as
           | { lastPongAgeMs?: number | null; shmBase?: number | null }
@@ -312,32 +363,52 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         const commandOk =
           typeof state?.lastPongAgeMs === 'number' &&
           state.lastPongAgeMs < VM_AGENT_PONG_MAX_AGE_MS
-        const mailboxOk = typeof state?.shmBase === 'number' && state.shmBase > 0
-        if (!cancelled) {
-          setAgentLink(!commandOk ? 'off' : mailboxOk ? 'full' : 'command')
+        if (commandOk || document.hidden) {
+          applyState(state)
+        } else if (!cancelled) {
+          // 可见却 pong 过期，多半是刚切回页面：现场补一刀尽快翻正，
+          // 不必等下个轮询周期。
+          await verifyAgentAlive(selectedId)
         }
       } catch {
-        if (!cancelled) {
+        // state 调用本身挂了（运行时不可达）才算真失联；隐藏期间不降级。
+        if (!cancelled && !document.hidden) {
           setAgentLink('off')
         }
+      } finally {
+        checking = false
+      }
+      if (!cancelled) {
+        window.clearTimeout(timer)
+        timer = window.setTimeout(() => {
+          void check()
+        }, VM_AGENT_POLL_MS)
       }
     }
-    const loop = () => {
-      timer = window.setTimeout(() => {
-        void check().finally(() => {
-          if (!cancelled) {
-            loop()
-          }
-        })
-      }, VM_AGENT_POLL_MS)
+    // 切回标签页/窗口聚焦立即复查并顺延下个周期：等 5s 定时器自然触发的话，
+    // 用户头几秒的点关机会被过期状态误拦。
+    const poke = () => {
+      if (cancelled || checking) {
+        return
+      }
+      window.clearTimeout(timer)
+      void check()
     }
+    const onVisible = () => {
+      if (!document.hidden) {
+        poke()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', poke)
     void check()
-    loop()
     return () => {
       cancelled = true
       window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', poke)
     }
-  }, [pool.agentCommand, selectedId, selectedRunning])
+  }, [pool.agentCommand, selectedId, selectedRunning, verifyAgentAlive])
 
   const statusHint =
     powerHint ??
@@ -773,19 +844,31 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         trace('power-skipped', { reason: 'not-running' })
         return
       }
-      // 软关机只依赖串口命令链；信箱没就绪不影响关机，不必拦。
-      if (action === 'shutdown' && agentLink === 'off') {
-        trace('power-skipped', { reason: 'agent-not-connected' })
-        showVmError('客机 Agent 未连通，关机命令无法送达')
-        return
-      }
-
       const machine = selected
       void (async () => {
         setPowerBusy(true)
         let waitForGuestShutdown = false
         try {
           if (action === 'shutdown') {
+            // 软关机只依赖串口命令链，信箱没就绪不影响关机，不必拦。状态灯 off
+            // 里有大量「假掉线」——后台标签页节流把 PING 拖过期了——现场补一刀
+            // PING 再决定拦不拦：真断才弹错，假掉线直接放行关机。
+            if (agentLink === 'off') {
+              setPowerHint('正在确认 Agent 连接…')
+              trace('power-agent-verify')
+              const alive = await Promise.race([
+                verifyAgentAlive(machine.id),
+                new Promise<false>((resolve) => {
+                  window.setTimeout(() => resolve(false), VM_AGENT_VERIFY_TIMEOUT_MS)
+                }),
+              ])
+              if (!alive) {
+                setPowerHint(undefined)
+                trace('power-skipped', { reason: 'agent-not-connected' })
+                showVmError('客机 Agent 未连通，关机命令无法送达')
+                return
+              }
+            }
             // XP 软关机：agent SHUTDOWN → ExitWindowsEx → 客机切电 →
             // guest-poweroff watcher → 宿主侧写回落盘 → runningIds 移除（收口）。
             // 成功后保持 busy，等待收口 effect；失败（agent 不可达）弹窗告知。
@@ -823,7 +906,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         }
       })()
     },
-    [agentLink, pool, runtimeOrigin, selected, selectedBackend, showVmError],
+    [agentLink, pool, runtimeOrigin, selected, selectedBackend, showVmError, verifyAgentAlive],
   )
 
   const handleSaveSnapshot = useCallback(() => {
