@@ -28,6 +28,7 @@ import {
   isVmNetworkId,
   isVmPcTypeId,
   isVmPointerModeId,
+  isVmOsPresetId,
   isVmVgaMemoryMb,
   acpiFromPcType,
   pcTypeFromAcpi,
@@ -41,6 +42,7 @@ import {
   VM_MEMORY_MB_STEP,
   VM_NETWORK_BACKEND_CHOICES,
   VM_NETWORK_CHOICES,
+  VM_OS_PRESET_CHOICES,
   VM_PC_TYPE_CHOICES,
   VM_POINTER_MODE_CHOICES,
   VM_STORAGE_DEVICE_LIMITS,
@@ -73,7 +75,7 @@ import {
 
 const THEME = '#3d5a80'
 
-type SettingsTab = 'general' | 'hardware' | 'storage' | 'devices'
+type SettingsTab = 'general' | 'hardware' | 'storage' | 'devices' | 'experience'
 
 /** 添加映射的两步捕获：先按来源键，再按目标键或从快选里挑。 */
 type KeymapCapture = { step: 'from' } | { step: 'to'; from: VmKeySpec }
@@ -82,6 +84,8 @@ type VirtualMachineSettingsDialogProps = {
   open: boolean
   mode: 'create' | 'edit'
   initial: VirtualMachineSettings
+  /** 正在编辑的这台是否在运行：重启才生效的选项置灰，立即生效的照常可改。 */
+  running?: boolean
   onClose: () => void
   onSave: (settings: VirtualMachineSettings) => Promise<void>
 }
@@ -91,6 +95,7 @@ const TAB_ITEMS = [
   { id: 'hardware', label: '硬件' },
   { id: 'storage', label: '存储' },
   { id: 'devices', label: '外设' },
+  { id: 'experience', label: '体验增强' },
 ] as const
 
 type VmDeviceId = 'network' | 'speaker' | 'keyboard' | 'mouse'
@@ -163,6 +168,7 @@ export function VirtualMachineSettingsDialog({
   open,
   mode,
   initial,
+  running = false,
   onClose,
   onSave,
 }: VirtualMachineSettingsDialogProps) {
@@ -468,7 +474,7 @@ export function VirtualMachineSettingsDialog({
               }}
               wideLayout
               presentation="form"
-              disabled={busy}
+              disabled={busy || running}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
             />
@@ -486,7 +492,7 @@ export function VirtualMachineSettingsDialog({
               }}
               wideLayout
               presentation="form"
-              disabled={busy}
+              disabled={busy || running}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
             />
@@ -509,16 +515,9 @@ export function VirtualMachineSettingsDialog({
               只影响画面呈现，不改客户机内部分辨率；运行中也能在工具栏切换。
             </p>
             <SwitchRow
-              label="分辨率自动对齐"
-              checked={draft.resolutionAutoAlign}
-              disabled={busy}
-              detail="窗口尺寸变化时，客机分辨率跟随宿主画面 1:1 切换（需客机内装有对齐代理，未装时静默无效果）。改动保存后重新开机生效。"
-              onChange={(resolutionAutoAlign) => patch({ resolutionAutoAlign })}
-            />
-            <SwitchRow
               label="快速启动"
               checked={draft.fastboot}
-              disabled={busy}
+              disabled={busy || running}
               detail="跳过 Bochs BIOS 启动菜单。"
               onChange={(fastboot) => patch({ fastboot })}
             />
@@ -572,7 +571,7 @@ export function VirtualMachineSettingsDialog({
                       max={VM_MEMORY_MB_MAX}
                       step={VM_MEMORY_MB_STEP}
                       suffix="MB"
-                      disabled={busy}
+                      disabled={busy || running}
                       onChange={(mb) => patch({ memoryMb: mb })}
                     />
                     <p class="virtual-machine-settings__hint">
@@ -591,7 +590,7 @@ export function VirtualMachineSettingsDialog({
                       max={16}
                       step={2}
                       suffix="MB"
-                      disabled={busy}
+                      disabled={busy || running}
                       onChange={(vgaMemoryMb) => {
                         if (isVmVgaMemoryMb(vgaMemoryMb)) {
                           patch({ vgaMemoryMb })
@@ -616,7 +615,7 @@ export function VirtualMachineSettingsDialog({
                       }}
                       wideLayout
                       presentation="form"
-                      disabled={busy}
+                      disabled={busy || running}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
                     />
@@ -638,7 +637,7 @@ export function VirtualMachineSettingsDialog({
                       }}
                       wideLayout
                       presentation="form"
-                      disabled={busy}
+                      disabled={busy || running}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
                     />
@@ -664,7 +663,7 @@ export function VirtualMachineSettingsDialog({
               }}
               wideLayout
               presentation="form"
-              disabled={busy}
+              disabled={busy || running}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
             />
@@ -690,7 +689,7 @@ export function VirtualMachineSettingsDialog({
                       class={`virtual-machine-settings__drive${
                         active ? ' virtual-machine-settings__drive--active' : ''
                       }`}
-                      disabled={busy}
+                      disabled={busy || running}
                       onClick={() => setSelectedDeviceId(device.id)}
                     >
                       <span class="virtual-machine-settings__drive-name">
@@ -706,7 +705,7 @@ export function VirtualMachineSettingsDialog({
                   <IosButton
                     size="compact"
                     tone="secondary"
-                    disabled={busy}
+                    disabled={busy || running}
                     onClick={() => setAddModalOpen(true)}
                   >
                     添加设备…
@@ -735,7 +734,7 @@ export function VirtualMachineSettingsDialog({
                         placeholder="未选择"
                         spellcheck={false}
                         autoComplete="off"
-                        disabled={busy}
+                        disabled={busy || running}
                         onInput={(event) =>
                           updateDevice(selectedStorage.id, {
                             path: (event.currentTarget as HTMLInputElement).value,
@@ -744,7 +743,7 @@ export function VirtualMachineSettingsDialog({
                       />
                       <IosButton
                         size="compact"
-                        disabled={busy}
+                        disabled={busy || running}
                         onClick={() => void pickDevicePath(selectedStorage.id)}
                       >
                         选择…
@@ -752,7 +751,7 @@ export function VirtualMachineSettingsDialog({
                       {selectedStorage.type === 'hdd' ? (
                         <IosButton
                           size="compact"
-                          disabled={busy}
+                          disabled={busy || running}
                           onClick={() => openCreateBlankDisk()}
                         >
                           新建…
@@ -761,7 +760,7 @@ export function VirtualMachineSettingsDialog({
                       {selectedStorage.path.trim() ? (
                         <IosButton
                           size="compact"
-                          disabled={busy}
+                          disabled={busy || running}
                           onClick={() => updateDevice(selectedStorage.id, { path: '' })}
                         >
                           清除
@@ -772,7 +771,7 @@ export function VirtualMachineSettingsDialog({
                       <IosButton
                         size="compact"
                         tone="danger"
-                        disabled={busy}
+                        disabled={busy || running}
                         onClick={() => removeDevice(selectedStorage.id)}
                       >
                         删除设备
@@ -855,7 +854,7 @@ export function VirtualMachineSettingsDialog({
                       }}
                       wideLayout
                       presentation="form"
-                      disabled={busy}
+                      disabled={busy || running}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
                     />
@@ -870,7 +869,7 @@ export function VirtualMachineSettingsDialog({
                       }}
                       wideLayout
                       presentation="form"
-                      disabled={busy || draft.network === 'none'}
+                      disabled={busy || running || draft.network === 'none'}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
                     />
@@ -886,7 +885,7 @@ export function VirtualMachineSettingsDialog({
                   <SwitchRow
                     label="扬声器"
                     checked={draft.speaker}
-                    disabled={busy}
+                    disabled={busy || running}
                     detail="PC 喇叭与声音输出，经 iframe 播放。"
                     onChange={(speaker) => patch({ speaker })}
                   />
@@ -896,7 +895,7 @@ export function VirtualMachineSettingsDialog({
                     <SwitchRow
                       label="键盘"
                       checked={draft.keyboard}
-                      disabled={busy}
+                      disabled={busy || running}
                       detail="关闭后客户机收不到按键。"
                       onChange={(keyboard) => patch({ keyboard })}
                     />
@@ -1062,7 +1061,7 @@ export function VirtualMachineSettingsDialog({
                     <SwitchRow
                       label="鼠标"
                       checked={draft.mouse}
-                      disabled={busy}
+                      disabled={busy || running}
                       detail="关闭后客户机收不到指针。"
                       onChange={(mouse) => patch({ mouse })}
                     />
@@ -1091,6 +1090,56 @@ export function VirtualMachineSettingsDialog({
                 ) : null}
               </div>
             </div>
+          </div>
+        ) : null}
+        {tab === 'experience' ? (
+          <div class="virtual-machine-settings__pane">
+            <SettingsChoiceField
+              label="支持的系统"
+              value={draft.osPreset}
+              options={VM_OS_PRESET_CHOICES}
+              onChange={(value) => {
+                if (isVmOsPresetId(value)) {
+                  patch({ osPreset: value })
+                }
+              }}
+              wideLayout
+              presentation="form"
+              disabled={busy || running}
+              fieldClass="virtual-machine-settings__field"
+              labelClass="virtual-machine-settings__label"
+            />
+            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+              下面这些功能依赖客机里已装好的增强组件。开关只控制宿主这一侧要不要参与。
+            </p>
+            <SwitchRow
+              label="剪贴板同步"
+              checked={draft.enhanceClipboard}
+              disabled={busy}
+              detail="关闭后宿主与虚拟机之间不再互相同步文本剪贴板。"
+              onChange={(enhanceClipboard) => patch({ enhanceClipboard })}
+            />
+            <SwitchRow
+              label="文件互传"
+              checked={draft.enhanceFileTransfer}
+              disabled={busy}
+              detail="关闭后宿主与虚拟机之间不能复制、剪切文件。"
+              onChange={(enhanceFileTransfer) => patch({ enhanceFileTransfer })}
+            />
+            <SwitchRow
+              label="绝对坐标鼠标"
+              checked={draft.enhanceAbsoluteMouse}
+              disabled={busy}
+              detail="客机装好 VMware 鼠标驱动后，虚拟机光标 1:1 跟随宿主光标；关闭后客机光标回到普通相对移动。"
+              onChange={(enhanceAbsoluteMouse) => patch({ enhanceAbsoluteMouse })}
+            />
+            <SwitchRow
+              label="分辨率自动对齐"
+              checked={draft.resolutionAutoAlign}
+              disabled={busy}
+              detail="窗口尺寸变化时，客机分辨率跟随宿主画面 1:1 切换（需客机内装有对齐代理，未装时静默无效果）。"
+              onChange={(resolutionAutoAlign) => patch({ resolutionAutoAlign })}
+            />
           </div>
         ) : null}
       </WindowModal>

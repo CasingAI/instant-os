@@ -198,6 +198,8 @@ export type VmRuntimeApi = {
   saveState(): Promise<ArrayBuffer>
   setDisplayMode(mode: InstantVmDisplayMode): Promise<void>
   setPointerMode(mode: InstantVmPointerMode): Promise<void>
+  /** 运行中切换「体验增强·绝对坐标鼠标」放行位。 */
+  setAbsoluteMouse(enabled: boolean): Promise<void>
   setResolution(width: number, height: number): Promise<void>
   sendKeyboard(message: InstantVmKeyboardMessage): void
   captureKeyboard(): void
@@ -502,6 +504,7 @@ export function useVirtualMachineRuntime(
         requestId: string
         type?: string
         mode?: InstantVmDisplayMode | InstantVmPointerMode
+        enabled?: boolean
         width?: number
         height?: number
         method?: string
@@ -586,6 +589,18 @@ export function useVirtualMachineRuntime(
         type: INSTANT_VM_MESSAGE_TYPE.setPointerMode,
         requestId: newVmRequestId(),
         mode,
+      })
+    },
+    [request],
+  )
+
+  // 运行中切换绝对坐标鼠标放行位：无状态命令，重发无害。
+  const setAbsoluteMouse = useCallback(
+    async (enabled: boolean) => {
+      await request({
+        type: INSTANT_VM_MESSAGE_TYPE.setAbsoluteMouse,
+        requestId: newVmRequestId(),
+        enabled,
       })
     },
     [request],
@@ -692,6 +707,7 @@ export function useVirtualMachineRuntime(
     saveState,
     setDisplayMode,
     setPointerMode,
+    setAbsoluteMouse,
     setResolution,
     sendKeyboard,
     captureKeyboard,
@@ -997,6 +1013,17 @@ export function useVirtualMachineRuntimePool(
     [],
   )
 
+  const setActiveAbsoluteMouse = useCallback(
+    async (id: string, enabled: boolean): Promise<void> => {
+      const api = apiByIdRef.current.get(id)
+      if (!api) {
+        return
+      }
+      await api.setAbsoluteMouse(enabled)
+    },
+    [],
+  )
+
   const setActiveResolution = useCallback(
     async (id: string, width: number, height: number): Promise<void> => {
       const api = apiByIdRef.current.get(id)
@@ -1038,6 +1065,7 @@ export function useVirtualMachineRuntimePool(
     agentCommand,
     setActiveDisplayMode,
     setActivePointerMode,
+    setActiveAbsoluteMouse,
     setActiveResolution,
     sendKeyboard,
     captureKeyboard,

@@ -120,6 +120,7 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     ...(cpuidLevel !== undefined ? { cpuidLevel } : {}),
     // 关闭时省略字段：老运行时收到的 start 消息与旧协议逐字节一致。
     ...(settings.resolutionAutoAlign ? { resolutionAutoAlign: true } : {}),
+    ...(settings.enhanceAbsoluteMouse ? {} : { absoluteMouse: false }),
   }
 }
 

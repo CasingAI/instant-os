@@ -19,6 +19,7 @@ import {
   VM_DISPLAY_MODE_IDS,
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
+  VM_OS_PRESET_IDS,
   VM_POINTER_MODE_IDS,
   VM_STORAGE_DEVICE_TYPES,
   VM_VGA_MEMORY_MB_OPTIONS,
@@ -178,6 +179,13 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
     ),
     displayMode: normalizeOneOf(record.displayMode, VM_DISPLAY_MODE_IDS, defaults.displayMode),
     devices: normalizeDevices(record),
+    osPreset: normalizeOneOf(record.osPreset, VM_OS_PRESET_IDS, defaults.osPreset),
+    enhanceClipboard: normalizeBoolean(record.enhanceClipboard, defaults.enhanceClipboard),
+    enhanceFileTransfer: normalizeBoolean(record.enhanceFileTransfer, defaults.enhanceFileTransfer),
+    enhanceAbsoluteMouse: normalizeBoolean(
+      record.enhanceAbsoluteMouse,
+      defaults.enhanceAbsoluteMouse,
+    ),
   }
 }
 

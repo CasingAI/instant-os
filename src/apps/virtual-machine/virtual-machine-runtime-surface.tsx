@@ -18,6 +18,8 @@ export type VmRuntimeSurfaceProps = {
   origin: string | undefined
   buildMode?: string
   startMessage: InstantVmStartMessage | undefined
+  /** 分辨率自动对齐的活开关：来自机器记录（store 刷新即变），运行中切换立即生效。 */
+  resolutionAutoAlign?: boolean
   onRegister: (machineId: string, api: VmRuntimeApi) => void
   onUnregister: (machineId: string) => void
   onStateChange: (machineId: string, snapshot: VmRuntimeSnapshot) => void
@@ -41,6 +43,7 @@ export function VmRuntimeSurface({
   origin,
   buildMode,
   startMessage,
+  resolutionAutoAlign,
   onRegister,
   onUnregister,
   onStateChange,
@@ -73,6 +76,7 @@ export function VmRuntimeSurface({
     saveState,
     setDisplayMode,
     setPointerMode,
+    setAbsoluteMouse,
     setResolution,
     sendKeyboard,
     captureKeyboard,
@@ -97,6 +101,7 @@ export function VmRuntimeSurface({
       saveState,
       setDisplayMode,
       setPointerMode,
+      setAbsoluteMouse,
       setResolution,
       sendKeyboard,
       captureKeyboard,
@@ -114,6 +119,7 @@ export function VmRuntimeSurface({
     reset,
     setDisplayMode,
     setPointerMode,
+    setAbsoluteMouse,
     setResolution,
     sendKeyboard,
     captureKeyboard,
@@ -166,8 +172,9 @@ export function VmRuntimeSurface({
   // 分辨率自动对齐：只观察 iframe 元素本身 —— 它的尺寸完全由宿主布局决定
   // （CSS 绝对定位填满屏幕容器），客机内部切模式不会反过来改变它，从根上
   // 切断「切模式 → 容器变 → 再触发」的反馈震荡（00 §5）。
-  // 开关关闭时（默认）不创建 observer、不发消息，行为与现状一致。
-  const resolutionAlign = resolutionAutoAlignEnabled(startMessage)
+  // 开关读活值（设置保存后 store 刷新带动），运行中切换立即生效；
+  // 关掉即断开观察、客机保持当前分辨率，打开时挂上就对齐一次当前视口。
+  const resolutionAlign = resolutionAutoAlign ?? resolutionAutoAlignEnabled(startMessage)
   useEffect(() => {
     if (!ready || !resolutionAlign) {
       return

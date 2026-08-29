@@ -1,5 +1,11 @@
 # 把 res-agent 装进 XP 镜像 —— 第三期照抄手册
 
+> **已过时（2026-08-29）**：res-agent.exe 与 clipboard-bridge.exe 已合并为
+> 单个 `ivm-agent.exe`（含 vmmouse 鼠标驱动安装），安装统一走
+> `guest/out/install-agent-v2.bat`，见 `src/apps/virtual-machine/guest/README.md`。
+> 本文的 exe 名、服务名（InstantVmResAgent→InstantVmAgent）、Run 键名已过期，
+> 仅存档。
+
 > 配套：[todo/vm-resolution-auto-align/03-staged-delivery.md](../todo/vm-resolution-auto-align/03-staged-delivery.md)
 > 第一、二期（AI 全程）已完成的部分见该文件；本文只覆盖第三期由你本人执行的 6 步。
 > 预计 30~60 分钟（含装 VBEMP 驱动可能占掉大头）。

@@ -31,10 +31,11 @@
  *   本桥所有握手判断都按低 16 位比较——宿主 ACK 保留 op 位（如 0x20002），
  *   按 ==2 精确比较会永远等不到。
  *
- * 构建：scripts/build-clipboard-bridge.sh（zig cc 交叉编译，-nostdlib 自带
- * memset/memcpy，入口 bridge_entry，PE 版本补 5.01；导入 kernel32/user32/
- * ole32）。日志走 OutputDebugStringA。安装：install-agent-v2.bat 写 HKCU Run
- * 自启（剪贴板在交互会话里，服务摸不到）。
+ * 构建：scripts/build-ivm-agent.sh 合编进 ivm-agent.exe（zig cc 交叉编译，
+ * -nostdlib；memset/memcpy 共用 res-agent.c 的实现，主循环 bridge_main 由
+ * 合并入口在登录会话里调用，PE 版本补 5.01；导入 kernel32/user32/ole32）。
+ * 日志走 OutputDebugStringA。安装：install-agent-v2.bat 写 HKCU Run 自启
+ * （剪贴板在交互会话里，服务摸不到）。
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -88,26 +89,9 @@
 #define MAX_OFFER_FILES 32
 #define MAX_NAME_CHARS 260
 
-/* 无 CRT（-nostdlib）：自带 mem*（IsEqualGUID 之类宏也会用到 memcmp）。 */
-void *memset(void *dst, int value, size_t count)
-{
-    volatile unsigned char *d = (volatile unsigned char *)dst;
-    while (count--) {
-        *d++ = (unsigned char)value;
-    }
-    return dst;
-}
-
-void *memcpy(void *dst, const void *src, size_t count)
-{
-    volatile unsigned char *d = (volatile unsigned char *)dst;
-    const unsigned char *s = (const unsigned char *)src;
-    while (count--) {
-        *d++ = *s++;
-    }
-    return dst;
-}
-
+/* 无 CRT（-nostdlib）：memset/memcpy 共用 res-agent.c 的实现（合编进同一个
+ * ivm-agent.exe，两边都定义会撞符号）；这里只带桥自己用的 memcmp/wcslen
+ * （IsEqualGUID 之类宏也会用到 memcmp）。 */
 int memcmp(const void *a, const void *b, size_t count)
 {
     const volatile unsigned char *x = (const volatile unsigned char *)a;
@@ -1574,14 +1558,12 @@ static void apply_text_raw(void)
     g_last_seq = GetClipboardSequenceNumber();
 }
 
-/* ---- 入口 ---- */
+/* ---- 主循环 ---- */
 
-void bridge_entry(void)
+/* 由 res-agent.c 的合并入口（ivm_agent_entry）在登录会话里调用；会话互斥
+ * InstantVmClipboardBridge 由合并入口统一持有判定，这里不再自查退出。 */
+void bridge_main(void)
 {
-    CreateMutexA(NULL, TRUE, "InstantVmClipboardBridge");
-    if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        ExitProcess(0); /* 已有实例：安静退出 */
-    }
     crc32_init();
 
     /* 信箱没就绪就退出（安装脚本负责驱动先起）——文本与文件共用这条数据面。 */

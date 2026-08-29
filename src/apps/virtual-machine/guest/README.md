@@ -10,11 +10,11 @@
 
 | 文件 | 是干什么的 | 放到 XP 哪里 |
 |---|---|---|
-| `res-agent.exe` | COM1 遥控代理：响应宿主的 PING / EXEC / EXEC_R（带退出码执行）/ SHM_QUERY / CLICK / SHUTDOWN / REBOOT，负责共享内存信箱的握手寻址 | 建议 `C:\Tools\res-agent.exe` |
-| `ivm-shm.sys` | 共享内存信箱内核驱动：分配 64KB 连续物理内存供宿主（v86 DMA）与客机直连，剪贴板通道的数据面底座 | 由安装脚本放进 `C:\Windows\System32\drivers\` |
-| `clipboard-bridge.exe` | 剪贴板桥：XP 系统剪贴板 ↔ 信箱双向搬运（CF_UNICODETEXT，150ms 轮询，自防回环） | 建议 `C:\Tools\clipboard-bridge.exe` |
-| `install-agent-v2.bat` | **推荐安装方式**：右键管理员运行，一键装全家桶（agent 服务 + 信箱驱动 + 剪贴板桥自启） | 和 exe/sys 放同一目录，双击运行 |
-| `install.reg` | 旧安装方式（仅 HKCU Run 的 res-agent 自启；无驱动无剪贴板）；不推荐，仅兼容保留 | 双击导入即可 |
+| `ivm-agent.exe` | 客机全家桶（一个 exe 三重身份）：服务身份跑 COM1 遥控代理（PING / EXEC / EXEC_R（带退出码执行）/ SHM_QUERY / CLICK / SHUTDOWN / REBOOT）+ 分辨率自动对齐；登录身份跑 OLE 剪贴板桥（文本 + 虚拟文件双向互拷）；`ivm-agent.exe /mouse-install` 给 VMware 鼠标驱动做注册 | 由安装脚本放进 `C:\Tools\ivm-agent.exe` |
+| `ivm-shm.sys` | 共享内存信箱内核驱动：分配 64KB 连续物理内存供宿主（v86 DMA）与客机直连，剪贴板/文件通道的数据面底座 | 由安装脚本放进 `C:\Windows\System32\drivers\` |
+| `vmmouse.sys` + `vmmouse.inf` + `vmmouse.cat` | VMware 绝对坐标鼠标驱动 12.4.0.2（vendor 二进制，见 `vmmouse/README.md`）：装好后客机光标 1:1 跟随宿主光标 | 由安装脚本放进 `C:\Windows\System32\drivers\` 并注册 |
+| `install-agent-v2.bat` | **推荐安装方式**：右键管理员运行，一键装全家桶（agent 服务 + 信箱驱动 + 登录自启 + vmmouse 鼠标驱动；会自动清掉旧的 res-agent.exe / clipboard-bridge.exe 旧装） | 和 exe/sys 放同一目录，双击运行 |
+| `install.reg` | 旧安装方式（仅 HKCU Run 自启；无驱动无剪贴板）；不推荐，仅兼容保留 | 双击导入即可 |
 | `boxvideo.sys` + `vidmini.inf` | 显卡驱动（boxvnt，分辨率自动对齐用） | 设备管理器装驱动，见 `boxvnt/README.md` |
 
 > `out/` 里如出现 `.pdb`、`triage*.bat`、`boxvideo-min*.sys` 等其他文件，
@@ -27,9 +27,8 @@
 sh scripts/collect-guest-files.sh
 
 # 或者单独构建
-sh scripts/build-res-agent.sh          # res-agent.exe → out/
+sh scripts/build-ivm-agent.sh          # ivm-agent.exe → out/（合编三个 .c）
 sh scripts/build-ivm-shm.sh            # ivm-shm.sys → out/（需要 Open Watcom，见脚本头注释）
-sh scripts/build-clipboard-bridge.sh   # clipboard-bridge.exe → out/
 sh scripts/build-boxvnt.sh             # boxvideo.sys + vidmini.inf → out/
 ```
 
@@ -43,7 +42,9 @@ sh scripts/build-boxvnt.sh             # boxvideo.sys + vidmini.inf → out/
 
 | 目录 | 内容 |
 |---|---|
-| `res-agent/` | 遥控代理源码；协议与安装说明见 `res-agent/guest-agent.spec.md` |
-| `ivm-shm/` | 共享内存信箱驱动源码（信箱布局见文件头注释） |
+| `res-agent/` | COM1 遥控代理 + 合并入口（`ivm_agent_entry`）源码；协议与安装说明见 `res-agent/guest-agent.spec.md` |
 | `clipboard-bridge/` | 剪贴板桥源码（信箱布局与 ivm-shm、Instant-virtual-machine 的 ivm-shm.ts 三方一致） |
+| `ivm-agent/` | `/mouse-install` 鼠标驱动安装助手源码 + `ivm-agent-binary.test.ts` 产物校验 |
+| `ivm-shm/` | 共享内存信箱驱动源码（信箱布局见文件头注释） |
+| `vmmouse/` | VMware 鼠标驱动 vendor 二进制 + 说明；见 `vmmouse/README.md` |
 | `boxvnt/` | 显卡驱动源码；见 `boxvnt/README.md` |

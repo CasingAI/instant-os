@@ -1,23 +1,29 @@
 @echo off
 rem install-agent-v2.bat -- install the Instant VM guest agent stack on XP:
-rem   res-agent.exe          (COM1 remote-control agent, XP service)
+rem   ivm-agent.exe          (all-in-one guest agent: COM1 remote control +
+rem                          resolution auto-align as a service; OLE clipboard/
+rem                          file bridge in the logon session; /mouse-install)
 rem   ivm-shm.sys            (shared-memory mailbox kernel driver)
-rem   clipboard-bridge.exe   (clipboard sync between XP clipboard and the mailbox)
+rem   vmmouse.sys            (VMware absolute-pointer filter driver)
 rem Run as Administrator. Place this file next to the exe/sys files (guest/out/ has all).
 rem
 rem Steps:
-rem   1. kill running instances (old interactive processes / old services)
+rem   1. kill running instances (old interactive processes / old services,
+rem      including the pre-merge res-agent.exe + clipboard-bridge.exe pair)
 rem   2. delete old services if present
-rem   3. remove legacy HKCU Run autorun key (old install method)
-rem   4. copy files: exes to C:\Tools\, driver to C:\Windows\System32\drivers\
-rem   5. create + start the kernel driver service (loads before the agent)
-rem   6. create + start the res-agent service
-rem   7. register clipboard-bridge in HKCU Run (clipboard lives in the
-rem      interactive session; a service cannot touch it) and start it now
-rem   8. verify with sc query
+rem   3. remove legacy HKCU Run autorun keys
+rem   4. copy files: exe to C:\Tools\, drivers to C:\Windows\System32\drivers\
+rem   5. create + start the mailbox kernel driver (loads before the agent)
+rem   6. create + start the agent service
+rem   7. register HKCU Run autostart (the logon instance runs the clipboard
+rem      bridge; a service cannot touch the interactive clipboard) and start it
+rem   8. mouse driver: register the vmmouse service and attach it as an upper
+rem      filter on the PS/2 mouse device (`ivm-agent.exe /mouse-install`)
+rem   9. verify with sc query
 rem
-rem A reboot is recommended afterwards so the driver loads in its normal
-rem boot-time slot (start= system).
+rem A reboot is required afterwards: the mailbox driver loads in its normal
+rem boot-time slot, and the vmmouse filter attaches when the mouse device
+rem re-enumerates. After the reboot the absolute-pointer mode is active.
 
 setlocal
 
@@ -33,23 +39,29 @@ if not exist "%SystemRoot%\__ivm_admin_probe.tmp" (
 )
 del "%SystemRoot%\__ivm_admin_probe.tmp" >nul 2>&1
 
-echo [1/8] stopping existing instances...
+echo [1/9] stopping existing instances...
+taskkill /IM ivm-agent.exe /F >nul 2>&1
 taskkill /IM res-agent.exe /F >nul 2>&1
 taskkill /IM clipboard-bridge.exe /F >nul 2>&1
+sc stop InstantVmAgent >nul 2>&1
 sc stop InstantVmResAgent >nul 2>&1
 sc stop InstantVmShm >nul 2>&1
 
-echo [2/8] removing old services...
+echo [2/9] removing old services...
+sc delete InstantVmAgent >nul 2>&1
 sc delete InstantVmResAgent >nul 2>&1
 sc delete InstantVmShm >nul 2>&1
+sc delete vmmouse >nul 2>&1
 
 rem sc delete marks the record for deletion; a same-name `sc create` right
-rem after can fail with 1072 (marked for delete). Wait until both services
+rem after can fail with 1072 (marked for delete). Wait until the services
 rem are really gone (sc query errors = gone), capped at ~15s.
-echo [2b/8] waiting for old service records to disappear...
+echo [2b/9] waiting for old service records to disappear...
 set /a waited=0
 :wait_services
 sc query InstantVmShm >nul 2>&1
+if not errorlevel 1 goto svc_still_there
+sc query InstantVmAgent >nul 2>&1
 if not errorlevel 1 goto svc_still_there
 sc query InstantVmResAgent >nul 2>&1
 if not errorlevel 1 goto svc_still_there
@@ -64,20 +76,16 @@ set /a waited+=1
 goto wait_services
 :services_gone
 
-echo [3/8] removing legacy HKCU Run autorun (old agent install)...
+echo [3/9] removing legacy HKCU Run autorun keys...
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ResAgent /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v InstantVmResAgent /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v InstantVmClipboardBridge /f >nul 2>&1
 
-echo [4/8] copying files...
+echo [4/9] copying files...
 if not exist "C:\Tools" mkdir "C:\Tools"
-copy /Y "%~dp0res-agent.exe" "C:\Tools\res-agent.exe" >nul
+copy /Y "%~dp0ivm-agent.exe" "C:\Tools\ivm-agent.exe" >nul
 if errorlevel 1 (
-  echo ERROR: copy res-agent.exe failed.
-  pause
-  exit /b 1
-)
-copy /Y "%~dp0clipboard-bridge.exe" "C:\Tools\clipboard-bridge.exe" >nul
-if errorlevel 1 (
-  echo ERROR: copy clipboard-bridge.exe failed.
+  echo ERROR: copy ivm-agent.exe failed.
   pause
   exit /b 1
 )
@@ -87,8 +95,14 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+copy /Y "%~dp0vmmouse.sys" "C:\Windows\System32\drivers\vmmouse.sys" >nul
+if errorlevel 1 (
+  echo ERROR: copy vmmouse.sys failed.
+  pause
+  exit /b 1
+)
 
-echo [5/8] creating and starting the mailbox driver...
+echo [5/9] creating and starting the mailbox driver...
 set SVCNAME=InstantVmShm
 set SVCTYPE=kernel
 set SVCSTART=system
@@ -98,35 +112,46 @@ sc description InstantVmShm "Instant VM shared-memory mailbox (host DMA channel)
 sc start InstantVmShm >nul
 if errorlevel 1 echo WARNING: sc start InstantVmShm failed (code %errorlevel%).
 
-echo [6/8] creating and starting the agent service...
-set SVCNAME=InstantVmResAgent
+echo [6/9] creating and starting the agent service...
+set SVCNAME=InstantVmAgent
 set SVCTYPE=own
 set SVCSTART=auto
-set SVCBIN=C:\Tools\res-agent.exe
+set SVCBIN=C:\Tools\ivm-agent.exe
 call :create_service
-sc description InstantVmResAgent "Instant VM guest agent (resolution + remote control)" >nul
-sc start InstantVmResAgent >nul
-if errorlevel 1 echo WARNING: sc start InstantVmResAgent failed (code %errorlevel%).
+sc description InstantVmAgent "Instant VM guest agent (resolution + remote control)" >nul
+sc start InstantVmAgent >nul
+if errorlevel 1 echo WARNING: sc start InstantVmAgent failed (code %errorlevel%).
 
-echo [7/8] registering autostart (clipboard bridge + agent fallback)...
-rem The agent runs both as a service (boot) and via HKCU Run (logon, fast).
-rem Whichever grabs the global single-instance mutex first wins; the loser
-rem (/autostart flag) exits silently. Service may lag minutes on this VM,
-rem so the logon copy is what usually ends up running.
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v InstantVmClipboardBridge /t REG_SZ /d "C:\Tools\clipboard-bridge.exe" /f >nul
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v InstantVmResAgent /t REG_SZ /d "\"C:\Tools\res-agent.exe\" /autostart" /f >nul
-start "" "C:\Tools\clipboard-bridge.exe"
+echo [7/9] registering autostart (logon instance runs the clipboard bridge)...
+rem The agent runs both as a service (boot: COM1 remote control) and via
+rem HKCU Run (logon: clipboard bridge + COM1 if the service has not started
+rem yet). The COM1 ownership is arbitrated by a global mutex; the clipboard
+rem bridge must live in the logon session, so the logon instance always
+rem keeps that part instead of exiting like the pre-merge build did.
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v InstantVmAgent /t REG_SZ /d "\"C:\Tools\ivm-agent.exe\" /autostart" /f >nul
+start "" "C:\Tools\ivm-agent.exe" /autostart
 
-echo [8/8] verifying...
+echo [8/9] installing the VMware absolute-pointer mouse driver...
+start "ivm-mouse-install" /wait "C:\Tools\ivm-agent.exe" /mouse-install
+if errorlevel 2 (
+  echo WARNING: vmmouse service/filter registration failed (code %errorlevel%).
+) else if errorlevel 1 (
+  echo WARNING: no PS/2 mouse device found in the registry; vmmouse not attached.
+) else (
+  echo   vmmouse registered and attached to the PS/2 mouse device.
+)
+
+echo [9/9] verifying...
 sc query InstantVmShm
-sc query InstantVmResAgent
-tasklist /FI "IMAGENAME eq clipboard-bridge.exe"
-tasklist /FI "IMAGENAME eq res-agent.exe" | find /I "res-agent.exe" >nul
-if errorlevel 1 echo WARNING: res-agent.exe is NOT running. Run: sc query InstantVmResAgent
+sc query InstantVmAgent
+sc query vmmouse
+tasklist /FI "IMAGENAME eq ivm-agent.exe" | find /I "ivm-agent.exe" >nul
+if errorlevel 1 echo WARNING: ivm-agent.exe is NOT running. Run: sc query InstantVmAgent
 
 echo.
-echo Done. Reboot once so the driver loads in its boot-time slot.
-echo Double-click res-agent.exe to see its version/build date.
+echo Done. Reboot once: the mailbox driver then loads in its boot-time slot
+echo and the vmmouse filter attaches (absolute pointer becomes active).
+echo Double-click ivm-agent.exe to see its version/build date.
 pause
 exit /b 0
 

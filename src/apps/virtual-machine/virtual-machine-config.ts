@@ -9,6 +9,7 @@ import {
   DEFAULT_VIRTUAL_MACHINE_NAME,
   DEFAULT_VIRTUAL_MACHINE_NETWORK,
   DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
+  DEFAULT_VIRTUAL_MACHINE_OS_PRESET,
   DEFAULT_VIRTUAL_MACHINE_PC_TYPE,
   DEFAULT_VIRTUAL_MACHINE_POINTER_MODE,
   DEFAULT_VIRTUAL_MACHINE_RESOLUTION_AUTO_ALIGN,
@@ -22,6 +23,7 @@ import {
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
   VM_PC_TYPE_IDS,
+  VM_OS_PRESET_IDS,
   VM_POINTER_MODE_IDS,
   VM_MEMORY_MB_MAX,
   VM_MEMORY_MB_MIN,
@@ -39,6 +41,7 @@ import {
   type VmMemoryMb,
   type VmNetworkBackendId,
   type VmNetworkId,
+  type VmOsPresetId,
   type VmPcTypeId,
   type VmPointerModeId,
   type VmStorageDevice,
@@ -75,6 +78,10 @@ export function defaultVirtualMachineSettings(
     networkBackend: DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND,
     displayMode: DEFAULT_VIRTUAL_MACHINE_DISPLAY_MODE,
     devices: [],
+    osPreset: DEFAULT_VIRTUAL_MACHINE_OS_PRESET,
+    enhanceClipboard: true,
+    enhanceFileTransfer: true,
+    enhanceAbsoluteMouse: true,
   }
 }
 
@@ -101,6 +108,10 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     networkBackend: record.networkBackend,
     displayMode: record.displayMode,
     devices: record.devices,
+    osPreset: record.osPreset,
+    enhanceClipboard: record.enhanceClipboard,
+    enhanceFileTransfer: record.enhanceFileTransfer,
+    enhanceAbsoluteMouse: record.enhanceAbsoluteMouse,
   }
 }
 
@@ -426,6 +437,11 @@ export const VM_DISK_WRITE_MODE_CHOICES: readonly SettingsChoiceOption[] =
         : formatVmDiskWriteModeLabel(id),
   }))
 
+/** 体验增强的客机系统选择；目前只有 Windows XP，先占住位置。 */
+export const VM_OS_PRESET_CHOICES: readonly SettingsChoiceOption[] = VM_OS_PRESET_IDS.map(
+  (id) => ({ id, label: id === 'windows-xp' ? 'Windows XP' : id }),
+)
+
 export { VM_MEMORY_MB_MIN, VM_MEMORY_MB_MAX, VM_MEMORY_MB_STEP }
 export { VM_STORAGE_DEVICE_LIMITS }
 
@@ -497,4 +513,8 @@ export function isVmDiskWriteModeId(value: string): value is VmDiskWriteModeId {
 
 export function isVmBuildModeId(value: string): value is VmBuildModeId {
   return (VM_BUILD_MODE_IDS as readonly string[]).includes(value)
+}
+
+export function isVmOsPresetId(value: string): value is VmOsPresetId {
+  return (VM_OS_PRESET_IDS as readonly string[]).includes(value)
 }

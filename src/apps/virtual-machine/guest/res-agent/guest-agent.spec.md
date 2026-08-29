@@ -1,22 +1,23 @@
 # guest-agent 部署规格（第三期照抄）
 
-> 本文件是 `guest-agent.spec` 的等价物：定义 res-agent.exe 在客机里的
-> 安装位置、启动项、注册表键值、v2 操控协议。部署步骤逐字照抄即可。
+> 本文件是 `guest-agent.spec` 的等价物：定义 ivm-agent.exe（res-agent 与
+> clipboard-bridge 的合并产物，见 ../README.md）在客机里的安装位置、启动项、
+> 注册表键值、v2 操控协议。部署步骤逐字照抄即可。
 
 ## 产物
 
 | 项 | 值 |
 |---|---|
-| 文件 | `res-agent.exe`（构建：`make` 或 `scripts/build-res-agent.sh`，产物统一落 `guest/out/`） |
+| 文件 | `ivm-agent.exe`（构建：`make` 或 `scripts/build-ivm-agent.sh`，产物统一落 `guest/out/`） |
 | 架构 | PE32 i386，GUI 子系统，OS/Subsystem 版本 5.01 |
-| 导入表 | 仅 kernel32.dll / user32.dll / advapi32.dll（XP 裸机自带） |
-| 体积 | < 200 KB（实测 ~9.7 KB） |
+| 导入表 | 仅 kernel32.dll / user32.dll / advapi32.dll / ole32.dll（XP 裸机自带） |
+| 体积 | < 300 KB（合并后实测 ~34 KB） |
 | 运行形态 | 双击 / HKCU Run = 交互进程；`sc create` 注册后由 SCM 启动 = XP 服务（免登录） |
 
 ## 客机内位置
 
 ```
-C:\Tools\res-agent.exe
+C:\Tools\ivm-agent.exe
 ```
 
 （`C:\Tools` 不存在就先建。放别的目录也行，但下面的服务/注册表路径要跟着改。）
@@ -26,8 +27,8 @@ C:\Tools\res-agent.exe
 todo/vm-remote-control §7 预防层——服务形态开机即起，不依赖用户登录桌面：
 
 ```bat
-sc create InstantVmResAgent type= own start= auto binPath= "C:\Tools\res-agent.exe"
-sc description InstantVmResAgent "Instant VM guest agent (resolution + remote control)"
+sc create InstantVmAgent type= own start= auto binPath= "C:\Tools\ivm-agent.exe"
+sc description InstantVmAgent "Instant VM guest agent (resolution + remote control)"
 ```
 
 要点：
@@ -38,9 +39,13 @@ sc description InstantVmResAgent "Instant VM guest agent (resolution + remote co
   （报告 RUNNING 后进主循环），非 SCM 启动自动落回交互模式，同一 exe 两用；
 - 服务入口的单实例冲突直接报告停止（session 0 弹框会挂死 SCM），
   交互入口保留弹框提示；弹框内容带版本号与构建日期
-  （`res-agent is already running. version 2, built <时间戳>`）——
+  （`ivm-agent is already running. version 3, built <时间戳>`）——
   双击 exe 即可确认 XP 里跑的是哪次构建；
-- 移除：`sc delete InstantVmResAgent`。
+- 登录身份与 COM1 归属解耦（合并改造）：COM1 归属看 Global 互斥
+  `Global\InstantVmAgent`（服务与登录实例谁先起谁跑），剪贴板桥归属看
+  会话互斥 `InstantVmClipboardBridge`。登录实例输掉 COM1 也不再退场，
+  改为只跑剪贴板桥（服务摸不到交互会话的剪贴板）；
+- 移除：`sc delete InstantVmAgent`。
 
 ### 旧形态：HKCU Run（需登录，保留兼容）
 
@@ -48,16 +53,16 @@ sc description InstantVmResAgent "Instant VM guest agent (resolution + remote co
 
 ```
 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
-  "ResAgent" = "C:\Tools\res-agent.exe"
+  "InstantVmAgent" = "\"C:\Tools\ivm-agent.exe\" /autostart"
 ```
 
-等价的 reg 文件（存为 `res-agent-install.reg`，双击导入）：
+等价的 reg 文件（`res-agent-install.reg.source` 模板，collect 时展开为 `install.reg`）：
 
 ```reg
 Windows Registry Editor Version 5.00
 
 [HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run]
-"ResAgent"="C:\\Tools\\res-agent.exe"
+"InstantVmAgent"="\"C:\\Tools\\ivm-agent.exe\" /autostart"
 ```
 
 从 Run 键迁到服务时，记得删除 Run 键值（两个实例并存时第二个会单实例退出）。
@@ -100,7 +105,8 @@ watcher → `destroyCurrent`（stop → 写回落盘 → 销毁）——即「�
 1. **串口初始是 7 数据位**：必须显式 `BuildCommDCBA("9600,n,8,1")` +
    `SetCommState`（DCB 往返无效），且显式 `SetCommTimeouts`
    （默认无限阻塞，读循环会卡死）；
-2. **单实例**：`CreateMutexA("InstantVmResAgent")`，第二实例退出。
+2. **单实例**：COM1 归属 `CreateMutexA("Global\\InstantVmAgent")`，
+   剪贴板桥归属 `CreateMutexA("InstantVmClipboardBridge")`（均由合并入口持有）。
 
 ## 常用 EXEC 配方
 
@@ -112,5 +118,5 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Control\CrashControl" /v AutoReboot /t RE
 cmd /c echo alive %DATE% %TIME% > C:\Tools\agent-alive.txt
 
 # agent 自愈（§7 自救层）：重拷新版 exe 后重启服务
-sc stop InstantVmResAgent & sc start InstantVmResAgent
+sc stop InstantVmAgent & sc start InstantVmAgent
 ```

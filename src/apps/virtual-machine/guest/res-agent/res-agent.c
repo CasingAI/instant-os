@@ -32,7 +32,8 @@
  * （res-agent-diag.exe 实测前 4 步全过、死于 IN），而 GP 检查封在 vendored
  * wasm 内部，JS 层无豁免口。串口是 ring3 合法设备 IO，零特权零驱动。
  *
- * 构建：Makefile / scripts/build-res-agent.sh（zig cc 交叉编译，只编不跑）。
+ * 构建：scripts/build-ivm-agent.sh（zig cc 交叉编译，只编不跑；与
+ * clipboard-bridge.c、ivm-mouse-install.c 合编成 ivm-agent.exe）。
  * 日志：GUI 子系统无控制台，走 OutputDebugStringA（DebugView 可见）。
  * 字符串一律 ASCII——EXE 里是裸字节，MessageBoxA/调试器按系统 ANSI 页解码。
  */
@@ -55,6 +56,8 @@
  * 无 CRT 链接（-nostdlib）：导入表只剩 kernel32/user32/advapi32，XP 裸机可加载。
  * 编译器会把大结构清零/拷贝降级成 memset/memcpy 调用，这里自带实现；
  * 用 volatile 写循环，防止 LLVM 循环惯用语识别再把它们变回库调用。
+ * 非 static 且全 exe 只此一份：clipboard-bridge.c 合编后直接共用这里的
+ * 符号（string.h 的非 static 声明也不允许改 static）。
  */
 void *memset(void *dst, int value, size_t count)
 {
@@ -73,6 +76,17 @@ void *memcpy(void *dst, const void *src, size_t count)
         *d++ = *s++;
     }
     return dst;
+}
+
+/* LLVM 会把 `while (*p) p++` 识别成 strlen 惯用法直接外调，-nostdlib 下
+ * 必须有人接住（cmdline_has_flag / 鼠标安装模块都会被降级到这里）。 */
+size_t strlen(const char *s)
+{
+    const char *p = s;
+    while (*p) {
+        p++;
+    }
+    return (size_t)(p - s);
 }
 
 static void log_line(const char *fmt, ...)
@@ -666,27 +680,34 @@ static int agent_single_instance(void)
 {
     /* Global 名域：服务在 session 0，登录自启在用户会话——两边必须看到
      * 同一把锁，谁先起谁跑。建不了（无权限）退回本会话互斥兜底。 */
-    CreateMutexA(NULL, TRUE, "Global\\InstantVmResAgent");
+    CreateMutexA(NULL, TRUE, "Global\\InstantVmAgent");
     DWORD gle = GetLastError();
     if (gle != ERROR_SUCCESS && gle != ERROR_ALREADY_EXISTS) {
-        CreateMutexA(NULL, TRUE, "InstantVmResAgent");
+        CreateMutexA(NULL, TRUE, "InstantVmAgent");
         gle = GetLastError();
     }
     return gle != ERROR_ALREADY_EXISTS;
 }
 
-/* 登录自启撞上已跑实例（多半是服务先起来了）时是否要静默退场：
- * 带 /autostart 参数就别弹框（每次登录都弹等于骂人）。 */
-static int cmdline_has_autostart(void)
+/* 命令行开关识别（/xxx 或 -xxx，忽略大小写）：autostart=登录自启、
+ * mouse-install=安装脚本调用的鼠标驱动注册子命令。 */
+static int cmdline_has_flag(const char *flag)
 {
     const char *cmd = GetCommandLineA();
     const char *p = cmd;
+    size_t len = 0;
+    while (flag[len] != 0) {
+        len++;
+    }
     while (p[0] != 0) {
-        if ((p[0] == '/' || p[0] == '-') &&
-            (p[1] | 0x20) == 'a' && (p[2] | 0x20) == 'u' && (p[3] | 0x20) == 't' &&
-            (p[4] | 0x20) == 'o' && (p[5] | 0x20) == 's' && (p[6] | 0x20) == 't' &&
-            (p[7] | 0x20) == 'a' && (p[8] | 0x20) == 'r' && (p[9] | 0x20) == 't') {
-            return 1;
+        if (p[0] == '/' || p[0] == '-') {
+            size_t i = 0;
+            while (i < len && ((p[1 + i] | 0x20) == (flag[i] | 0x20))) {
+                i++;
+            }
+            if (i == len && (p[1 + len] == 0 || p[1 + len] == ' ' || p[1 + len] == '\t')) {
+                return 1;
+            }
         }
         p++;
     }
@@ -722,7 +743,7 @@ static void WINAPI svc_main(DWORD argc, char **argv)
     if (!agent_single_instance()) {
         return; /* 已有实例：直接报告停止，SCM 不会反复拉起（start= auto 只开机起一次） */
     }
-    g_svc_status = RegisterServiceCtrlHandlerA("InstantVmResAgent", svc_handler);
+    g_svc_status = RegisterServiceCtrlHandlerA("InstantVmAgent", svc_handler);
     if (g_svc_status == NULL) {
         return;
     }
@@ -733,37 +754,75 @@ static void WINAPI svc_main(DWORD argc, char **argv)
 
 /* #endregion */
 
-/*
- * 进程入口（链接器 -e 直接指到这，无 CRT 启动对象）。
- * SCM 启动 → 走服务调度器（阻塞到服务停止）；否则交互运行（双击/HKCU Run）。
- */
-void res_agent_entry(void)
+/* #region 合并入口（ivm-agent = res-agent + clipboard-bridge + 鼠标驱动安装） */
+
+void bridge_main(void); /* clipboard-bridge.c：OLE 剪贴板/文件桥主循环（登录会话专用） */
+int ivm_mouse_install(void); /* ivm-mouse-install.c：/mouse-install 子命令 */
+
+/* COM1 主循环挪到工作线程跑：合并后登录身份要同时当剪贴板桥，而桥的
+ * OLE STA + 消息泵必须占主线程。agent_loop 不返回，线程函数自然常驻。 */
+static DWORD WINAPI com1_thread_main(void *arg)
 {
+    (void)arg;
+    agent_loop();
+    return 0;
+}
+
+/*
+ * 进程入口（链接器 -e 直接指到这，无 CRT 启动对象）。三重身份：
+ *   /mouse-install 子命令 → 注册 vmmouse 过滤驱动，完事退出（安装脚本调用）；
+ *   SCM 启动 → 服务身份，只跑 COM1 主循环（分辨率对齐 + 远程控制），不碰 OLE；
+ *   登录身份（双击 / HKCU Run）→ COM1 归属（Global 互斥）与剪贴板桥归属
+ *   （会话互斥）分别判定：两样都归我则 COM1 挪工作线程、主线程跑桥；
+ *   只剩一样就跑那一样；两样都没有（服务已跑 COM1、本会话已有桥）则
+ *   /autostart 静默退场，双击弹版本告示牌。
+ */
+void ivm_agent_entry(void)
+{
+    if (cmdline_has_flag("mouse-install")) {
+        ExitProcess((UINT)ivm_mouse_install());
+    }
+
     /* 信箱寻址先于一切路径：服务/交互共用一份缓存。 */
     shm_probe();
 
-    /* #region vm-agent v2 —— 服务调度器优先：SCM 启动时交互弹框永远出不来 */
+    /* 服务调度器优先：SCM 启动时交互弹框永远出不来。 */
     static SERVICE_TABLE_ENTRYA svc_table[2];
-    svc_table[0].lpServiceName = "InstantVmResAgent";
+    svc_table[0].lpServiceName = "InstantVmAgent";
     svc_table[0].lpServiceProc = svc_main;
     svc_table[1].lpServiceName = NULL;
     svc_table[1].lpServiceProc = NULL;
     if (StartServiceCtrlDispatcherA(svc_table)) {
         return; /* 服务路径：svc_main 已跑完主循环 */
     }
-    /* #endregion */
 
-    /* 交互路径：单实例失败按来源分叉——/autostart（登录自启输给了
-     * 已跑实例）静默退场；双击则弹框兼作版本告示牌。 */
-    if (!agent_single_instance()) {
-        if (cmdline_has_autostart()) {
+    /* 交互路径：两把锁分别拿。 */
+    int owns_com1 = agent_single_instance();
+    CreateMutexA(NULL, TRUE, "InstantVmClipboardBridge");
+    int owns_bridge = GetLastError() != ERROR_ALREADY_EXISTS;
+    if (!owns_com1 && !owns_bridge) {
+        if (cmdline_has_flag("autostart")) {
             ExitProcess(0);
         }
         MessageBoxA(NULL,
-                    "res-agent is already running.\r\n"
+                    "ivm-agent is already running.\r\n"
                     "version " AGENT_VERSION ", built " VM_AGENT_BUILD,
-                    "res-agent", MB_OK | MB_ICONINFORMATION);
+                    "ivm-agent", MB_OK | MB_ICONINFORMATION);
         ExitProcess(0);
     }
-    agent_loop();
+
+    if (owns_com1 && owns_bridge) {
+        HANDLE thread = CreateThread(NULL, 0, com1_thread_main, NULL, 0, NULL);
+        if (thread != NULL) {
+            CloseHandle(thread);
+            bridge_main(); /* 主线程跑桥（STA + 消息泵），不返回 */
+        }
+        agent_loop(); /* 线程起不来：COM1 留在主线程，桥让位（下次登录再起） */
+    }
+    if (owns_com1) {
+        agent_loop();
+    }
+    bridge_main(); /* 只剩桥（COM1 归服务实例） */
 }
+
+/* #endregion */

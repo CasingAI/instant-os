@@ -84,6 +84,16 @@ export type VmNetworkBackendId = (typeof VM_NETWORK_BACKEND_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND: VmNetworkBackendId = 'off'
 
+/**
+ * 体验增强面向的客机系统。目前只有 Windows XP 一项：其他系统的
+ * 增强组件（agent、驱动）还没有做，先不让选。
+ */
+export const VM_OS_PRESET_IDS = ['windows-xp'] as const
+
+export type VmOsPresetId = (typeof VM_OS_PRESET_IDS)[number]
+
+export const DEFAULT_VIRTUAL_MACHINE_OS_PRESET: VmOsPresetId = 'windows-xp'
+
 /** 指针工作方式：`auto` 按客机绝对坐标能力自动切换；`follow` 强制跟随；`lock` 强制独占。 */
 export const VM_POINTER_MODE_IDS = ['auto', 'follow', 'lock'] as const
 
@@ -162,6 +172,14 @@ export type VirtualMachineSettings = {
   networkBackend: VmNetworkBackendId
   displayMode: VmDisplayModeId
   devices: VmStorageDevice[]
+  /** 体验增强面向的客机系统；目前仅 Windows XP 可选。 */
+  osPreset: VmOsPresetId
+  /** 剪贴板同步：宿主与客机之间互相同步文本剪贴板。 */
+  enhanceClipboard: boolean
+  /** 文件互传：宿主 Files 与客机资源管理器之间互拷文件。 */
+  enhanceFileTransfer: boolean
+  /** 绝对坐标鼠标：客机装好 VMware 鼠标驱动后光标 1:1 跟随宿主光标。 */
+  enhanceAbsoluteMouse: boolean
 }
 
 export type VirtualMachineRecord = VirtualMachineSettings & {

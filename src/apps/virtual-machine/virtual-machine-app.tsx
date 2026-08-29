@@ -382,6 +382,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   // 按键映射：翻译器只服务当前显示的画面；设置保存后经 store 刷新自动生效（含运行中）。
   const keyTranslatorRef = useRef(new VmKeyboardTranslator())
   const displayedMachine = machines.find((machine) => machine.id === displayedId)
+  // 体验增强开关：只控制宿主这一侧要不要参与（未配置时按开处理）。
+  const enhanceClipboard = displayedMachine?.enhanceClipboard ?? true
+  const enhanceFileTransfer = displayedMachine?.enhanceFileTransfer ?? true
   useEffect(() => {
     keyTranslatorRef.current.setKeymap(
       compileVmKeyMappings(
@@ -411,6 +414,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     let readFailures = 0
     const tick = async () => {
       if (cancelled) {
+        return
+      }
+      // 「体验增强」关掉剪贴板同步：宿主这侧完全不读不写。
+      if (!enhanceClipboard) {
         return
       }
       // 失败补写：客机文本曾因页面失焦写不进系统剪贴板，聚焦恢复后 1s 内补上。
@@ -467,7 +474,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [displayedId, pool.agentCommand])
+  }, [displayedId, enhanceClipboard, pool.agentCommand])
 
   const handleGuestClipboard = useCallback(
     (machineId: string, text: string) => {
@@ -475,6 +482,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         console.info(
           `[vm-clipboard] 宿主: 文本来自 ${machineId}，当前显示 ${displayedId ?? '无'}，忽略`,
         )
+        return
+      }
+      if (!enhanceClipboard) {
         return
       }
       const write = onGuestClipboardReceived(clipboardSyncRef.current, text)
@@ -504,7 +514,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           ),
       )
     },
-    [displayedId],
+    [displayedId, enhanceClipboard],
   )
 
   /** 文件通道上行（offer/data/req/done）：按显示机器过滤后交给传输服务。 */
@@ -513,20 +523,24 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       if (machineId !== displayedId) {
         return
       }
+      // 「体验增强」关掉文件互传：客机主动推来的文件事件一律不接。
+      if (!enhanceFileTransfer) {
+        return
+      }
       handleVmFileEvent(event)
     },
-    [displayedId],
+    [displayedId, enhanceFileTransfer],
   )
 
   // 传输服务后端随显示机器切换注册/注销（文件APP 经此调用当前虚拟机）。
   useEffect(() => {
     registerVmFileTransferBackend(
-      displayedId !== undefined ? vmAgentFor(pool, displayedId) : null,
+      displayedId !== undefined && enhanceFileTransfer ? vmAgentFor(pool, displayedId) : null,
     )
     return () => registerVmFileTransferBackend(null)
     // pool.agentCommand 是稳定的命令入口；用它与 displayedId 做依赖即可
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayedId, pool.agentCommand])
+  }, [displayedId, enhanceFileTransfer, pool.agentCommand])
 
   // XP 里复制了文件 → OS 通知提示（文件APP里粘贴即导入）
   useEffect(() => {
@@ -629,10 +643,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       } else {
         await updateVirtualMachine(settingsSession.id, settings)
         if (pool.runningIds.includes(settingsSession.id)) {
+          // 立即生效的设置推给运行中的实例；重启才生效的只落盘，下次开机读取。
           try {
             await pool.setActivePointerMode(settingsSession.id, settings.pointerMode)
+            await pool.setActiveDisplayMode(settingsSession.id, settings.displayMode)
+            await pool.setActiveAbsoluteMouse(settingsSession.id, settings.enhanceAbsoluteMouse)
           } catch (error) {
-            showVmError(error instanceof Error ? error.message : '切换指针模式失败')
+            showVmError(error instanceof Error ? error.message : '应用设置失败')
           }
         }
       }
@@ -1213,6 +1230,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     origin={runtimeOrigin}
                     buildMode={machine.buildMode}
                     startMessage={pool.startMessages.get(machine.id)}
+                    resolutionAutoAlign={machine.resolutionAutoAlign}
                     onRegister={pool.onRegister}
                     onUnregister={pool.onUnregister}
                     onStateChange={pool.onStateChange}
@@ -1271,6 +1289,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         open={settingsOpen}
         mode={settingsSession?.mode ?? 'create'}
         initial={settingsSession?.initial ?? defaultVirtualMachineSettings()}
+        running={
+          settingsSession?.mode === 'edit' &&
+          pool.runningIds.includes(settingsSession.id)
+        }
         onClose={() => setSettingsSession(undefined)}
         onSave={handleSaveSettings}
       />

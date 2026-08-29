@@ -1,10 +1,10 @@
 /**
- * res-agent.exe 产物校验单测（第二期产物层，03-staged-delivery.md §3.3）。
- * 运行：node --experimental-strip-types src/apps/virtual-machine/guest/res-agent/res-agent-binary.test.ts
+ * ivm-agent.exe 产物校验单测。
+ * 运行：node --experimental-strip-types src/apps/virtual-machine/guest/ivm-agent/ivm-agent-binary.test.ts
  *
- * 跑两遍 scripts/build-res-agent.sh，对产物做 PE 结构断言：
+ * 跑两遍 scripts/build-ivm-agent.sh，对产物做 PE 结构断言：
  *   MZ/PE 签名 → PE32 (0x10b) → i386 → GUI 子系统 → OS/Subsystem 版本 5.01
- *   → 导入表只含白名单 DLL（kernel32/user32/gdi32/msvcrt）→ 体积 < 200KB。
+ *   → 导入表只含白名单 DLL（kernel32/user32/gdi32/advapi32/ole32）→ 体积 < 300KB。
  * 再校验两次独立编译结构等价：zig 的 lld-link 会往 PE 里嵌时间戳，且 zig 拒收
  * -brepro/--timestamp 链接参数，「可重现」只能做到结构等价这一级（见 Makefile 注释）。
  * 环境里没有 zig 时跳过（exit 0），不阻塞无工具链的 CI。
@@ -17,13 +17,15 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const AGENT_DIR = dirname(fileURLToPath(import.meta.url))
-const BUILD_SCRIPT = join(AGENT_DIR, '..', '..', '..', '..', '..', 'scripts', 'build-res-agent.sh')
+const BUILD_SCRIPT = join(AGENT_DIR, '..', '..', '..', '..', '..', 'scripts', 'build-ivm-agent.sh')
+const GUEST_DIR = join(AGENT_DIR, '..')
 
-/** 导入表白名单（03 §3.1）：XP 裸机上必须都自带。比较时忽略大小写与 .dll 后缀。
- * vm-agent v2 增加 advapi32（ExitWindowsEx 的关机特权 + 服务调度器）。 */
-const IMPORT_DLL_WHITELIST = new Set(['kernel32', 'user32', 'gdi32', 'advapi32', 'msvcrt'])
+/** 导入表白名单：XP 裸机上必须都自带。比较时忽略大小写与 .dll 后缀。
+ * kernel32/user32/gdi32：COM1 遥控 + 显示模式切换；advapi32：服务/注册表
+ * （关机特权 + 服务调度器 + vmmouse 过滤驱动注册）；ole32：OLE 剪贴板桥。 */
+const IMPORT_DLL_WHITELIST = new Set(['kernel32', 'user32', 'gdi32', 'advapi32', 'ole32'])
 
-const MAX_EXE_BYTES = 200 * 1024
+const MAX_EXE_BYTES = 300 * 1024
 
 interface PeInfo {
   machine: number
@@ -99,9 +101,9 @@ function buildInto(directory: string): Buffer {
   assert.equal(
     result.status,
     0,
-    `build-res-agent.sh 失败：\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+    `build-ivm-agent.sh 失败：\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
   )
-  return readFileSync(join(directory, 'res-agent.exe'))
+  return readFileSync(join(directory, 'ivm-agent.exe'))
 }
 
 function hasZig(): boolean {
@@ -112,7 +114,7 @@ function buildAndAssert(directory: string): PeInfo {
   const image = buildInto(directory)
   assert.ok(
     image.length > 0 && image.length <= MAX_EXE_BYTES,
-    `EXE 体积应 ≤ 200KB，实际 ${image.length} 字节`,
+    `EXE 体积应 ≤ 300KB，实际 ${image.length} 字节`,
   )
   const pe = parsePe(image)
   assert.equal(pe.machine, 0x14c, 'CPU 架构必须是 i386（XP 32 位）')
@@ -123,7 +125,7 @@ function buildAndAssert(directory: string): PeInfo {
     '5.1',
     'Subsystem 版本必须补成 5.01：XP 加载器见到 >= 6 直接拒绝加载',
   )
-  assert.notEqual(pe.entryRva, 0, '入口点不能为 0（-nostdlib 自定义入口 res_agent_entry）')
+  assert.notEqual(pe.entryRva, 0, '入口点不能为 0（-nostdlib 自定义入口 ivm_agent_entry）')
   assert.ok(pe.imports.length > 0, '导入表为空，构建疑似坏了')
   for (const dll of pe.imports) {
     const base = dll.replace(/\.dll$/i, '').toLowerCase()
@@ -134,29 +136,33 @@ function buildAndAssert(directory: string): PeInfo {
 
 function main() {
   if (!hasZig()) {
-    console.log('SKIP: 未安装 zig（brew install zig），res-agent 产物校验只在装了工具链的环境跑')
+    console.log('SKIP: 未安装 zig（brew install zig），ivm-agent 产物校验只在装了工具链的环境跑')
     return
   }
-  // 03 §3.3：源码控制在 300 行内。产品逻辑（就近吸附选档 + 8N1 串口初始化 +
-  // CDS 降级重试）比初版多，守卫放宽到 400；vm-agent v2（六命令 + 服务化）再放宽
-  // 到 700；v3（EXEC_R 任务槽 + SHM 握手）放宽到 800。
-  const sourceLines = readFileSync(join(AGENT_DIR, 'res-agent.c'), 'utf8').split('\n').length
-  assert.ok(sourceLines < 800, `res-agent.c 应保持 < 800 行，当前 ${sourceLines} 行`)
+  // 行数守卫：res-agent v3 放宽到 800，并入合并入口后放宽到 900；
+  // 剪贴板桥 v4 放宽到 1700；鼠标安装助手 < 300。
+  const sourceLines = (path: string, limit: number, label: string) => {
+    const lines = readFileSync(join(GUEST_DIR, path), 'utf8').split('\n').length
+    assert.ok(lines < limit, `${label} 应保持 < ${limit} 行，当前 ${lines} 行`)
+  }
+  sourceLines('res-agent/res-agent.c', 900, 'res-agent.c')
+  sourceLines('clipboard-bridge/clipboard-bridge.c', 1700, 'clipboard-bridge.c')
+  sourceLines('ivm-agent/ivm-mouse-install.c', 300, 'ivm-mouse-install.c')
 
   // 两次独立编译：第一次拿属性基线，第二次验证可重现性。
-  const infoA = buildAndAssert(mkdtempSync(join(tmpdir(), 'res-agent-a-')))
-  const infoB = buildAndAssert(mkdtempSync(join(tmpdir(), 'res-agent-b-')))
+  const infoA = buildAndAssert(mkdtempSync(join(tmpdir(), 'ivm-agent-a-')))
+  const infoB = buildAndAssert(mkdtempSync(join(tmpdir(), 'ivm-agent-b-')))
   assert.deepEqual(infoB.imports, infoA.imports, '两次编译的导入表不一致')
   assert.deepEqual(infoB.sectionNames, infoA.sectionNames, '两次编译的节表不一致')
   assert.deepEqual(infoB.osVersion, infoA.osVersion, '两次编译的 OS 版本不一致')
   assert.deepEqual(infoB.subsystemVersion, infoA.subsystemVersion, '两次编译的 Subsystem 版本不一致')
-  // vm-agent v2 断言：命令面依赖的 DLL 必须真实出现在导入表（链接丢了会在实机才暴雷）。
+  // 合并断言：三条职责链依赖的 DLL 必须真实出现在导入表（链接丢了会在实机才暴雷）。
   const importBases = infoA.imports.map((dll) => dll.replace(/\.dll$/i, '').toLowerCase())
-  for (const required of ['kernel32', 'user32', 'advapi32']) {
-    assert.ok(importBases.includes(required), `导入表缺少 v2 依赖 ${required}：${infoA.imports.join(', ')}`)
+  for (const required of ['kernel32', 'user32', 'advapi32', 'ole32']) {
+    assert.ok(importBases.includes(required), `导入表缺少依赖 ${required}：${infoA.imports.join(', ')}`)
   }
 
-  console.log(`res-agent-binary.test.ts ok (${infoA.imports.join(', ')})`)
+  console.log(`ivm-agent-binary.test.ts ok (${infoA.imports.join(', ')})`)
 }
 
 main()

@@ -1,6 +1,6 @@
 #!/bin/sh
 # 编译 M1 验证程序 vmfile-spike.exe（XP 虚拟文件粘贴 spike）。
-# 与 build-clipboard-bridge.sh 同管线：zig cc -nostdlib + patch PE 版本 5.01，
+# 与 build-ivm-agent.sh 同管线：zig cc -nostdlib + patch PE 版本 5.01，
 # 仅多链 ole32（OleInitialize/OleSetClipboard）。
 set -eu
 
