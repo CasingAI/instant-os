@@ -16,6 +16,8 @@ import {
   READING_DISK_IMAGE_HINT,
   STARTING_EMULATOR_HINT,
   isTransientBootHint,
+  withAckDeadline,
+  STOP_ACK_DEADLINE_MS,
 } from './virtual-machine-runtime.ts'
 import { INSTANT_VM_MESSAGE_TYPE } from './virtual-machine-protocol.ts'
 
@@ -141,6 +143,54 @@ function testTransientBootHint(): void {
   assert.equal(isTransientBootHint('启动失败：运行时无响应'), false)
 }
 
+function makeRecordingSchedule() {
+  const scheduled: Array<{ callback: () => void; ms: number }> = []
+  const schedule = (callback: () => void, ms: number) => {
+    scheduled.push({ callback, ms })
+    return () => {
+      const index = scheduled.findIndex((item) => item.callback === callback)
+      if (index >= 0) {
+        scheduled.splice(index, 1)
+      }
+    }
+  }
+  return { scheduled, schedule }
+}
+
+async function testWithAckDeadlineAcksFirst(): Promise<void> {
+  const { scheduled, schedule } = makeRecordingSchedule()
+  const promise = withAckDeadline({ command: async () => {}, schedule })
+  assert.equal(scheduled[0]?.ms, STOP_ACK_DEADLINE_MS)
+  assert.equal(await promise, 'acked')
+  // 正常 ack 后 deadline 定时器必须被取消，不能留悬挂计时器
+  assert.equal(scheduled.length, 0)
+}
+
+async function testWithAckDeadlineDeadlineWins(): Promise<void> {
+  const { scheduled, schedule } = makeRecordingSchedule()
+  const promise = withAckDeadline({
+    // 永不回执：模拟客机卡死后 iframe 事件循环收不了消息
+    command: () => new Promise<void>(() => {}),
+    schedule,
+  })
+  scheduled[0]?.callback()
+  assert.equal(await promise, 'deadline')
+  assert.equal(scheduled.length, 0)
+}
+
+async function testWithAckDeadlineCommandFailed(): Promise<void> {
+  const { scheduled, schedule } = makeRecordingSchedule()
+  const promise = withAckDeadline({
+    // post 直接失败（如 iframe 已卸载）：不外抛，交由调用方决定强拆收场
+    command: async () => {
+      throw new Error('post 失败：iframe 已卸载')
+    },
+    schedule,
+  })
+  assert.equal(await promise, 'command-failed')
+  assert.equal(scheduled.length, 0)
+}
+
 testRequestIdFormat()
 testPickDisplayedMachineId()
 testPickBackgroundMachineIds()
@@ -149,4 +199,7 @@ testShouldSurfaceUnsolicitedVmError()
 testDiskWriteFailedWatchdogForceStopsWhenStillRunning()
 testDiskWriteFailedWatchdogCancelsWhenStopped()
 testTransientBootHint()
+await testWithAckDeadlineAcksFirst()
+await testWithAckDeadlineDeadlineWins()
+await testWithAckDeadlineCommandFailed()
 console.log('virtual-machine-runtime.test.ts ok')

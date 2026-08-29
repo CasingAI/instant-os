@@ -140,6 +140,48 @@ export const DISK_IMAGE_INCOMPLETE_HINT = '硬盘回写未完成，镜像可能�
 export const READING_DISK_IMAGE_HINT = '正在读取镜像…'
 export const STARTING_EMULATOR_HINT = '正在启动模拟器…'
 
+// 断电/重置只给运行时 3 秒 ack 窗口：客机死循环等故障可能让 iframe 事件循环
+// 收不了消息，ack 永远不来；超时后由调用方强拆收场（断电＝removeRunningId
+// 卸载 iframe，重置＝卸载后重新装载冷启动），不陪 60 秒请求超时。
+// 对用户不弹任何提示：强拆达成的就是断电/重置本身，用户只看到操作成功了。
+export const STOP_ACK_DEADLINE_MS = 3_000
+
+export type AckDeadlineOutcome = 'acked' | 'command-failed' | 'deadline'
+
+/**
+ * 运行时命令（断电 stop / 重置 reset）的 ack 期限：期限内没回执就返回 'deadline'，
+ * 由调用方决定强拆收场。命令失败不外抛（post 失败通常意味着 iframe 已经不在了），
+ * 只转化为 'command-failed'，同时避免 deadline 获胜后败者 promise 变成 unhandled rejection。
+ */
+export async function withAckDeadline(options: {
+  command: () => Promise<void>
+  deadlineMs?: number
+  schedule?: (callback: () => void, ms: number) => () => void
+}): Promise<AckDeadlineOutcome> {
+  const deadlineMs = options.deadlineMs ?? STOP_ACK_DEADLINE_MS
+  const schedule =
+    options.schedule ??
+    ((callback, ms) => {
+      const timer = globalThis.setTimeout(callback, ms)
+      return () => globalThis.clearTimeout(timer)
+    })
+  let cancelDeadline: () => void = () => {}
+  const deadline = new Promise<AckDeadlineOutcome>((resolve) => {
+    cancelDeadline = schedule(() => resolve('deadline'), deadlineMs)
+  })
+  try {
+    return await Promise.race([
+      options.command().then(
+        () => 'acked' as const,
+        () => 'command-failed' as const,
+      ),
+      deadline,
+    ])
+  } finally {
+    cancelDeadline()
+  }
+}
+
 /** 临时开机进度文案：模拟器回报已启动后就该清掉；警告类 hint 不算，开机后仍有用。 */
 export function isTransientBootHint(hint: string | undefined): boolean {
   return hint === READING_DISK_IMAGE_HINT || hint === STARTING_EMULATOR_HINT
@@ -952,15 +994,23 @@ export function useVirtualMachineRuntimePool(
     [addRunningId, removeRunningId],
   )
 
+  // 断电：给运行时 3 秒 ack 窗口，超时不陪请求超时干等——finally 里的
+  // removeRunningId 卸载运行时表面销毁 iframe，同样达成断电。
+  // 返回是否走了强制路径（deadline 到点），只进调试时间线，不向用户提示。
   const shutdown = useCallback(
-    async (id: string): Promise<void> => {
+    async (id: string): Promise<boolean> => {
       if (!runningIdsRef.current.has(id)) {
-        return
+        return false
       }
       const api = apiByIdRef.current.get(id)
+      let forced = false
       try {
         if (api) {
-          await api.stop()
+          const outcome = await withAckDeadline({ command: () => api.stop() })
+          forced = outcome === 'deadline'
+          if (forced) {
+            recordSystemDebugTimeline({ layer: 'vm', op: 'stop-ack-deadline', detail: id })
+          }
         }
       } finally {
         try {
@@ -969,17 +1019,23 @@ export function useVirtualMachineRuntimePool(
           optionsRef.current.onDiskWriteIncomplete?.(id)
         }
       }
+      return forced
     },
     [removeRunningId],
   )
 
-  const resetInstance = useCallback(async (id: string): Promise<void> => {
-    const api = apiByIdRef.current.get(id)
-    if (!api) {
-      return
-    }
-    await api.reset()
-  }, [])
+  // 重置：同样只给 3 秒 ack 窗口；超时/失败把 outcome 交还调用方，
+  // 由它决定强制重置（removeRunningId 拆 iframe 后重新 boot 冷启动）。
+  const resetInstance = useCallback(
+    async (id: string): Promise<AckDeadlineOutcome> => {
+      const api = apiByIdRef.current.get(id)
+      if (!api) {
+        return 'command-failed'
+      }
+      return await withAckDeadline({ command: () => api.reset() })
+    },
+    [],
+  )
 
   const saveInstanceState = useCallback(async (id: string): Promise<ArrayBuffer> => {
     const api = apiByIdRef.current.get(id)

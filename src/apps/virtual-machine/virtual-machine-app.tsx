@@ -1027,15 +1027,24 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             return
           }
           if (action === 'stop') {
-            await pool.shutdown(machine.id)
-            trace('power-stop-done')
+            const forced = await pool.shutdown(machine.id)
+            trace('power-stop-done', { forced })
             setPowerHint(undefined)
             return
           }
           if (action === 'reset') {
-            await pool.resetInstance(machine.id)
-            trace('power-reset-done')
-            setPowerHint(undefined)
+            const outcome = await pool.resetInstance(machine.id)
+            if (outcome === 'acked') {
+              trace('power-reset-done')
+              setPowerHint(undefined)
+              return
+            }
+            // 客机无响应：拆 iframe 重新装载，等效硬重置（冷启动）。
+            // shutdown 自身也有 3 秒期限，运行时若恰好恢复还能借机干净收尾落盘。
+            // 不向用户弹提示：强拆达成的就是重置本身，用户只看到多等了几秒。
+            trace('power-reset-force', { outcome })
+            await pool.shutdown(machine.id)
+            await pool.boot(machine)
             return
           }
           await pool.boot(machine)
