@@ -28,6 +28,10 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   agentCommand: 'instant-vm:agent-command',
   agentResult: 'instant-vm:agent-result',
   guestClipboard: 'instant-vm:guest-clipboard',
+  guestFileOffer: 'instant-vm:guest-file-offer',
+  guestFileReq: 'instant-vm:guest-file-req',
+  guestFileData: 'instant-vm:guest-file-data',
+  guestFileDone: 'instant-vm:guest-file-done',
 } as const
 
 /** 运行时 fetch 拦截器识别的本地镜像流 URL 前缀（挂在运行时 origin 上）。 */
@@ -329,6 +333,47 @@ export type InstantVmGuestClipboardMessage = {
   text: string
 }
 
+/**
+ * 客机 → 宿主：文件通道上行帧（ivm-shm 信箱 G2H，op=1，帧结构见 IVM 仓库
+ * ivm-shm.ts 的 IvmFileFrame，本文件与该文件保持同构）。offer = XP 复制的
+ * 文件元数据；req = 桥被 Explorer 粘贴触发的拉块请求（宿主→XP 会话）；
+ * data = 桥供上的块（XP→宿主会话）；done = 粘贴完成/取消/出错。
+ */
+export type InstantVmGuestFileOfferMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.guestFileOffer
+  files: { path: string; size: number }[]
+}
+
+export type InstantVmGuestFileReqMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.guestFileReq
+  session: number
+  start: boolean
+  offset: number
+  length: number
+  path: string | null
+}
+
+export type InstantVmGuestFileDataMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.guestFileData
+  session: number
+  offset: number
+  end: boolean
+  bytes: ArrayBuffer
+}
+
+export type InstantVmGuestFileDoneMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.guestFileDone
+  session: number
+  result: 'ok' | 'cancel' | 'error'
+}
+
+/** 宿主侧统一文件事件（四种上行消息的判别联合，与 IVM IvmFileFrame 同构）。 */
+export type VmGuestFileEvent =
+  | { kind: 'offer'; files: { path: string; size: number }[] }
+  | { kind: 'req'; session: number; start: boolean; offset: number; length: number; path: string | null }
+  | { kind: 'data'; session: number; offset: number; end: boolean; bytes: Uint8Array }
+  | { kind: 'done'; session: number; result: 'ok' | 'cancel' | 'error' }
+
 export type InstantVmStartedMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.started
   requestId: string
@@ -430,6 +475,10 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmDiskWriteMessage
   | InstantVmAgentResultMessage
   | InstantVmGuestClipboardMessage
+  | InstantVmGuestFileOfferMessage
+  | InstantVmGuestFileReqMessage
+  | InstantVmGuestFileDataMessage
+  | InstantVmGuestFileDoneMessage
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 2032
@@ -840,6 +889,92 @@ export function isInstantVmGuestClipboardMessage(
   )
 }
 
+/** 与 IVM 仓库 ivm-shm.ts 的 IVM_FILE_MAX_CHUNK 一致（32724）。 */
+const GUEST_FILE_MAX_CHUNK = 32724
+const GUEST_FILE_MAX_ENTRIES = 512
+
+function isFileEntryList(value: unknown): value is { path: string; size: number }[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= GUEST_FILE_MAX_ENTRIES &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.path === 'string' &&
+        item.path.length > 0 &&
+        typeof item.size === 'number' &&
+        Number.isInteger(item.size) &&
+        item.size >= 0,
+    )
+  )
+}
+
+export function isInstantVmGuestFileOfferMessage(
+  value: unknown,
+): value is InstantVmGuestFileOfferMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.guestFileOffer &&
+    isFileEntryList(value.files)
+  )
+}
+
+export function isInstantVmGuestFileReqMessage(
+  value: unknown,
+): value is InstantVmGuestFileReqMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.guestFileReq &&
+    typeof value.session === 'number' &&
+    Number.isInteger(value.session) &&
+    value.session >= 1 &&
+    value.session <= 0xffffffff &&
+    typeof value.start === 'boolean' &&
+    typeof value.offset === 'number' &&
+    Number.isInteger(value.offset) &&
+    value.offset >= 0 &&
+    typeof value.length === 'number' &&
+    Number.isInteger(value.length) &&
+    value.length >= 1 &&
+    value.length <= GUEST_FILE_MAX_CHUNK &&
+    (value.path === null || (typeof value.path === 'string' && value.path.length > 0))
+  )
+}
+
+export function isInstantVmGuestFileDataMessage(
+  value: unknown,
+): value is InstantVmGuestFileDataMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.guestFileData &&
+    typeof value.session === 'number' &&
+    Number.isInteger(value.session) &&
+    value.session >= 1 &&
+    value.session <= 0xffffffff &&
+    typeof value.offset === 'number' &&
+    Number.isInteger(value.offset) &&
+    value.offset >= 0 &&
+    typeof value.end === 'boolean' &&
+    value.bytes instanceof ArrayBuffer &&
+    value.bytes.byteLength > 0 &&
+    value.bytes.byteLength <= GUEST_FILE_MAX_CHUNK
+  )
+}
+
+export function isInstantVmGuestFileDoneMessage(
+  value: unknown,
+): value is InstantVmGuestFileDoneMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.guestFileDone &&
+    typeof value.session === 'number' &&
+    Number.isInteger(value.session) &&
+    value.session >= 1 &&
+    value.session <= 0xffffffff &&
+    (value.result === 'ok' || value.result === 'cancel' || value.result === 'error')
+  )
+}
+
 export function emptyVmDiskStats(present = false): InstantVmDiskStats {
   return {
     present,
@@ -988,6 +1123,18 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.guestClipboard) {
     return isInstantVmGuestClipboardMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.guestFileOffer) {
+    return isInstantVmGuestFileOfferMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.guestFileReq) {
+    return isInstantVmGuestFileReqMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.guestFileData) {
+    return isInstantVmGuestFileDataMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.guestFileDone) {
+    return isInstantVmGuestFileDoneMessage(value)
   }
   return false
 }

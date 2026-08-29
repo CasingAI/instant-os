@@ -11,7 +11,7 @@
 | 原二期 | EXEC 返回值 | ✅ v3 已落地 | EXEC_R(0x11) 任务槽 + `[IVM]EXIT=` 回执行，不阻塞 PING |
 | 原三期 | 键盘输入 | ✅ 无需开发 | v86 `keyboard_send_text` 现成（`__vm.key` / `agentCommand('key')`） |
 | 原四期 | 剪贴板（文本、内外、双向） | ✅ v3 已落地 | ivm-shm.sys 信箱驱动 + clipboard-bridge 桥 + v86 DMA 直读 |
-| 原五期 | 文件双向传输 | 📋 只调研 | `05-file-transfer.md`（信箱分块 vs 镜像直写，9p 已排除） |
+| 原五期 | 文件双向传输 | 🔨 代码完成，待实机验证 | 信箱文件帧（v4）+ OLE 虚拟文件粘贴；协议见 `ivm-shm.ts` IvmFileFrame，调研背景 `05-file-transfer.md`。性能：宿主→XP 走 4MB 预读窗 + iframe 直供，活跃期轮询 4ms，桥定时器 1ms |
 
 ## 1. 为什么通道形态从「串口扩展」改成「共享内存信箱」
 

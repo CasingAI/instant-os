@@ -2,6 +2,7 @@ import { countSystemDebugHot, recordSystemDebugTimeline } from '../../os/system-
 import { useEffect, useRef } from 'preact/hooks'
 import type {
   InstantVmStartMessage,
+  VmGuestFileEvent,
 } from './virtual-machine-protocol.ts'
 import { buildVmRuntimeOriginWithMode, appendVmCrashReportParam } from './virtual-machine-runtime-config.ts'
 import { loadExperimentalSettings } from '../../os/experimental-settings-storage.ts'
@@ -26,6 +27,7 @@ export type VmRuntimeSurfaceProps = {
   onIframeLoadFailed: (machineId: string, detail: string) => void
   onDiskWriteFailed: (machineId: string, message: string) => void
   onGuestClipboard: (machineId: string, text: string) => void
+  onGuestFileEvent: (machineId: string, event: VmGuestFileEvent) => void
   onCaptureKeyboard: () => void
   isDisplayed: boolean
 }
@@ -48,6 +50,7 @@ export function VmRuntimeSurface({
   onIframeLoadFailed,
   onDiskWriteFailed,
   onGuestClipboard,
+  onGuestFileEvent,
   onCaptureKeyboard,
   isDisplayed,
 }: VmRuntimeSurfaceProps) {
@@ -82,6 +85,7 @@ export function VmRuntimeSurface({
     (message, detail) => onBootError(machineId, message, detail),
     (detail) => onIframeLoadFailed(machineId, detail),
     (text) => onGuestClipboard(machineId, text),
+    (event) => onGuestFileEvent(machineId, event),
   )
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 

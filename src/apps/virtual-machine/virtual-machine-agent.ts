@@ -21,11 +21,21 @@ export const VM_AGENT_METHODS = [
   'exec',
   'execResult',
   'clipboardWrite',
+  'filePending',
+  'fileClear',
+  'fileReq',
+  'fileChunk',
+  'fileDone',
+  'fileWindow',
+  'fileWindowsClear',
   'click',
   'dblclick',
   'shutdown',
   'reboot',
 ] as const
+
+/** 文件通道元数据条目（与 ivm-shm.ts IvmFileEntry 同构）。 */
+export type VmFileEntry = { path: string; size: number }
 
 export type VmAgentMethodName = (typeof VM_AGENT_METHODS)[number]
 
@@ -51,6 +61,23 @@ export type VmAgentController = {
   execResult(cmdline: string): Promise<VmExecResult>
   /** 宿主 → 客机剪贴板文本（ivm-shm 信箱；未握手时运行时排队，失败仅参数无效）。 */
   clipboardWrite(text: string): Promise<boolean>
+  /**
+   * 文件通道（ivm-shm op=1 帧；false = 参数无效或信箱忙，调用方重试）。
+   * filePending：推待粘贴清单（宿主→XP 会话入口）；fileReq：宿主来拉一块
+   * （XP→宿主会话）；fileChunk：按桥的 REQ 供一块；fileDone：结束会话。
+   */
+  filePending(session: number, mode: 'copy' | 'cut', files: readonly VmFileEntry[]): Promise<boolean>
+  fileClear(): Promise<boolean>
+  fileReq(session: number, start: boolean, path: string | null, offset: number, length: number): Promise<boolean>
+  fileChunk(session: number, offset: number, bytes: ArrayBuffer, end: boolean): Promise<boolean>
+  fileDone(session: number, result: 'ok' | 'cancel' | 'error'): Promise<boolean>
+  /**
+   * 宿主预读窗注入（纯 iframe 内存，不走信箱）：宿主→XP 粘贴时按大块预读
+   * 推给运行时页，REQ 命中窗由运行时页就地供块，免去每块一次往返。
+   */
+  fileWindow(session: number, name: string, offset: number, bytes: ArrayBuffer): Promise<boolean>
+  /** 清运行时页预读窗（新会话开推前/会话收尾调用，防跨会话脏数据）。 */
+  fileWindowsClear(): Promise<boolean>
   click(x: number, y: number): Promise<void>
   dblclick(x: number, y: number): Promise<void>
   shutdown(): Promise<void>
@@ -70,6 +97,17 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
     exec: (cmdline) => call('exec', [cmdline]),
     execResult: (cmdline) => call('execResult', [cmdline]) as Promise<VmExecResult>,
     clipboardWrite: (text) => call('clipboardWrite', [text]) as Promise<boolean>,
+    filePending: (session, mode, files) =>
+      call('filePending', [session, mode, files.map((f) => ({ path: f.path, size: f.size }))]) as Promise<boolean>,
+    fileClear: () => call('fileClear') as Promise<boolean>,
+    fileReq: (session, start, path, offset, length) =>
+      call('fileReq', [session, start, path, offset, length]) as Promise<boolean>,
+    fileChunk: (session, offset, bytes, end) =>
+      call('fileChunk', [session, offset, bytes, end]) as Promise<boolean>,
+    fileDone: (session, result) => call('fileDone', [session, result]) as Promise<boolean>,
+    fileWindow: (session, name, offset, bytes) =>
+      call('fileWindow', [session, name, offset, bytes]) as Promise<boolean>,
+    fileWindowsClear: () => call('fileWindowsClear') as Promise<boolean>,
     click: (x, y) => call('click', [x, y]),
     dblclick: (x, y) => call('dblclick', [x, y]),
     shutdown: () => call('shutdown'),

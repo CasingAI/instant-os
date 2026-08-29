@@ -664,8 +664,33 @@ static void agent_loop(void)
 
 static int agent_single_instance(void)
 {
-    CreateMutexA(NULL, TRUE, "InstantVmResAgent");
-    return GetLastError() != ERROR_ALREADY_EXISTS;
+    /* Global 名域：服务在 session 0，登录自启在用户会话——两边必须看到
+     * 同一把锁，谁先起谁跑。建不了（无权限）退回本会话互斥兜底。 */
+    CreateMutexA(NULL, TRUE, "Global\\InstantVmResAgent");
+    DWORD gle = GetLastError();
+    if (gle != ERROR_SUCCESS && gle != ERROR_ALREADY_EXISTS) {
+        CreateMutexA(NULL, TRUE, "InstantVmResAgent");
+        gle = GetLastError();
+    }
+    return gle != ERROR_ALREADY_EXISTS;
+}
+
+/* 登录自启撞上已跑实例（多半是服务先起来了）时是否要静默退场：
+ * 带 /autostart 参数就别弹框（每次登录都弹等于骂人）。 */
+static int cmdline_has_autostart(void)
+{
+    const char *cmd = GetCommandLineA();
+    const char *p = cmd;
+    while (p[0] != 0) {
+        if ((p[0] == '/' || p[0] == '-') &&
+            (p[1] | 0x20) == 'a' && (p[2] | 0x20) == 'u' && (p[3] | 0x20) == 't' &&
+            (p[4] | 0x20) == 'o' && (p[5] | 0x20) == 's' && (p[6] | 0x20) == 't' &&
+            (p[7] | 0x20) == 'a' && (p[8] | 0x20) == 'r' && (p[9] | 0x20) == 't') {
+            return 1;
+        }
+        p++;
+    }
+    return 0;
 }
 
 static SERVICE_STATUS_HANDLE g_svc_status;
@@ -728,9 +753,12 @@ void res_agent_entry(void)
     }
     /* #endregion */
 
-    /* 交互路径：单实例失败弹框退出（保留 v1 产品行为）。
-     * 弹框兼作版本告示牌：双击 exe 就能看到当前跑的是哪个版本的构建。 */
+    /* 交互路径：单实例失败按来源分叉——/autostart（登录自启输给了
+     * 已跑实例）静默退场；双击则弹框兼作版本告示牌。 */
     if (!agent_single_instance()) {
+        if (cmdline_has_autostart()) {
+            ExitProcess(0);
+        }
         MessageBoxA(NULL,
                     "res-agent is already running.\r\n"
                     "version " AGENT_VERSION ", built " VM_AGENT_BUILD,

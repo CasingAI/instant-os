@@ -18,6 +18,7 @@ import {
   type InstantVmSaveStateResultMessage,
   type InstantVmStartMessage,
   type InstantVmStatsSnapshot,
+  type VmGuestFileEvent,
 } from './virtual-machine-protocol.ts'
 import type { VirtualMachineRecord } from './virtual-machine-types.ts'
 
@@ -229,6 +230,7 @@ export function useVirtualMachineRuntime(
   onRuntimeError?: (message: string, detail?: string) => void,
   onIframeLoadFailed?: (detail: string) => void,
   onGuestClipboard?: (text: string) => void,
+  onGuestFileEvent?: (event: VmGuestFileEvent) => void,
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
@@ -242,6 +244,8 @@ export function useVirtualMachineRuntime(
   onIframeLoadFailedRef.current = onIframeLoadFailed
   const onGuestClipboardRef = useRef(onGuestClipboard)
   onGuestClipboardRef.current = onGuestClipboard
+  const onGuestFileEventRef = useRef(onGuestFileEvent)
+  onGuestFileEventRef.current = onGuestFileEvent
   const [ready, setReady] = useState(false)
   const readyRef = useRef(false)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
@@ -309,6 +313,37 @@ export function useVirtualMachineRuntime(
           `[vm-clipboard] 宿主: 收到 iframe 转发的客机文本(${message.text.length}字符) ${JSON.stringify(message.text.slice(0, 60))}`,
         )
         onGuestClipboardRef.current?.(message.text)
+        return
+      }
+
+      if (
+        message.type === INSTANT_VM_MESSAGE_TYPE.guestFileOffer ||
+        message.type === INSTANT_VM_MESSAGE_TYPE.guestFileReq ||
+        message.type === INSTANT_VM_MESSAGE_TYPE.guestFileData ||
+        message.type === INSTANT_VM_MESSAGE_TYPE.guestFileDone
+      ) {
+        const event: VmGuestFileEvent =
+          message.type === INSTANT_VM_MESSAGE_TYPE.guestFileOffer
+            ? { kind: 'offer', files: message.files }
+            : message.type === INSTANT_VM_MESSAGE_TYPE.guestFileReq
+              ? {
+                  kind: 'req',
+                  session: message.session,
+                  start: message.start,
+                  offset: message.offset,
+                  length: message.length,
+                  path: message.path,
+                }
+              : message.type === INSTANT_VM_MESSAGE_TYPE.guestFileData
+                ? {
+                    kind: 'data',
+                    session: message.session,
+                    offset: message.offset,
+                    end: message.end,
+                    bytes: new Uint8Array(message.bytes),
+                  }
+                : { kind: 'done', session: message.session, result: message.result }
+        onGuestFileEventRef.current?.(event)
         return
       }
 

@@ -1,10 +1,11 @@
 /**
- * clipboard-bridge.exe 产物校验单测（todo/vm-remote-control 剪贴板通道）。
- * 运行：node --experimental-strip-types src/apps/virtual-machine/guest/clipboard-bridge/clipboard-bridge-binary.test.ts
+ * vmfile-spike.exe 产物校验单测（M1 虚拟文件粘贴 spike）。
+ * 运行：node --experimental-strip-types src/apps/virtual-machine/guest/vmfile-spike/vmfile-spike-binary.test.ts
  *
- * 断言口径与 res-agent-binary.test.ts 一致（同一 zig cc -nostdlib 管线）：
+ * 断言口径与 clipboard-bridge-binary.test.ts 一致（同一 zig cc -nostdlib 管线）：
  *   PE32 i386 → GUI 子系统 → OS/Subsystem 版本 5.01 → 导入表只含
- *   kernel32/user32 → 体积 < 200KB，两次独立编译结构等价。
+ *   kernel32/user32/ole32（ole32 是本程序的存在意义）→ 体积 < 200KB，
+ *   两次独立编译结构等价。
  * 环境里没有 zig 时跳过（exit 0），不阻塞无工具链的 CI。
  */
 import assert from 'node:assert/strict'
@@ -14,11 +15,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const AGENT_DIR = dirname(fileURLToPath(import.meta.url))
-const BUILD_SCRIPT = join(AGENT_DIR, '..', '..', '..', '..', '..', 'scripts', 'build-clipboard-bridge.sh')
+const SPIKE_DIR = dirname(fileURLToPath(import.meta.url))
+const BUILD_SCRIPT = join(SPIKE_DIR, '..', '..', '..', '..', '..', 'scripts', 'build-vmfile-spike.sh')
 
-/** 剪贴板桥依赖 kernel32（设备/内存）+ user32（剪贴板/消息泵）+ ole32（OLE 剪贴板：虚拟文件通道）。 */
-const IMPORT_DLL_WHITELIST = new Set(['kernel32', 'user32', 'ole32', 'msvcrt'])
+/** 剪贴板（user32）+ 内存（kernel32）+ OLE 剪贴板（ole32），XP 裸机自带。 */
+const IMPORT_DLL_WHITELIST = new Set(['kernel32', 'user32', 'ole32'])
 
 const MAX_EXE_BYTES = 200 * 1024
 
@@ -94,9 +95,9 @@ function buildInto(directory: string): Buffer {
   assert.equal(
     result.status,
     0,
-    `build-clipboard-bridge.sh 失败：\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+    `build-vmfile-spike.sh 失败：\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
   )
-  return readFileSync(join(directory, 'clipboard-bridge.exe'))
+  return readFileSync(join(directory, 'vmfile-spike.exe'))
 }
 
 function hasZig(): boolean {
@@ -108,10 +109,10 @@ function buildAndAssert(directory: string): PeInfo {
   assert.ok(image.length > 0 && image.length <= MAX_EXE_BYTES, `EXE 体积应 ≤ 200KB，实际 ${image.length}`)
   const pe = parsePe(image)
   assert.equal(pe.machine, 0x14c, 'CPU 架构必须是 i386（XP 32 位）')
-  assert.equal(pe.subsystem, 2, '子系统必须是 GUI（后台工具不闪控制台）')
+  assert.equal(pe.subsystem, 2, '子系统必须是 GUI（无窗口工具不闪控制台）')
   assert.equal(pe.osVersion, '5.1', 'OS 版本必须补成 5.01（patch-pe-xp-version.mjs 的目标值）')
   assert.equal(pe.subsystemVersion, '5.1', 'Subsystem 版本必须补成 5.01')
-  assert.notEqual(pe.entryRva, 0, '入口点不能为 0（-nostdlib 自定义入口 bridge_entry）')
+  assert.notEqual(pe.entryRva, 0, '入口点不能为 0（-nostdlib 自定义入口 spike_entry）')
   assert.ok(pe.imports.length > 0, '导入表为空，构建疑似坏了')
   for (const dll of pe.imports) {
     const base = dll.replace(/\.dll$/i, '').toLowerCase()
@@ -122,23 +123,19 @@ function buildAndAssert(directory: string): PeInfo {
 
 function main() {
   if (!hasZig()) {
-    console.log('SKIP: 未安装 zig（brew install zig），clipboard-bridge 产物校验只在装了工具链的环境跑')
+    console.log('SKIP: 未安装 zig（brew install zig），vmfile-spike 产物校验只在装了工具链的环境跑')
     return
   }
-  // 行数守卫：v3 文本桥 < 340；v4 并入 OLE 虚拟文件与文件会话放宽到 1700。
-  const sourceLines = readFileSync(join(AGENT_DIR, 'clipboard-bridge.c'), 'utf8').split('\n').length
-  assert.ok(sourceLines < 1700, `clipboard-bridge.c 应保持 < 1700 行，当前 ${sourceLines} 行`)
-
-  const infoA = buildAndAssert(mkdtempSync(join(tmpdir(), 'clip-bridge-a-')))
-  const infoB = buildAndAssert(mkdtempSync(join(tmpdir(), 'clip-bridge-b-')))
+  const infoA = buildAndAssert(mkdtempSync(join(tmpdir(), 'vmfile-spike-a-')))
+  const infoB = buildAndAssert(mkdtempSync(join(tmpdir(), 'vmfile-spike-b-')))
   assert.deepEqual(infoB.imports, infoA.imports, '两次编译的导入表不一致')
   assert.deepEqual(infoB.sectionNames, infoA.sectionNames, '两次编译的节表不一致')
   const importBases = infoA.imports.map((dll) => dll.replace(/\.dll$/i, '').toLowerCase())
-  for (const required of ['kernel32', 'user32']) {
+  for (const required of ['kernel32', 'user32', 'ole32']) {
     assert.ok(importBases.includes(required), `导入表缺少依赖 ${required}：${infoA.imports.join(', ')}`)
   }
 
-  console.log(`clipboard-bridge-binary.test.ts ok (${infoA.imports.join(', ')})`)
+  console.log(`vmfile-spike-binary.test.ts ok (${infoA.imports.join(', ')})`)
 }
 
 main()

@@ -26,7 +26,12 @@ import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
-import { getFilesClipboard, setFilesClipboard } from './files-clipboard.ts'
+import { getFilesClipboard, setFilesClipboard, subscribeFilesClipboard, type VmClipboardFile } from './files-clipboard.ts'
+import {
+  pullFileFromVm,
+  pushFilesToVm,
+} from '../virtual-machine/virtual-machine-file-transfer.ts'
+import { filesOpenStreamWrite } from './files-api.ts'
 import { readAppliedDockReservePx } from '../../dock/dock-css-vars.ts'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
@@ -712,6 +717,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [actionSheet, setActionSheet] = useState<ActionSheetState | undefined>(undefined)
   const [newFileMenu, setNewFileMenu] = useState<NewFileMenuState | undefined>(undefined)
   const [clipboardRevision, setClipboardRevision] = useState(0)
+  // VM 应用等外部写入者更新剪贴板（如 XP 里复制了文件）后刷新「粘贴」可用态
+  useEffect(() => subscribeFilesClipboard(() => setClipboardRevision((value) => value + 1)), [])
   const [stackedBrowserOpen, setStackedBrowserOpen] = useState(false)
   const [folderMotion, setFolderMotion] = useState<'idle' | 'push' | 'pop'>('idle')
   const [openWithNode, setOpenWithNode] = useState<FilesNode | undefined>(undefined)
@@ -2010,18 +2017,34 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [modal],
   )
 
+  /** 选中项元数据推给虚拟机桥（XP 剪贴板出现待粘贴虚拟文件；虚拟机不在时静默跳过）。 */
+  const pushSelectionToVm = useCallback(
+    (nodes: readonly FilesNode[], mode: 'copy' | 'cut') => {
+      const root = filesLocationPathRoot(locationId)
+      const paths = nodes.map((node) =>
+        joinFilesAbsolutePath(root, ...pathNodes.map((parent) => parent.name), node.name),
+      )
+      void pushFilesToVm(paths, mode).catch(() => {
+        /* 虚拟机未运行 / 信箱忙：静默——XP 侧只是没有这次的内容 */
+      })
+    },
+    [locationId, pathNodes],
+  )
+
   /** 复制选中项（多选批量；mode=copy） */
   const handleCopy = useCallback(
     (nodes: readonly FilesNode[]) => {
       if (nodes.length === 0) return
       closeTransientMenus()
       setFilesClipboard({
+        kind: 'nodes',
         entries: nodes.map((node) => ({ nodeId: node.id, name: node.name, kind: node.kind })),
         mode: 'copy',
       })
       setClipboardRevision((value) => value + 1)
+      pushSelectionToVm(nodes, 'copy')
     },
-    [closeTransientMenus],
+    [closeTransientMenus, pushSelectionToVm],
   )
 
   /** 剪切选中项（mode=cut；粘贴成功后删除源） */
@@ -2030,12 +2053,108 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (nodes.length === 0) return
       closeTransientMenus()
       setFilesClipboard({
+        kind: 'nodes',
         entries: nodes.map((node) => ({ nodeId: node.id, name: node.name, kind: node.kind })),
         mode: 'cut',
       })
       setClipboardRevision((value) => value + 1)
+      pushSelectionToVm(nodes, 'cut')
     },
-    [closeTransientMenus],
+    [closeTransientMenus, pushSelectionToVm],
+  )
+
+  /** 虚拟机剪贴板粘贴：冲突预检（与节点粘贴同一套决策）→ 逐文件流式拉取落盘。 */
+  const pasteVmFiles = useCallback(
+    async (files: readonly VmClipboardFile[]) => {
+      const resolveConflict = createFilesConflictResolver(askFilesConflict)
+      const plans: { file: VmClipboardFile; replace: boolean }[] = []
+      for (const file of files) {
+        const existing = await findSiblingNode(locationId, folderId, file.name)
+        if (!existing) {
+          plans.push({ file, replace: false })
+          continue
+        }
+        const info = {
+          name: file.name,
+          kind: 'file' as const,
+          existingKind: existing.kind,
+          existingWritable: isFilesNodeWritable(existing),
+        }
+        const choice = await resolveConflict(info)
+        if (!choice) {
+          showToast('已取消')
+          return
+        }
+        if (choice === 'skip') continue
+        plans.push({ file, replace: choice === 'replace' && filesConflictAllowsReplace(info) })
+      }
+      if (plans.length === 0) {
+        showToast('没有可粘贴的文件')
+        return
+      }
+      const folderPath = joinFilesAbsolutePath(
+        filesLocationPathRoot(locationId),
+        ...pathNodes.map((parent) => parent.name),
+      )
+      const pasteController = new AbortController()
+      try {
+        await runFilesOpWithProgress({
+          kind: 'paste',
+          totalWork: plans.length,
+          estimatedTotalMs: estimateFilesOpDurationMs(plans.length),
+          onUiChange: setOpProgressUi,
+          signal: pasteController.signal,
+          cancel: () => pasteController.abort(),
+          task: async (report, signal) => {
+            for (let index = 0; index < plans.length; index += 1) {
+              signal?.throwIfAborted?.()
+              const plan = plans[index]!
+              if (plan.replace) {
+                // 替换：先删目标腾原名（失败则跳过该项，与节点粘贴一致）
+                const existing = await findSiblingNode(locationId, folderId, plan.file.name)
+                if (existing) {
+                  try {
+                    await removeNode(existing.id)
+                  } catch (err) {
+                    showToast(`无法替换「${plan.file.name}」：${formatError(err)}`)
+                    continue
+                  }
+                }
+              }
+              const writer = await filesOpenStreamWrite(
+                joinFilesAbsolutePath(folderPath, plan.file.name),
+                {
+                  nameMode: plan.replace ? 'exact' : 'unique-suffix',
+                  expectedSize: plan.file.size,
+                },
+              )
+              try {
+                await pullFileFromVm(plan.file.path, plan.file.size, (chunk) => writer.write(chunk))
+                await writer.close()
+              } catch (err) {
+                await writer.abort().catch(() => undefined)
+                throw err
+              }
+              report({
+                done: index + 1,
+                total: plans.length,
+                detailLabel: `${index + 1} / ${plans.length} 项`,
+              })
+            }
+          },
+        })
+      } catch (err) {
+        await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [
+      askFilesConflict,
+      folderId,
+      locationId,
+      modal,
+      pathNodes,
+      showToast,
+    ],
   )
 
   const handlePaste = useCallback(async () => {
@@ -2051,6 +2170,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           themeColor: THEME,
         })
       }
+      return
+    }
+    if (entry.kind === 'vm-files') {
+      // 虚拟机剪贴板：XP 里复制的文件，粘贴即向 XP 流式拉取
+      if (!canCreateHere) return
+      closeTransientMenus()
+      await pasteVmFiles(entry.files)
       return
     }
     if (!canCreateHere) return
@@ -2195,7 +2321,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
       await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
     }
-  }, [askFilesConflict, canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, setItems, showToast, sort])
+  }, [askFilesConflict, canCreateHere, closeTransientMenus, folderId, locationId, modal, pasteVmFiles, refresh, setItems, showToast, sort])
 
   /**
    * 删除选中项：默认移入废纸篓；permanent（按住 ⌥）时永久删除。

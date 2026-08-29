@@ -33,6 +33,14 @@ import {
 } from './virtual-machine-clipboard.ts'
 import { saveVirtualMachineSnapshot } from './virtual-machine-save-snapshot.ts'
 import { postVirtualMachineDiskWriteFailedNotification } from './virtual-machine-disk-write-notification.ts'
+import {
+  handleVmFileEvent,
+  registerVmFileTransferBackend,
+  subscribeVmFileOffers,
+} from './virtual-machine-file-transfer.ts'
+import { postOsNotification } from '../../os/os-notifications.ts'
+import { vmAgentFor } from './virtual-machine-agent.ts'
+import type { VmGuestFileEvent } from './virtual-machine-protocol.ts'
 import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
 import {
   DISK_IMAGE_INCOMPLETE_HINT,
@@ -498,6 +506,45 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     },
     [displayedId],
   )
+
+  /** 文件通道上行（offer/data/req/done）：按显示机器过滤后交给传输服务。 */
+  const handleGuestFileEvent = useCallback(
+    (machineId: string, event: VmGuestFileEvent) => {
+      if (machineId !== displayedId) {
+        return
+      }
+      handleVmFileEvent(event)
+    },
+    [displayedId],
+  )
+
+  // 传输服务后端随显示机器切换注册/注销（文件APP 经此调用当前虚拟机）。
+  useEffect(() => {
+    registerVmFileTransferBackend(
+      displayedId !== undefined ? vmAgentFor(pool, displayedId) : null,
+    )
+    return () => registerVmFileTransferBackend(null)
+    // pool.agentCommand 是稳定的命令入口；用它与 displayedId 做依赖即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedId, pool.agentCommand])
+
+  // XP 里复制了文件 → OS 通知提示（文件APP里粘贴即导入）
+  useEffect(() => {
+    const unsubscribe = subscribeVmFileOffers((files) => {
+      const subtitle =
+        files.length === 1
+          ? `${files[0]?.name ?? '文件'}（可在文件APP粘贴）`
+          : `${files.length} 个文件（可在文件APP粘贴）`
+      postOsNotification({
+        id: 'virtual-machine:clipboard-files',
+        title: '虚拟机剪贴板',
+        subtitle,
+        phase: 'neutral',
+        icon: { kind: 'app', appId: 'virtual-machine' },
+      })
+    })
+    return unsubscribe
+  }, [])
   // #endregion
 
   const captureGuestKeyboard = useCallback(() => {
@@ -1175,6 +1222,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     onIframeLoadFailed={handleIframeLoadFailed}
                     onDiskWriteFailed={handleDiskWriteFailed}
                     onGuestClipboard={handleGuestClipboard}
+                    onGuestFileEvent={handleGuestFileEvent}
                     onCaptureKeyboard={captureGuestKeyboard}
                     isDisplayed={isDisplayed}
                   />
