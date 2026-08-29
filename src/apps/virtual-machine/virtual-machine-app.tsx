@@ -333,7 +333,10 @@ function VirtualMachineList({
                 itemRefs.current.delete(index)
               }
             }}
-            class={index === overIndex ? 'virtual-machine__row-slot--over' : undefined}
+            class={
+              'virtual-machine__row-slot' +
+              (index === overIndex ? ' virtual-machine__row-slot--over' : '')
+            }
           >
             <button
               type="button"

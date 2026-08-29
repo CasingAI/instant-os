@@ -116,13 +116,14 @@
   min-height: 0;
 }
 
-.virtual-machine__list > li {
-  /* 常驻透明上边框：插入指示线出现时不跳版。 */
+.virtual-machine__row-slot {
+  /* 常驻透明上边框：插入指示线出现时不跳版。
+     与 --over 同为单类选择器，靠源码顺序让指示线胜出（钥匙串同款）。 */
   border-top: 3px solid transparent;
 }
 
 .virtual-machine__row-slot--over {
-  border-top-color: var(--vm-selected);
+  border-top-color: #2f87e2;
 }
 
 .virtual-machine__row {
