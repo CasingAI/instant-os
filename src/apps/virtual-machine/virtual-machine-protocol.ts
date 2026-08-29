@@ -90,6 +90,8 @@ export type InstantVmNetworkBackendId = (typeof INSTANT_VM_NETWORK_BACKEND_IDS)[
 /**
  * 指针工作方式：`auto` 按客机是否报告绝对坐标在独占与跟随间切换；
  * `follow` 强制跟随（可移出画面）；`lock` 强制独占（点击锁定、Esc 释放）。
+ * 绝对坐标接管期间 auto/lock 一律按跟随生效：独占下宿主光标被 Pointer Lock
+ * 藏掉、clientX/Y 冻结，客机光标失联（指针「消失」），退出绝对模式后恢复。
  * instant-app 新建虚拟机默认下发 `auto`；协议字段省略时运行时按 `follow`。
  * Keep in sync with instant-app `VmPointerModeId`。
  */

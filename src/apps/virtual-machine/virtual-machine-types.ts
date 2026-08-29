@@ -94,7 +94,8 @@ export type VmOsPresetId = (typeof VM_OS_PRESET_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_OS_PRESET: VmOsPresetId = 'windows-xp'
 
-/** 指针工作方式：`auto` 按客机绝对坐标能力自动切换；`follow` 强制跟随；`lock` 强制独占。 */
+/** 指针工作方式：`auto` 按客机绝对坐标能力自动切换；`follow` 强制跟随；`lock` 强制独占。
+ * 绝对坐标接管期间 auto/lock 一律按跟随生效（独占 + 绝对坐标 = 指针消失），退出后恢复独占。 */
 export const VM_POINTER_MODE_IDS = ['auto', 'follow', 'lock'] as const
 
 export type VmPointerModeId = (typeof VM_POINTER_MODE_IDS)[number]

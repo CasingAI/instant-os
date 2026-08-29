@@ -289,7 +289,8 @@ export function formatVmPointerModeRuntimeLabel(
   absoluteMouse: boolean | undefined,
 ): string {
   const base = formatVmPointerModeLabel(policy)
-  if (policy !== 'auto' || absoluteMouse === undefined) {
+  // 绝对坐标接管期间 auto/lock 都按跟随生效，标签同步标注当前实际形态。
+  if ((policy !== 'auto' && policy !== 'lock') || absoluteMouse === undefined) {
     return base
   }
   return `${base}（当前${absoluteMouse ? '跟随' : '独占'}）`
