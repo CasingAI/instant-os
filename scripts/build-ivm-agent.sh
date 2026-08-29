@@ -44,4 +44,11 @@ zig cc -target x86-windows-gnu -O2 -Wall -nostdlib \
   -lkernel32 -luser32 -lgdi32 -ladvapi32 -lole32
 node "$GUEST_DIR/res-agent/patch-pe-xp-version.mjs" "$OUT"
 
+# 防呆（2026-08 事故：源码已加 /mouse-install 分发、产物还是旧构建，bat 调用
+# 静默失败还误报成功）：产物必须含全部入口/职责关键字符串，缺一即失败。
+# grep 二进制必须钉 LC_ALL=C：BSD grep 在 UTF-8 locale 下对二进制匹配不稳定。
+for marker in "mouse-install" "mouse-check" "autostart" "VMware Pointing Device" "UpperFilters"; do
+  LC_ALL=C grep -aq "$marker" "$OUT" || { echo "error: built exe lacks '$marker'" >&2; exit 1; }
+done
+
 echo "built: $OUT ($(wc -c < "$OUT") bytes)"

@@ -18,12 +18,18 @@ rem   6. create + start the agent service
 rem   7. register HKCU Run autostart (the logon instance runs the clipboard
 rem      bridge; a service cannot touch the interactive clipboard) and start it
 rem   8. mouse driver: register the vmmouse service and attach it as an upper
-rem      filter on the PS/2 mouse device (`ivm-agent.exe /mouse-install`)
-rem   9. verify with sc query
+rem      filter on the PS/2 mouse device (`ivm-agent.exe /mouse-install`;
+rem      failures print a loud ERROR with the real exit code instead of a
+rem      scroll-by WARNING; every step lands in C:\Tools\mouse-install.log)
+rem   9. verify with sc query + `/mouse-check` (pops a report window)
 rem
 rem A reboot is required afterwards: the mailbox driver loads in its normal
 rem boot-time slot, and the vmmouse filter attaches when the mouse device
 rem re-enumerates. After the reboot the absolute-pointer mode is active.
+rem Re-verify any time with check-mouse.bat. NOTE: even when everything is
+rem installed, Device Manager keeps showing the Microsoft PS/2 driver --
+rem vmmouse is an upper filter, not a replacement (check via check-mouse.bat
+rem or the driver's Driver Files list instead).
 
 setlocal
 
@@ -133,12 +139,14 @@ start "" "C:\Tools\ivm-agent.exe" /autostart
 
 echo [8/9] installing the VMware absolute-pointer mouse driver...
 start "ivm-mouse-install" /wait "C:\Tools\ivm-agent.exe" /mouse-install
-if errorlevel 2 (
-  echo WARNING: vmmouse service/filter registration failed (code %errorlevel%).
-) else if errorlevel 1 (
-  echo WARNING: no PS/2 mouse device found in the registry; vmmouse not attached.
-) else (
+set mouse_rc=%errorlevel%
+if "%mouse_rc%"=="0" (
   echo   vmmouse registered and attached to the PS/2 mouse device.
+) else (
+  echo ERROR: /mouse-install failed with exit code %mouse_rc%.
+  echo        2 = service/registry problem or vmmouse.sys missing,
+  echo        1 = no PS/2 mouse device found in the registry.
+  echo        Details: C:\Tools\mouse-install.log - the filter is NOT installed.
 )
 
 echo [9/9] verifying...
@@ -147,10 +155,16 @@ sc query InstantVmAgent
 sc query vmmouse
 tasklist /FI "IMAGENAME eq ivm-agent.exe" | find /I "ivm-agent.exe" >nul
 if errorlevel 1 echo WARNING: ivm-agent.exe is NOT running. Run: sc query InstantVmAgent
+echo mouse check (also shown in a popup window):
+start "ivm-mouse-check" /wait "C:\Tools\ivm-agent.exe" /mouse-check
+if not "%errorlevel%"=="0" echo WARNING: /mouse-check says vmmouse is NOT attached (code %errorlevel%). See C:\Tools\mouse-install.log
 
 echo.
 echo Done. Reboot once: the mailbox driver then loads in its boot-time slot
 echo and the vmmouse filter attaches (absolute pointer becomes active).
+echo After the reboot, re-verify with check-mouse.bat. Note: Device Manager
+echo keeps showing the Microsoft PS/2 driver even when vmmouse is installed
+echo (it is an upper filter, not a replacement).
 echo Double-click ivm-agent.exe to see its version/build date.
 pause
 exit /b 0

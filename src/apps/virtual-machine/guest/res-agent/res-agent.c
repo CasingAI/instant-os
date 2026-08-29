@@ -716,6 +716,12 @@ static int cmdline_has_flag(const char *flag)
 
 static SERVICE_STATUS_HANDLE g_svc_status;
 
+/* ivm-mouse-install.c：鼠标驱动注册 / 诊断 / 自愈（svc_main 和登录常驻路径
+ * 启动时会调自愈，声明得放在它们前面）。 */
+int ivm_mouse_install(void);
+int ivm_mouse_check(void);
+void ivm_mouse_selfheal(void);
+
 static void svc_set_state(DWORD state)
 {
     static const SERVICE_STATUS zero_status;
@@ -748,6 +754,7 @@ static void WINAPI svc_main(DWORD argc, char **argv)
         return;
     }
     svc_set_state(SERVICE_RUNNING);
+    ivm_mouse_selfheal(); /* 开机顺手补挂 vmmouse 过滤驱动（毫秒级，见 ivm-mouse-install.c） */
     agent_loop();
     svc_set_state(SERVICE_STOPPED);
 }
@@ -757,7 +764,6 @@ static void WINAPI svc_main(DWORD argc, char **argv)
 /* #region 合并入口（ivm-agent = res-agent + clipboard-bridge + 鼠标驱动安装） */
 
 void bridge_main(void); /* clipboard-bridge.c：OLE 剪贴板/文件桥主循环（登录会话专用） */
-int ivm_mouse_install(void); /* ivm-mouse-install.c：/mouse-install 子命令 */
 
 /* COM1 主循环挪到工作线程跑：合并后登录身份要同时当剪贴板桥，而桥的
  * OLE STA + 消息泵必须占主线程。agent_loop 不返回，线程函数自然常驻。 */
@@ -769,8 +775,9 @@ static DWORD WINAPI com1_thread_main(void *arg)
 }
 
 /*
- * 进程入口（链接器 -e 直接指到这，无 CRT 启动对象）。三重身份：
+ * 进程入口（链接器 -e 直接指到这，无 CRT 启动对象）。多重身份：
  *   /mouse-install 子命令 → 注册 vmmouse 过滤驱动，完事退出（安装脚本调用）；
+ *   /mouse-check 子命令 → 只读体检并弹报告窗，完事退出（诊断脚本调用）；
  *   SCM 启动 → 服务身份，只跑 COM1 主循环（分辨率对齐 + 远程控制），不碰 OLE；
  *   登录身份（双击 / HKCU Run）→ COM1 归属（Global 互斥）与剪贴板桥归属
  *   （会话互斥）分别判定：两样都归我则 COM1 挪工作线程、主线程跑桥；
@@ -781,6 +788,9 @@ void ivm_agent_entry(void)
 {
     if (cmdline_has_flag("mouse-install")) {
         ExitProcess((UINT)ivm_mouse_install());
+    }
+    if (cmdline_has_flag("mouse-check")) {
+        ExitProcess((UINT)ivm_mouse_check());
     }
 
     /* 信箱寻址先于一切路径：服务/交互共用一份缓存。 */
@@ -810,6 +820,11 @@ void ivm_agent_entry(void)
                     "ivm-agent", MB_OK | MB_ICONINFORMATION);
         ExitProcess(0);
     }
+
+    /* 真要常驻了才自愈鼠标驱动：安装时 bat 第 8 步失败的场景，任意一次
+     * 成功开机/登录都会把注册表补上，下一次重启过滤器生效（幂等，已装
+     * 零开销；只补注册表，挂载要等设备重新枚举）。 */
+    ivm_mouse_selfheal();
 
     if (owns_com1 && owns_bridge) {
         HANDLE thread = CreateThread(NULL, 0, com1_thread_main, NULL, 0, NULL);

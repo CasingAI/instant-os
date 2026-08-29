@@ -14,6 +14,8 @@
 #                                  源在 guest/vmmouse/，见其 README.md）
 #   install.reg                 —— 由 res-agent-install.reg.source 展开
 #                                  （去掉 .source 扩展名、就地变 reg）
+#   install-agent-v2.bat        —— 全家桶安装脚本（guest/ 目录源）
+#   check-mouse.bat             —— vmmouse 诊断脚本（调 /mouse-check）
 #
 # 二进制已存在就跳过重新构建；本脚本还负责 install.reg 展开。
 set -eu
@@ -43,6 +45,17 @@ if [ ! -f "$OUT_DIR/ivm-agent.exe" ]; then
   sh "$IVM_AGENT_BUILD" "$OUT_DIR"
 fi
 
+# 防呆：out/ 里已有的 exe 也可能是旧构建（2026-08 事故：源码已含
+# /mouse-install 分发、out/ 还是旧 exe，装到客机静默失败还误报成功）。
+# 交付前逐一验证入口/职责关键字符串，缺一即失败，绝不让旧 exe 溜出去。
+# grep 二进制必须钉 LC_ALL=C：BSD grep 在 UTF-8 locale 下对二进制匹配不稳定。
+for marker in "mouse-install" "mouse-check" "autostart" "VMware Pointing Device" "UpperFilters"; do
+  LC_ALL=C grep -aq "$marker" "$OUT_DIR/ivm-agent.exe" || {
+    echo "error: $OUT_DIR/ivm-agent.exe lacks '$marker' — stale build? rerun scripts/build-ivm-agent.sh" >&2
+    exit 1
+  }
+done
+
 # ivm-shm 驱动：out/ 里没有就现编一份。
 if [ ! -f "$OUT_DIR/ivm-shm.sys" ]; then
   bash "$IVM_SHM_BUILD" "$OUT_DIR"
@@ -61,6 +74,9 @@ cp -f "$GUEST_DIR/res-agent/res-agent-install.reg.source" "$OUT_DIR/install.reg"
 # install-agent-v2.bat：全家桶安装脚本（agent 服务 + 信箱驱动 + 登录自启
 # + vmmouse 鼠标驱动），与 exe/sys 一起拷进 XP 使用。服务方式是当前推荐安装形态。
 cp -f "$GUEST_DIR/install-agent-v2.bat" "$OUT_DIR/install-agent-v2.bat"
+
+# check-mouse.bat：vmmouse 过滤驱动诊断（双击弹报告窗，调 /mouse-check）。
+cp -f "$GUEST_DIR/check-mouse.bat" "$OUT_DIR/check-mouse.bat"
 
 echo "collected guest deliverables into $OUT_DIR:"
 ls -la "$OUT_DIR"
