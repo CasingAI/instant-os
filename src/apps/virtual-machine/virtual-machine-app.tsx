@@ -72,7 +72,6 @@ import {
 } from './virtual-machine-store.ts'
 import type { VirtualMachineRecord, VirtualMachineSettings } from './virtual-machine-types.ts'
 import { VM_DISPLAY_MODE_IDS, type VmDisplayModeId } from './virtual-machine-types.ts'
-import { useVirtualMachineRowReorder } from './use-virtual-machine-row-reorder.ts'
 import './virtual-machine.css'
 
 const APP_ID = 'virtual-machine' as const
@@ -128,71 +127,250 @@ function isVmHostTypingTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 }
 
-type VirtualMachineListRowProps = {
-  machine: VirtualMachineRecord
-  index: number
-  active: boolean
-  running: boolean
-  starting: boolean
-  dragging: boolean
-  reorderingEnabled: boolean
-  onFocus: () => void
-  onOpenSettings: () => void
-  onReorderStart: (itemId: string, index: number) => void
-  onReorderMove: (clientY: number) => void
-  onReorderEnd: () => void
+type VirtualMachineListProps = {
+  machines: VirtualMachineRecord[]
+  selectedId: string | undefined
+  runningIds: readonly string[]
+  startingIds: readonly string[]
+  onFocus: (machineId: string) => void
+  onOpenSettings: (machineId: string) => void
+  /** 松手落位：fromIndex 行移到 toIndex（钥匙串同款插入位语义）。 */
+  onMove: (fromIndex: number, toIndex: number) => void
 }
 
-function VirtualMachineListRow({
-  machine,
-  index,
-  active,
-  running,
-  starting,
-  dragging,
-  reorderingEnabled,
+function VirtualMachineList({
+  machines,
+  selectedId,
+  runningIds,
+  startingIds,
   onFocus,
   onOpenSettings,
-  onReorderStart,
-  onReorderMove,
-  onReorderEnd,
-}: VirtualMachineListRowProps) {
-  const { onClick, onPointerDown } = useVirtualMachineRowReorder({
-    itemId: machine.id,
-    index,
-    reorderingEnabled,
-    onOpen: onFocus,
-    onReorderStart,
-    onReorderMove,
-    onReorderEnd,
-  })
-  const statusClass = starting
-    ? 'virtual-machine__status-dot virtual-machine__status-dot--starting'
-    : running
-      ? 'virtual-machine__status-dot virtual-machine__status-dot--running'
-      : 'virtual-machine__status-dot'
-  const statusLabel = starting ? '启动中' : running ? '运行中' : '已停止'
-  return (
-    <li>
-      <button
-        type="button"
-        class={
-          'virtual-machine__row' +
-          (active ? ' virtual-machine__row--active' : '') +
-          (dragging ? ' virtual-machine__row--dragging' : '')
+  onMove,
+}: VirtualMachineListProps) {
+  // 拖拽会话（钥匙串同款）：按住行首手柄立即起拖，被拖行半透明留在原地，
+  // 目标插入位显示指示线，松手才 onMove 落盘；列表边缘自动滚动。
+  const isDraggingRef = useRef(false)
+  const preventClickRef = useRef(false)
+  const dragIndexRef = useRef<number | undefined>(undefined)
+  const itemRefs = useRef<Map<number, HTMLElement>>(new Map())
+  const [dragIndex, setDragIndex] = useState<number | undefined>(undefined)
+  const [overIndex, setOverIndex] = useState<number | undefined>(undefined)
+  const [gripActiveIndex, setGripActiveIndex] = useState<number | undefined>(
+    undefined,
+  )
+
+  const resolveHoverIndex = useCallback(
+    (clientY: number): number => {
+      for (let i = 0; i < machines.length; i++) {
+        const el = itemRefs.current.get(i)
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
+        if (clientY < rect.top + rect.height / 2) {
+          return i
         }
-        aria-current={active ? 'true' : undefined}
-        onClick={onClick}
-        onDblClick={onOpenSettings}
-        onPointerDown={onPointerDown}
-      >
-        <span class="virtual-machine__row-name">
-          {machine.name}
-          <span class={statusClass} aria-label={statusLabel} />
-        </span>
-        <span class="virtual-machine__row-meta">{formatMachineMeta(machine)}</span>
-      </button>
-    </li>
+      }
+      return Math.max(0, machines.length - 1)
+    },
+    [machines.length],
+  )
+
+  const finishReorder = useCallback(
+    (fromIndex: number | undefined, toIndex: number | undefined) => {
+      setDragIndex(undefined)
+      setOverIndex(undefined)
+      setGripActiveIndex(undefined)
+      isDraggingRef.current = false
+      dragIndexRef.current = undefined
+
+      if (fromIndex === undefined || toIndex === undefined) return
+      onMove(fromIndex, toIndex)
+    },
+    [onMove],
+  )
+
+  const handleGripPointerDown = useCallback(
+    (index: number, event: PointerEvent) => {
+      if (event.button !== 0) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const grip = event.currentTarget as HTMLElement
+      isDraggingRef.current = true
+      preventClickRef.current = false
+      dragIndexRef.current = index
+      setDragIndex(index)
+      setGripActiveIndex(index)
+      grip.setPointerCapture(event.pointerId)
+
+      const EDGE_PX = 48
+      const MAX_SCROLL_STEP = 28
+      let scrollRaf = 0
+      let lastClientY = event.clientY
+
+      const findScrollParent = (from: HTMLElement | null): HTMLElement | null => {
+        let node: HTMLElement | null = from
+        while (node) {
+          const style = getComputedStyle(node)
+          const overflowY = style.overflowY
+          if (
+            (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+            node.scrollHeight > node.clientHeight + 1
+          ) {
+            return node
+          }
+          node = node.parentElement
+        }
+        return null
+      }
+      const scrollParent = findScrollParent(grip)
+
+      const tickAutoScroll = () => {
+        scrollRaf = 0
+        if (dragIndexRef.current === undefined || !scrollParent) return
+        const rect = scrollParent.getBoundingClientRect()
+        const y = lastClientY
+        let delta = 0
+        if (y < rect.top + EDGE_PX) {
+          const t = Math.min(1, (rect.top + EDGE_PX - y) / EDGE_PX)
+          delta = -Math.ceil(MAX_SCROLL_STEP * t)
+        } else if (y > rect.bottom - EDGE_PX) {
+          const t = Math.min(1, (y - (rect.bottom - EDGE_PX)) / EDGE_PX)
+          delta = Math.ceil(MAX_SCROLL_STEP * t)
+        }
+        if (delta !== 0) {
+          scrollParent.scrollTop += delta
+          preventClickRef.current = true
+          const nextOver = resolveHoverIndex(lastClientY)
+          setOverIndex((prev) => (prev === nextOver ? prev : nextOver))
+          scrollRaf = requestAnimationFrame(tickAutoScroll)
+        }
+      }
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        if (dragIndexRef.current === undefined) return
+        lastClientY = moveEvent.clientY
+        const nextOver = resolveHoverIndex(moveEvent.clientY)
+        setOverIndex((prev) => {
+          if (prev !== nextOver) {
+            preventClickRef.current = true
+          }
+          return nextOver
+        })
+        if (scrollParent && scrollRaf === 0) {
+          const rect = scrollParent.getBoundingClientRect()
+          const y = moveEvent.clientY
+          if (y < rect.top + EDGE_PX || y > rect.bottom - EDGE_PX) {
+            scrollRaf = requestAnimationFrame(tickAutoScroll)
+          }
+        }
+      }
+
+      const onPointerEnd = (endEvent: PointerEvent) => {
+        if (scrollRaf) cancelAnimationFrame(scrollRaf)
+        scrollRaf = 0
+        grip.releasePointerCapture(endEvent.pointerId)
+        grip.removeEventListener('pointermove', onPointerMove)
+        grip.removeEventListener('pointerup', onPointerEnd)
+        grip.removeEventListener('pointercancel', onPointerEnd)
+
+        const fromIndex = dragIndexRef.current
+        const toIndex =
+          fromIndex === undefined
+            ? undefined
+            : resolveHoverIndex(endEvent.clientY)
+        if (
+          fromIndex !== undefined &&
+          toIndex !== undefined &&
+          fromIndex !== toIndex
+        ) {
+          preventClickRef.current = true
+        }
+        finishReorder(fromIndex, toIndex)
+      }
+
+      grip.addEventListener('pointermove', onPointerMove)
+      grip.addEventListener('pointerup', onPointerEnd)
+      grip.addEventListener('pointercancel', onPointerEnd)
+    },
+    [finishReorder, resolveHoverIndex],
+  )
+
+  const handleRowClick = useCallback(
+    (machineId: string) => {
+      if (isDraggingRef.current || preventClickRef.current) {
+        preventClickRef.current = false
+        return
+      }
+      onFocus(machineId)
+    },
+    [onFocus],
+  )
+
+  return (
+    <ul
+      class={`virtual-machine__list${
+        dragIndex !== undefined ? ' virtual-machine__list--reordering' : ''
+      }`}
+    >
+      {machines.map((machine, index) => {
+        const active = machine.id === selectedId
+        const running = runningIds.includes(machine.id)
+        const starting = startingIds.includes(machine.id)
+        const statusClass = starting
+          ? 'virtual-machine__status-dot virtual-machine__status-dot--starting'
+          : running
+            ? 'virtual-machine__status-dot virtual-machine__status-dot--running'
+            : 'virtual-machine__status-dot'
+        const statusLabel = starting ? '启动中' : running ? '运行中' : '已停止'
+        return (
+          <li
+            key={machine.id}
+            ref={(el) => {
+              if (el) {
+                itemRefs.current.set(index, el)
+              } else {
+                itemRefs.current.delete(index)
+              }
+            }}
+            class={index === overIndex ? 'virtual-machine__row-slot--over' : undefined}
+          >
+            <button
+              type="button"
+              class={
+                'virtual-machine__row' +
+                (active ? ' virtual-machine__row--active' : '') +
+                (index === dragIndex ? ' virtual-machine__row--dragging' : '')
+              }
+              aria-current={active ? 'true' : undefined}
+              onClick={() => handleRowClick(machine.id)}
+              onDblClick={() => onOpenSettings(machine.id)}
+            >
+              <span
+                class={`virtual-machine__grip${
+                  index === gripActiveIndex ? ' virtual-machine__grip--active' : ''
+                }`}
+                aria-hidden="true"
+                onPointerDown={(e) => handleGripPointerDown(index, e)}
+              >
+                <span class="virtual-machine__grip-line" />
+                <span class="virtual-machine__grip-line" />
+                <span class="virtual-machine__grip-line" />
+              </span>
+              <span class="virtual-machine__row-body">
+                <span class="virtual-machine__row-name">
+                  {machine.name}
+                  <span class={statusClass} aria-label={statusLabel} />
+                </span>
+                <span class="virtual-machine__row-meta">
+                  {formatMachineMeta(machine)}
+                </span>
+              </span>
+            </button>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -225,10 +403,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   })
   const [machines, setMachines] = useState<VirtualMachineRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
-  /** 列表拖拽会话：拖拽中条目在 displayMachines 里实时让位，松手才 moveVirtualMachine 落盘。 */
-  const [reorder, setReorder] = useState<{ id: string; toIndex: number } | undefined>(undefined)
-  const reorderRef = useRef<{ id: string; toIndex: number } | undefined>(undefined)
-  const listRef = useRef<HTMLUListElement>(null)
   const [powerBusy, setPowerBusy] = useState(false)
   const [powerHint, setPowerHint] = useState<string | undefined>(undefined)
   /** 客机关机命令已发出、正等客机断电的时间点；null = 无待收口的关机。 */
@@ -237,20 +411,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     () => machines.find((machine) => machine.id === selectedId),
     [machines, selectedId],
   )
-  // 拖拽中的临时顺序：把拖拽条目实时挪到 toIndex，其余条目让位；松手才落盘。
-  const displayMachines = useMemo(() => {
-    if (!reorder) {
-      return machines
-    }
-    const from = machines.findIndex((machine) => machine.id === reorder.id)
-    if (from === -1) {
-      return machines
-    }
-    const next = [...machines]
-    const [moved] = next.splice(from, 1)
-    next.splice(Math.min(Math.max(reorder.toIndex, 0), next.length), 0, moved)
-    return next
-  }, [machines, reorder])
+  // 启动中的机器 id：列表状态点橙色脉冲。
+  const startingIds = useMemo(
+    () =>
+      pool.runningIds.filter((id) => {
+        const snapshot = pool.snapshots.get(id)
+        return snapshot !== undefined && !snapshot.ready
+      }),
+    [pool.runningIds, pool.snapshots],
+  )
   const selectedRunning = Boolean(selected && pool.runningIds.includes(selected.id))
   // 运行时存活：true=已就绪；false=未响应；undefined=探测中。
   // 点开机之前 iframe 还不存在，没人能发 postMessage，只能由宿主发请求确认。
@@ -818,50 +987,39 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     void setLastSelectedVirtualMachine(machineId).catch(() => {})
   }, [])
 
-  // 拖拽落点：指针 Y 越过多少行的垂直中点，就是目标插入位。
-  // 会话以 ref 为准：hook 在 pointerdown 时就闭包了 onReorderEnd，
-  // 拖拽中的 state 更新它读不到，只有 ref 能把最新落点带到松手那一刻。
-  const handleReorderStart = useCallback((itemId: string, index: number) => {
-    const session = { id: itemId, toIndex: index }
-    reorderRef.current = session
-    setReorder(session)
-  }, [])
-
-  const handleReorderMove = useCallback((clientY: number) => {
-    const list = listRef.current
-    const current = reorderRef.current
-    if (!list || !current) {
-      return
-    }
-    let toIndex = 0
-    for (const row of Array.from(list.querySelectorAll<HTMLLIElement>(':scope > li'))) {
-      const rect = row.getBoundingClientRect()
-      if (clientY > rect.top + rect.height / 2) {
-        toIndex += 1
+  const handleOpenSettings = useCallback(
+    (machineId: string) => {
+      const machine = machines.find((item) => item.id === machineId)
+      if (!machine) {
+        return
       }
-    }
-    if (current.toIndex === toIndex) {
-      return
-    }
-    const next = { ...current, toIndex }
-    reorderRef.current = next
-    setReorder(next)
-  }, [])
+      focusMachine(machineId)
+      setSettingsSession((current) => {
+        if (current) {
+          return current
+        }
+        return {
+          mode: 'edit',
+          id: machine.id,
+          initial: settingsFromRecord(machine),
+        }
+      })
+    },
+    [focusMachine, machines],
+  )
 
-  const handleReorderEnd = useCallback(() => {
-    const session = reorderRef.current
-    reorderRef.current = undefined
-    setReorder(undefined)
-    if (!session) {
-      return
-    }
-    const from = machines.findIndex((machine) => machine.id === session.id)
-    if (from !== -1 && session.toIndex !== from) {
-      void moveVirtualMachine(session.id, session.toIndex).catch((error: unknown) => {
+  const handleListMove = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      const machine = machines[fromIndex]
+      if (!machine || fromIndex === toIndex) {
+        return
+      }
+      void moveVirtualMachine(machine.id, toIndex).catch((error: unknown) => {
         showVmError(error instanceof Error ? error.message : '调整虚拟机顺序失败')
       })
-    }
-  }, [machines, showVmError])
+    },
+    [machines, showVmError],
+  )
 
   const handleSaveSettings = useCallback(
     async (settings: VirtualMachineSettings) => {
@@ -1446,43 +1604,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           {machines.length === 0 && ready ? (
             <p class="virtual-machine__list-empty">还没有虚拟机。点「新建」添加一台。</p>
           ) : (
-            <ul
-              class={
-                reorder
-                  ? 'virtual-machine__list virtual-machine__list--reordering'
-                  : 'virtual-machine__list'
-              }
-              ref={listRef}
-            >
-              {displayMachines.map((machine, index) => {
-                const running = pool.runningIds.includes(machine.id)
-                const snapshot = pool.snapshots.get(machine.id)
-                return (
-                  <VirtualMachineListRow
-                    key={machine.id}
-                    machine={machine}
-                    index={index}
-                    active={machine.id === selectedId}
-                    running={running}
-                    starting={Boolean(running && snapshot && !snapshot.ready)}
-                    dragging={reorder?.id === machine.id}
-                    reorderingEnabled={reorder !== undefined}
-                    onFocus={() => focusMachine(machine.id)}
-                    onOpenSettings={() => {
-                      focusMachine(machine.id)
-                      setSettingsSession({
-                        mode: 'edit',
-                        id: machine.id,
-                        initial: settingsFromRecord(machine),
-                      })
-                    }}
-                    onReorderStart={handleReorderStart}
-                    onReorderMove={handleReorderMove}
-                    onReorderEnd={handleReorderEnd}
-                  />
-                )
-              })}
-            </ul>
+            <VirtualMachineList
+              machines={machines}
+              selectedId={selectedId}
+              runningIds={pool.runningIds}
+              startingIds={startingIds}
+              onFocus={focusMachine}
+              onOpenSettings={handleOpenSettings}
+              onMove={handleListMove}
+            />
           )}
         </aside>
         <section class="virtual-machine__display-pane" aria-label="显示器">

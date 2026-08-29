@@ -116,20 +116,28 @@
   min-height: 0;
 }
 
+.virtual-machine__list > li {
+  /* 常驻透明上边框：插入指示线出现时不跳版。 */
+  border-top: 3px solid transparent;
+}
+
+.virtual-machine__row-slot--over {
+  border-top-color: var(--vm-selected);
+}
+
 .virtual-machine__row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  flex-direction: row;
+  align-items: stretch;
   width: 100%;
-  padding: 8px 12px;
+  padding: 4px 12px 4px 0;
   border: none;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: default;
-  /* 长按拖拽排序：按住期间不让浏览器起文本选择/长按弹单。 */
+  /* 手柄拖拽排序：按住期间不让浏览器起文本选择/长按弹单。 */
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
@@ -149,12 +157,13 @@
   background: linear-gradient(180deg, #7fc0ff 0%, #3a92ea 55%, #2578d4 100%);
 }
 
-/* 拖拽中的行：压在让位的行之上并浮起。 */
+/* 拖拽中的行：半透明留在原地，落点看插入指示线。 */
 .virtual-machine__row--dragging {
-  position: relative;
-  z-index: 1;
-  opacity: 0.85;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  opacity: 0.4;
+}
+
+.virtual-machine__list--reordering {
+  touch-action: none;
 }
 
 .virtual-machine__list--reordering .virtual-machine__row:hover {
@@ -164,6 +173,50 @@
 .virtual-machine__list--reordering .virtual-machine__row--active,
 .virtual-machine__list--reordering .virtual-machine__row--active:hover {
   background: var(--vm-selected);
+}
+
+/* ── 拖拽手柄（钥匙串同款） ── */
+
+.virtual-machine__grip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 28px;
+  margin: -4px 0;
+  padding: 0 8px;
+  cursor: grab;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.virtual-machine__grip:active,
+.virtual-machine__grip--active {
+  cursor: grabbing;
+}
+
+.virtual-machine__grip-line {
+  display: block;
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  background: #aeaeb2;
+}
+
+.virtual-machine__row--active .virtual-machine__grip-line {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.virtual-machine__row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .virtual-machine__row-name {
