@@ -46,6 +46,7 @@ import {
   VM_PC_TYPE_CHOICES,
   VM_POINTER_MODE_CHOICES,
   VM_STORAGE_DEVICE_LIMITS,
+  VM_VGA_MEMORY_CHOICES,
 } from './virtual-machine-config.ts'
 import {
   createBlankVirtualMachineDisk,
@@ -583,22 +584,25 @@ export function VirtualMachineSettingsDialog({
                 ) : null}
                 {selectedHardware === 'vga' ? (
                   <>
-                    <IosRangeSlider
+                    <SettingsChoiceField
                       label="显存"
-                      value={draft.vgaMemoryMb}
-                      min={2}
-                      max={16}
-                      step={2}
-                      suffix="MB"
-                      disabled={busy || running}
-                      onChange={(vgaMemoryMb) => {
-                        if (isVmVgaMemoryMb(vgaMemoryMb)) {
-                          patch({ vgaMemoryMb })
+                      value={String(draft.vgaMemoryMb)}
+                      options={VM_VGA_MEMORY_CHOICES}
+                      onChange={(value) => {
+                        const mb = Number(value)
+                        if (isVmVgaMemoryMb(mb)) {
+                          patch({ vgaMemoryMb: mb })
                         }
                       }}
+                      wideLayout
+                      presentation="form"
+                      disabled={busy || running}
+                      fieldClass="virtual-machine-settings__field"
+                      labelClass="virtual-machine-settings__label"
                     />
                     <p class="virtual-machine-settings__hint">
-                      当前 {draft.vgaMemoryMb} MB。显存用于 VGA 帧缓冲，文本/简单 GUI 用 2 MB 足够。
+                      显存用于 VGA 帧缓冲。默认 16 MB 覆盖密阶梯最大档（2560×1600×32）；文本/简单 GUI 用 2 MB
+                      足够，客机驱动要求更多显存时可调高。
                     </p>
                   </>
                 ) : null}

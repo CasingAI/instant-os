@@ -21,10 +21,11 @@ export const DEFAULT_VIRTUAL_MACHINE_MEMORY_MB: VmMemoryMb = 64
 
 /**
  * 对应 v86 `vga_memory_size`。默认 16MB：任意分辨率直推后密阶梯最大档
- * 需 ~15.5MiB（2552×1595×32），8MB 会让高分辨率模式被驱动显存校验拒绝
- * （todo/vm-arbitrary-resolution R9）。
+ * 需 ~15.5MiB（2552×1595×32），低于此值高分辨率模式会被驱动显存校验拒绝
+ * （todo/vm-arbitrary-resolution R9）。上限 256MB 为 v86 硬上限
+ * （vga.js `VGA_MAX_MEMORY_SIZE`），v86 会把非 2 的幂向上取整。
  */
-export const VM_VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16] as const
+export const VM_VGA_MEMORY_MB_OPTIONS = [2, 4, 8, 16, 32, 64, 128, 256] as const
 
 export type VmVgaMemoryMb = (typeof VM_VGA_MEMORY_MB_OPTIONS)[number]
 
@@ -190,6 +191,8 @@ export type VirtualMachineRecord = VirtualMachineSettings & {
 
 export type VirtualMachineStore = {
   machines: VirtualMachineRecord[]
+  /** 上一次选中的虚拟机：打开 App 时自动恢复选中。悬空 id（机器已删）由读取方校验后忽略。 */
+  lastSelectedId?: string
 }
 
 export type VmStorageDeviceTypeWithLimits = {
