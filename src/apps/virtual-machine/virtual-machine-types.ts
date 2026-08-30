@@ -94,7 +94,11 @@ export const VM_OS_PRESET_IDS = ['windows-xp', 'none'] as const
 
 export type VmOsPresetId = (typeof VM_OS_PRESET_IDS)[number]
 
-export const DEFAULT_VIRTUAL_MACHINE_OS_PRESET: VmOsPresetId = 'windows-xp'
+/**
+ * 默认「不启用增强」：宿主无法得知客机里装没装增强组件（agent、驱动），
+ * 新建虚拟机按无增强对待（电源动作呈现断电），用户选了 Windows XP 才开启。
+ */
+export const DEFAULT_VIRTUAL_MACHINE_OS_PRESET: VmOsPresetId = 'none'
 
 /**
  * 各客机预设是否带增强组件（ivm-agent）：决定电源动作呈现为「关机」（优雅关机）

@@ -394,9 +394,17 @@ function testStartConfigCarriesFlagOnlyWhenEnabled() {
 
   const on = settingsToStartConfig({
     ...defaultVirtualMachineSettings('t'),
+    osPreset: 'windows-xp',
     resolutionAutoAlign: true,
   })
   assert.equal(on.resolutionAutoAlign, true)
+  // 「不启用增强」预设下即使开关为开也不下发：增强整体按关。
+  const nonePreset = settingsToStartConfig({
+    ...defaultVirtualMachineSettings('t'),
+    osPreset: 'none',
+    resolutionAutoAlign: true,
+  })
+  assert.equal('resolutionAutoAlign' in nonePreset, false, '不启用增强时不发对齐开关')
   assert.equal(
     isInstantVmStartMessage(
       buildStartMessage(
