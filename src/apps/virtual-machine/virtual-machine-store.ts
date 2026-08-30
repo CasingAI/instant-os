@@ -206,6 +206,12 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
       record.sharedFolderEnabled,
       defaults.sharedFolderEnabled,
     ),
+    // 旧记录没有 sharedFolderAdded 字段：曾经开着共享文件夹的机器视作已添加，
+    // 升级后存储页设备条目不消失；新记录里显式的 false（用户删过设备）必须尊重。
+    sharedFolderAdded:
+      typeof record.sharedFolderAdded === 'boolean'
+        ? record.sharedFolderAdded
+        : record.sharedFolderEnabled === true,
     sharedFolderPath:
       typeof record.sharedFolderPath === 'string' && record.sharedFolderPath.startsWith('/')
         ? record.sharedFolderPath

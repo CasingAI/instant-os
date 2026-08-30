@@ -90,6 +90,7 @@ export function defaultVirtualMachineSettings(
     enhanceWindowSnapEdgePx: VM_SNAP_EDGE_PX_DEFAULT,
     sharedFolderEnabled: false,
     sharedFolderPath: '/user/Shared',
+    sharedFolderAdded: false,
   }
 }
 
@@ -124,7 +125,17 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     enhanceWindowSnapEdgePx: record.enhanceWindowSnapEdgePx,
     sharedFolderEnabled: record.sharedFolderEnabled,
     sharedFolderPath: record.sharedFolderPath,
+    sharedFolderAdded: record.sharedFolderAdded,
   }
+}
+
+/**
+ * 共享文件夹端到端生效条件：未选「不启用增强」+ 能力开关（体验增强）+
+ * 已添加设备（存储），三者同时成立。所有消费点（start config、宿主根、
+ * 热开关、客机配置下发）一律走这里，避免条件漂移。
+ */
+export function isSharedFolderActive(settings: VirtualMachineSettings): boolean {
+  return settings.osPreset !== 'none' && settings.sharedFolderEnabled && settings.sharedFolderAdded
 }
 
 export function createStorageDevice(

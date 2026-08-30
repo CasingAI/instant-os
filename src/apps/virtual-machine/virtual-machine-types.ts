@@ -229,6 +229,11 @@ export type VirtualMachineSettings = {
   sharedFolderEnabled: boolean
   /** 共享文件夹根（VFS 绝对路径；可为 /mount/... 即宿主真实目录）。 */
   sharedFolderPath: string
+  /**
+   * 共享文件夹设备已添加（存储页「添加设备」）：能力开关（sharedFolderEnabled）
+   * 与已添加设备同时成立才生效——存储侧主动添加，体验增强只做能力闸门。
+   */
+  sharedFolderAdded: boolean
 }
 
 export type VirtualMachineRecord = VirtualMachineSettings & {

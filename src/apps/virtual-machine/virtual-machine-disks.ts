@@ -14,6 +14,7 @@ import {
 import {
   cpuidLevelForCpuModel,
   deviceTypeLabel,
+  isSharedFolderActive,
 } from './virtual-machine-config.ts'
 import {
   registerVirtualMachineDiskStream,
@@ -126,9 +127,7 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     ...(settings.osPreset !== 'none' && settings.enhanceAbsoluteMouse
       ? {}
       : { absoluteMouse: false }),
-    ...(settings.osPreset !== 'none' && settings.sharedFolderEnabled
-      ? { sharedFolderEnabled: true }
-      : {}),
+    ...(isSharedFolderActive(settings) ? { sharedFolderEnabled: true } : {}),
   }
 }
 

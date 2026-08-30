@@ -20,6 +20,7 @@ import {
   devicePickTitle,
   formatVmDisplayModeLabel,
   formatVmMemoryLabel,
+  isSharedFolderActive,
   settingsFromRecord,
 } from './virtual-machine-config.ts'
 import {
@@ -806,8 +807,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   // 由 agent 启动自愈 + 设置变更时的 EXEC 配置负责。WebDAV 宿主根是全局
   // 单例，多机同时运行时按当前显示机生效（v1 语义）。
   const sharedFolderActive =
-    enhanceActive &&
-    (displayedMachine?.sharedFolderEnabled ?? false) &&
+    (displayedMachine ? isSharedFolderActive(displayedMachine) : false) &&
     (displayedMachine?.sharedFolderPath ?? '').startsWith('/')
   const sharedFolderPath = displayedMachine?.sharedFolderPath ?? ''
   useEffect(() => {
@@ -1329,10 +1329,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             )
             // 共享文件夹：宿主根切换 + 运行时拦截器热开关 + 客机配置写入
             //（映射由登录会话 agent 轮询注册表后幂等收敛，无需手工脚本）。
-            const sharedRoot =
-              settings.osPreset !== 'none' && settings.sharedFolderEnabled
-                ? settings.sharedFolderPath
-                : undefined
+            const sharedRoot = isSharedFolderActive(settings)
+              ? settings.sharedFolderPath
+              : undefined
             setWebdavSharedRoot(sharedRoot)
             await pool.setSharedFolder(settingsSession.id, sharedRoot !== undefined)
             await pushSharedFolderGuestConfig(sharedRoot !== undefined, (command) =>

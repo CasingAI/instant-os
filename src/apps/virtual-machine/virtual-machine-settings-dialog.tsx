@@ -138,6 +138,9 @@ const HARDWARE_ITEMS: readonly { id: VmHardwareId; label: string }[] = [
   { id: 'pc-type', label: 'PC 类型' },
 ]
 
+/** 存储列表里共享文件夹伪设备的选中哨兵：真实设备 id 一律 vm-device- 前缀，不会冲突。 */
+const SHARED_FOLDER_DEVICE_ID = 'shared-folder'
+
 function cloneSettings(settings: VirtualMachineSettings): VirtualMachineSettings {
   return {
     ...settings,
@@ -323,6 +326,20 @@ export function VirtualMachineSettingsDialog({
     },
     [draft.devices, patch, selectedDeviceId],
   )
+
+  // 共享文件夹没有设备记录（draft.devices 不动），「已添加」落在
+  // sharedFolderAdded 上；能力开关（sharedFolderEnabled）由体验增强管，
+  // 两者同时成立映射才生效（isSharedFolderActive）。
+  const addSharedFolderDevice = useCallback(() => {
+    patch({ sharedFolderAdded: true })
+    setSelectedDeviceId(SHARED_FOLDER_DEVICE_ID)
+    setAddModalOpen(false)
+  }, [patch])
+
+  const removeSharedFolderDevice = useCallback(() => {
+    patch({ sharedFolderAdded: false })
+    setSelectedDeviceId(draft.devices[0]?.id)
+  }, [draft.devices, patch])
 
   const updateDevice = useCallback(
     (id: string, updates: Partial<Pick<VmStorageDevice, 'path' | 'source' | 'connected'>>) => {
@@ -724,6 +741,29 @@ export function VirtualMachineSettingsDialog({
                     </button>
                   )
                 })}
+                {!enhanceOff && draft.sharedFolderAdded ? (
+                  <button
+                    key={SHARED_FOLDER_DEVICE_ID}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedDeviceId === SHARED_FOLDER_DEVICE_ID}
+                    class={`virtual-machine-settings__drive${
+                      selectedDeviceId === SHARED_FOLDER_DEVICE_ID
+                        ? ' virtual-machine-settings__drive--active'
+                        : ''
+                    }`}
+                    // 共享文件夹是热开关不是硬件：运行中仍可选中改目录。
+                    disabled={busy}
+                    onClick={() => setSelectedDeviceId(SHARED_FOLDER_DEVICE_ID)}
+                  >
+                    <span class="virtual-machine-settings__drive-name">共享文件夹</span>
+                    <span class="virtual-machine-settings__drive-meta">
+                      {draft.sharedFolderPath
+                        ? formatVmPathSummary(draft.sharedFolderPath)
+                        : '未设置目录'}
+                    </span>
+                  </button>
+                ) : null}
                 <div class="virtual-machine-settings__add-device">
                   <IosButton
                     size="compact"
@@ -736,7 +776,70 @@ export function VirtualMachineSettingsDialog({
                 </div>
               </div>
               <div class="virtual-machine-settings__source">
-                {selectedStorage ? (
+                {!enhanceOff &&
+                draft.sharedFolderAdded &&
+                selectedDeviceId === SHARED_FOLDER_DEVICE_ID ? (
+                  <>
+                    <div class="virtual-machine-settings__source-title-row">
+                      <span class="virtual-machine-settings__source-title">共享文件夹</span>
+                    </div>
+                    <div class="virtual-machine-settings__path">
+                      <input
+                        class="virtual-machine-settings__input"
+                        type="text"
+                        value={draft.sharedFolderPath}
+                        placeholder="/user/Shared"
+                        spellcheck={false}
+                        autoComplete="off"
+                        disabled={busy}
+                        onInput={(event) =>
+                          patch({ sharedFolderPath: (event.currentTarget as HTMLInputElement).value })
+                        }
+                      />
+                      <IosButton size="compact" disabled={busy} onClick={() => void pickSharedFolderPath()}>
+                        选择…
+                      </IosButton>
+                    </div>
+                    <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+                      客机把共享目录映射成网络驱动器 Z:（WebDAV），实时双向读写；可选挂载的真实目录（/mount/…），运行中修改即时切换。需客机装 v5 及以上增强代理。
+                    </p>
+                    {!draft.sharedFolderEnabled ? (
+                      <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+                        能力已关闭：在「体验增强」打开「共享文件夹」开关后恢复映射。
+                      </p>
+                    ) : null}
+                    {draft.network === 'none' ? (
+                      <>
+                        <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+                          还差网卡：需要 ne2k + fetch 后端（纯本地假栈，不需要真实网络）才能映射
+                          Z:；网卡是开机定死的硬件，运行中不可添加。
+                        </p>
+                        <div class="virtual-machine-settings__path">
+                          <IosButton
+                            size="compact"
+                            disabled={busy || running}
+                            onClick={() => patch({ network: 'ne2k', networkBackend: 'fetch' })}
+                          >
+                            启用网卡
+                          </IosButton>
+                        </div>
+                      </>
+                    ) : null}
+                    <div class="virtual-machine-settings__path">
+                      <IosButton
+                        size="compact"
+                        tone="danger"
+                        disabled={busy}
+                        onClick={removeSharedFolderDevice}
+                      >
+                        删除设备
+                      </IosButton>
+                    </div>
+                    <p class="virtual-machine-settings__hint">
+                      删除后移除客机里的 Z: 映射（运行中立即生效）；共享目录本身不受影响。
+                    </p>
+                  </>
+                ) : selectedStorage ? (
                   <>
                     <div class="virtual-machine-settings__source-title-row">
                       <span class="virtual-machine-settings__source-title">
@@ -1190,33 +1293,9 @@ export function VirtualMachineSettingsDialog({
               label="共享文件夹"
               checked={enhanceOff ? false : draft.sharedFolderEnabled}
               disabled={busy || enhanceOff}
-              detail="客机把共享目录映射成网络驱动器 Z:（WebDAV），实时双向读写；开关变更后自动经增强代理配置客机映射，无需手工脚本。需客机装 v5 及以上增强代理，且网卡启用（ne2k + fetch 后端，纯本地假栈、不需要真实网络）。"
+              detail="能力开关：开启后可在「存储 → 添加设备」把共享目录加为设备，客机映射成网络驱动器 Z:（WebDAV），实时双向读写。需客机装 v5 及以上增强代理。"
               onChange={(sharedFolderEnabled) => patch({ sharedFolderEnabled })}
             />
-            {!enhanceOff && draft.sharedFolderEnabled ? (
-              <>
-                <div class="virtual-machine-settings__path">
-                  <input
-                    class="virtual-machine-settings__input"
-                    type="text"
-                    value={draft.sharedFolderPath}
-                    placeholder="/user/Shared"
-                    spellcheck={false}
-                    autoComplete="off"
-                    disabled={busy}
-                    onInput={(event) =>
-                      patch({ sharedFolderPath: (event.currentTarget as HTMLInputElement).value })
-                    }
-                  />
-                  <IosButton size="compact" disabled={busy} onClick={() => void pickSharedFolderPath()}>
-                    选择…
-                  </IosButton>
-                </div>
-                <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-                  共享根目录；可选挂载的真实目录（/mount/…）。运行中修改：映射与目录即时切换。
-                </p>
-              </>
-            ) : null}
           </div>
         ) : null}
       </WindowModal>
@@ -1324,6 +1403,25 @@ export function VirtualMachineSettingsDialog({
                 </button>
               )
             })}
+            {!enhanceOff ? (
+              <button
+                type="button"
+                role="option"
+                aria-disabled={busy || draft.sharedFolderAdded || !draft.sharedFolderEnabled}
+                class="virtual-machine-settings__add-option"
+                disabled={busy || draft.sharedFolderAdded || !draft.sharedFolderEnabled}
+                onClick={addSharedFolderDevice}
+              >
+                <span class="virtual-machine-settings__add-option-name">共享文件夹</span>
+                <span class="virtual-machine-settings__add-option-meta">
+                  {draft.sharedFolderAdded
+                    ? '已添加'
+                    : draft.sharedFolderEnabled
+                      ? '网络驱动器 Z:'
+                      : '未开启——先在「体验增强」打开「共享文件夹」'}
+                </span>
+              </button>
+            ) : null}
           </div>
         </div>
       </WindowModal>
