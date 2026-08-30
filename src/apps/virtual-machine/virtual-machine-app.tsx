@@ -56,6 +56,7 @@ import { VmRuntimeSurface } from './virtual-machine-runtime-surface.tsx'
 import {
   DISK_IMAGE_INCOMPLETE_HINT,
   DISK_WRITE_FAILED_FORCE_STOP_HINT,
+  FORCED_OFF_UNFLUSHED_HINT,
   pickDisplayedMachineId,
   useVirtualMachineRuntimePool,
 } from './virtual-machine-runtime.ts'
@@ -744,9 +745,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   // 按键映射：翻译器只服务当前显示的画面；设置保存后经 store 刷新自动生效（含运行中）。
   const keyTranslatorRef = useRef(new VmKeyboardTranslator())
   const displayedMachine = machines.find((machine) => machine.id === displayedId)
-  // 体验增强开关：只控制宿主这一侧要不要参与（未配置时按开处理）。
-  const enhanceClipboard = displayedMachine?.enhanceClipboard ?? true
-  const enhanceFileTransfer = displayedMachine?.enhanceFileTransfer ?? true
+  // 体验增强开关：只控制宿主这一侧要不要参与（未配置时按开处理）；
+  // 客机系统选「不启用增强」时各子项一律视为关。
+  const enhanceActive = (displayedMachine?.osPreset ?? 'windows-xp') !== 'none'
+  const enhanceClipboard = enhanceActive && (displayedMachine?.enhanceClipboard ?? true)
+  const enhanceFileTransfer = enhanceActive && (displayedMachine?.enhanceFileTransfer ?? true)
   useEffect(() => {
     keyTranslatorRef.current.setKeymap(
       compileVmKeyMappings(
@@ -1250,7 +1253,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           try {
             await pool.setActivePointerMode(settingsSession.id, settings.pointerMode)
             await pool.setActiveDisplayMode(settingsSession.id, settings.displayMode)
-            await pool.setActiveAbsoluteMouse(settingsSession.id, settings.enhanceAbsoluteMouse)
+            await pool.setActiveAbsoluteMouse(
+              settingsSession.id,
+              settings.osPreset !== 'none' && settings.enhanceAbsoluteMouse,
+            )
             // 光盘/软盘的连接开关与镜像路径也立即生效：与保存前快照逐台比对后热同步。
             const machine: VirtualMachineRecord = {
               ...settings,
@@ -1437,21 +1443,22 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           if (action === 'stop') {
             const forced = await pool.shutdown(machine.id)
             trace('power-stop-done', { forced })
-            setPowerHint(undefined)
+            setPowerHint(
+              forced && machine.diskWriteMode === 'poweroff' ? FORCED_OFF_UNFLUSHED_HINT : undefined,
+            )
             return
           }
           if (action === 'reset') {
-            const outcome = await pool.resetInstance(machine.id)
-            if (outcome === 'acked') {
-              trace('power-reset-done')
+            // 软重置（v86 cpu.reboot_internal）对假死客机不可靠：ack 秒回但 CPU
+            // 可能根本不会重新跑，宿主也无法验证成败。重置一律走硬路径：断电
+            // （自带 3 秒期限＋活动观察）后冷启动，等效按机箱重置键。
+            const forced = await pool.shutdown(machine.id)
+            trace('power-reset-done', { forced })
+            if (forced && machine.diskWriteMode === 'poweroff') {
+              setPowerHint(FORCED_OFF_UNFLUSHED_HINT)
+            } else {
               setPowerHint(undefined)
-              return
             }
-            // 客机无响应：拆 iframe 重新装载，等效硬重置（冷启动）。
-            // shutdown 自身也有 3 秒期限，运行时若恰好恢复还能借机干净收尾落盘。
-            // 不向用户弹提示：强拆达成的就是重置本身，用户只看到多等了几秒。
-            trace('power-reset-force', { outcome })
-            await pool.shutdown(machine.id)
             await pool.boot(machine)
             return
           }
@@ -1899,7 +1906,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     origin={runtimeOrigin}
                     buildMode={machine.buildMode}
                     startMessage={pool.startMessages.get(machine.id)}
-                    resolutionAutoAlign={machine.resolutionAutoAlign}
+                    resolutionAutoAlign={
+                      machine.osPreset !== 'none' && machine.resolutionAutoAlign
+                    }
                     onRegister={pool.onRegister}
                     onUnregister={pool.onUnregister}
                     onStateChange={pool.onStateChange}

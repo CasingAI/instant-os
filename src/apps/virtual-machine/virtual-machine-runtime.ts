@@ -140,37 +140,69 @@ export const DISK_WRITE_FAILED_FORCE_STOP_MS = 30_000
 export const DISK_WRITE_FAILED_FORCE_STOP_HINT =
   '硬盘回写失败，已强制标记为已关机；镜像可能不完整'
 export const DISK_IMAGE_INCOMPLETE_HINT = '硬盘回写未完成，镜像可能不完整'
+// 仅「硬盘写入=关机时写入」模式强拆时提示：该模式脏数据攒在 iframe 内存里，
+// 强拆等于丢掉本次开机的全部磁盘改动（真机断电同样如此），值得让用户知道。
+export const FORCED_OFF_UNFLUSHED_HINT = '客机无响应，本次磁盘改动未写入镜像'
 export const READING_DISK_IMAGE_HINT = '正在读取镜像…'
 export const STARTING_EMULATOR_HINT = '正在启动模拟器…'
 
-// 断电/重置只给运行时 3 秒 ack 窗口：客机死循环等故障可能让 iframe 事件循环
-// 收不了消息，ack 永远不来；超时后由调用方强拆收场（断电＝removeRunningId
-// 卸载 iframe，重置＝卸载后重新装载冷启动），不陪 60 秒请求超时。
-// 对用户不弹任何提示：强拆达成的就是断电/重置本身，用户只看到操作成功了。
+// 断电只给运行时 3 秒 ack 窗口：客机死循环等故障可能让 iframe 事件循环收不了
+// 消息，ack 永远不来；到点后由调用方强拆收场（断电＝removeRunningId 卸载
+// iframe），不陪 60 秒请求超时。
 export const STOP_ACK_DEADLINE_MS = 3_000
+// 到点后先观察 iframe 消息活动再强拆：真卡死（事件循环被占满）时任何消息都
+// 发不出，持续静默即拆；消息仍在流动说明写回 drain 在推进，多等可把数据刷完。
+export const STOP_ACTIVITY_SILENCE_MS = 1_500
+// drain 推进中的最长等待：超过即放弃尾部数据照常强拆（断电语义允许丢数据）。
+export const STOP_DRAIN_MAX_WAIT_MS = 30_000
+const STOP_ACTIVITY_POLL_MS = 500
 
-export type AckDeadlineOutcome = 'acked' | 'command-failed' | 'deadline'
+export type AckDeadlineOutcome = 'acked' | 'command-failed' | 'forced'
 
 /**
- * 运行时命令（断电 stop / 重置 reset）的 ack 期限：期限内没回执就返回 'deadline'，
- * 由调用方决定强拆收场。命令失败不外抛（post 失败通常意味着 iframe 已经不在了），
- * 只转化为 'command-failed'，同时避免 deadline 获胜后败者 promise 变成 unhandled rejection。
+ * 运行时命令（断电 stop）的 ack 期限：期限内没回执就返回 'forced'，由调用方
+ * 强拆收场。命令失败不外抛（post 失败通常意味着 iframe 已经不在了），只转化为
+ * 'command-failed'，同时避免强拆获胜后败者 promise 变成 unhandled rejection。
+ * 提供 isRecentlyActive 时，期限到点后进入静默观察：持续活跃（数据在刷）最多
+ * 等到 maxWaitMs，转静默立即强拆；不提供则到点即判强拆。
  */
 export async function withAckDeadline(options: {
   command: () => Promise<void>
+  isRecentlyActive?: () => boolean
   deadlineMs?: number
+  maxWaitMs?: number
   schedule?: (callback: () => void, ms: number) => () => void
 }): Promise<AckDeadlineOutcome> {
   const deadlineMs = options.deadlineMs ?? STOP_ACK_DEADLINE_MS
+  const maxWaitMs = options.maxWaitMs ?? STOP_DRAIN_MAX_WAIT_MS
   const schedule =
     options.schedule ??
     ((callback, ms) => {
       const timer = globalThis.setTimeout(callback, ms)
       return () => globalThis.clearTimeout(timer)
     })
-  let cancelDeadline: () => void = () => {}
-  const deadline = new Promise<AckDeadlineOutcome>((resolve) => {
-    cancelDeadline = schedule(() => resolve('deadline'), deadlineMs)
+  const cancels: Array<() => void> = []
+  const run = (callback: () => void, ms: number) => {
+    cancels.push(schedule(callback, ms))
+  }
+  const outcome = new Promise<AckDeadlineOutcome>((resolve) => {
+    // 硬上限：无论如何到点强拆（deadlineMs 之上再兜一层 drain 等待上限）。
+    run(() => resolve('forced'), Math.max(deadlineMs, maxWaitMs))
+    run(() => {
+      const isRecentlyActive = options.isRecentlyActive
+      if (!isRecentlyActive) {
+        resolve('forced')
+        return
+      }
+      const poll = () => {
+        if (!isRecentlyActive()) {
+          resolve('forced')
+          return
+        }
+        run(poll, STOP_ACTIVITY_POLL_MS)
+      }
+      poll()
+    }, deadlineMs)
   })
   try {
     return await Promise.race([
@@ -178,10 +210,12 @@ export async function withAckDeadline(options: {
         () => 'acked' as const,
         () => 'command-failed' as const,
       ),
-      deadline,
+      outcome,
     ])
   } finally {
-    cancelDeadline()
+    for (const cancel of cancels.splice(0)) {
+      cancel()
+    }
   }
 }
 
@@ -240,8 +274,9 @@ export function createDiskWriteFailedWatchdog(options: {
 export type VmRuntimeApi = {
   start(message: InstantVmStartMessage): Promise<void>
   stop(): Promise<void>
-  reset(): Promise<void>
   saveState(): Promise<ArrayBuffer>
+  /** 宿主最近收到该 iframe 一条消息的时刻（Date.now() 基准）；用于断电强拆前的活动判定。 */
+  lastMessageAt(): number
   setDisplayMode(mode: InstantVmDisplayMode): Promise<void>
   setPointerMode(mode: InstantVmPointerMode): Promise<void>
   /** 运行中切换「体验增强·绝对坐标鼠标」放行位。 */
@@ -304,6 +339,9 @@ export function useVirtualMachineRuntime(
   onNativeKeyRef.current = onNativeKey
   const [ready, setReady] = useState(false)
   const readyRef = useRef(false)
+  // 运行时最近一条消息（含 stats/diskWrite）的宿主收到时间：断电强拆前用它区分
+  // 「事件循环真卡死（完全静默）」和「ack 慢但数据还在刷（活跃，值得多等）」。
+  const lastMessageAtRef = useRef(0)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
   const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
   const [iframeStatus, setIframeStatus] = useState<VmIframeStatus>('loading')
@@ -346,6 +384,7 @@ export function useVirtualMachineRuntime(
         return
       }
 
+      lastMessageAtRef.current = Date.now()
       const message = event.data
       if (message.type === INSTANT_VM_MESSAGE_TYPE.ready) {
         readyRef.current = true
@@ -629,9 +668,7 @@ export function useVirtualMachineRuntime(
     }
   }, [request])
 
-  const reset = useCallback(async () => {
-    await request({ type: INSTANT_VM_MESSAGE_TYPE.reset, requestId: newVmRequestId() })
-  }, [request])
+  const lastMessageAt = useCallback(() => lastMessageAtRef.current, [])
 
   const setDisplayMode = useCallback(
     async (mode: InstantVmDisplayMode) => {
@@ -801,7 +838,7 @@ export function useVirtualMachineRuntime(
     handleIframeError,
     start,
     stop,
-    reset,
+    lastMessageAt,
     saveState,
     setDisplayMode,
     setPointerMode,
@@ -1051,9 +1088,10 @@ export function useVirtualMachineRuntimePool(
     [addRunningId, removeRunningId],
   )
 
-  // 断电：给运行时 3 秒 ack 窗口，超时不陪请求超时干等——finally 里的
-  // removeRunningId 卸载运行时表面销毁 iframe，同样达成断电。
-  // 返回是否走了强制路径（deadline 到点），只进调试时间线，不向用户提示。
+  // 断电：给运行时 3 秒 ack 窗口，到点后看 iframe 消息活动——真卡死（静默）立即
+  // 强拆，写回 drain 还在推进（活跃）则最多等 30 秒把数据刷完，再不陪请求超时
+  // 干等。finally 里的 removeRunningId 卸载运行时表面销毁 iframe，达成断电。
+  // 返回是否走了强拆路径，只进调试时间线；用户提示由调用方按需决定。
   const shutdown = useCallback(
     async (id: string): Promise<boolean> => {
       if (!runningIdsRef.current.has(id)) {
@@ -1063,8 +1101,11 @@ export function useVirtualMachineRuntimePool(
       let forced = false
       try {
         if (api) {
-          const outcome = await withAckDeadline({ command: () => api.stop() })
-          forced = outcome === 'deadline'
+          const outcome = await withAckDeadline({
+            command: () => api.stop(),
+            isRecentlyActive: () => Date.now() - api.lastMessageAt() < STOP_ACTIVITY_SILENCE_MS,
+          })
+          forced = outcome === 'forced'
           if (forced) {
             recordSystemDebugTimeline({ layer: 'vm', op: 'stop-ack-deadline', detail: id })
           }
@@ -1079,19 +1120,6 @@ export function useVirtualMachineRuntimePool(
       return forced
     },
     [removeRunningId],
-  )
-
-  // 重置：同样只给 3 秒 ack 窗口；超时/失败把 outcome 交还调用方，
-  // 由它决定强制重置（removeRunningId 拆 iframe 后重新 boot 冷启动）。
-  const resetInstance = useCallback(
-    async (id: string): Promise<AckDeadlineOutcome> => {
-      const api = apiByIdRef.current.get(id)
-      if (!api) {
-        return 'command-failed'
-      }
-      return await withAckDeadline({ command: () => api.reset() })
-    },
-    [],
   )
 
   const saveInstanceState = useCallback(async (id: string): Promise<ArrayBuffer> => {
@@ -1218,7 +1246,6 @@ export function useVirtualMachineRuntimePool(
     hints,
     boot,
     shutdown,
-    resetInstance,
     saveInstanceState,
     agentCommand,
     setActiveDisplayMode,

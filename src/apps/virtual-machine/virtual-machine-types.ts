@@ -86,10 +86,11 @@ export type VmNetworkBackendId = (typeof VM_NETWORK_BACKEND_IDS)[number]
 export const DEFAULT_VIRTUAL_MACHINE_NETWORK_BACKEND: VmNetworkBackendId = 'off'
 
 /**
- * 体验增强面向的客机系统。目前只有 Windows XP 一项：其他系统的
- * 增强组件（agent、驱动）还没有做，先不让选。
+ * 体验增强面向的客机系统。`none` 表示不启用增强：客机不是 XP（或暂不参与），
+ * 选中后体验增强各子项全部停用，电源动作也按「无 Agent」静态判定为断电。
+ * 其他系统的增强组件（agent、驱动）还没有做，先不让选。
  */
-export const VM_OS_PRESET_IDS = ['windows-xp'] as const
+export const VM_OS_PRESET_IDS = ['windows-xp', 'none'] as const
 
 export type VmOsPresetId = (typeof VM_OS_PRESET_IDS)[number]
 
@@ -102,6 +103,7 @@ export const DEFAULT_VIRTUAL_MACHINE_OS_PRESET: VmOsPresetId = 'windows-xp'
  */
 export const VM_OS_PRESET_AGENT_SUPPORTED: Record<VmOsPresetId, boolean> = {
   'windows-xp': true,
+  none: false,
 }
 
 /** 指针工作方式：`auto` 按客机绝对坐标能力自动切换；`follow` 强制跟随；`lock` 强制独占。

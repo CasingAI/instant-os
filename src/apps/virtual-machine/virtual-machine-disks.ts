@@ -119,8 +119,13 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     diskWriteMode: settings.diskWriteMode,
     ...(cpuidLevel !== undefined ? { cpuidLevel } : {}),
     // 关闭时省略字段：老运行时收到的 start 消息与旧协议逐字节一致。
-    ...(settings.resolutionAutoAlign ? { resolutionAutoAlign: true } : {}),
-    ...(settings.enhanceAbsoluteMouse ? {} : { absoluteMouse: false }),
+    // 客机系统选「不启用增强」时，分辨率对齐/绝对坐标鼠标一并按关下发。
+    ...(settings.osPreset !== 'none' && settings.resolutionAutoAlign
+      ? { resolutionAutoAlign: true }
+      : {}),
+    ...(settings.osPreset !== 'none' && settings.enhanceAbsoluteMouse
+      ? {}
+      : { absoluteMouse: false }),
   }
 }
 

@@ -438,9 +438,14 @@ export const VM_DISK_WRITE_MODE_CHOICES: readonly SettingsChoiceOption[] =
         : formatVmDiskWriteModeLabel(id),
   }))
 
-/** 体验增强的客机系统选择；目前只有 Windows XP，先占住位置。 */
+/** 体验增强的客机系统选择：Windows XP 带增强组件；`none` 为「不启用增强」。 */
+const VM_OS_PRESET_LABELS: Record<VmOsPresetId, string> = {
+  'windows-xp': 'Windows XP',
+  none: '不启用增强',
+}
+
 export const VM_OS_PRESET_CHOICES: readonly SettingsChoiceOption[] = VM_OS_PRESET_IDS.map(
-  (id) => ({ id, label: id === 'windows-xp' ? 'Windows XP' : id }),
+  (id) => ({ id, label: VM_OS_PRESET_LABELS[id] }),
 )
 
 export { VM_MEMORY_MB_MIN, VM_MEMORY_MB_MAX, VM_MEMORY_MB_STEP }

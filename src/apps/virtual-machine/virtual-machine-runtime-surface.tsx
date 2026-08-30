@@ -76,7 +76,7 @@ export function VmRuntimeSurface({
     handleIframeError,
     start,
     stop,
-    reset,
+    lastMessageAt,
     saveState,
     setDisplayMode,
     setPointerMode,
@@ -106,7 +106,7 @@ export function VmRuntimeSurface({
     onRegister(machineId, {
       start,
       stop,
-      reset,
+      lastMessageAt,
       saveState,
       setDisplayMode,
       setPointerMode,
@@ -129,7 +129,7 @@ export function VmRuntimeSurface({
     saveState,
     start,
     stop,
-    reset,
+    lastMessageAt,
     setDisplayMode,
     setPointerMode,
     setAbsoluteMouse,
@@ -240,11 +240,9 @@ export function VmRuntimeSurface({
           onError={handleIframeError}
           onFocus={() => {
             // 点进跨域 iframe 时焦点会落到 iframe 上，宿主窗口就再也收不到按键。
-            // 立刻交还宿主，改走 postMessage 注入。
-            captureKeyboard()
-            onCaptureKeyboard()
-          }}
-          onPointerDown={() => {
+            // 立刻交还宿主，改走 postMessage 注入。注意 onPointerDown 在这里帮不上忙：
+            // 对 iframe 内容的点击不会进父文档（v86 还对 mousedown preventDefault，
+            // 焦点根本不会移动），靠 runtime 侧 mousedown 里 window.focus() 才有本事件。
             captureKeyboard()
             onCaptureKeyboard()
           }}
