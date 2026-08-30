@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { formatStorageSize } from '../../os/format-storage-size.ts'
 
 export type FilesPathBarSegment = {
   key: string
@@ -12,6 +13,8 @@ export type FilesPathBarSegment = {
 type FilesPathBarProps = {
   segments: readonly FilesPathBarSegment[]
   absolutePath: string
+  /** 当前容器已用空间（undefined 则不显示） */
+  usedBytes?: number
   onNavigate: (folderId: string | undefined) => void
 }
 
@@ -123,9 +126,10 @@ function appendSegments(
   }
 }
 
-export function FilesPathBar({ segments, absolutePath, onNavigate }: FilesPathBarProps) {
+export function FilesPathBar({ segments, absolutePath, usedBytes, onNavigate }: FilesPathBarProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
+  const sizeRef = useRef<HTMLSpanElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [availableWidth, setAvailableWidth] = useState(0)
   const [segmentWidths, setSegmentWidths] = useState<number[]>([])
@@ -133,18 +137,30 @@ export function FilesPathBar({ segments, absolutePath, onNavigate }: FilesPathBa
 
   const segmentKey = useMemo(() => segments.map((item) => item.key).join('\0'), [segments])
 
+  // 右侧「已用」尺寸占位宽度要从路径可用宽度里扣掉，长路径才不会顶到尺寸文字
+  const updateAvailableWidth = () => {
+    const host = hostRef.current
+    if (!host) return
+    const sizeWidth = sizeRef.current?.offsetWidth ?? 0
+    setAvailableWidth(Math.max(0, host.clientWidth - HOST_PAD - sizeWidth))
+  }
+
   useLayoutEffect(() => {
     const host = hostRef.current
     if (!host) return
 
-    const update = () => {
-      setAvailableWidth(Math.max(0, host.clientWidth - HOST_PAD))
-    }
-    update()
-    const observer = new ResizeObserver(update)
+    updateAvailableWidth()
+    const observer = new ResizeObserver(updateAvailableWidth)
     observer.observe(host)
     return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // usedBytes 变化会改变尺寸占位宽度，重算一次可用宽度
+  useLayoutEffect(() => {
+    updateAvailableWidth()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usedBytes])
 
   useLayoutEffect(() => {
     const row = measureRef.current
@@ -240,6 +256,11 @@ export function FilesPathBar({ segments, absolutePath, onNavigate }: FilesPathBa
       <nav class="files__path-bar-row" aria-label="当前位置路径">
         {nodes}
       </nav>
+      {usedBytes !== undefined ? (
+        <span class="files__path-bar-size" ref={sizeRef}>
+          已用 {formatStorageSize(usedBytes)}
+        </span>
+      ) : undefined}
     </div>
   )
 }

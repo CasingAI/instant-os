@@ -33,7 +33,6 @@ import {
 } from '../virtual-machine/virtual-machine-file-transfer.ts'
 import { filesOpenStreamWrite } from './files-api.ts'
 import { readAppliedDockReservePx } from '../../dock/dock-css-vars.ts'
-import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
 import { FilesStorageFullError, FILE_SIDEBAR_METRIC_LOCATIONS, getFilesBytesByLocation } from './files-storage.ts'
 import {
@@ -640,15 +639,18 @@ function MountGlyph() {
 function TrashGlyph() {
   return (
     <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#c9a66a"
-        stroke="#8a6a38"
-        stroke-width="1"
-        d="M5.5 7.5h13l-.9 12.2a1.8 1.8 0 0 1-1.8 1.6H8.2a1.8 1.8 0 0 1-1.8-1.6L5.5 7.5z"
-      />
-      <path stroke="#5a4328" stroke-width="1.1" stroke-linecap="round" d="M4 7.5h16" />
-      <path stroke="#5a4328" stroke-width="1.1" stroke-linecap="round" d="M9.5 5.5h5" />
-      <path stroke="#5a4328" stroke-width="0.9" stroke-linecap="round" d="M10 11v4.5M14 11v4.5" />
+      {/* 桶身+盖的墨迹中心在 y≈13.4，比 viewBox 中心低 1.4，整体上移做光学居中 */}
+      <g transform="translate(0 -1.4)">
+        <path
+          fill="#c9a66a"
+          stroke="#8a6a38"
+          stroke-width="1"
+          d="M5.5 7.5h13l-.9 12.2a1.8 1.8 0 0 1-1.8 1.6H8.2a1.8 1.8 0 0 1-1.8-1.6L5.5 7.5z"
+        />
+        <path stroke="#5a4328" stroke-width="1.1" stroke-linecap="round" d="M4 7.5h16" />
+        <path stroke="#5a4328" stroke-width="1.1" stroke-linecap="round" d="M9.5 5.5h5" />
+        <path stroke="#5a4328" stroke-width="0.9" stroke-linecap="round" d="M10 11v4.5M14 11v4.5" />
+      </g>
     </svg>
   )
 }
@@ -3755,7 +3757,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                   : undefined
               const isDropTarget = dropTarget?.kind === 'location' && dropTarget.id === location.id
               const itemClass = `files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${removableId ? ' files__sidebar-item--mount' : ''}${isDropTarget ? ' files__sidebar-item--drop-target' : ''}`
-              const locationBytesForId = locationBytes[location.id]
               const locationContent = (
                 <>
                   <span class="files__sidebar-icon">
@@ -3763,11 +3764,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                   </span>
                   <span class="files__sidebar-copy">
                     <span class="files__sidebar-label" title={location.unreadableReason}>{location.label}</span>
-                    {locationBytesForId !== undefined ? (
-                      <span class="files__sidebar-size">
-                        已用 {formatStorageSize(locationBytesForId)}
-                      </span>
-                    ) : undefined}
                   </span>
                 </>
               )
@@ -4189,6 +4185,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         <FilesPathBar
           segments={pathBarSegments}
           absolutePath={pathBarAbsolutePath}
+          usedBytes={locationBytes[locationId]}
           onNavigate={navigatePathBar}
         />
 
