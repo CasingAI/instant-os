@@ -95,6 +95,15 @@ export type VmOsPresetId = (typeof VM_OS_PRESET_IDS)[number]
 
 export const DEFAULT_VIRTUAL_MACHINE_OS_PRESET: VmOsPresetId = 'windows-xp'
 
+/**
+ * 各客机预设是否带增强组件（ivm-agent）：决定电源动作呈现为「关机」（优雅关机）
+ * 还是「断电」（硬切电源）。按预设静态判定，不随运行时心跳翻转——Agent 瞬时
+ * 失联时按钮仍是「关机」，点按走现场验证护栏，不会悄悄变成硬断电。
+ */
+export const VM_OS_PRESET_AGENT_SUPPORTED: Record<VmOsPresetId, boolean> = {
+  'windows-xp': true,
+}
+
 /** 指针工作方式：`auto` 按客机绝对坐标能力自动切换；`follow` 强制跟随；`lock` 强制独占。
  * 绝对坐标接管期间 auto/lock 一律按跟随生效（独占 + 绝对坐标 = 指针消失），退出后恢复独占。 */
 export const VM_POINTER_MODE_IDS = ['auto', 'follow', 'lock'] as const

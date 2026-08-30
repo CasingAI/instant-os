@@ -87,7 +87,11 @@ import type {
   VirtualMachineSettings,
   VmStorageDevice,
 } from './virtual-machine-types.ts'
-import { VM_DISPLAY_MODE_IDS, type VmDisplayModeId } from './virtual-machine-types.ts'
+import {
+  VM_DISPLAY_MODE_IDS,
+  VM_OS_PRESET_AGENT_SUPPORTED,
+  type VmDisplayModeId,
+} from './virtual-machine-types.ts'
 import './virtual-machine.css'
 
 const APP_ID = 'virtual-machine' as const
@@ -713,6 +717,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const canStop = Boolean(hasSelection && selectedRunning && !powerBusy)
   const canReset = canStop
   const canSaveSnapshot = canStop
+  // 电源动作按预设静态判定是否支持 Agent（优雅关机），不随心跳翻转：
+  // Agent 瞬时失联时按钮不会变「断电」，点关机走现场验证护栏。
+  const selectedAgentCapable = selected
+    ? VM_OS_PRESET_AGENT_SUPPORTED[selected.osPreset]
+    : true
 
   const showVmError = useCallback(
     (message: string, title = '虚拟机错误') => {
@@ -1377,6 +1386,21 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       }
       const machine = selected
       void (async () => {
+        if (action === 'stop') {
+          // 硬断电立即切电源、未保存数据会丢：二次确认后动手。
+          const confirmed = await modal.confirm({
+            title: '断电',
+            message: `要立即切断「${machine.name}」的电源吗？未保存的数据会丢失。`,
+            confirmLabel: '断电',
+            cancelLabel: '取消',
+            confirmTone: 'danger',
+            themeColor: THEME,
+          })
+          if (!confirmed) {
+            trace('power-skipped', { reason: 'stop-not-confirmed' })
+            return
+          }
+        }
         setPowerBusy(true)
         let waitForGuestShutdown = false
         try {
@@ -1446,7 +1470,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         }
       })()
     },
-    [agentLink, pool, runtimeOrigin, selected, selectedBackend, showVmError, verifyAgentAlive],
+    [agentLink, modal, pool, runtimeOrigin, selected, selectedBackend, showVmError, verifyAgentAlive],
   )
 
   const handleSaveSnapshot = useCallback(() => {
@@ -1595,7 +1619,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               {
                 type: 'action',
                 label: '关机',
-                disabled: !canStop,
+                // 不带 Agent 的客机软关机无处可达，置灰避免点了必失败。
+                disabled: !canStop || !selectedAgentCapable,
                 onClick: () => handlePower('shutdown'),
               },
               {
@@ -1698,6 +1723,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     ownWindowId,
     powerBusy,
     removableMediaMenuItems,
+    selectedAgentCapable,
     selectedDisplayMode,
     toggleFullscreen,
     vmWindowFullscreen,
@@ -1724,7 +1750,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         settingsOpen ||
         inspectorOpen ||
         isVmImeKeyEvent(event) ||
-        isVmHostTypingTarget(event.target)
+        isVmHostTypingTarget(event.target) ||
+        // 焦点不在 sink 上（点过菜单/工具栏后落在宿主 UI）就不转发：
+        // 宿主 UI 的键盘操作（如菜单 Tab 导航）优先，点回画面即恢复。
+        keyboardSinkRef.current !== document.activeElement
       ) {
         return
       }
@@ -1738,7 +1767,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         settingsOpen ||
         inspectorOpen ||
         isVmImeKeyEvent(event) ||
-        isVmHostTypingTarget(event.target)
+        isVmHostTypingTarget(event.target) ||
+        keyboardSinkRef.current !== document.activeElement
       ) {
         return
       }
@@ -1797,9 +1827,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           >
             开机
           </IosButton>
-          <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('shutdown')}>
-            关机
-          </IosButton>
+          {selectedAgentCapable ? (
+            <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('shutdown')}>
+              关机
+            </IosButton>
+          ) : (
+            <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('stop')}>
+              断电
+            </IosButton>
+          )}
         </div>
         {selected ? (
           <SegmentedControl
