@@ -122,20 +122,21 @@ const SHARED_FOLDER_REG_KEY = 'HKLM\\SOFTWARE\\InstantVM\\SharedFolder'
 async function pushSharedFolderGuestConfig(
   enabled: boolean,
   run: (command: string) => Promise<unknown>,
+  drive = 'Z',
 ): Promise<void> {
-  const commands = enabled
-    ? [
-        'sc config WebClient start= auto',
-        'reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\WebClient\\Parameters /v FileSizeLimitInBytes /t REG_DWORD /d 536870912 /f',
-        `reg add ${SHARED_FOLDER_REG_KEY} /v Url /d http://instant-vm-files.local/ /f`,
-        `reg add ${SHARED_FOLDER_REG_KEY} /v Drive /d Z: /f`,
-        `reg add ${SHARED_FOLDER_REG_KEY} /v Enabled /d 1 /f`,
-        `reg add ${SHARED_FOLDER_REG_KEY} /v Seq /d ${Date.now()} /f`,
-      ]
-    : [
-        `reg add ${SHARED_FOLDER_REG_KEY} /v Enabled /d 0 /f`,
-        `reg add ${SHARED_FOLDER_REG_KEY} /v Seq /d ${Date.now()} /f`,
-      ]
+  const driveValue = /^[A-Z]$/.test(drive) ? drive : 'Z'
+  const commands = [
+    ...(enabled
+      ? [
+          'sc config WebClient start= auto',
+          'reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\WebClient\\Parameters /v FileSizeLimitInBytes /t REG_DWORD /d 536870912 /f',
+        ]
+      : []),
+    `reg add ${SHARED_FOLDER_REG_KEY} /v Url /d http://instant-vm-files.local/ /f`,
+    `reg add ${SHARED_FOLDER_REG_KEY} /v Drive /d ${driveValue}: /f`,
+    `reg add ${SHARED_FOLDER_REG_KEY} /v Enabled /d ${enabled ? 1 : 0} /f`,
+    `reg add ${SHARED_FOLDER_REG_KEY} /v Seq /d ${Date.now()} /f`,
+  ]
   for (const command of commands) {
     try {
       await run(command)
@@ -1334,8 +1335,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               : undefined
             setWebdavSharedRoot(sharedRoot)
             await pool.setSharedFolder(settingsSession.id, sharedRoot !== undefined)
-            await pushSharedFolderGuestConfig(sharedRoot !== undefined, (command) =>
-              pool.agentCommand(settingsSession.id, 'exec', [command]),
+            await pushSharedFolderGuestConfig(
+              sharedRoot !== undefined,
+              (command) => pool.agentCommand(settingsSession.id, 'exec', [command]),
+              settings.sharedFolderDrive,
             )
             // 光盘/软盘的连接开关与镜像路径也立即生效：与保存前快照逐台比对后热同步。
             const machine: VirtualMachineRecord = {

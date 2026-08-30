@@ -200,8 +200,10 @@ static void handle_packed_value(unsigned long packed);
 
 /* 产品版本号：PONG 回执与单实例弹窗共用，改动协议/行为时递增。
  * v4：登录常驻身份新增 Aero Snap 窗口吸附（ivm-aero-snap.c）。
- * v5：Aero Snap 触发距离可配（OP_SNAP_EDGE 0x14，ivm-aero-snap.c）。 */
-#define AGENT_VERSION "5"
+ * v5：Aero Snap 触发距离可配（OP_SNAP_EDGE 0x14，ivm-aero-snap.c）。
+ * v6：共享文件夹盘符可配（Drive 注册表值），换盘符/停用时自动清理旧映射
+ *   （HKCU\Network 按 RemotePath 枚举，ivm-shared-folder.c）。 */
+#define AGENT_VERSION "6"
 
 /* 当前 COM1 句柄：命令回执（[IVM]…\r\n）从这里写回宿主。 */
 static HANDLE g_port;

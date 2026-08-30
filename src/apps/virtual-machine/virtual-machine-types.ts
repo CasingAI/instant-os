@@ -234,6 +234,10 @@ export type VirtualMachineSettings = {
    * 与已添加设备同时成立才生效——存储侧主动添加，体验增强只做能力闸门。
    */
   sharedFolderAdded: boolean
+  /** 共享文件夹映射盘符（单个大写字母，默认 Z）：经注册表下发，agent 幂等收敛。 */
+  sharedFolderDrive: string
+  /** 共享文件夹设备「连接到虚拟机」：断开即弹出（移除客机映射），重连即时恢复。 */
+  sharedFolderConnected: boolean
 }
 
 export type VirtualMachineRecord = VirtualMachineSettings & {

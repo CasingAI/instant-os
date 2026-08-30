@@ -91,6 +91,8 @@ export function defaultVirtualMachineSettings(
     sharedFolderEnabled: false,
     sharedFolderPath: '/user/Shared',
     sharedFolderAdded: false,
+    sharedFolderDrive: 'Z',
+    sharedFolderConnected: true,
   }
 }
 
@@ -126,17 +128,28 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     sharedFolderEnabled: record.sharedFolderEnabled,
     sharedFolderPath: record.sharedFolderPath,
     sharedFolderAdded: record.sharedFolderAdded,
+    sharedFolderDrive: record.sharedFolderDrive,
+    sharedFolderConnected: record.sharedFolderConnected,
   }
 }
 
 /**
  * 共享文件夹端到端生效条件：未选「不启用增强」+ 能力开关（体验增强）+
- * 已添加设备（存储），三者同时成立。所有消费点（start config、宿主根、
- * 热开关、客机配置下发）一律走这里，避免条件漂移。
+ * 已添加设备（存储）+ 设备已连接，四者同时成立。所有消费点（start config、
+ * 宿主根、热开关、客机配置下发）一律走这里，避免条件漂移。
  */
 export function isSharedFolderActive(settings: VirtualMachineSettings): boolean {
-  return settings.osPreset !== 'none' && settings.sharedFolderEnabled && settings.sharedFolderAdded
+  return (
+    settings.osPreset !== 'none' &&
+    settings.sharedFolderEnabled &&
+    settings.sharedFolderAdded &&
+    settings.sharedFolderConnected
+  )
 }
+
+/** 盘符下拉：A–Z 全量；与客机已有盘符冲突时映射不出现，换一个即可。 */
+export const VM_SHARED_FOLDER_DRIVE_CHOICES: readonly SettingsChoiceOption[] =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => ({ id: letter, label: `${letter}:` }))
 
 export function createStorageDevice(
   type: VmStorageDeviceType,

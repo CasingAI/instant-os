@@ -212,6 +212,14 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
       typeof record.sharedFolderAdded === 'boolean'
         ? record.sharedFolderAdded
         : record.sharedFolderEnabled === true,
+    sharedFolderDrive:
+      typeof record.sharedFolderDrive === 'string' && /^[A-Za-z]$/.test(record.sharedFolderDrive)
+        ? record.sharedFolderDrive.toUpperCase()
+        : defaults.sharedFolderDrive,
+    sharedFolderConnected: normalizeBoolean(
+      record.sharedFolderConnected,
+      defaults.sharedFolderConnected,
+    ),
     sharedFolderPath:
       typeof record.sharedFolderPath === 'string' && record.sharedFolderPath.startsWith('/')
         ? record.sharedFolderPath

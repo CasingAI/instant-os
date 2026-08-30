@@ -140,6 +140,51 @@ static void sf_apply(int enabled, const char *url, const char *drive)
     }
 }
 
+/* 清理仍指向本共享的残留映射（盘符换过/旧配置遗留）：HKCU\Network 的子键
+ * 就是 persistent 映射的盘符（不带冒号），RemotePath 等于 Url 的都属于本
+ * 共享，除 keep_drive（当前盘符，不带冒号；NULL = 全清）外一律删除。
+ * 先枚举后删除，避免边枚举边改键。 */
+static void sf_cleanup_stale(const char *url, const char *keep_drive)
+{
+    char names[32][8];
+    int count = 0;
+    int i;
+    HKEY key;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Network", 0, KEY_READ, &key) != ERROR_SUCCESS) {
+        return;
+    }
+    while (count < 32) {
+        char name[8];
+        DWORD name_len = (DWORD)sizeof(name);
+        if (RegEnumKeyExA(key, (DWORD)count, name, &name_len, NULL, NULL, NULL, NULL)
+            != ERROR_SUCCESS) {
+            break;
+        }
+        lstrcpynA(names[count], name, (int)sizeof(names[count]));
+        count++;
+    }
+    RegCloseKey(key);
+    for (i = 0; i < count; i++) {
+        char sub[32];
+        char path[SF_URL_MAX];
+        DWORD path_len = (DWORD)sizeof(path);
+        char action[96];
+        if (keep_drive && lstrcmpiA(names[i], keep_drive) == 0) {
+            continue;
+        }
+        wsprintfA(sub, "Network\\%s", names[i]);
+        if (!sf_reg_read_string(HKEY_CURRENT_USER, sub, "RemotePath", path, path_len)) {
+            continue;
+        }
+        if (lstrcmpA(path, url) != 0) {
+            continue;
+        }
+        wsprintfA(action, "use %s: /delete /y", names[i]);
+        sf_run_net(action);
+        sflog(action);
+    }
+}
+
 /* 由 clipboard-bridge 的 bridge_tick 每周期调用（约 150ms 空闲 / 4ms 活跃）。
  * 注册表读很轻；Seq 没变时一次 RegOpen+RegQuery 即返回。 */
 void ivm_shared_folder_tick(void)
@@ -168,4 +213,13 @@ void ivm_shared_folder_tick(void)
         return;
     }
     sf_apply(enabled != 0, url, drive);
+    /* keep 当前盘符（去掉冒号）；停用时全清本共享的所有盘符 */
+    if (enabled) {
+        char keep[2];
+        keep[0] = drive[0];
+        keep[1] = 0;
+        sf_cleanup_stale(url, keep);
+    } else {
+        sf_cleanup_stale(url, NULL);
+    }
 }

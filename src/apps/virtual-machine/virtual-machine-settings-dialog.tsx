@@ -53,6 +53,7 @@ import {
   VM_SNAP_EDGE_PX_MIN,
   VM_SNAP_EDGE_PX_STEP,
   VM_STORAGE_DEVICE_LIMITS,
+  VM_SHARED_FOLDER_DRIVE_CHOICES,
   VM_VGA_MEMORY_CHOICES,
 } from './virtual-machine-config.ts'
 import {
@@ -758,9 +759,11 @@ export function VirtualMachineSettingsDialog({
                   >
                     <span class="virtual-machine-settings__drive-name">共享文件夹</span>
                     <span class="virtual-machine-settings__drive-meta">
-                      {draft.sharedFolderPath
-                        ? formatVmPathSummary(draft.sharedFolderPath)
-                        : '未设置目录'}
+                      {draft.sharedFolderConnected === false
+                        ? '已弹出'
+                        : draft.sharedFolderPath
+                          ? formatVmPathSummary(draft.sharedFolderPath)
+                          : '未设置目录'}
                     </span>
                   </button>
                 ) : null}
@@ -782,7 +785,21 @@ export function VirtualMachineSettingsDialog({
                   <>
                     <div class="virtual-machine-settings__source-title-row">
                       <span class="virtual-machine-settings__source-title">共享文件夹</span>
+                      <div class="virtual-machine-settings__connect">
+                        <span class="virtual-machine-settings__label">连接到虚拟机</span>
+                        <IosSwitch
+                          checked={draft.sharedFolderConnected}
+                          disabled={busy}
+                          label="连接到虚拟机"
+                          onChange={(sharedFolderConnected) => patch({ sharedFolderConnected })}
+                        />
+                      </div>
                     </div>
+                    {draft.sharedFolderConnected === false ? (
+                      <p class="virtual-machine-settings__hint">
+                        已弹出：客机里的盘符映射已移除，重连后即时恢复。
+                      </p>
+                    ) : null}
                     <div class="virtual-machine-settings__path">
                       <input
                         class="virtual-machine-settings__input"
@@ -800,8 +817,20 @@ export function VirtualMachineSettingsDialog({
                         选择…
                       </IosButton>
                     </div>
+                    <SettingsChoiceField
+                      label="盘符"
+                      value={draft.sharedFolderDrive}
+                      options={VM_SHARED_FOLDER_DRIVE_CHOICES}
+                      onChange={(sharedFolderDrive) => patch({ sharedFolderDrive })}
+                      wideLayout
+                      presentation="form"
+                      disabled={busy}
+                      fieldClass="virtual-machine-settings__field"
+                      labelClass="virtual-machine-settings__label"
+                      hint="映射成客机里的哪个网络驱动器，A–Z 全可选；与客机已有盘符冲突时映射不出现，换一个即可。运行中修改即时生效。"
+                    />
                     <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-                      客机把共享目录映射成网络驱动器 Z:（WebDAV），实时双向读写；可选挂载的真实目录（/mount/…），运行中修改即时切换。需客机装 v5 及以上增强代理。
+                      客机把共享目录映射成网络驱动器（WebDAV），实时双向读写；可选挂载的真实目录（/mount/…），运行中修改即时切换。需客机装 v6 及以上增强代理。
                     </p>
                     {!draft.sharedFolderEnabled ? (
                       <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
@@ -836,7 +865,8 @@ export function VirtualMachineSettingsDialog({
                       </IosButton>
                     </div>
                     <p class="virtual-machine-settings__hint">
-                      删除后移除客机里的 Z: 映射（运行中立即生效）；共享目录本身不受影响。
+                      删除后移除客机里的 {draft.sharedFolderDrive}: 映射（运行中立即生效）；
+                      共享目录本身不受影响。
                     </p>
                   </>
                 ) : selectedStorage ? (
@@ -1293,7 +1323,7 @@ export function VirtualMachineSettingsDialog({
               label="共享文件夹"
               checked={enhanceOff ? false : draft.sharedFolderEnabled}
               disabled={busy || enhanceOff}
-              detail="能力开关：开启后可在「存储 → 添加设备」把共享目录加为设备，客机映射成网络驱动器 Z:（WebDAV），实时双向读写。需客机装 v5 及以上增强代理。"
+              detail="能力开关：开启后可在「存储 → 添加设备」把共享目录加为设备，客机映射成网络驱动器（WebDAV），实时双向读写。需客机装 v6 及以上增强代理。"
               onChange={(sharedFolderEnabled) => patch({ sharedFolderEnabled })}
             />
           </div>
