@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import type { RefObject } from 'preact'
 import { createPortal } from 'preact/compat'
-import { computeFloatingPanelPosition } from './compute-floating-panel-position.ts'
+import { computeFloatingPanelPosition, FLOATING_PANEL_VIEWPORT_PADDING } from './compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
 import { IosButton } from './ios-button.tsx'
 import './popover.css'
@@ -53,11 +53,19 @@ export function Popover({
     const panelWidth = measured && measured.width > 0 ? measured.width : 200
     const panelHeight = measured && measured.height > 0 ? measured.height : 40
     const next = computeFloatingPanelPosition(anchorRect, panelWidth, panelHeight, 'left')
-    setPosition({ top: next.top, left: next.left })
-    setPlacement(next.placement)
     const anchorCenterX = anchorRect.left + anchorRect.width / 2
+    // 小锚点（如 14px 问号）中心距面板左缘不足箭头安全内距，按内距需求把面板整体
+    // 左移，箭头才能正指锚点中心；宽锚点的 anchor.left 本身满足条件，行为不变。
+    const minLeft = FLOATING_PANEL_VIEWPORT_PADDING
+    const maxLeft = Math.max(minLeft, window.innerWidth - panelWidth - minLeft)
+    const left = Math.min(
+      Math.max(Math.min(next.left, anchorCenterX - POPOVER_ARROW_SAFE_INSET), minLeft),
+      maxLeft,
+    )
+    setPosition({ top: next.top, left })
+    setPlacement(next.placement)
     const maxArrowX = Math.max(POPOVER_ARROW_SAFE_INSET, panelWidth - POPOVER_ARROW_SAFE_INSET)
-    setArrowX(Math.min(Math.max(anchorCenterX - next.left, POPOVER_ARROW_SAFE_INSET), maxArrowX))
+    setArrowX(Math.min(Math.max(anchorCenterX - left, POPOVER_ARROW_SAFE_INSET), maxArrowX))
   }, [anchorRef])
 
   // 宽窄判定：锚点所在窗口框架的宽度；不在任何窗口里（桌面级浮层）退化为视口宽度

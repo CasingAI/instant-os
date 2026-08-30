@@ -36,34 +36,54 @@
   }
 }
 
-/* 箭头：旋转 45° 的小方块露出上半（描边画在两条外露边上），X 位置由 JS 跟随锚点 */
+/* 箭头：外层描边三角 + 内层填充三角（无 filter/transform）。
+   伪元素高 8px：7px 悬在面板外、1px 伸进面板内部，伸进的部分盖掉顶部白色
+   高光（inset 0 1px 0），箭头才不会被这条高光与气泡正文劈开。
+   内层是外层的平行内缩：斜边描边恒定 1px、以满宽度接到面板边框上，
+   不向交接处收窄归零；尖端回缩 1.5px，与锚点保留缝隙。
+   left 里的 -1px 补偿伪元素以 padding box 定位、JS 按 border box 计算的偏差。 */
 
 .popover--below::before,
-.popover--above::before {
+.popover--above::before,
+.popover--below::after,
+.popover--above::after {
   content: '';
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 8px;
   pointer-events: none;
-  transform: rotate(45deg);
 }
 
-/* 气泡在锚点下方：顶边朝上箭头 */
+/* 气泡在锚点下方：顶边朝上箭头（基边压在 1px 边框内缘） */
 .popover--below::before {
-  top: -5px;
-  left: calc(var(--popover-arrow-x, 50%) - 5px);
+  top: -7px;
+  left: calc(var(--popover-arrow-x, 50%) - 6.5px);
+  background: rgba(0, 0, 0, 0.28);
+  clip-path: polygon(50% 18.75%, 100% 87.5%, 0% 87.5%);
+}
+
+.popover--below::after {
+  top: -7px;
+  left: calc(var(--popover-arrow-x, 50%) - 6.5px);
   background: #fafafa;
-  border-top: 1px solid rgba(0, 0, 0, 0.28);
-  border-left: 1px solid rgba(0, 0, 0, 0.28);
+  /* 底边拉到伪元素底缘（面板内 1px），盖住顶部高光穿过箭头的那段 */
+  clip-path: polygon(50% 36.4%, 96.25% 100%, 3.75% 100%);
 }
 
 /* 气泡在锚点上方：底边朝下箭头 */
 .popover--above::before {
-  bottom: -5px;
-  left: calc(var(--popover-arrow-x, 50%) - 5px);
+  bottom: -7px;
+  left: calc(var(--popover-arrow-x, 50%) - 6.5px);
+  background: rgba(0, 0, 0, 0.28);
+  clip-path: polygon(50% 81.25%, 100% 12.5%, 0% 12.5%);
+}
+
+.popover--above::after {
+  bottom: -7px;
+  left: calc(var(--popover-arrow-x, 50%) - 6.5px);
   background: #ececec;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.28);
-  border-right: 1px solid rgba(0, 0, 0, 0.28);
+  /* 同上：底边伸进面板 1px，箭头填充与气泡正文连成一体 */
+  clip-path: polygon(50% 63.6%, 96.24% 0%, 3.76% 0%);
 }
 
 /* 窄屏：居中模态对话框 */
