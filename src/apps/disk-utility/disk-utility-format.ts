@@ -5,6 +5,7 @@
 import { fdisk, mkfsvfat, type DiskSectors } from 'libmount'
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
 import {
+  genericDiskImageOccupiedError,
   getDiskImageOccupant,
   normalizeDiskImagePath,
 } from '../files/files-disk-image-occupancy.ts'
@@ -398,6 +399,10 @@ export async function withExclusiveImageAccess<T>(
   const occupant = getDiskImageOccupant(path)
   if (occupant?.kind === 'vm') {
     throw new Error(`无法修改 ${path}：虚拟机正在把这份镜像当硬盘使用。请先关机或从虚拟机里去掉这块盘。`)
+  }
+  // 未知占用方（第三方 App 声明）不能假装没看见直接写
+  if (occupant && occupant.kind !== 'files-mount') {
+    throw new Error(genericDiskImageOccupiedError(path, occupant))
   }
   const mounted = occupant?.kind === 'files-mount' ? getImageMountByPath(path) : undefined
   if (mounted) {

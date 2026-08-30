@@ -64,6 +64,8 @@ export type ImageOccupancy =
   | { kind: 'free' }
   | { kind: 'files-mount'; volumeId: string }
   | { kind: 'vm'; vmId: string }
+  /** 第三方应用的占用声明（见 files-disk-image-occupancy.ts 的开放 occupant 模型） */
+  | { kind: 'app'; appId: string; label: string }
 
 /* ─── 树节点类型 ─── */
 
@@ -366,7 +368,10 @@ function occupancyFromDisk(occupant: DiskImageOccupant | undefined): ImageOccupa
   if (occupant.kind === 'files-mount') {
     return { kind: 'files-mount', volumeId: occupant.id }
   }
-  return { kind: 'vm', vmId: occupant.id }
+  if (occupant.kind === 'vm') {
+    return { kind: 'vm', vmId: occupant.id }
+  }
+  return { kind: 'app', appId: occupant.id, label: occupant.label ?? occupant.kind }
 }
 
 /* ─── 镜像卷探测 ─── */

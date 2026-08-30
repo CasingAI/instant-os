@@ -68,7 +68,8 @@ function formatBytes(value: number | undefined): string {
 function occupancyLabel(occupancy: TreeNode['occupancy']): string {
   if (!occupancy || occupancy.kind === 'free') return '空闲'
   if (occupancy.kind === 'files-mount') return '已挂载为文件卷'
-  return `虚拟机正在使用（${occupancy.vmId}）`
+  if (occupancy.kind === 'vm') return `虚拟机正在使用（${occupancy.vmId}）`
+  return `正在被「${occupancy.label}」使用`
 }
 
 function DiskIcon({ class: cls }: { class?: string }): preact.JSX.Element {
@@ -233,7 +234,11 @@ function TreeNodeRow({
           {node.fat ? <span class="disk-utility__fs-badge">{node.fat.variant}</span> : undefined}
           {node.occupancy && node.occupancy.kind !== 'free' ? (
             <span class={`disk-utility__occupancy-badge${node.occupancy.kind === 'vm' ? ' disk-utility__occupancy-badge--vm' : ''}`}>
-              {node.occupancy.kind === 'vm' ? '虚拟机占用' : '已挂载'}
+              {node.occupancy.kind === 'vm'
+                ? '虚拟机占用'
+                : node.occupancy.kind === 'app'
+                  ? '占用中'
+                  : '已挂载'}
             </span>
           ) : undefined}
         </div>
@@ -299,7 +304,13 @@ function DetailPanel({
   }
 
   const vmLocked = isVmOccupied(node)
-  const canMutateImage = (node.kind === 'image-root' || node.kind === 'partition') && Boolean(node.imageFile) && !vmLocked
+  // 第三方占用方同样禁止就地改写（withExclusiveImageAccess 侧另有守卫兜底）
+  const appLocked = node.occupancy?.kind === 'app'
+  const canMutateImage =
+    (node.kind === 'image-root' || node.kind === 'partition') &&
+    Boolean(node.imageFile) &&
+    !vmLocked &&
+    !appLocked
   const mapSegments = mapNode ? buildDiskMap(mapNode) : undefined
   const showUsed = node.kind !== 'image-root' && node.kind !== 'partition' && node.bytes !== undefined
   const showFat =
