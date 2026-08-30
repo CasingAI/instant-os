@@ -802,6 +802,24 @@
   font-weight: 600;
 }
 
+/* 存储页右栏标题行：左侧设备名，右侧「连接到虚拟机」开关。 */
+.virtual-machine-settings__source-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.virtual-machine-settings__connect {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.virtual-machine-settings__connect .virtual-machine-settings__label {
+  font-size: 11px;
+}
+
 .virtual-machine-settings__create-disk {
   display: flex;
   flex-direction: column;

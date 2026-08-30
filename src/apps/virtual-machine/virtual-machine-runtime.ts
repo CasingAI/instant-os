@@ -4,6 +4,7 @@ import {
   claimVirtualMachineDiskImageOccupancy,
   loadVirtualMachineDisks,
   releaseVirtualMachineDiskImageOccupancy,
+  releaseVirtualMachineRemovableMedia,
 } from './virtual-machine-disks.ts'
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { releaseVirtualMachineDiskStreams } from './virtual-machine-disk-stream-host.ts'
@@ -13,6 +14,8 @@ import {
   isInstantVmRuntimeToHostMessage,
   type InstantVmAgentResultMessage,
   type InstantVmDisplayMode,
+  type InstantVmDiskStreamRef,
+  type InstantVmFloppySlot,
   type InstantVmKeyboardMessage,
   type InstantVmNativeKeyMessage,
   type InstantVmPointerMode,
@@ -244,6 +247,11 @@ export type VmRuntimeApi = {
   /** 运行中切换「体验增强·绝对坐标鼠标」放行位。 */
   setAbsoluteMouse(enabled: boolean): Promise<void>
   setResolution(width: number, height: number): Promise<void>
+  /** 运行中换盘（热插）。stream 必须已由宿主注册；回执前镜像不会被 guest 读到。 */
+  setCdrom(stream: InstantVmDiskStreamRef): Promise<void>
+  ejectCdrom(): Promise<void>
+  setFloppy(slot: InstantVmFloppySlot, stream: InstantVmDiskStreamRef): Promise<void>
+  ejectFloppy(slot: InstantVmFloppySlot): Promise<void>
   sendKeyboard(message: InstantVmKeyboardMessage): void
   captureKeyboard(): void
   releaseKeyboard(): void
@@ -558,6 +566,8 @@ export function useVirtualMachineRuntime(
         enabled?: boolean
         width?: number
         height?: number
+        slot?: InstantVmFloppySlot
+        stream?: InstantVmDiskStreamRef
         method?: string
         args?: unknown[]
       },
@@ -671,6 +681,43 @@ export function useVirtualMachineRuntime(
     [request],
   )
 
+  // 运行中热插光盘/软盘：镜像走流式引用，宿主先注册流再发命令；
+  // eject 与换盘会让客机收到 ATAPI UNIT_ATTENTION / 软盘换盘中断。
+  const setCdrom = useCallback(
+    async (stream: InstantVmDiskStreamRef) => {
+      await request({
+        type: INSTANT_VM_MESSAGE_TYPE.setCdrom,
+        requestId: newVmRequestId(),
+        stream,
+      })
+    },
+    [request],
+  )
+
+  const ejectCdrom = useCallback(async () => {
+    await request({ type: INSTANT_VM_MESSAGE_TYPE.ejectCdrom, requestId: newVmRequestId() })
+  }, [request])
+
+  const setFloppy = useCallback(
+    async (slot: InstantVmFloppySlot, stream: InstantVmDiskStreamRef) => {
+      await request({
+        type: INSTANT_VM_MESSAGE_TYPE.setFloppy,
+        requestId: newVmRequestId(),
+        slot,
+        stream,
+      })
+    },
+    [request],
+  )
+
+  const ejectFloppy = useCallback(async (slot: InstantVmFloppySlot) => {
+    await request({
+      type: INSTANT_VM_MESSAGE_TYPE.ejectFloppy,
+      requestId: newVmRequestId(),
+      slot,
+    })
+  }, [request])
+
   const sendKeyboard = useCallback(
     (message: InstantVmKeyboardMessage) => {
       try {
@@ -760,6 +807,10 @@ export function useVirtualMachineRuntime(
     setPointerMode,
     setAbsoluteMouse,
     setResolution,
+    setCdrom,
+    ejectCdrom,
+    setFloppy,
+    ejectFloppy,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,
@@ -816,6 +867,10 @@ export function useVirtualMachineRuntimePool(
       releaseError = error
       console.error('[vm] 释放磁盘流失败', id, error)
     }
+    // 运行期间热插上的光盘/软盘流不在 start 消息里，随停机一并释放。
+    await releaseVirtualMachineRemovableMedia(id).catch((error: unknown) => {
+      console.error('[vm] 释放热插媒体流失败', id, error)
+    })
     releaseVirtualMachineDiskImageOccupancy(id)
     runningIdsRef.current.delete(id)
     setRunningIds([...runningIdsRef.current])
@@ -931,6 +986,8 @@ export function useVirtualMachineRuntimePool(
         | Awaited<ReturnType<typeof loadVirtualMachineDisks>>
         | undefined
       try {
+        // 上次运行可能异常退出，残留的热插媒体流在这里兜底清理。
+        await releaseVirtualMachineRemovableMedia(id)
         claimVirtualMachineDiskImageOccupancy(id, machine.devices)
         disks = await withTimeout(
           loadVirtualMachineDisks(machine),
@@ -1100,6 +1157,42 @@ export function useVirtualMachineRuntimePool(
     [],
   )
 
+  // 运行中热插光盘/软盘；机器未运行（无 api）时静默返回，调用方自行决定是否落盘。
+  const setActiveCdrom = useCallback(async (id: string, stream: InstantVmDiskStreamRef) => {
+    const api = apiByIdRef.current.get(id)
+    if (!api) {
+      return
+    }
+    await api.setCdrom(stream)
+  }, [])
+
+  const ejectActiveCdrom = useCallback(async (id: string) => {
+    const api = apiByIdRef.current.get(id)
+    if (!api) {
+      return
+    }
+    await api.ejectCdrom()
+  }, [])
+
+  const setActiveFloppy = useCallback(
+    async (id: string, slot: InstantVmFloppySlot, stream: InstantVmDiskStreamRef) => {
+      const api = apiByIdRef.current.get(id)
+      if (!api) {
+        return
+      }
+      await api.setFloppy(slot, stream)
+    },
+    [],
+  )
+
+  const ejectActiveFloppy = useCallback(async (id: string, slot: InstantVmFloppySlot) => {
+    const api = apiByIdRef.current.get(id)
+    if (!api) {
+      return
+    }
+    await api.ejectFloppy(slot)
+  }, [])
+
   const sendKeyboard = useCallback((id: string, message: InstantVmKeyboardMessage) => {
     apiByIdRef.current.get(id)?.sendKeyboard(message)
   }, [])
@@ -1132,6 +1225,10 @@ export function useVirtualMachineRuntimePool(
     setActivePointerMode,
     setActiveAbsoluteMouse,
     setActiveResolution,
+    setActiveCdrom,
+    ejectActiveCdrom,
+    setActiveFloppy,
+    ejectActiveFloppy,
     sendKeyboard,
     captureKeyboard,
     releaseKeyboard,

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import type { MenuDefinition } from '../../os/menu-bar-types.ts'
+import type { MenuDefinition, MenuItemSubItem } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
+import { releaseDiskImagePath } from '../files/files-disk-image-occupancy.ts'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
+import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
   formatVmBackendLabel,
@@ -14,11 +16,21 @@ import {
 } from './virtual-machine-backends.ts'
 import {
   defaultVirtualMachineSettings,
+  deviceAcceptExtensions,
+  devicePickTitle,
   formatVmDisplayModeLabel,
   formatVmMemoryLabel,
   settingsFromRecord,
 } from './virtual-machine-config.ts'
-import { virtualMachineHasBootMedia, vmMountedDiskSlots } from './virtual-machine-disks.ts'
+import {
+  claimVirtualMachineDiskImageOccupancy,
+  mountVirtualMachineRemovableMedia,
+  releaseVirtualMachineRemovableMedia,
+  slotOfDevice,
+  virtualMachineHasBootMedia,
+  vmMountedDiskSlots,
+  type VmRemovableMediaMount,
+} from './virtual-machine-disks.ts'
 import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
@@ -70,7 +82,11 @@ import {
   subscribeVirtualMachineStore,
   updateVirtualMachine,
 } from './virtual-machine-store.ts'
-import type { VirtualMachineRecord, VirtualMachineSettings } from './virtual-machine-types.ts'
+import type {
+  VirtualMachineRecord,
+  VirtualMachineSettings,
+  VmStorageDevice,
+} from './virtual-machine-types.ts'
 import { VM_DISPLAY_MODE_IDS, type VmDisplayModeId } from './virtual-machine-types.ts'
 import './virtual-machine.css'
 
@@ -1024,6 +1040,192 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     [machines, showVmError],
   )
 
+  const { showSystemOpenDialog, dialog: mediaOpenDialog } = useSystemOpenDialog()
+
+  // #region 光盘/软盘热插拔（菜单「存储」分类与设置存储页共用）
+  // 运行中：注册流 → 发 set/eject 命令 → 落盘 → 提交/回滚热插流。
+  // 未运行：只落盘（等价于改设置），下次开机按 connected 装载。
+
+  /**
+   * 把 prev → next 的盘片变化同步到运行中的模拟器（含镜像占用迁移）。
+   * 不落盘；调用方负责持久化与错误呈现。
+   */
+  const syncRemovableMediaRuntime = useCallback(
+    async (machine: VirtualMachineRecord, prev: VmStorageDevice, next: VmStorageDevice) => {
+      if (next.type !== 'cdrom' && next.type !== 'floppy') {
+        return
+      }
+      const slot = slotOfDevice(machine.devices, next.id)
+      if (slot !== 'cdrom' && slot !== 'fda' && slot !== 'fdb') {
+        return
+      }
+      const prevConnected = prev.connected !== false && prev.path.trim().length > 0
+      const nextConnected = next.connected !== false && next.path.trim().length > 0
+      const pathChanged = prev.path !== next.path
+      if (!nextConnected && !prevConnected) {
+        return
+      }
+      const running = pool.runningIds.includes(machine.id)
+      if (nextConnected && (pathChanged || !prevConnected)) {
+        // 换成新镜像 / 重新连接：先声明占用，镜像被别处占用时立刻报错。
+        claimVirtualMachineDiskImageOccupancy(machine.id, [next])
+      }
+      if (!running) {
+        return
+      }
+      if (nextConnected) {
+        if (!pathChanged && prevConnected) {
+          return
+        }
+        const mount: VmRemovableMediaMount = await mountVirtualMachineRemovableMedia({
+          machineId: machine.id,
+          device: next,
+          slot,
+          diskWriteMode: machine.diskWriteMode,
+        })
+        try {
+          if (slot === 'cdrom') {
+            await pool.setActiveCdrom(machine.id, mount.stream)
+          } else {
+            await pool.setActiveFloppy(machine.id, slot, mount.stream)
+          }
+        } catch (error) {
+          await mount.rollback()
+          throw error
+        }
+        await mount.commit()
+      } else {
+        if (slot === 'cdrom') {
+          await pool.ejectActiveCdrom(machine.id)
+        } else {
+          await pool.ejectActiveFloppy(machine.id, slot)
+        }
+        await releaseVirtualMachineRemovableMedia(machine.id, slot)
+      }
+      if (pathChanged && prev.path.trim()) {
+        releaseDiskImagePath(prev.path, { kind: 'vm', id: machine.id })
+      }
+      if (!nextConnected && next.path.trim()) {
+        releaseDiskImagePath(next.path, { kind: 'vm', id: machine.id })
+      }
+    },
+    [pool],
+  )
+
+  const handleSwapMedia = useCallback(
+    async (deviceId: string) => {
+      if (!selected) {
+        return
+      }
+      const device = selected.devices.find((item) => item.id === deviceId)
+      if (!device) {
+        return
+      }
+      const path = await showSystemOpenDialog({
+        title: devicePickTitle(device.type),
+        selectionMode: 'file',
+        acceptExtensions: deviceAcceptExtensions(device.type),
+      })
+      if (!path || path === device.path) {
+        return
+      }
+      const next: VmStorageDevice = { ...device, path, connected: true }
+      try {
+        await syncRemovableMediaRuntime(selected, device, next)
+        await updateVirtualMachine(selected.id, {
+          ...settingsFromRecord(selected),
+          devices: selected.devices.map((item) => (item.id === deviceId ? next : item)),
+        })
+      } catch (error) {
+        showVmError(error instanceof Error ? error.message : '更换盘片失败')
+      }
+    },
+    [selected, showSystemOpenDialog, showVmError, syncRemovableMediaRuntime],
+  )
+
+  const handleEjectMedia = useCallback(
+    async (deviceId: string) => {
+      if (!selected) {
+        return
+      }
+      const device = selected.devices.find((item) => item.id === deviceId)
+      if (!device) {
+        return
+      }
+      const next: VmStorageDevice = { ...device, connected: false }
+      try {
+        await syncRemovableMediaRuntime(selected, device, next)
+        await updateVirtualMachine(selected.id, {
+          ...settingsFromRecord(selected),
+          devices: selected.devices.map((item) => (item.id === deviceId ? next : item)),
+        })
+      } catch (error) {
+        showVmError(error instanceof Error ? error.message : '弹出盘片失败')
+      }
+    },
+    [selected, showVmError, syncRemovableMediaRuntime],
+  )
+
+  // 菜单「存储」分类：光盘/软盘各一个子菜单；都没有时用禁用项占位。
+  const removableMediaMenuItems = useMemo((): MenuItemSubItem[] => {
+    if (!selected) {
+      return []
+    }
+    const floppyTotal = selected.devices.filter((device) => device.type === 'floppy').length
+    let floppyIndex = 0
+    const items: MenuItemSubItem[] = []
+    for (const device of selected.devices) {
+      if (device.type !== 'cdrom' && device.type !== 'floppy') {
+        continue
+      }
+      if (!slotOfDevice(selected.devices, device.id)) {
+        continue
+      }
+      const isCdrom = device.type === 'cdrom'
+      if (!isCdrom) {
+        floppyIndex += 1
+      }
+      // 仓里有盘才谈得上弹出：路径为空或已处于弹出状态时禁用
+      const hasMedium = device.path.trim().length > 0 && device.connected !== false
+      items.push({
+        type: 'submenu',
+        label: isCdrom
+          ? '光盘'
+          : floppyTotal > 1
+            ? `软盘 ${floppyIndex}`
+            : '软盘',
+        items: [
+          {
+            type: 'action',
+            label: isCdrom
+              ? hasMedium
+                ? '更换光盘…'
+                : '插入光盘…'
+              : hasMedium
+                ? '更换软盘…'
+                : '插入软盘…',
+            onClick: () => void handleSwapMedia(device.id),
+          },
+          {
+            type: 'action',
+            label: isCdrom ? '弹出光盘' : '弹出软盘',
+            disabled: !hasMedium,
+            onClick: () => void handleEjectMedia(device.id),
+          },
+        ],
+      })
+    }
+    if (items.length === 0) {
+      items.push({
+        type: 'action',
+        label: '无可切换的存储',
+        disabled: true,
+        onClick: () => undefined,
+      })
+    }
+    return items
+  }, [handleEjectMedia, handleSwapMedia, selected])
+
   const handleSaveSettings = useCallback(
     async (settings: VirtualMachineSettings) => {
       if (!settingsSession) {
@@ -1040,6 +1242,27 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             await pool.setActivePointerMode(settingsSession.id, settings.pointerMode)
             await pool.setActiveDisplayMode(settingsSession.id, settings.displayMode)
             await pool.setActiveAbsoluteMouse(settingsSession.id, settings.enhanceAbsoluteMouse)
+            // 光盘/软盘的连接开关与镜像路径也立即生效：与保存前快照逐台比对后热同步。
+            const machine: VirtualMachineRecord = {
+              ...settings,
+              id: settingsSession.id,
+              createdAt: Date.now(),
+            }
+            const prevById = new Map(
+              settingsSession.initial.devices.map((device) => [device.id, device]),
+            )
+            for (const device of settings.devices) {
+              const prev = prevById.get(device.id)
+              if (!prev) {
+                continue
+              }
+              const changed =
+                prev.path !== device.path ||
+                (prev.connected !== false) !== (device.connected !== false)
+              if (changed) {
+                await syncRemovableMediaRuntime(machine, prev, device)
+              }
+            }
           } catch (error) {
             showVmError(error instanceof Error ? error.message : '应用设置失败')
           }
@@ -1048,7 +1271,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       setSettingsSession(undefined)
       setPowerHint(undefined)
     },
-    [focusMachine, pool, settingsSession, showVmError],
+    [focusMachine, pool, settingsSession, showVmError, syncRemovableMediaRuntime],
   )
 
   const handleDisplayMode = useCallback(
@@ -1424,6 +1647,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             disabled: !hasSelection,
             onClick: () => setInspectorOpen(true),
           },
+          { type: 'separator' },
+          ...removableMediaMenuItems,
         ],
       },
       {
@@ -1472,6 +1697,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     hasSelection,
     ownWindowId,
     powerBusy,
+    removableMediaMenuItems,
     selectedDisplayMode,
     toggleFullscreen,
     vmWindowFullscreen,
@@ -1573,12 +1799,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           </IosButton>
           <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('shutdown')}>
             关机
-          </IosButton>
-          <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('stop')}>
-            断电
-          </IosButton>
-          <IosButton size="compact" disabled={!canReset} onClick={() => handlePower('reset')}>
-            重置
           </IosButton>
         </div>
         {selected ? (
@@ -1704,6 +1924,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         onClose={() => setSettingsSession(undefined)}
         onSave={handleSaveSettings}
       />
+      {mediaOpenDialog}
     </div>
   )
 }

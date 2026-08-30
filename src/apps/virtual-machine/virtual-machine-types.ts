@@ -148,6 +148,16 @@ export type VmStorageDevice = {
   type: VmStorageDeviceType
   source: VmStorageDeviceSource
   path: string
+  /**
+   * 是否连接到虚拟机。缺省视为已连接；仅显式 false 表示弹出/断开
+   * （光驱空托盘、软驱空驱）。光盘/软盘运行中可热切换，硬盘只在关机时生效。
+   */
+  connected?: boolean
+}
+
+/** 可以热插拔的存储类型：运行中允许切换连接状态。 */
+export function isVmRemovableDeviceType(type: VmStorageDeviceType): boolean {
+  return type === 'cdrom' || type === 'floppy'
 }
 
 export type VirtualMachineSettings = {

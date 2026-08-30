@@ -110,7 +110,8 @@ function normalizeStorageDevice(raw: unknown): VmStorageDevice | undefined {
   if (!path && typeof record.path === 'string' && /^https?:\/\//i.test(record.path.trim())) {
     return undefined
   }
-  return { id, type, source, path }
+  // 只有显式 false 才落盘；缺省视为已连接，旧记录读入后写回字节不变。
+  return record.connected === false ? { id, type, source, path, connected: false } : { id, type, source, path }
 }
 
 function createDeviceId(): string {

@@ -301,7 +301,7 @@ export function VirtualMachineSettingsDialog({
   )
 
   const updateDevice = useCallback(
-    (id: string, updates: Partial<Pick<VmStorageDevice, 'path' | 'source'>>) => {
+    (id: string, updates: Partial<Pick<VmStorageDevice, 'path' | 'source' | 'connected'>>) => {
       const next = draft.devices.map((device) =>
         device.id === id ? { ...device, ...updates, source: updates.source ?? device.source } : device,
       )
@@ -693,14 +693,17 @@ export function VirtualMachineSettingsDialog({
                       class={`virtual-machine-settings__drive${
                         active ? ' virtual-machine-settings__drive--active' : ''
                       }`}
-                      disabled={busy || running}
+                      // 运行中仍可选中查看：光盘/软盘的「连接到虚拟机」要在运行时切。
+                      disabled={busy}
                       onClick={() => setSelectedDeviceId(device.id)}
                     >
                       <span class="virtual-machine-settings__drive-name">
                         {deviceTypeSlotLabel(device.type, typeCount >= 0 ? typeCount : index)}
                       </span>
                       <span class="virtual-machine-settings__drive-meta">
-                        {formatVmPathSummary(device.path)}
+                        {device.connected === false
+                          ? '已弹出'
+                          : formatVmPathSummary(device.path)}
                       </span>
                     </button>
                   )
@@ -719,14 +722,34 @@ export function VirtualMachineSettingsDialog({
               <div class="virtual-machine-settings__source">
                 {selectedStorage ? (
                   <>
-                    <span class="virtual-machine-settings__source-title">
-                      {deviceTypeSlotLabel(
-                        selectedStorage.type,
-                        devicesByType(draft.devices, selectedStorage.type).findIndex(
-                          (d) => d.id === selectedStorage.id,
-                        ),
-                      )}
-                    </span>
+                    <div class="virtual-machine-settings__source-title-row">
+                      <span class="virtual-machine-settings__source-title">
+                        {deviceTypeSlotLabel(
+                          selectedStorage.type,
+                          devicesByType(draft.devices, selectedStorage.type).findIndex(
+                            (d) => d.id === selectedStorage.id,
+                          ),
+                        )}
+                      </span>
+                      {selectedStorage.type !== 'state' ? (
+                        <div class="virtual-machine-settings__connect">
+                          <span class="virtual-machine-settings__label">连接到虚拟机</span>
+                          <IosSwitch
+                            checked={selectedStorage.connected !== false}
+                            disabled={busy || (running && selectedStorage.type === 'hdd')}
+                            label="连接到虚拟机"
+                            onChange={(checked) =>
+                              updateDevice(selectedStorage.id, { connected: checked })
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                    {selectedStorage.connected === false ? (
+                      <p class="virtual-machine-settings__hint">
+                        已弹出：下次开机才装载，运行中的光盘/软盘保存后立即生效。
+                      </p>
+                    ) : null}
                     <p class="virtual-machine-settings__hint">
                       从 Instant OS 文件里选镜像。大文件会占内存。
                     </p>

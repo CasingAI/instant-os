@@ -32,11 +32,15 @@ import {
   isInstantVmDiskWriteMessage,
   isInstantVmDiskWriteResultMessage,
   isInstantVmGuestClipboardMessage,
-  isInstantVmHostToRuntimeMessage,
   isInstantVmKeyboardMessage,
   isInstantVmNativeKeyMessage,
   isInstantVmPointerHintMessage,
+  isInstantVmEjectCdromMessage,
+  isInstantVmEjectFloppyMessage,
+  isInstantVmHostToRuntimeMessage,
   isInstantVmRuntimeToHostMessage,
+  isInstantVmSetCdromMessage,
+  isInstantVmSetFloppyMessage,
   isInstantVmStartMessage,
   parseAllowedOrigins,
   resolveEffectivePointerMode,
@@ -632,6 +636,48 @@ function testGuestClipboardMessage(): void {
   )
 }
 
+function testRemovableMediaMessages(): void {
+  const stream = { id: 'stream-1', size: 4096 }
+  const setCdrom = {
+    type: INSTANT_VM_MESSAGE_TYPE.setCdrom,
+    requestId: 'cd-1',
+    stream,
+  }
+  assert.equal(isInstantVmSetCdromMessage(setCdrom), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(setCdrom), true)
+  assert.equal(isInstantVmRuntimeToHostMessage(setCdrom), false)
+  assert.equal(isInstantVmSetCdromMessage({ ...setCdrom, stream: { id: '', size: 1 } }), false)
+  assert.equal(isInstantVmSetCdromMessage({ ...setCdrom, stream: { id: 's', size: -1 } }), false)
+  assert.equal(isInstantVmSetCdromMessage({ type: INSTANT_VM_MESSAGE_TYPE.setCdrom, requestId: 'cd-2' }), false)
+
+  const ejectCdrom = { type: INSTANT_VM_MESSAGE_TYPE.ejectCdrom, requestId: 'cd-3' }
+  assert.equal(isInstantVmEjectCdromMessage(ejectCdrom), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(ejectCdrom), true)
+  assert.equal(isInstantVmEjectCdromMessage({ type: INSTANT_VM_MESSAGE_TYPE.ejectCdrom }), false)
+
+  const setFloppy = {
+    type: INSTANT_VM_MESSAGE_TYPE.setFloppy,
+    requestId: 'fd-1',
+    slot: 'fdb',
+    stream,
+  }
+  assert.equal(isInstantVmSetFloppyMessage(setFloppy), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(setFloppy), true)
+  assert.equal(isInstantVmSetFloppyMessage({ ...setFloppy, slot: 'hda' }), false)
+  assert.equal(isInstantVmSetFloppyMessage({ ...setFloppy, slot: 'cdrom' }), false)
+  assert.equal(isInstantVmSetFloppyMessage({ ...setFloppy, requestId: '' }), false)
+
+  const ejectFloppy = {
+    type: INSTANT_VM_MESSAGE_TYPE.ejectFloppy,
+    requestId: 'fd-2',
+    slot: 'fda',
+  }
+  assert.equal(isInstantVmEjectFloppyMessage(ejectFloppy), true)
+  assert.equal(isInstantVmHostToRuntimeMessage(ejectFloppy), true)
+  assert.equal(isInstantVmEjectFloppyMessage({ ...ejectFloppy, slot: 'state' }), false)
+  assert.equal(isInstantVmEjectFloppyMessage({ type: INSTANT_VM_MESSAGE_TYPE.ejectFloppy, requestId: 'fd-3' }), false)
+}
+
 testBootOrderMatchesV86()
 testMountedDiskSlots()
 testHasBootMedia()
@@ -659,4 +705,5 @@ testDiskWriteMessages()
 testDiskWriteFailedMessage()
 testAgentCommandMessages()
 testGuestClipboardMessage()
+testRemovableMediaMessages()
 console.log('virtual-machine-protocol.test.ts ok')

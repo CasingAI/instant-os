@@ -170,6 +170,29 @@ function testNormalizeDevicesArray(): void {
   assert.equal(array?.devices[0]?.type, 'hdd')
 }
 
+function testNormalizeConnectedFlag(): void {
+  const settings = normalizeVirtualMachineSettings({
+    name: 'connected',
+    devices: [
+      { id: 'c', type: 'cdrom', source: 'local', path: '/a.iso', connected: false },
+      { id: 'f', type: 'floppy', source: 'local', path: '/b.img', connected: true },
+      { id: 'h', type: 'hdd', source: 'local', path: '/c.img' },
+      { id: 'g', type: 'hdd', source: 'local', path: '/d.img', connected: 'no' },
+    ],
+  })
+  // 只有显式 false 保留；其余（含非法值）读成已连接且不带该键
+  assert.deepEqual(settings?.devices[0], {
+    id: 'c',
+    type: 'cdrom',
+    source: 'local',
+    path: '/a.iso',
+    connected: false,
+  })
+  assert.deepEqual(settings?.devices[1], { id: 'f', type: 'floppy', source: 'local', path: '/b.img' })
+  assert.deepEqual(settings?.devices[2], { id: 'h', type: 'hdd', source: 'local', path: '/c.img' })
+  assert.deepEqual(settings?.devices[3], { id: 'g', type: 'hdd', source: 'local', path: '/d.img' })
+}
+
 function testNormalizeMemoryMbRange(): void {
   const a = normalizeVirtualMachineSettings({ name: 'test', memoryMb: 512 })
   assert.equal(a?.memoryMb, 512)
@@ -389,6 +412,7 @@ testNormalizeEmptyArrayStaysEmpty()
 testNormalizeDropsGarbageAndDuplicates()
 testNormalizeMigratesLegacyPaths()
 testNormalizeDevicesArray()
+testNormalizeConnectedFlag()
 testNormalizeDropsHttpUrls()
 testNormalizeRecordRejectsInvalid()
 testNormalizeBuildModeFallback()

@@ -12,6 +12,10 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   setPointerMode: 'instant-vm:set-pointer-mode',
   setAbsoluteMouse: 'instant-vm:set-absolute-mouse',
   setResolution: 'instant-vm:set-resolution',
+  setCdrom: 'instant-vm:set-cdrom',
+  ejectCdrom: 'instant-vm:eject-cdrom',
+  setFloppy: 'instant-vm:set-floppy',
+  ejectFloppy: 'instant-vm:eject-floppy',
   saveState: 'instant-vm:save-state',
   saveStateResult: 'instant-vm:save-state-result',
   started: 'instant-vm:started',
@@ -284,6 +288,37 @@ export type InstantVmSetResolutionMessage = {
   height: number
 }
 
+/** 软驱槽位；光驱只有一个槽所以不需要 slot 字段。 */
+export type InstantVmFloppySlot = 'fda' | 'fdb'
+
+/**
+ * 宿主 → 运行时：运行中换盘（热插）。镜像一律走流式引用，
+ * 宿主负责先注册流、收到回执后再释放旧流。
+ */
+export type InstantVmSetCdromMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.setCdrom
+  requestId: string
+  stream: InstantVmDiskStreamRef
+}
+
+export type InstantVmEjectCdromMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.ejectCdrom
+  requestId: string
+}
+
+export type InstantVmSetFloppyMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.setFloppy
+  requestId: string
+  slot: InstantVmFloppySlot
+  stream: InstantVmDiskStreamRef
+}
+
+export type InstantVmEjectFloppyMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.ejectFloppy
+  requestId: string
+  slot: InstantVmFloppySlot
+}
+
 export type InstantVmSaveStateMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.saveState
   requestId: string
@@ -497,6 +532,10 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmSetPointerModeMessage
   | InstantVmSetAbsoluteMouseMessage
   | InstantVmSetResolutionMessage
+  | InstantVmSetCdromMessage
+  | InstantVmEjectCdromMessage
+  | InstantVmSetFloppyMessage
+  | InstantVmEjectFloppyMessage
   | InstantVmSaveStateMessage
   | InstantVmKeyboardMessage
   | InstantVmPointerHintMessage
@@ -857,6 +896,46 @@ export function isInstantVmSaveStateMessage(value: unknown): value is InstantVmS
   )
 }
 
+function isFloppySlot(value: unknown): value is InstantVmFloppySlot {
+  return value === 'fda' || value === 'fdb'
+}
+
+export function isInstantVmSetCdromMessage(value: unknown): value is InstantVmSetCdromMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.setCdrom &&
+    isRequestId(value.requestId) &&
+    isDiskStreamRef(value.stream)
+  )
+}
+
+export function isInstantVmEjectCdromMessage(value: unknown): value is InstantVmEjectCdromMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.ejectCdrom &&
+    isRequestId(value.requestId)
+  )
+}
+
+export function isInstantVmSetFloppyMessage(value: unknown): value is InstantVmSetFloppyMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.setFloppy &&
+    isRequestId(value.requestId) &&
+    isFloppySlot(value.slot) &&
+    isDiskStreamRef(value.stream)
+  )
+}
+
+export function isInstantVmEjectFloppyMessage(value: unknown): value is InstantVmEjectFloppyMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.ejectFloppy &&
+    isRequestId(value.requestId) &&
+    isFloppySlot(value.slot)
+  )
+}
+
 export function isInstantVmSaveStateResultMessage(
   value: unknown,
 ): value is InstantVmSaveStateResultMessage {
@@ -1141,6 +1220,10 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmSetPointerModeMessage(value) ||
     isInstantVmSetAbsoluteMouseMessage(value) ||
     isInstantVmSetResolutionMessage(value) ||
+    isInstantVmSetCdromMessage(value) ||
+    isInstantVmEjectCdromMessage(value) ||
+    isInstantVmSetFloppyMessage(value) ||
+    isInstantVmEjectFloppyMessage(value) ||
     isInstantVmSaveStateMessage(value) ||
     isInstantVmKeyboardMessage(value) ||
     isInstantVmPointerHintMessage(value) ||

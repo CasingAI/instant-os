@@ -163,6 +163,47 @@ type SlotAssignment = {
   device: VmStorageDevice
 }
 
+/** 可热插拔的槽位：光驱一个，软驱两个。 */
+export type VmRemovableSlot = 'cdrom' | 'fda' | 'fdb'
+
+type IndexedSlotAssignment = SlotAssignment & { attached: boolean }
+
+/**
+ * 按类型内出现顺序给每台设备固定槽号：空路径或未连接的设备也占号，
+ * 保证后面的设备不被顶到前面的槽（与设置列表里的「软盘 1/软盘 2」编号一致）。
+ */
+function indexDevicesToSlots(devices: readonly VmStorageDevice[]): IndexedSlotAssignment[] {
+  const used = new Map<VmStorageDeviceType, number>()
+  const indexed: IndexedSlotAssignment[] = []
+  for (const device of devices) {
+    const index = used.get(device.type) ?? 0
+    used.set(device.type, index + 1)
+    const slots = SLOT_ORDER[device.type]
+    if (index >= slots.length) {
+      continue
+    }
+    indexed.push({
+      slot: slots[index],
+      label: deviceTypeLabel(device.type),
+      device,
+      attached: device.path.trim().length > 0 && device.connected !== false,
+    })
+  }
+  return indexed
+}
+
+function assignDevicesToSlots(devices: readonly VmStorageDevice[]): SlotAssignment[] {
+  return indexDevicesToSlots(devices).filter((assignment) => assignment.attached)
+}
+
+/** 设置里设备 id 对应的槽位；找不到返回 undefined。 */
+export function slotOfDevice(
+  devices: readonly VmStorageDevice[],
+  deviceId: string,
+): SlotName | undefined {
+  return indexDevicesToSlots(devices).find((assignment) => assignment.device.id === deviceId)?.slot
+}
+
 export type VmMountedDiskSlots = {
   hda: boolean
   hdb: boolean
@@ -181,25 +222,7 @@ export function emptyVmMountedDiskSlots(): VmMountedDiskSlots {
   }
 }
 
-function assignDevicesToSlots(devices: readonly VmStorageDevice[]): SlotAssignment[] {
-  const used = new Map<VmStorageDeviceType, number>()
-  const assignments: SlotAssignment[] = []
-  for (const device of devices) {
-    if (!device.path.trim()) {
-      continue
-    }
-    const index = used.get(device.type) ?? 0
-    const slots = SLOT_ORDER[device.type]
-    if (index >= slots.length) {
-      continue
-    }
-    used.set(device.type, index + 1)
-    assignments.push({ slot: slots[index], label: deviceTypeLabel(device.type), device })
-  }
-  return assignments
-}
-
-/** 设置里已填路径的存储槽位。指示灯按这个判断，不依赖模拟器回报的 present。 */
+/** 设置里已连接镜像的存储槽位。指示灯按这个判断，不依赖模拟器回报的 present。 */
 export function vmMountedDiskSlots(
   devices: readonly VmStorageDevice[] | undefined,
 ): VmMountedDiskSlots {
@@ -240,6 +263,7 @@ export function claimVirtualMachineDiskImageOccupancy(
   try {
     for (const device of devices) {
       if (device.type === 'state') continue
+      if (device.connected === false) continue
       const path = device.path.trim()
       if (!path || isHttpDiskUrl(path)) continue
       if (!isDiskImageFileName(fileNameOfPath(path))) continue
@@ -393,3 +417,81 @@ export function buildStartMessage(
 }
 
 export { collectStartTransfers }
+
+/**
+ * 运行中热插媒体的流注册表：机器 + 槽位 → 当前镜像流。
+ * 只记录运行期间热挂上的流；停机时随 removeRunningId 统一释放。
+ */
+const removableMediaStreams = new Map<string, { streamId: string; path: string }>()
+
+function removableMediaKey(machineId: string, slot: VmRemovableSlot): string {
+  return `${machineId}:${slot}`
+}
+
+export type VmRemovableMediaMount = {
+  stream: InstantVmDiskStreamRef
+  /** 换盘命令成功后调用：登记新流并释放旧流（旧盘此刻才真正不再被读）。 */
+  commit: () => Promise<void>
+  /** 换盘命令失败后调用：释放新流，保留原登记，运行时继续用旧盘。 */
+  rollback: () => Promise<void>
+}
+
+/**
+ * 为运行中的热插拔注册一条镜像流。软盘随「硬盘写入」设置决定可写性，
+ * 光盘恒只读。登记延迟到 commit：命令失败时 rollback，运行时继续用旧盘。
+ */
+export async function mountVirtualMachineRemovableMedia(options: {
+  machineId: string
+  device: VmStorageDevice
+  slot: VmRemovableSlot
+  diskWriteMode: VirtualMachineSettings['diskWriteMode']
+}): Promise<VmRemovableMediaMount> {
+  const path = options.device.path.trim()
+  const label = deviceTypeLabel(options.device.type)
+  const writable = virtualMachineDiskPersistsWrites(options.device.type, options.diskWriteMode)
+  if (writable) {
+    assertVirtualMachineDiskCanPersistWrites(path, label)
+  }
+  const stat = await filesStat(path)
+  if (!stat || stat.kind !== 'file') {
+    throw new Error(`无法读取${label} ${path}：文件不存在`)
+  }
+  const key = removableMediaKey(options.machineId, options.slot)
+  const previous = removableMediaStreams.get(key)
+  const id = await registerVirtualMachineDiskStream(path, { writable })
+  const stream: InstantVmDiskStreamRef = { id, size: stat.byteSize }
+  return {
+    stream,
+    commit: async () => {
+      removableMediaStreams.set(key, { streamId: id, path })
+      if (previous && previous.streamId !== id) {
+        await releaseVirtualMachineDiskStream(previous.streamId).catch(() => undefined)
+      }
+    },
+    rollback: async () => {
+      await releaseVirtualMachineDiskStream(id).catch(() => undefined)
+    },
+  }
+}
+
+/** 释放单条热插流；已不存在时静默。 */
+export async function releaseVirtualMachineRemovableMediaStream(streamId: string): Promise<void> {
+  await releaseVirtualMachineDiskStream(streamId).catch(() => undefined)
+}
+
+/** 释放某台机器（可限定槽位）的全部热插流；停机与换盘清理共用。 */
+export async function releaseVirtualMachineRemovableMedia(
+  machineId: string,
+  slot?: VmRemovableSlot,
+): Promise<void> {
+  const keys = [...removableMediaStreams.keys()].filter((key) =>
+    slot !== undefined ? key === removableMediaKey(machineId, slot) : key.startsWith(`${machineId}:`),
+  )
+  for (const key of keys) {
+    const entry = removableMediaStreams.get(key)
+    removableMediaStreams.delete(key)
+    if (entry) {
+      await releaseVirtualMachineDiskStream(entry.streamId).catch(() => undefined)
+    }
+  }
+}
