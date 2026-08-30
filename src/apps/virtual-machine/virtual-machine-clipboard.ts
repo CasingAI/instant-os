@@ -8,6 +8,10 @@
  *   下一轮宿主轮询就不会把它当新变化。
  * XP 桥自身的 lastSelfText 拦截了大部分回环，这里是宿主侧第二道防线
  * （应对写宿主剪贴板失败、宿主侧其他写入者等场景）。
+ *
+ * 空文本两个方向都不参与同步（与客机桥「空文本：不覆盖剪贴板」、VMware
+ * 等远程桌面的惯例一致）：宿主剪贴板是图片/富文本时 readText() 返回 ""，
+ * 不该清掉客机文本；客机剪贴板变空也不清掉宿主文本，两侧各自保留上次内容。
  */
 
 export type VmClipboardSyncState = {
@@ -32,6 +36,10 @@ export function onHostClipboardChanged(
     return null
   }
   state.lastSeenHostText = hostText
+  // 空文本仍记为「已见」，只是不推送——否则图片剪贴板每次轮询都白走一遍。
+  if (hostText === '') {
+    return null
+  }
   if (hostText === state.lastReceivedFromGuest) {
     return null
   }
@@ -46,6 +54,11 @@ export function onGuestClipboardReceived(
   state: VmClipboardSyncState,
   guestText: string,
 ): string | null {
+  // 空文本直接忽略且不记指纹：宿主剪贴板并未被写入，保持原指纹，
+  // 下一轮轮询读到真实内容时靠「与 lastSeenHostText 相同」自然拦截。
+  if (guestText === '') {
+    return null
+  }
   if (guestText === state.lastReceivedFromGuest) {
     return null
   }

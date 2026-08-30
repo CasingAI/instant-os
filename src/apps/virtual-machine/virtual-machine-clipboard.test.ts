@@ -37,17 +37,23 @@ function testRepeatedGuestTextIgnored(): void {
   assert.equal(onGuestClipboardReceived(state, 'other'), 'other')
 }
 
-function testEmptyTextStillSyncs(): void {
+function testEmptyTextNotSynced(): void {
   const state = createVmClipboardSyncState()
-  assert.equal(onHostClipboardChanged(state, ''), '')
-  assert.equal(onGuestClipboardReceived(state, ''), '')
+  // 宿主剪贴板是图片/富文本：readText() 返回空 → 不推给客机
+  assert.equal(onHostClipboardChanged(state, ''), null)
+  // 持续为空也不推
+  assert.equal(onHostClipboardChanged(state, ''), null)
+  // 恢复非空 → 正常推（状态没被空串卡死）
+  assert.equal(onHostClipboardChanged(state, 'real'), 'real')
+  // 客机送来空文本 → 不清掉宿主剪贴板
+  assert.equal(onGuestClipboardReceived(state, ''), null)
 }
 
 function main(): void {
   testHostPushAndEchoSuppression()
   testGuestReceiveSuppressesEcho()
   testRepeatedGuestTextIgnored()
-  testEmptyTextStillSyncs()
+  testEmptyTextNotSynced()
   console.log('virtual-machine-clipboard.test.ts ok')
 }
 

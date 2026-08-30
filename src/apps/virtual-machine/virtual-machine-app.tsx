@@ -854,7 +854,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       }
       const write = onGuestClipboardReceived(clipboardSyncRef.current, text)
       if (write === null) {
-        console.info('[vm-clipboard] 宿主: 重复/回声文本，跳过写入', JSON.stringify(text.slice(0, 60)))
+        console.info(
+          '[vm-clipboard] 宿主: 重复/回声/空文本，跳过写入',
+          JSON.stringify(text.slice(0, 60)),
+        )
         return
       }
       console.info(
