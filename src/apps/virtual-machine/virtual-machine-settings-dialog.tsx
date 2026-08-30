@@ -1148,6 +1148,13 @@ export function VirtualMachineSettingsDialog({
               detail="窗口尺寸变化时客机分辨率跟随宿主 1:1 切换（需客机装对齐代理）。"
               onChange={(resolutionAutoAlign) => patch({ resolutionAutoAlign })}
             />
+            <SwitchRow
+              label="窗口吸附"
+              checked={enhanceOff ? false : draft.enhanceWindowSnap}
+              disabled={busy || enhanceOff}
+              detail="客机里拖窗口到屏幕边缘自动贴半屏、拖到顶边最大化（Win+方向键同效）；需客机装 v4 及以上增强代理，运行中切换实时生效。"
+              onChange={(enhanceWindowSnap) => patch({ enhanceWindowSnap })}
+            />
           </div>
         ) : null}
       </WindowModal>

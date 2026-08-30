@@ -92,8 +92,10 @@ opcode，宿主经运行时串口发送下发（resolution-serial 泵每秒的�
 | 0x01 | SHUTDOWN（0x02） | — | 回 `[IVM]SDWN=1` 后 `ExitWindowsEx(EWX_SHUTDOWN\|EWX_POWEROFF\|EWX_FORCE)` |
 | 0x01 | REBOOT（0x03） | — | 回 `[IVM]RBOOT=1` 后 `ExitWindowsEx(EWX_REBOOT\|EWX_FORCE)` |
 | N | EXEC（0x10） | `0x10 <cmdline\0>`（ASCII，≤198 字符） | `CreateProcessA`（CREATE_NO_WINDOW）；回 `[IVM]EXEC=1` 或 `[IVM]EXEC=0 err=<GLE>` |
+| 0x02 | SHM_QUERY（0x12） | — | 每次现查 `\\.\IVMSHM` 后回 `[IVM]SHM=<物理基址> size=<n>`（剪贴板信箱握手，v3）；驱动不在回 `SHM=0`。客机重启会重新分配基址，宿主须按应答值重建信箱（未握手 5s 周期重问，已握手 30s 低频复问） |
 | 0x05 | CLICK（0x20） | `0x20 <x:u16><y:u16>` LE | `SetCursorPos` + `mouse_event` 左键单击；回 `[IVM]CLICK=1` |
 | 0x05 | DBLCLICK（0x21） | `0x21 <x:u16><y:u16>` LE | 同上双击（两次单击间隔 60ms）；回 `[IVM]DBLCLK=1` |
+| 0x02 | SNAP（0x13） | `0x13 <0\|1>` | 窗口吸附开关（v4）：挂/卸 LL 钩子（切到 snap 线程执行），fire-and-forget 无回执；宿主「体验增强 → 窗口吸附」实时下发 |
 
 关机路径：`ExitWindowsEx` 触发客机 ACPI 切电 → 宿主 `guest-poweroff`
 watcher → `destroyCurrent`（stop → 写回落盘 → 销毁）——即「软关机」。
@@ -169,3 +171,20 @@ attached: YES」时，PS/2 鼠标设备开机即启动失败（PnP 加载 UpperF
 - 血泪教训（2026-08-30 真机）：mlog 的 msg 缓冲曾只有 600 字节，装不下
   wvsprintfA 上限 1024 的 `%s` 长转储，agent 开机即崩（「遇到问题需要
   关闭」）。msg/line 缓冲必须 ≥ wvsprintfA 上限，mouse/audio 两模块同改。
+
+## Aero Snap（v4 起，登录会话身份专属）
+
+ivm-agent v4 在登录常驻实例（持有会话互斥 `InstantVmClipboardBridge` 的
+那个进程）顺带启动窗口吸附线程（源码 `../ivm-agent/ivm-aero-snap.c`）：
+
+- 行为 = Win7 Aero Snap 平价：标题栏拖到屏幕左/右缘贴半屏、顶边最大化、
+  拖离恢复原尺寸（吸附链与 Win7 一致）、Win+方向键（左/右半屏、上最大化、
+  下还原→最小化）；
+- 服务身份不跑（交互增强一律跟桥走）；COM1 协议零变化，v1/v2/v3 帧全部
+  原样；
+- 技术要点与边界（WH_MOUSE_LL 免注入、跨进程 NCHITTEST 带
+  SMTO_ABORTIFHUNG 超时、吸附表静态 16 项不用 SetProp、预览窗为半透明
+  分层单窗、不做毛玻璃实时缩略图——XP 无合成器、XP 最大化 8px 越界用
+  rcNormalPosition 绕开）见模块文件头注释；
+- 升级注意：旧版 agent 进程还持着会话互斥时，新 exe 登录实例会单实例
+  退场，先结束旧 `ivm-agent.exe`（或重启 XP）再登录。

@@ -82,6 +82,7 @@ export function defaultVirtualMachineSettings(
     enhanceClipboard: true,
     enhanceFileTransfer: true,
     enhanceAbsoluteMouse: true,
+    enhanceWindowSnap: true,
   }
 }
 
@@ -112,6 +113,7 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     enhanceClipboard: record.enhanceClipboard,
     enhanceFileTransfer: record.enhanceFileTransfer,
     enhanceAbsoluteMouse: record.enhanceAbsoluteMouse,
+    enhanceWindowSnap: record.enhanceWindowSnap,
   }
 }
 

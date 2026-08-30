@@ -750,6 +750,17 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const enhanceActive = (displayedMachine?.osPreset ?? 'windows-xp') !== 'none'
   const enhanceClipboard = enhanceActive && (displayedMachine?.enhanceClipboard ?? true)
   const enhanceFileTransfer = enhanceActive && (displayedMachine?.enhanceFileTransfer ?? true)
+  // 窗口吸附与其它增强不同：开关必须下发客机（钩子挂/卸在那边），所以
+  // 运行中经 agentCommand 实时推 OP_SNAP 帧；未运行只存设置。
+  const enhanceWindowSnap = enhanceActive && (displayedMachine?.enhanceWindowSnap ?? true)
+  useEffect(() => {
+    if (displayedId === undefined || !selectedRunning) {
+      return
+    }
+    void pool.agentCommand(displayedId, 'snap', [enhanceWindowSnap]).catch(() => {})
+    // pool.agentCommand 稳定；agent 未就绪时本帧失败被吞，下一次开关变更
+    // 或机器切换会重发。
+  }, [displayedId, enhanceWindowSnap, selectedRunning, pool.agentCommand])
   useEffect(() => {
     keyTranslatorRef.current.setKeymap(
       compileVmKeyMappings(

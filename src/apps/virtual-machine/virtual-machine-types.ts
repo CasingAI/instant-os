@@ -207,6 +207,8 @@ export type VirtualMachineSettings = {
   enhanceFileTransfer: boolean
   /** 绝对坐标鼠标：客机装好 VMware 鼠标驱动后光标 1:1 跟随宿主光标。 */
   enhanceAbsoluteMouse: boolean
+  /** 窗口吸附：客机内拖窗口到屏幕边缘贴半屏/最大化（Aero Snap，OP_SNAP 下发）。 */
+  enhanceWindowSnap: boolean
 }
 
 export type VirtualMachineRecord = VirtualMachineSettings & {

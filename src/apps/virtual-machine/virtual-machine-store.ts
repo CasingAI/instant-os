@@ -187,6 +187,7 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
       record.enhanceAbsoluteMouse,
       defaults.enhanceAbsoluteMouse,
     ),
+    enhanceWindowSnap: normalizeBoolean(record.enhanceWindowSnap, defaults.enhanceWindowSnap),
   }
 }
 

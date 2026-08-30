@@ -20,8 +20,9 @@
  * 超时击杀的回 `EXIT=<码> to=1`。
  *
  * v3 另增 SHM_QUERY(0x12)：上报 ivm-shm.sys 共享内存信箱的物理基址
- * （剪贴板通道底座）。进程启动时向 \\.\IVMSHM 查询一次并缓存；
- * 驱动不在时回 `SHM=0`，宿主据此停止重试。
+ * （剪贴板通道底座）。每次收到询问都向 \\.\IVMSHM 现查现答（客机重启会
+ * 让驱动重新分配基址，缓存值不可信）；驱动不在时回 `SHM=0`，宿主按周期
+ * 重问直到握手成功。
  *
  * 血泪教训（v5 定案）：COM1 必须显式 SetCommState 成 8N1。XP 对这个虚拟
  * 串口的初始配置是 7 数据位，驱动按 7-bit 接收会把每个字节的最高位剥掉
@@ -187,6 +188,7 @@ static void handle_packed_value(unsigned long packed);
 #define OP_EXEC 0x10
 #define OP_EXEC_R 0x11
 #define OP_SHM_QUERY 0x12
+#define OP_SNAP 0x13
 #define OP_CLICK 0x20
 #define OP_DBLCLICK 0x21
 
@@ -195,8 +197,9 @@ static void handle_packed_value(unsigned long packed);
 #define VM_AGENT_BUILD "unknown"
 #endif
 
-/* 产品版本号：PONG 回执与单实例弹窗共用，改动协议/行为时递增。 */
-#define AGENT_VERSION "3"
+/* 产品版本号：PONG 回执与单实例弹窗共用，改动协议/行为时递增。
+ * v4：登录常驻身份新增 Aero Snap 窗口吸附（ivm-aero-snap.c）。 */
+#define AGENT_VERSION "4"
 
 /* 当前 COM1 句柄：命令回执（[IVM]…\r\n）从这里写回宿主。 */
 static HANDLE g_port;
@@ -404,6 +407,10 @@ static void handle_click(unsigned char opcode, const unsigned char *p)
     reply_line("%s=1", (opcode == OP_DBLCLICK) ? "DBLCLK" : "CLICK");
 }
 
+/* ivm-aero-snap.c：窗口吸附（登录常驻身份专属）+ 开关帧。 */
+void ivm_aero_snap_start(void);
+void ivm_aero_snap_command(unsigned char len, const unsigned char *payload);
+
 static void handle_frame(unsigned char len, const unsigned char *payload)
 {
     if (len == FRAME_PAYLOAD_LEN) {
@@ -446,6 +453,9 @@ static void handle_frame(unsigned char len, const unsigned char *payload)
         } else {
             reply_line("SHM=0");
         }
+        break;
+    case OP_SNAP:
+        ivm_aero_snap_command(len, payload);
         break;
     case OP_CLICK:
     case OP_DBLCLICK:
@@ -728,6 +738,9 @@ int ivm_audio_uninstall(void);
 int ivm_audio_check(void);
 void ivm_audio_selfheal(void);
 
+/* ivm-aero-snap.c：窗口吸附（登录常驻专属，见 ivm-aero-snap.c）。 */
+void ivm_aero_snap_start(void);
+
 static void svc_set_state(DWORD state)
 {
     static const SERVICE_STATUS zero_status;
@@ -855,6 +868,11 @@ void ivm_agent_entry(void)
      * 只补注册表，挂载要等设备重新枚举）。 */
     ivm_mouse_selfheal();
     ivm_audio_selfheal();
+
+    /* Aero Snap 与剪贴板桥同归属：登录会话常驻实例专属，服务身份不跑。 */
+    if (owns_bridge) {
+        ivm_aero_snap_start();
+    }
 
     if (owns_com1 && owns_bridge) {
         HANDLE thread = CreateThread(NULL, 0, com1_thread_main, NULL, 0, NULL);

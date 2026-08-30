@@ -143,6 +143,7 @@ function buildAndAssert(directory: string): PeInfo {
     'autostart',
     'VMware Pointing Device',
     'ctlsb16',
+    'IVMSnapPreview',
   ]) {
     assert.ok(image.includes(marker), `产物缺少关键字符串 "${marker}"（旧构建或链接丢了入口分发）`)
   }
@@ -157,7 +158,8 @@ function main() {
   // 行数守卫：res-agent v3 放宽到 800，并入合并入口后放宽到 900；
   // 剪贴板桥 v4 放宽到 1700；鼠标安装助手（安装+/mouse-check 诊断+自愈
   // 三职责）放宽到 500；声卡驱动助手（三职责 + 就地提取 + 显式自建设备
-  // + /audio-uninstall 回滚）放宽到 700。
+  // + /audio-uninstall 回滚）放宽到 700；Aero Snap（钩子+吸附表+预览窗
+  // +热键+开关+排查期文件日志）放宽到 800。
   const sourceLines = (path: string, limit: number, label: string) => {
     const lines = readFileSync(join(GUEST_DIR, path), 'utf8').split('\n').length
     assert.ok(lines < limit, `${label} 应保持 < ${limit} 行，当前 ${lines} 行`)
@@ -166,6 +168,7 @@ function main() {
   sourceLines('clipboard-bridge/clipboard-bridge.c', 1700, 'clipboard-bridge.c')
   sourceLines('ivm-agent/ivm-mouse-install.c', 500, 'ivm-mouse-install.c')
   sourceLines('ivm-agent/ivm-audio-install.c', 700, 'ivm-audio-install.c')
+  sourceLines('ivm-agent/ivm-aero-snap.c', 800, 'ivm-aero-snap.c')
 
   // 两次独立编译：第一次拿属性基线，第二次验证可重现性。
   const infoA = buildAndAssert(mkdtempSync(join(tmpdir(), 'ivm-agent-a-')))

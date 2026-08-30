@@ -10,7 +10,7 @@
 
 | 文件 | 是干什么的 | 放到 XP 哪里 |
 |---|---|---|
-| `ivm-agent.exe` | 客机全家桶（一个 exe 多重身份）：服务身份跑 COM1 遥控代理（PING / EXEC / EXEC_R（带退出码执行）/ SHM_QUERY / CLICK / SHUTDOWN / REBOOT）+ 分辨率自动对齐；登录身份跑 OLE 剪贴板桥（文本 + 虚拟文件双向互拷）；`ivm-agent.exe /mouse-install` 给 VMware 鼠标驱动做注册；`/audio-install` 把 XP 内置的 SB16 声卡驱动绑上（客机无声的解药，见下文「声音」）；`/mouse-check`、`/audio-check` 只读体检；两个常驻身份每次启动还会自愈补挂鼠标与声卡驱动 | 由安装脚本放进 `C:\Tools\ivm-agent.exe` |
+| `ivm-agent.exe` | 客机全家桶（一个 exe 多重身份）：服务身份跑 COM1 遥控代理（PING / EXEC / EXEC_R（带退出码执行）/ SHM_QUERY / CLICK / SHUTDOWN / REBOOT）+ 分辨率自动对齐；登录身份跑 OLE 剪贴板桥（文本 + 虚拟文件双向互拷）+ Aero Snap 窗口吸附（见下文「窗口吸附」）；`ivm-agent.exe /mouse-install` 给 VMware 鼠标驱动做注册；`/audio-install` 把 XP 内置的 SB16 声卡驱动绑上（客机无声的解药，见下文「声音」）；`/mouse-check`、`/audio-check` 只读体检；两个常驻身份每次启动还会自愈补挂鼠标与声卡驱动 | 由安装脚本放进 `C:\Tools\ivm-agent.exe` |
 | `ivm-shm.sys` | 共享内存信箱内核驱动：分配 64KB 连续物理内存供宿主（v86 DMA）与客机直连，剪贴板/文件通道的数据面底座 | 由安装脚本放进 `C:\Windows\System32\drivers\` |
 | `vmmouse.sys` + `vmmouse.inf` + `vmmouse.cat` | VMware 绝对坐标鼠标驱动 12.4.0.2（vendor 二进制，见 `vmmouse/README.md`）：装好后客机光标 1:1 跟随宿主光标 | 由安装脚本放进 `C:\Windows\System32\drivers\` 并注册 |
 | `install-agent-v2.bat` | **推荐安装方式**：右键管理员运行，一键装全家桶（agent 服务 + 信箱驱动 + 登录自启 + vmmouse 鼠标驱动 + SB16 声卡驱动；会自动清掉旧的 res-agent.exe / clipboard-bridge.exe 旧装） | 和 exe/sys 放同一目录，双击运行 |
@@ -64,6 +64,25 @@ v86 模拟的是一张标准 Sound Blaster 16（ISA PnP，IRQ 5 / DMA 1、5 / �
 已知限制：装好驱动只解决「无声」；XP 上 SB16 播放尾段偶发循环是 v86 侧
 模拟时序问题（`todo/vm-windows-xp-sb16-audio-loop.md`），与本驱动无关。
 
+## 窗口吸附（Aero Snap）
+
+ivm-agent v4 起，登录身份的常驻实例顺带提供 Win7 Aero Snap 的 XP 复刻
+（源码 `ivm-agent/ivm-aero-snap.c`，服务身份不跑，COM1 协议零变化）：
+
+- 拖标题栏到屏幕**左/右边缘** → 贴半屏；拖到**顶边** → 最大化；
+- 拖动已吸附的窗口 → 恢复吸附前尺寸跟随光标；拖离后随手放下，链条结束
+  （与 Win7 一致）；
+- **Win+方向键**：左/右半屏、上最大化、下还原→最小化（宿主若截获 Win 键
+  则键盘路径失效，鼠标路径不受影响）；
+- 松手前有白色实线边框预览（内部完全透明）——XP 时代吸附工具的主流画法，
+  有意不用毛玻璃半透明整块（XP 没有 DWM）；
+- **开关**：宿主「虚拟机设置 → 体验增强 → 窗口吸附」，运行中经 OP_SNAP 帧
+  实时下发（挂/卸钩子在客机完成），未运行只存设置；
+- 只吸有标题栏、可改大小/可最大化的普通窗口；工具窗与本 agent 自己的
+  窗口不参与；
+- 升级注意：旧版 agent 还持着会话互斥时，新 exe 的登录实例会单实例退场，
+  先结束旧 `ivm-agent.exe`（或重启 XP）再用新功能。
+
 ## 怎么构建 / 更新 out/
 
 ```sh
@@ -71,7 +90,7 @@ v86 模拟的是一张标准 Sound Blaster 16（ISA PnP，IRQ 5 / DMA 1、5 / �
 sh scripts/collect-guest-files.sh
 
 # 或者单独构建
-sh scripts/build-ivm-agent.sh          # ivm-agent.exe → out/（合编四个 .c）
+sh scripts/build-ivm-agent.sh          # ivm-agent.exe → out/（合编五个 .c）
 sh scripts/build-ivm-shm.sh            # ivm-shm.sys → out/（需要 Open Watcom，见脚本头注释）
 sh scripts/build-boxvnt.sh             # boxvideo.sys + vidmini.inf → out/
 ```
@@ -88,7 +107,7 @@ sh scripts/build-boxvnt.sh             # boxvideo.sys + vidmini.inf → out/
 |---|---|
 | `res-agent/` | COM1 遥控代理 + 合并入口（`ivm_agent_entry`）源码；协议与安装说明见 `res-agent/guest-agent.spec.md` |
 | `clipboard-bridge/` | 剪贴板桥源码（信箱布局与 ivm-shm、Instant-virtual-machine 的 ivm-shm.ts 三方一致） |
-| `ivm-agent/` | `/mouse-install`、`/audio-install`（注册）与 `/mouse-check`、`/audio-check`（诊断）驱动助手源码 + `ivm-agent-binary.test.ts` 产物校验 |
+| `ivm-agent/` | `/mouse-install`、`/audio-install`（注册）与 `/mouse-check`、`/audio-check`（诊断）驱动助手源码；Aero Snap 吸附（`ivm-aero-snap.c`）；`ivm-agent-binary.test.ts` 产物校验 |
 | `ivm-shm/` | 共享内存信箱驱动源码（信箱布局见文件头注释） |
 | `vmmouse/` | VMware 鼠标驱动 vendor 二进制 + 说明；见 `vmmouse/README.md` |
 | `boxvnt/` | 显卡驱动源码；见 `boxvnt/README.md` |

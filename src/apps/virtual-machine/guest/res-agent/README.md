@@ -2,7 +2,8 @@
 
 本目录的 `res-agent.c` 现在承担两件事：COM1 遥控/分辨率对齐的全部逻辑，
 以及 ivm-agent.exe 的合并入口 `ivm_agent_entry`（与 `../clipboard-bridge/`、
-`../ivm-agent/` 合编，见 `../README.md`）。
+`../ivm-agent/`——鼠标/声卡驱动助手与 Aero Snap 吸附——合编，见
+`../README.md`）。
 
 Windows XP（32 位）里的常驻小工具：串口（COM1，8N1）收宿主广播的目标
 分辨率 `(w<<16)|h` 变化后，枚举显示模式并用 `ChangeDisplaySettingsExA` 切换；

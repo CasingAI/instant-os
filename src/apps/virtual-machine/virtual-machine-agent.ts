@@ -30,6 +30,7 @@ export const VM_AGENT_METHODS = [
   'fileWindowsClear',
   'click',
   'dblclick',
+  'snap',
   'shutdown',
   'reboot',
 ] as const
@@ -80,6 +81,8 @@ export type VmAgentController = {
   fileWindowsClear(): Promise<boolean>
   click(x: number, y: number): Promise<void>
   dblclick(x: number, y: number): Promise<void>
+  /** 窗口吸附开关（OP_SNAP 帧直发，客机无回执；运行中实时生效）。 */
+  snap(enabled: boolean): Promise<void>
   shutdown(): Promise<void>
   reboot(): Promise<void>
   /** 白名单外的原始通道（method 直接透传，运行时白名单校验兜底）。 */
@@ -110,6 +113,7 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
     fileWindowsClear: () => call('fileWindowsClear') as Promise<boolean>,
     click: (x, y) => call('click', [x, y]),
     dblclick: (x, y) => call('dblclick', [x, y]),
+    snap: (enabled) => call('snap', [enabled]),
     shutdown: () => call('shutdown'),
     reboot: () => call('reboot'),
     raw: (method, args) => send(method, args),
