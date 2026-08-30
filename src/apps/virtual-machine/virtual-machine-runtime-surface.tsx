@@ -212,6 +212,18 @@ export function VmRuntimeSurface({
     return () => aligner.disconnect()
   }, [ready, resolutionAlign, setResolution, iframeRef, startMessage])
 
+  // 绝对坐标生效时给 iframe 元素自身也写 cursor:none（第二道保险）：指针从浏览器
+  // 窗口外直接落回 OOPIF 时，Chromium 可能拿父框架一侧的光标兜底而不理会 iframe
+  // 内部的 cursor:none；宿主这边同为 none，重入路径也能直接隐藏。失效时清掉。
+  const absoluteMouseEngaged = stats?.absoluteMouse === true
+  useEffect(() => {
+    const element = iframeRef.current
+    if (!element) {
+      return
+    }
+    element.style.cursor = absoluteMouseEngaged ? 'none' : ''
+  }, [absoluteMouseEngaged, iframeRef, iframeStatus])
+
   if (!resolvedOrigin) {
     return null
   }
