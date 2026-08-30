@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { HelpHint } from './help-hint.tsx'
 import type { SettingsChoiceOption } from './settings-choice-option-list.tsx'
 import { SettingsChoicePopoverMenu } from './settings-choice-popover-menu.tsx'
 import { SettingsNavRow } from './settings-nav-row.tsx'
@@ -26,6 +27,8 @@ type SettingsChoiceFieldProps = {
   labelClass?: string
   disabled?: boolean
   dark?: boolean
+  /** 说明文案。传入后标签旁出现「?」按钮，点击弹出气泡，不占版面 */
+  hint?: string
   /** 自定义 trigger 渲染。传入后由外部控制 trigger，popover 仍由组件管理 */
   children?: (props: SettingsChoiceTriggerProps) => ComponentChildren
 }
@@ -43,6 +46,7 @@ export function SettingsChoiceField({
   labelClass = 'settings__field-label',
   disabled,
   dark,
+  hint,
   children,
 }: SettingsChoiceFieldProps) {
   const [open, setOpen] = useState(false)
@@ -131,9 +135,17 @@ export function SettingsChoiceField({
   }
 
   if (presentation === 'form') {
+    const labelNode = hint ? (
+      <div class="settings-choice-field__label-row">
+        <span class={labelClass}>{label}</span>
+        <HelpHint text={hint} label={`${label}说明`} />
+      </div>
+    ) : (
+      <span class={labelClass}>{label}</span>
+    )
     return (
       <div class={fieldClass}>
-        <span class={labelClass}>{label}</span>
+        {labelNode}
         <div class="settings-choice-field">
           <button
             ref={triggerRef}

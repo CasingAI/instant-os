@@ -595,8 +595,13 @@
   width: min(100%, 640px);
 }
 
+/* 高窗口（如全屏视图）下让面板随视口长高，不再写死内层滚动高度 */
+.virtual-machine-settings-modal.window-modal--top {
+  max-height: min(640px, calc(100% - 72px));
+}
+
 .virtual-machine-settings-modal .window-modal__body--scroll {
-  max-height: 480px;
+  max-height: none;
 }
 
 .virtual-machine-settings__tabs {
@@ -635,6 +640,13 @@
   font-weight: 500;
   color: #333;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.virtual-machine-settings__label-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 .virtual-machine-settings__input {

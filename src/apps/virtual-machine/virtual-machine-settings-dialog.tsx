@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { HelpHint } from '../../ui/help-hint.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { IosRangeSlider } from '../../ui/ios-range-slider.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
@@ -425,11 +426,13 @@ export function VirtualMachineSettingsDialog({
           ariaLabel="设置分类"
           className="virtual-machine-settings__tabs"
         />
-        <p class="window-modal__message">
-          {mode === 'create'
-            ? '点「创建」后才会把这台虚拟机加入列表。开机时才会把镜像交给模拟器。'
-            : '改动保存后只更新配置。正在运行的虚拟机不会立刻套用，需要关机后再开。'}
-        </p>
+        {mode === 'create' ? (
+          <p class="window-modal__message">
+            点「创建」后才会把这台虚拟机加入列表。开机时才会把镜像交给模拟器。
+          </p>
+        ) : running ? (
+          <p class="window-modal__message">改动保存后只更新配置，下次开机才会套用。</p>
+        ) : null}
         {error ? <p class="window-modal__error">{error}</p> : null}
         {tab === 'general' ? (
           <div class="virtual-machine-settings__pane">
@@ -452,7 +455,13 @@ export function VirtualMachineSettingsDialog({
               />
             </div>
             <div class="virtual-machine-settings__field">
-              <span class="virtual-machine-settings__label">后端</span>
+              <div class="virtual-machine-settings__label-row">
+                <span class="virtual-machine-settings__label">后端</span>
+                <HelpHint
+                  text="目前只有 V86 后端。模拟器在独立页面里运行，不和桌面抢主线程。"
+                  label="后端说明"
+                />
+              </div>
               <input
                 class="virtual-machine-settings__input"
                 type="text"
@@ -461,9 +470,6 @@ export function VirtualMachineSettingsDialog({
                 readOnly
               />
             </div>
-            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              目前只有 V86。模拟器在独立页面里运行，不和桌面抢同一条主线程。
-            </p>
             <SettingsChoiceField
               label="构建模式"
               value={draft.buildMode}
@@ -478,10 +484,8 @@ export function VirtualMachineSettingsDialog({
               disabled={busy || running}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
+              hint="Debug 版加载未压缩 JS，可单步调试 V86 内部；Release 版压缩混淆，性能更好。运行中切换需重新开机。"
             />
-            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              Debug 版加载未压缩 JS，可单步调试 V86 内部；Release 版压缩混淆，性能更好。运行中切换需要重新开机。
-            </p>
             <SettingsChoiceField
               label="启动顺序"
               value={draft.bootOrder}
@@ -511,10 +515,8 @@ export function VirtualMachineSettingsDialog({
               disabled={busy}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
+              hint="只影响画面呈现，不改客户机内部分辨率；运行中也能在工具栏切换。"
             />
-            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              只影响画面呈现，不改客户机内部分辨率；运行中也能在工具栏切换。
-            </p>
             <SwitchRow
               label="快速启动"
               checked={draft.fastboot}
@@ -526,9 +528,6 @@ export function VirtualMachineSettingsDialog({
         ) : null}
         {tab === 'hardware' ? (
           <div class="virtual-machine-settings__pane">
-            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              左边选硬件，右边调参数。内存建议不超过标签页物理内存的 1/4。
-            </p>
             <div class="virtual-machine-settings__storage virtual-machine-settings__storage--devices">
               <div class="virtual-machine-settings__drives" role="listbox" aria-label="硬件">
                 {HARDWARE_ITEMS.map((item) => {
@@ -575,11 +574,7 @@ export function VirtualMachineSettingsDialog({
                       disabled={busy || running}
                       onChange={(mb) => patch({ memoryMb: mb })}
                     />
-                    <p class="virtual-machine-settings__hint">
-                      当前 {formatVmMemoryLabel(draft.memoryMb)}。最少 {VM_MEMORY_MB_MIN} MB，最多{' '}
-                      {VM_MEMORY_MB_MAX} MB（v86 无法分配满 2048 MB）。浏览器标签页建议不超过物理内存
-                      1/4。
-                    </p>
+                    <p class="virtual-machine-settings__hint">建议不超过物理内存的 1/4。</p>
                   </>
                 ) : null}
                 {selectedHardware === 'vga' ? (
@@ -599,11 +594,8 @@ export function VirtualMachineSettingsDialog({
                       disabled={busy || running}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
+                      hint="显存用于 VGA 帧缓冲。默认 16 MB 覆盖到 2560×1600×32；文本/简单 GUI 用 2 MB 足够，客机驱动要求更高时可调大。"
                     />
-                    <p class="virtual-machine-settings__hint">
-                      显存用于 VGA 帧缓冲。默认 16 MB 覆盖密阶梯最大档（2560×1600×32）；文本/简单 GUI 用 2 MB
-                      足够，客机驱动要求更多显存时可调高。
-                    </p>
                   </>
                 ) : null}
                 {selectedHardware === 'cpu' ? (
@@ -622,10 +614,8 @@ export function VirtualMachineSettingsDialog({
                       disabled={busy || running}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
+                      hint="默认 Pentium III 级别适用大多数系统。Windows NT 4.0 等老系统需降低 CPUID level 才能启动。"
                     />
-                    <p class="virtual-machine-settings__hint">
-                      默认的 Pentium III 级别适用于大多数系统。Windows NT 4.0 等老系统需要降低 CPUID level 才能启动。
-                    </p>
                   </>
                 ) : null}
                 {selectedHardware === 'pc-type' ? (
@@ -644,10 +634,8 @@ export function VirtualMachineSettingsDialog({
                       disabled={busy || running}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
+                      hint="安装 Windows 2000 及更高版本须选 Standard PC。安装蓝屏阶段若默认 ACPI PC，按 F5 改选 Standard PC。"
                     />
-                    <p class="virtual-machine-settings__hint">
-                      安装 Windows 2000 及更高版本时须使用 Standard PC。安装程序蓝屏阶段若默认是 ACPI PC，按 F5 改选 Standard PC。
-                    </p>
                   </>
                 ) : null}
               </div>
@@ -670,13 +658,8 @@ export function VirtualMachineSettingsDialog({
               disabled={busy || running}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
+              hint="不写入：客户机改动只留在内存，要保留就靠快照，不改镜像文件。实时写入：运行中把扇区写回镜像。关机时写入：关机或断电时一次性刷入。带快照启动时回写会改底盘镜像，容易和快照对不上；XP 这类机建议不写入。"
             />
-            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              不写入时客户机改动只留在内存，要保留就靠快照，不会改镜像文件。实时写入会在运行中把扇区写回镜像。关机时写入会在关机或断电时一次性刷入。带着快照启动时，回写会改底盘镜像，容易和快照对不上；XP 这类机建议不写入。
-            </p>
-            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              左侧是已挂载的存储设备，右侧编辑镜像来源。v86 最多支持 2 硬盘、1 光盘、2 软驱、1 快照。
-            </p>
             <div class="virtual-machine-settings__storage">
               <div class="virtual-machine-settings__drives" role="listbox" aria-label="存储设备">
                 {draft.devices.map((device, index) => {
@@ -750,9 +733,6 @@ export function VirtualMachineSettingsDialog({
                         已弹出：下次开机才装载，运行中的光盘/软盘保存后立即生效。
                       </p>
                     ) : null}
-                    <p class="virtual-machine-settings__hint">
-                      从 Instant OS 文件里选镜像。大文件会占内存。
-                    </p>
                     <div class="virtual-machine-settings__path">
                       <input
                         class="virtual-machine-settings__input"
@@ -816,10 +796,6 @@ export function VirtualMachineSettingsDialog({
         ) : null}
         {tab === 'devices' ? (
           <div class="virtual-machine-settings__pane">
-            <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              左边选设备，右边改配置。网络后端选 Fetch 后，客户机里配 HTTP 代理
-              <code> 10.0.2.2:8000 </code>才能出网。
-            </p>
             <div class="virtual-machine-settings__storage virtual-machine-settings__storage--devices">
               <div class="virtual-machine-settings__drives" role="listbox" aria-label="设备">
                 {DEVICE_ITEMS.map((item) => {
@@ -899,13 +875,8 @@ export function VirtualMachineSettingsDialog({
                       disabled={busy || running || draft.network === 'none'}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
+                      hint="Fetch 后端仅 HTTP，由浏览器直接发起请求，目标站点需放行 CORS；暂不支持系统代理。客户机内把 HTTP 代理指向 10.0.2.2:8000 即可出网。"
                     />
-                    <p class="virtual-machine-settings__hint">
-                      Fetch 后端仅 HTTP，由浏览器直接发起请求，目标站点需放行 CORS；第一版不支持系统代理。
-                      {draft.network !== 'none'
-                        ? ' 客户机内把 HTTP 代理指向 10.0.2.2:8000 即可出网。'
-                        : ''}
-                    </p>
                   </>
                 ) : null}
                 {selectedDevice === 'speaker' ? (
@@ -931,7 +902,7 @@ export function VirtualMachineSettingsDialog({
                         label="按键映射"
                         checked={draft.keyMappingEnabled}
                         disabled={busy || !draft.keyboard}
-                        detail="把物理按键改写成目标按键后再送入客机。保存后立即生效，运行中的虚拟机也适用。"
+                        detail="把物理按键改写成目标键后送入客机，保存后立即生效。"
                         onChange={(keyMappingEnabled) => patch({ keyMappingEnabled })}
                       />
                       {draft.keyMappings.length > 0 ? (
@@ -972,9 +943,7 @@ export function VirtualMachineSettingsDialog({
                         </ul>
                       ) : (
                         <p class="virtual-machine-settings__hint">
-                          还没有映射。Mac 键盘操作 Windows
-                          时，可以把 ⌘ Command 改写成 Ctrl，或给不存在的 Delete、PrintScreen
-                          等键找个替身。
+                          还没有映射。可以把 ⌘ Command 改写成 Ctrl，或给 Delete 等缺失的键找个替身。
                         </p>
                       )}
                       <div class="virtual-machine-settings__keymap-actions">
@@ -1026,8 +995,7 @@ export function VirtualMachineSettingsDialog({
                                 按下要改写的键
                               </span>
                               <p class="virtual-machine-settings__hint">
-                                按任意一个键（如 ⌘ Command、CapsLock）。Esc
-                                取消；Fn 等浏览器捕获不到的键无法改写。
+                                按任意一个键（如 ⌘ Command）。Esc 取消；Fn 等浏览器捕获不到的键无法改写。
                               </p>
                             </>
                           ) : (
@@ -1051,9 +1019,6 @@ export function VirtualMachineSettingsDialog({
                                   </button>
                                 ))}
                               </div>
-                              <p class="virtual-machine-settings__hint">
-                                Mac 键盘上通常没有这些 PC 键，点选即可当作目标。
-                              </p>
                             </>
                           )}
                           {keyCaptureError ? (
@@ -1106,13 +1071,8 @@ export function VirtualMachineSettingsDialog({
                       disabled={busy || !draft.mouse}
                       fieldClass="virtual-machine-settings__field"
                       labelClass="virtual-machine-settings__label"
+                      hint="自动：客机不支持绝对坐标时用独占，支持后切到跟随，运行中随驱动状态切换。强制跟随：始终跟随，指针可移出画面。强制独占：点击锁定；客机报告绝对坐标期间自动按跟随工作，退出后恢复锁定。运行中修改立即生效。"
                     />
-                    <p class="virtual-machine-settings__hint">
-                      自动：客机尚未报告绝对坐标时用独占；一旦支持绝对坐标就切到跟随，运行中也会随驱动状态切换。
-                      强制跟随：始终跟随，指针可移出画面。
-                      强制独占：点击锁定；客机报告绝对坐标期间自动按跟随工作（独占会让指针消失），退出绝对模式后恢复锁定。
-                      运行中修改此项会立即生效。
-                    </p>
                   </>
                 ) : null}
               </div>
@@ -1137,7 +1097,7 @@ export function VirtualMachineSettingsDialog({
               labelClass="virtual-machine-settings__label"
             />
             <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              下面这些功能依赖客机里已装好的增强组件。开关只控制宿主这一侧要不要参与。
+              以下功能需客机已装增强组件，开关只控制宿主侧。
             </p>
             <SwitchRow
               label="剪贴板同步"
@@ -1157,14 +1117,14 @@ export function VirtualMachineSettingsDialog({
               label="绝对坐标鼠标"
               checked={draft.enhanceAbsoluteMouse}
               disabled={busy}
-              detail="客机装好 VMware 鼠标驱动后，虚拟机光标 1:1 跟随宿主光标；关闭后客机光标回到普通相对移动。"
+              detail="客机装好 VMware 鼠标驱动后，光标 1:1 跟随宿主。"
               onChange={(enhanceAbsoluteMouse) => patch({ enhanceAbsoluteMouse })}
             />
             <SwitchRow
               label="分辨率自动对齐"
               checked={draft.resolutionAutoAlign}
               disabled={busy}
-              detail="窗口尺寸变化时，客机分辨率跟随宿主画面 1:1 切换（需客机内装有对齐代理，未装时静默无效果）。"
+              detail="窗口尺寸变化时客机分辨率跟随宿主 1:1 切换（需客机装对齐代理）。"
               onChange={(resolutionAutoAlign) => patch({ resolutionAutoAlign })}
             />
           </div>
@@ -1230,9 +1190,7 @@ export function VirtualMachineSettingsDialog({
             disabled={busy}
             onChange={(mb) => setCreateDiskSizeMb(mb)}
           />
-          <p class="virtual-machine-settings__hint">
-            当前 {createDiskSizeMb} MB。创建后为空盘，需从光盘/软盘启动后分区、格式化才能使用。
-          </p>
+          <p class="virtual-machine-settings__hint">创建后为空盘，需分区、格式化后才能使用。</p>
         </div>
       </WindowModal>
       <WindowModal
@@ -1252,9 +1210,6 @@ export function VirtualMachineSettingsDialog({
         ]}
       >
         <div class="virtual-machine-settings__add-modal">
-          <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-            点一项即可加入设备列表。
-          </p>
           <div class="virtual-machine-settings__add-options" role="listbox" aria-label="设备类型">
             {VM_STORAGE_DEVICE_LIMITS.map(({ type, maxCount }) => {
               const used = devicesByType(draft.devices, type).length

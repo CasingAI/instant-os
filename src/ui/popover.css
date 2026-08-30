@@ -36,48 +36,34 @@
   }
 }
 
-/* 箭头：双层 border 三角（外层描边、内层填充盖出 1px 描边），X 位置由 JS 跟随锚点 */
+/* 箭头：旋转 45° 的小方块露出上半（描边画在两条外露边上），X 位置由 JS 跟随锚点 */
 
 .popover--below::before,
-.popover--below::after,
-.popover--above::before,
-.popover--above::after {
+.popover--above::before {
   content: '';
   position: absolute;
-  width: 0;
-  height: 0;
+  width: 10px;
+  height: 10px;
   pointer-events: none;
-  border-style: solid;
+  transform: rotate(45deg);
 }
 
 /* 气泡在锚点下方：顶边朝上箭头 */
 .popover--below::before {
-  top: -8px;
-  left: calc(var(--popover-arrow-x, 50%) - 8px);
-  border-width: 0 8px 8px;
-  border-color: transparent transparent rgba(0, 0, 0, 0.28) transparent;
-}
-
-.popover--below::after {
-  top: -7px;
-  left: calc(var(--popover-arrow-x, 50%) - 7px);
-  border-width: 0 7px 7px;
-  border-color: transparent transparent #fafafa transparent;
+  top: -5px;
+  left: calc(var(--popover-arrow-x, 50%) - 5px);
+  background: #fafafa;
+  border-top: 1px solid rgba(0, 0, 0, 0.28);
+  border-left: 1px solid rgba(0, 0, 0, 0.28);
 }
 
 /* 气泡在锚点上方：底边朝下箭头 */
 .popover--above::before {
-  bottom: -8px;
-  left: calc(var(--popover-arrow-x, 50%) - 8px);
-  border-width: 8px 8px 0;
-  border-color: rgba(0, 0, 0, 0.28) transparent transparent transparent;
-}
-
-.popover--above::after {
-  bottom: -7px;
-  left: calc(var(--popover-arrow-x, 50%) - 7px);
-  border-width: 7px 7px 0;
-  border-color: #ececec transparent transparent transparent;
+  bottom: -5px;
+  left: calc(var(--popover-arrow-x, 50%) - 5px);
+  background: #ececec;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.28);
+  border-right: 1px solid rgba(0, 0, 0, 0.28);
 }
 
 /* 窄屏：居中模态对话框 */

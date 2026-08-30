@@ -11,6 +11,13 @@
   width: 100%;
 }
 
+.settings-choice-field__label-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .settings-choice-field__trigger {
   display: flex;
   align-items: center;
