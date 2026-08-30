@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { HelpHint } from '../../ui/help-hint.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
-import { IosRangeSlider } from '../../ui/ios-range-slider.tsx'
+import {
+  IosRangeSlider,
+  type IosRangeSliderMark,
+} from '../../ui/ios-range-slider.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -76,6 +79,20 @@ import {
 } from './virtual-machine-types.ts'
 
 const THEME = '#3d5a80'
+
+const MEMORY_SLIDER_MARKS: IosRangeSliderMark[] = [
+  { value: 512, label: '512M' },
+  { value: 1024, label: '1G' },
+  { value: 1536, label: '1.5G' },
+  { value: VM_MEMORY_MB_MAX, label: '2G' },
+]
+
+const BLANK_DISK_SLIDER_MARKS: IosRangeSliderMark[] = [
+  { value: 256, label: '256M' },
+  { value: 512, label: '512M' },
+  { value: 1024, label: '1G' },
+  { value: VM_BLANK_DISK_MAX_SIZE_MB, label: '2G' },
+]
 
 type SettingsTab = 'general' | 'hardware' | 'storage' | 'devices' | 'experience'
 
@@ -275,6 +292,9 @@ export function VirtualMachineSettingsDialog({
   }, [draft.devices, selectedDeviceId])
 
   const selectedStorage = selectedDeviceIndex >= 0 ? draft.devices[selectedDeviceIndex] : undefined
+
+  /* 「不启用增强」：体验增强各子项全部停用（存储值保留，改回客机系统后原样恢复）。 */
+  const enhanceOff = draft.osPreset === 'none'
 
   const addDevice = useCallback(
     (type: VmStorageDeviceType) => {
@@ -570,6 +590,7 @@ export function VirtualMachineSettingsDialog({
                       step={VM_MEMORY_MB_STEP}
                       suffix="MB"
                       disabled={busy || running}
+                      marks={MEMORY_SLIDER_MARKS}
                       onChange={(mb) => patch({ memoryMb: mb })}
                     />
                     <p class="virtual-machine-settings__hint">建议不超过物理内存的 1/4。</p>
@@ -1095,33 +1116,35 @@ export function VirtualMachineSettingsDialog({
               labelClass="virtual-machine-settings__label"
             />
             <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-              以下功能需客机已装增强组件，开关只控制宿主侧。
+              {enhanceOff
+                ? '已选择「不启用增强」：以下功能全部停用，改选客机系统后恢复逐项设置。'
+                : '以下功能需客机已装增强组件，开关只控制宿主侧。'}
             </p>
             <SwitchRow
               label="剪贴板同步"
-              checked={draft.enhanceClipboard}
-              disabled={busy}
+              checked={enhanceOff ? false : draft.enhanceClipboard}
+              disabled={busy || enhanceOff}
               detail="关闭后宿主与虚拟机之间不再互相同步文本剪贴板。"
               onChange={(enhanceClipboard) => patch({ enhanceClipboard })}
             />
             <SwitchRow
               label="文件互传"
-              checked={draft.enhanceFileTransfer}
-              disabled={busy}
+              checked={enhanceOff ? false : draft.enhanceFileTransfer}
+              disabled={busy || enhanceOff}
               detail="关闭后宿主与虚拟机之间不能复制、剪切文件。"
               onChange={(enhanceFileTransfer) => patch({ enhanceFileTransfer })}
             />
             <SwitchRow
               label="绝对坐标鼠标"
-              checked={draft.enhanceAbsoluteMouse}
-              disabled={busy}
+              checked={enhanceOff ? false : draft.enhanceAbsoluteMouse}
+              disabled={busy || enhanceOff}
               detail="客机装好 VMware 鼠标驱动后，光标 1:1 跟随宿主。"
               onChange={(enhanceAbsoluteMouse) => patch({ enhanceAbsoluteMouse })}
             />
             <SwitchRow
               label="分辨率自动对齐"
-              checked={draft.resolutionAutoAlign}
-              disabled={busy}
+              checked={enhanceOff ? false : draft.resolutionAutoAlign}
+              disabled={busy || enhanceOff}
               detail="窗口尺寸变化时客机分辨率跟随宿主 1:1 切换（需客机装对齐代理）。"
               onChange={(resolutionAutoAlign) => patch({ resolutionAutoAlign })}
             />
@@ -1186,6 +1209,7 @@ export function VirtualMachineSettingsDialog({
             step={VM_BLANK_DISK_SIZE_STEP_MB}
             suffix="MB"
             disabled={busy}
+            marks={BLANK_DISK_SLIDER_MARKS}
             onChange={(mb) => setCreateDiskSizeMb(mb)}
           />
           <p class="virtual-machine-settings__hint">创建后为空盘，需分区、格式化后才能使用。</p>

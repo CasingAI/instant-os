@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import './ios-range-slider.css'
+
+export type IosRangeSliderMark = {
+  value: number
+  label?: string
+}
 
 type IosRangeSliderProps = {
   value: number
@@ -9,6 +14,7 @@ type IosRangeSliderProps = {
   label?: string
   suffix?: string
   disabled?: boolean
+  marks?: IosRangeSliderMark[]
   onChange: (value: number) => void
 }
 
@@ -26,17 +32,47 @@ export function IosRangeSlider({
   label,
   suffix = '',
   disabled = false,
+  marks,
   onChange,
 }: IosRangeSliderProps) {
   const trackRef = useRef<HTMLDivElement>(null)
   const [inputValue, setInputValue] = useState(String(value))
+  const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
     setInputValue(String(value))
   }, [value])
 
+  // 拖动中把光标锁成 grabbing：window 级 mousemove 移出组件后 CSS 类就管不到了。
+  useEffect(() => {
+    if (!dragging) return
+    document.body.style.cursor = 'grabbing'
+    return () => {
+      document.body.style.cursor = ''
+    }
+  }, [dragging])
+
   const clampedValue = clampStep(value, min, max, step)
   const progress = max === min ? 0 : (clampedValue - min) / (max - min)
+
+  const normalizedMarks = useMemo(() => {
+    const byValue = new Map<number, IosRangeSliderMark>()
+    for (const mark of marks ?? []) {
+      if (mark.value < min || mark.value > max) continue
+      const snapped = clampStep(mark.value, min, max, step)
+      const existing = byValue.get(snapped)
+      byValue.set(snapped, {
+        value: snapped,
+        label: existing?.label ?? mark.label,
+      })
+    }
+    return [...byValue.values()].sort((a, b) => a.value - b.value)
+  }, [marks, min, max, step])
+
+  const labeledMarks = useMemo(
+    () => normalizedMarks.filter((mark) => mark.label),
+    [normalizedMarks],
+  )
 
   const commit = useCallback(
     (raw: number) => {
@@ -95,16 +131,20 @@ export function IosRangeSlider({
       const handleMouseUp = () => {
         window.removeEventListener('mousemove', handleMouseMove)
         window.removeEventListener('mouseup', handleMouseUp)
+        setDragging(false)
       }
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
+      setDragging(true)
     },
     [disabled, setClientX],
   )
 
   return (
     <div
-      class={`ios-range-slider${disabled ? ' ios-range-slider--disabled' : ''}`}
+      class={`ios-range-slider${disabled ? ' ios-range-slider--disabled' : ''}${
+        dragging ? ' ios-range-slider--dragging' : ''
+      }`}
       aria-disabled={disabled}
     >
       {label ? <span class="ios-range-slider__label">{label}</span> : null}
@@ -122,23 +162,65 @@ export function IosRangeSlider({
           onKeyDown={handleKeyDown}
         />
         {suffix ? <span class="ios-range-slider__suffix">{suffix}</span> : null}
-        <div
-          class="ios-range-slider__track"
-          ref={trackRef}
-          onMouseDown={handleMouseDown}
-          role="slider"
-          aria-valuemin={min}
-          aria-valuemax={max}
-          aria-valuenow={clampedValue}
-        >
+        <div class="ios-range-slider__track-area" onMouseDown={handleMouseDown}>
           <div
-            class="ios-range-slider__fill"
-            style={{ width: `${progress * 100}%` }}
-          />
-          <div
-            class="ios-range-slider__thumb"
-            style={{ left: `${progress * 100}%` }}
-          />
+            class="ios-range-slider__track"
+            ref={trackRef}
+            role="slider"
+            aria-valuemin={min}
+            aria-valuemax={max}
+            aria-valuenow={clampedValue}
+          >
+            <div
+              class="ios-range-slider__fill"
+              style={{ width: `${progress * 100}%` }}
+            />
+            {normalizedMarks.map((mark) => (
+              <div
+                key={mark.value}
+                class={`ios-range-slider__tick${
+                  clampedValue >= mark.value ? ' ios-range-slider__tick--active' : ''
+                }`}
+                style={{
+                  // 圆头半径 4px，圆心在 100% - 4px：极限档位的点要和圆头同心。
+                  left: `clamp(4px, ${
+                    max === min ? 0 : ((mark.value - min) / (max - min)) * 100
+                  }%, calc(100% - 4px))`,
+                }}
+              />
+            ))}
+            <div
+              class="ios-range-slider__thumb"
+              style={{ left: `clamp(4px, ${progress * 100}%, calc(100% - 4px))` }}
+            />
+            {dragging && !disabled ? (
+              <div
+                class="ios-range-slider__tooltip"
+                style={{ left: `clamp(32px, ${progress * 100}%, calc(100% - 32px))` }}
+              >
+                {clampedValue}
+                {suffix}
+              </div>
+            ) : null}
+          </div>
+          {labeledMarks.length > 0 ? (
+            <div class="ios-range-slider__marks">
+              {labeledMarks.map((mark) => (
+                <span
+                  key={mark.value}
+                  class="ios-range-slider__mark-label"
+                  style={{
+                    // 和刻度点同一圆心：极限标签对齐圆头圆心，而不是端点。
+                    left: `clamp(4px, ${
+                      max === min ? 0 : ((mark.value - min) / (max - min)) * 100
+                    }%, calc(100% - 4px))`,
+                  }}
+                >
+                  {mark.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

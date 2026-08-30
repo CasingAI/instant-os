@@ -126,6 +126,39 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'ios-range-slider',
+    name: 'IosRangeSlider',
+    description: 'iOS 风格数值滑块；左侧数字输入，右侧水平拖块，支持刻度点、标签与单位后缀',
+    category: 'form',
+    importPath: "import { IosRangeSlider, type IosRangeSliderMark } from '../../ui/ios-range-slider.tsx'",
+    props: [
+      { name: 'value', type: 'number', description: '当前值' },
+      { name: 'min', type: 'number', description: '最小值' },
+      { name: 'max', type: 'number', description: '最大值' },
+      { name: 'step', type: 'number', description: '步进，值会按 step 吸附' },
+      { name: 'label', type: 'string?', description: '左侧标签' },
+      { name: 'suffix', type: 'string?', description: '数值后缀，如 MB / %' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'marks', type: 'IosRangeSliderMark[]?', description: '刻度点；value 在范围内即可，会被自动吸附到 step' },
+      { name: 'onChange', type: '(value: number) => void', description: '值变化回调' },
+    ],
+    codeExample: `const marks: IosRangeSliderMark[] = [
+  { value: 0, label: '0%' },
+  { value: 50, label: '50%' },
+  { value: 100, label: '100%' },
+]
+
+<IosRangeSlider
+  value={volume}
+  min={0}
+  max={100}
+  step={1}
+  suffix="%"
+  marks={marks}
+  onChange={setVolume}
+/>`,
+  },
+  {
     id: 'segmented-control',
     name: 'SegmentedControl',
     description: '分段选择器；支持徽章数量与脏状态小橙点',
