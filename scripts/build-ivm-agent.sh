@@ -5,10 +5,11 @@
 # 用法：scripts/build-ivm-agent.sh [输出目录]
 #   输出目录缺省为 src/apps/virtual-machine/guest/out（客机交付物统一出口）。
 #
-# 三个源文件合编成一个 exe（todo/vm-experience-enhancement）：
+# 四个源文件合编成一个 exe（todo/vm-experience-enhancement）：
 #   res-agent/res-agent.c              COM1 遥控 + 分辨率对齐（服务身份）+ 合并入口
 #   clipboard-bridge/clipboard-bridge.c OLE 剪贴板/文件桥（登录会话身份）
 #   ivm-agent/ivm-mouse-install.c      /mouse-install：vmmouse 过滤驱动注册
+#   ivm-agent/ivm-audio-install.c      /audio-install：XP 内置 SB16 声卡驱动绑定
 #
 # 管线与旧 build-res-agent.sh 相同：zig cc -nostdlib + patch PE 版本 5.01。
 set -eu
@@ -17,7 +18,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GUEST_DIR="$ROOT/src/apps/virtual-machine/guest"
 OUT_DIR="${1:-$GUEST_DIR/out}"
 OUT="$OUT_DIR/ivm-agent.exe"
-SOURCES="$GUEST_DIR/res-agent/res-agent.c $GUEST_DIR/clipboard-bridge/clipboard-bridge.c $GUEST_DIR/ivm-agent/ivm-mouse-install.c"
+SOURCES="$GUEST_DIR/res-agent/res-agent.c $GUEST_DIR/clipboard-bridge/clipboard-bridge.c $GUEST_DIR/ivm-agent/ivm-mouse-install.c $GUEST_DIR/ivm-agent/ivm-audio-install.c"
 
 command -v zig >/dev/null 2>&1 || { echo "error: 需要 zig（brew install zig）" >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "error: 需要 node" >&2; exit 1; }
@@ -47,7 +48,7 @@ node "$GUEST_DIR/res-agent/patch-pe-xp-version.mjs" "$OUT"
 # 防呆（2026-08 事故：源码已加 /mouse-install 分发、产物还是旧构建，bat 调用
 # 静默失败还误报成功）：产物必须含全部入口/职责关键字符串，缺一即失败。
 # grep 二进制必须钉 LC_ALL=C：BSD grep 在 UTF-8 locale 下对二进制匹配不稳定。
-for marker in "mouse-install" "mouse-check" "autostart" "VMware Pointing Device" "UpperFilters"; do
+for marker in "mouse-install" "mouse-check" "audio-install" "audio-uninstall" "audio-check" "autostart" "VMware Pointing Device" "UpperFilters"; do
   LC_ALL=C grep -aq "$marker" "$OUT" || { echo "error: built exe lacks '$marker'" >&2; exit 1; }
 done
 

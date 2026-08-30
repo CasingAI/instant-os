@@ -120,3 +120,52 @@ cmd /c echo alive %DATE% %TIME% > C:\Tools\agent-alive.txt
 # agent 自愈（§7 自救层）：重拷新版 exe 后重启服务
 sc stop InstantVmAgent & sc start InstantVmAgent
 ```
+
+## 驱动安装子命令
+
+合并入口 `ivm_agent_entry` 按命令行开关分发（先于服务调度器），安装脚本
+与诊断脚本调用；两个常驻身份（服务 / 登录）每次启动还会各调一次自愈，
+已装幂等零开销：
+
+| 子命令 | 行为 | 退出码 | 日志 |
+|---|---|---|---|
+| `/mouse-install` | 注册 vmmouse 服务 + 挂上 PS/2 鼠标实例的 UpperFilters | 0=成功 1=无 PS/2 设备实例 2=驱动文件/服务/注册表失败 | `C:\Tools\mouse-install.log` |
+| `/mouse-check` | 只读体检 + 报告弹窗 | 0=已挂 1=未挂 2=驱动文件/服务缺失 | 同上 |
+| `/audio-install` | 就地提取 XP 内置 ctlsb16.sys + 注册服务 + 绑定 `*CTL00xx` 声卡实例；无实例时**自建** `Enum\Root\*CTL0031\0000` | 0=成功 1=无实例且建不成 2=提取/服务/注册表失败 | `C:\Tools\audio-install.log` |
+| `/audio-uninstall` | 回滚：删自建的 `*CTL0031` 实例 + 禁用 ctlsb16 服务（BIOS/向导枚举的实例不碰） | 0=成功（含本来没装）2=注册表失败 | 同上 |
+| `/audio-check` | 只读体检 + 报告弹窗 | 0=已装 1=未装 2=驱动文件/服务缺失 | 同上 |
+
+失败模式备忘（2026-08-30 真机）：`/mouse-check` 报「service: MISSING + filter
+attached: YES」时，PS/2 鼠标设备开机即启动失败（PnP 加载 UpperFilters 找不到
+服务），光标全模式冻死——重装 bat 的 `sc delete vmmouse` → `/mouse-install`
+撞 1072 竞态所致；`/mouse-install` 重跑即愈（重建服务，过滤链幂等）。自愈已
+改为服务+过滤链两者都查。另：此镜像 reg.exe 任何查询都退 1（疑似精简版阉
+割），诊断只信 agent 弹窗（advapi32）与命令退出码，别信 reg.exe。
+
+`/audio-install` 细节（源码见 `../ivm-agent/ivm-audio-install.c`）：
+
+- 背景：v86 下 XP 对 SB16 的 PnP 自动安装经常不触发（设备管理器黄叹号
+  「多媒体音频控制器」），这是客机无声的根源。驱动是 XP 内置（inbox
+  WDM），仓库不 vendor 微软文件，文件就地在客机内提取：
+  `%SystemRoot%\Driver Cache\i386\sp3.cab / sp2.cab / driver.cab`
+  （`expand <cab> -f:ctlsb16.sys drivers\`）→ 各 CD-ROM 的
+  `I386\CTLSB16.SY_`（`expand -r`）→ `C:\Tools\ctlsb16.sys` 人工放置
+  （bat 第 4 步会把脚本同目录的 `ctlsb16.sys` 代放过去）；
+- 无实例时自建设备（**只有显式 /audio-install 会做**）：v86 不模拟 ISA
+  PnP，注册表里常常连声卡实例都没有（v86 官方指引因此是「添加硬件向导 →
+  手动从列表选 SB16 WDM」）——此时自建 `Enum\Root\*CTL0031\0000`
+  （DeviceDesc/HardwareID=`*CTL0031`、ClassGUID=MEDIA、Service=ctlsb16、
+  ConfigFlags=0、MatchingDeviceId），与向导产物同构，重启后 PnP 按
+  HardwareID 匹配 inbox INF 自动装驱动。**开机自愈绝不建实例**（只绑定
+  已存在的实例）——凡「给系统造新设备」的写操作只许放在显式子命令里，
+  这是 2026-08-30 鼠标事故后的铁律（同段教训见 README「声音」节）；
+- 绑定既有实例 = 给实例写 `Service=ctlsb16`、`Class=MEDIA`、
+  `ClassGUID={4D36E96C-E325-11CE-BFC1-08002BE10318}`、`ConfigFlags=0`
+  （清 CONFIGFLAG_FAILEDINSTALL），删掉陈旧的 `Driver` 值；注册表直改
+  无向导无签名问题，重启设备重新枚举后生效；
+- 设备识别：设备键名或 HardwareID 有 `CTL00` 前缀（前导 `*` 忽略）；
+  游戏口 `CTL7xxx` 天然排除。自建失败时把扫到的全部硬件 ID 落日志
+  （回答「声卡到底被枚举出来没有」）；
+- 血泪教训（2026-08-30 真机）：mlog 的 msg 缓冲曾只有 600 字节，装不下
+  wvsprintfA 上限 1024 的 `%s` 长转储，agent 开机即崩（「遇到问题需要
+  关闭」）。msg/line 缓冲必须 ≥ wvsprintfA 上限，mouse/audio 两模块同改。

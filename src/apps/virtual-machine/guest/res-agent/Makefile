@@ -1,5 +1,5 @@
 # ivm-agent —— 客机全家桶（XP 32 位）：COM1 遥控 + 分辨率对齐 + OLE 剪贴板/文件桥
-# + /mouse-install（vmmouse 过滤驱动注册）。
+# + /mouse-install（vmmouse 过滤驱动注册）+ /audio-install（XP 内置 SB16 声卡驱动绑定）。
 # 一条 zig cc 命令交叉编译，无需本地 Windows 工具链。用法见 ../README.md。
 # 等价的 shell 入口（单测调用）：scripts/build-ivm-agent.sh。
 #
@@ -20,7 +20,7 @@ CFLAGS  ?= -target x86-windows-gnu -O2 -Wall -nostdlib -isystem$(WIN_INC) -DVM_A
 LDFLAGS ?= -Wl,--subsystem,windows,-e,ivm_agent_entry
 LDLIBS  ?= -lkernel32 -luser32 -lgdi32 -ladvapi32 -lole32
 
-IVM_SOURCES := res-agent.c ../clipboard-bridge/clipboard-bridge.c ../ivm-agent/ivm-mouse-install.c
+IVM_SOURCES := res-agent.c ../clipboard-bridge/clipboard-bridge.c ../ivm-agent/ivm-mouse-install.c ../ivm-agent/ivm-audio-install.c
 
 # 产物统一落到 ../out（客机交付物目录），源码目录不放构建产物。
 OUT_DIR := ../out

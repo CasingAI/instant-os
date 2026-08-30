@@ -690,7 +690,7 @@ static int agent_single_instance(void)
 }
 
 /* 命令行开关识别（/xxx 或 -xxx，忽略大小写）：autostart=登录自启、
- * mouse-install=安装脚本调用的鼠标驱动注册子命令。 */
+ * mouse-install/audio-install=安装脚本调用的驱动注册子命令。 */
 static int cmdline_has_flag(const char *flag)
 {
     const char *cmd = GetCommandLineA();
@@ -721,6 +721,12 @@ static SERVICE_STATUS_HANDLE g_svc_status;
 int ivm_mouse_install(void);
 int ivm_mouse_check(void);
 void ivm_mouse_selfheal(void);
+
+/* ivm-audio-install.c：声卡驱动安装 / 回滚 / 诊断 / 自愈（同上）。 */
+int ivm_audio_install(void);
+int ivm_audio_uninstall(void);
+int ivm_audio_check(void);
+void ivm_audio_selfheal(void);
 
 static void svc_set_state(DWORD state)
 {
@@ -755,13 +761,14 @@ static void WINAPI svc_main(DWORD argc, char **argv)
     }
     svc_set_state(SERVICE_RUNNING);
     ivm_mouse_selfheal(); /* 开机顺手补挂 vmmouse 过滤驱动（毫秒级，见 ivm-mouse-install.c） */
+    ivm_audio_selfheal(); /* 开机顺手把 XP 内置 SB16 声卡驱动绑上（见 ivm-audio-install.c） */
     agent_loop();
     svc_set_state(SERVICE_STOPPED);
 }
 
 /* #endregion */
 
-/* #region 合并入口（ivm-agent = res-agent + clipboard-bridge + 鼠标驱动安装） */
+/* #region 合并入口（ivm-agent = res-agent + clipboard-bridge + 鼠标/声卡驱动安装） */
 
 void bridge_main(void); /* clipboard-bridge.c：OLE 剪贴板/文件桥主循环（登录会话专用） */
 
@@ -778,6 +785,8 @@ static DWORD WINAPI com1_thread_main(void *arg)
  * 进程入口（链接器 -e 直接指到这，无 CRT 启动对象）。多重身份：
  *   /mouse-install 子命令 → 注册 vmmouse 过滤驱动，完事退出（安装脚本调用）；
  *   /mouse-check 子命令 → 只读体检并弹报告窗，完事退出（诊断脚本调用）；
+ *   /audio-install 子命令 → 把 XP 内置 SB16 声卡驱动绑到声卡设备，完事退出；
+ *   /audio-check 子命令 → 声卡驱动只读体检并弹报告窗，完事退出；
  *   SCM 启动 → 服务身份，只跑 COM1 主循环（分辨率对齐 + 远程控制），不碰 OLE；
  *   登录身份（双击 / HKCU Run）→ COM1 归属（Global 互斥）与剪贴板桥归属
  *   （会话互斥）分别判定：两样都归我则 COM1 挪工作线程、主线程跑桥；
@@ -791,6 +800,15 @@ void ivm_agent_entry(void)
     }
     if (cmdline_has_flag("mouse-check")) {
         ExitProcess((UINT)ivm_mouse_check());
+    }
+    if (cmdline_has_flag("audio-install")) {
+        ExitProcess((UINT)ivm_audio_install());
+    }
+    if (cmdline_has_flag("audio-uninstall")) {
+        ExitProcess((UINT)ivm_audio_uninstall());
+    }
+    if (cmdline_has_flag("audio-check")) {
+        ExitProcess((UINT)ivm_audio_check());
     }
 
     /* 信箱寻址先于一切路径：服务/交互共用一份缓存。 */
@@ -821,10 +839,11 @@ void ivm_agent_entry(void)
         ExitProcess(0);
     }
 
-    /* 真要常驻了才自愈鼠标驱动：安装时 bat 第 8 步失败的场景，任意一次
-     * 成功开机/登录都会把注册表补上，下一次重启过滤器生效（幂等，已装
-     * 零开销；只补注册表，挂载要等设备重新枚举）。 */
+    /* 真要常驻了才自愈驱动：安装时 bat 第 8 步失败的场景，任意一次成功
+     * 开机/登录都会把注册表补上，下一次重启生效（幂等，已装零开销；
+     * 只补注册表，挂载要等设备重新枚举）。 */
     ivm_mouse_selfheal();
+    ivm_audio_selfheal();
 
     if (owns_com1 && owns_bridge) {
         HANDLE thread = CreateThread(NULL, 0, com1_thread_main, NULL, 0, NULL);

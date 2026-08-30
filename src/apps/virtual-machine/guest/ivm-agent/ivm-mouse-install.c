@@ -11,9 +11,17 @@
  *                   过滤链现状。报告进日志 + MessageBox 弹窗。
  *                   0=已挂 1=未挂 2=驱动文件或服务缺失
  *   ivm_mouse_selfheal()  供 agent 常驻身份（服务/登录）每次启动调用：
- *                   已挂上就静默返回，缺啥补啥（幂等）。只补注册表——
- *                   过滤器要等设备重新枚举（下次重启）才真正挂载，所以
- *                   「装好 → 重启 1 补注册 → 重启 2 生效」是最坏收敛路径。
+ *                   过滤链和服务**两者**齐了才静默返回，缺啥补啥（幂等）。
+ *                   只补注册表——过滤器要等设备重新枚举（下次重启）才真
+ *                   正挂载，所以「装好 → 重启 1 补注册 → 重启 2 生效」是
+ *                   最坏收敛路径。
+ *
+ * 血泪教训（2026-08-30）：bat 重装时 sc delete vmmouse 后立刻 /mouse-install
+ * 撞 1072（marked-for-delete）竞态，服务创建失败、UpperFilters 却还挂着
+ * vmmouse——开机 PnP 找不到过滤器服务，PS/2 鼠标设备整个启动失败，光标
+ * 全模式冻死（键盘无此过滤器所以幸免）。自愈因此必须同时查服务与过滤链；
+ * bat 的等服务消失循环也必须把 vmmouse 算进去。另外此镜像的 reg.exe 每次
+ * 查询都退 1（疑似精简版阉割），成败汇报只认 advapi32/退出码，别信 reg.exe。
  *
  * 做两件事（/mouse-install）：
  *   1. vmmouse 内核服务不存在就创建（type= kernel start= demand
@@ -118,11 +126,14 @@ static int file_exists(const char *path)
 }
 
 /* 追加一行日志：带本地时间戳，OutputDebugStringA + 文件双写。文件写不进
- * （目录建不出等）只走调试通道——日志尽力而为，绝不反过来卡安装。 */
+ * （目录建不出等）只走调试通道——日志尽力而为，绝不反过来卡安装。
+ * wvsprintfA 输出上限 1024 字符，msg/line 必须装得满这个上限——%s 带进
+ * 长报告时小缓冲直接烧栈（audio 模块 2026-08 在真机上崩过，见同目录
+ * ivm-audio-install.c，教训通用）。 */
 static void mlog(const char *fmt, ...)
 {
-    char line[512];
-    char msg[400];
+    char line[1200];
+    char msg[1100];
     SYSTEMTIME st;
     va_list args;
     GetLocalTime(&st);
@@ -405,14 +416,36 @@ int ivm_mouse_check(void)
     return (!file_ok || !svc_ok) ? 2 : (attached > 0 ? 0 : 1);
 }
 
+/* vmmouse 服务是否还在（只读）。血泪教训（2026-08-30）：bat 重装时
+ * `sc delete vmmouse` 撞 1072 竞态导致服务没了、UpperFilters 却还挂着
+ * ——开机 PnP 加载过滤器找不到服务，PS/2 鼠标设备整个启动失败，光标全
+ * 死（键盘无过滤器所以正常）。自愈必须两者都查，不能只看过滤链。 */
+static int vmmouse_service_present(void)
+{
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT);
+    SC_HANDLE svc;
+    int ok = 0;
+    if (scm == NULL) {
+        return 0;
+    }
+    svc = OpenServiceA(scm, "vmmouse", SERVICE_QUERY_CONFIG);
+    if (svc != NULL) {
+        ok = 1;
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+    return ok;
+}
+
 void ivm_mouse_selfheal(void)
 {
     int attached = walk_enumerator(ENUM_BASE "\\ACPI", 1, NULL, 0) +
                    walk_enumerator(ENUM_BASE "\\Root", 1, NULL, 0);
-    if (attached > 0) {
+    if (attached > 0 && vmmouse_service_present()) {
         return; /* 已挂上：静默，别每次开机刷日志 */
     }
-    mlog("[self-heal] vmmouse filter missing; installing");
+    mlog("[self-heal] vmmouse incomplete (attached=%d service=%d); installing",
+         attached, vmmouse_service_present());
     int rc = ivm_mouse_install();
     mlog("[self-heal] install rc=%d (0=ok; takes effect after next reboot)", rc);
 }

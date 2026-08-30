@@ -17,15 +17,20 @@ rem   5. create + start the mailbox kernel driver (loads before the agent)
 rem   6. create + start the agent service
 rem   7. register HKCU Run autostart (the logon instance runs the clipboard
 rem      bridge; a service cannot touch the interactive clipboard) and start it
-rem   8. mouse driver: register the vmmouse service and attach it as an upper
-rem      filter on the PS/2 mouse device (`ivm-agent.exe /mouse-install`;
+rem   8. drivers: register the vmmouse service and attach it as an upper
+rem      filter on the PS/2 mouse device (`ivm-agent.exe /mouse-install`),
+rem      then bind the XP built-in SB16 audio driver (`/audio-install`;
 rem      failures print a loud ERROR with the real exit code instead of a
-rem      scroll-by WARNING; every step lands in C:\Tools\mouse-install.log)
-rem   9. verify with sc query + `/mouse-check` (pops a report window)
+rem      scroll-by WARNING; logs: C:\Tools\mouse-install.log +
+rem      C:\Tools\audio-install.log)
+rem   9. verify with sc query + `/mouse-check` + `/audio-check` (report
+rem      windows)
 rem
 rem A reboot is required afterwards: the mailbox driver loads in its normal
-rem boot-time slot, and the vmmouse filter attaches when the mouse device
-rem re-enumerates. After the reboot the absolute-pointer mode is active.
+rem boot-time slot, the vmmouse filter attaches when the mouse device
+rem re-enumerates, and the SB16 audio driver starts when the audio device
+rem re-enumerates. After the reboot the absolute-pointer mode is active and
+rem sound works (volume icon in the tray).
 rem Re-verify any time with check-mouse.bat. NOTE: even when everything is
 rem installed, Device Manager keeps showing the Microsoft PS/2 driver --
 rem vmmouse is an upper filter, not a replacement (check via check-mouse.bat
@@ -61,7 +66,11 @@ sc delete vmmouse >nul 2>&1
 
 rem sc delete marks the record for deletion; a same-name `sc create` right
 rem after can fail with 1072 (marked for delete). Wait until the services
-rem are really gone (sc query errors = gone), capped at ~15s.
+rem are really gone (sc query errors = gone), capped at ~15s. vmmouse MUST
+rem be waited on too: /mouse-install recreates it in step 8, and a 1072 race
+rem there leaves UpperFilters=vmmouse attached with no service -- the PS/2
+rem mouse device then fails to start after the reboot (frozen cursor in
+rem every pointer mode; happened for real 2026-08-30).
 echo [2b/9] waiting for old service records to disappear...
 set /a waited=0
 :wait_services
@@ -70,6 +79,8 @@ if not errorlevel 1 goto svc_still_there
 sc query InstantVmAgent >nul 2>&1
 if not errorlevel 1 goto svc_still_there
 sc query InstantVmResAgent >nul 2>&1
+if not errorlevel 1 goto svc_still_there
+sc query vmmouse >nul 2>&1
 if not errorlevel 1 goto svc_still_there
 goto services_gone
 :svc_still_there
@@ -107,6 +118,10 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+rem Offline escape hatch for stripped XP images (no Driver Cache, no CD-ROM):
+rem if ctlsb16.sys is placed next to this script, stage it where /audio-install
+rem looks as its last-resort source.
+if exist "%~dp0ctlsb16.sys" copy /Y "%~dp0ctlsb16.sys" "C:\Tools\ctlsb16.sys" >nul
 
 echo [5/9] creating and starting the mailbox driver...
 set SVCNAME=InstantVmShm
@@ -149,6 +164,24 @@ if "%mouse_rc%"=="0" (
   echo        Details: C:\Tools\mouse-install.log - the filter is NOT installed.
 )
 
+echo       binding the XP built-in SB16 audio driver (ctlsb16)...
+start "ivm-audio-install" /wait "C:\Tools\ivm-agent.exe" /audio-install
+set audio_rc=%errorlevel%
+if "%audio_rc%"=="0" (
+  echo   SB16 audio driver bound to the audio device ^(starts after a reboot^).
+) else if "%audio_rc%"=="1" (
+  echo NOTE: /audio-install found no SB16 audio device instance and could
+  echo        not create one. See C:\Tools\audio-install.log for the IDs seen.
+  echo        Roll back anytime with: ivm-agent.exe /audio-uninstall
+) else (
+  echo ERROR: /audio-install failed with exit code %audio_rc%.
+  echo        2 = ctlsb16.sys could not be extracted. Mount the XP CD-ROM
+  echo            ^(I386\CTLSB16.SY_^) and reboot, or place ctlsb16.sys next
+  echo            to this script / at C:\Tools\ctlsb16.sys and re-run.
+  echo        Details: C:\Tools\audio-install.log - sound is NOT installed.
+  echo        Roll back anytime with: ivm-agent.exe /audio-uninstall
+)
+
 echo [9/9] verifying...
 sc query InstantVmShm
 sc query InstantVmAgent
@@ -158,10 +191,14 @@ if errorlevel 1 echo WARNING: ivm-agent.exe is NOT running. Run: sc query Instan
 echo mouse check (also shown in a popup window):
 start "ivm-mouse-check" /wait "C:\Tools\ivm-agent.exe" /mouse-check
 if not "%errorlevel%"=="0" echo WARNING: /mouse-check says vmmouse is NOT attached (code %errorlevel%). See C:\Tools\mouse-install.log
+echo audio check (also shown in a popup window):
+start "ivm-audio-check" /wait "C:\Tools\ivm-agent.exe" /audio-check
+if not "%errorlevel%"=="0" echo WARNING: /audio-check says the SB16 driver is NOT installed (code %errorlevel%). See C:\Tools\audio-install.log
 
 echo.
-echo Done. Reboot once: the mailbox driver then loads in its boot-time slot
-echo and the vmmouse filter attaches (absolute pointer becomes active).
+echo Done. Reboot once: the mailbox driver then loads in its boot-time slot,
+echo the vmmouse filter attaches (absolute pointer becomes active), and the
+echo SB16 audio driver starts (sound works, volume icon in the tray).
 echo After the reboot, re-verify with check-mouse.bat. Note: Device Manager
 echo keeps showing the Microsoft PS/2 driver even when vmmouse is installed
 echo (it is an upper filter, not a replacement).
