@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import './ios-range-slider.css'
 
 export type IosRangeSliderMark = {
@@ -36,8 +36,10 @@ export function IosRangeSlider({
   onChange,
 }: IosRangeSliderProps) {
   const trackRef = useRef<HTMLDivElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
   const [inputValue, setInputValue] = useState(String(value))
   const [dragging, setDragging] = useState(false)
+  const [bubbleLeft, setBubbleLeft] = useState<number | null>(null)
 
   useEffect(() => {
     setInputValue(String(value))
@@ -54,6 +56,39 @@ export function IosRangeSlider({
 
   const clampedValue = clampStep(value, min, max, step)
   const progress = max === min ? 0 : (clampedValue - min) / (max - min)
+
+  // 气泡严格居中于拇指钳位后的圆心；仅当会溢出最近的裁剪祖先（overflow 非
+  // visible 的面板/滚动容器）时才钳进其边界。不能用轨道自身宽度当钳位边界：
+  // 气泡半宽 ~18-30px 远超拇指的 4px 行程余量，硬钳会把宽气泡在两端推离拇指
+  // （旧版 18px 常量的错位根源）。
+  const TRACK_HEAD_R = 4
+  useLayoutEffect(() => {
+    if (!dragging) {
+      setBubbleLeft(null)
+      return
+    }
+    const track = trackRef.current
+    const tooltip = tooltipRef.current
+    if (!track || !tooltip) return
+    const trackRect = track.getBoundingClientRect()
+    const half = Math.min(tooltip.getBoundingClientRect().width / 2, trackRect.width / 2)
+    const thumbCenter = Math.max(
+      TRACK_HEAD_R,
+      Math.min(trackRect.width - TRACK_HEAD_R, progress * trackRect.width),
+    )
+    let center = thumbCenter
+    for (let node = track.parentElement; node; node = node.parentElement) {
+      if (getComputedStyle(node).overflowX !== 'visible') {
+        const box = node.getBoundingClientRect()
+        center = Math.max(
+          box.left + half - trackRect.left,
+          Math.min(box.right - half - trackRect.left, thumbCenter),
+        )
+        break
+      }
+    }
+    setBubbleLeft((prev) => (prev !== null && Math.abs(prev - center) < 0.5 ? prev : center))
+  }, [dragging, progress])
 
   const normalizedMarks = useMemo(() => {
     const byValue = new Map<number, IosRangeSliderMark>()
@@ -197,11 +232,14 @@ export function IosRangeSlider({
               <>
                 <div
                   class="ios-range-slider__tooltip"
-                  style={
-                    // 气泡中心钳在 [18px, 100%-18px]：中段正好居中于拇指，极限档最多被
-                    // 压回 14px，气泡外缘最多探出轨道端点 12px（轨道区自身留白），不会被面板裁掉。
-                    { left: `clamp(18px, ${progress * 100}%, calc(100% - 18px))` }
-                  }
+                  ref={tooltipRef}
+                  // 首帧先用拇指钳位兜底，布局后由 useLayoutEffect 实测修正。
+                  style={{
+                    left:
+                      bubbleLeft !== null
+                        ? `${bubbleLeft}px`
+                        : `clamp(4px, ${progress * 100}%, calc(100% - 4px))`,
+                  }}
                 >
                   {clampedValue}
                   {suffix}
