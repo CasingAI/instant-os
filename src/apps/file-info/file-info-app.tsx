@@ -24,6 +24,8 @@ import {
   formatFilesTimestamp,
 } from '../files/files-path.ts'
 import { readFileBlob } from '../files/files-vfs.ts'
+import { getImageMountReadError, getImageVolume } from '../files/files-image-mount-store.ts'
+import type { ImageVolumeFsInfo } from '../files/files-image-volume.ts'
 import {
   listFileInfoSections,
   type FileInfoSectionContribution,
@@ -33,6 +35,8 @@ import './sections/image-section.tsx'
 import {
   filesVolumeRootAttributes,
   formatFilesNodePermissionLabel,
+  isImageLocationId,
+  isMountLocationId,
   isMountNodeId,
   type FilesLocationId,
   type FilesNode,
@@ -375,6 +379,10 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
   const [folderStatsState, setFolderStatsState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
     'idle',
   )
+  const [volumeFsInfo, setVolumeFsInfo] = useState<ImageVolumeFsInfo | undefined>(undefined)
+  const [volumeFsInfoState, setVolumeFsInfoState] = useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle')
   const [mountNode, setMountNode] = useState<FilesNode | undefined>(undefined)
   const [trashParentName, setTrashParentName] = useState<string | undefined>(undefined)
   const [blobStorage, setBlobStorage] = useState<FilesBlobStorageInfo | undefined>(undefined)
@@ -418,9 +426,22 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
     }
   }, [node.id, node.kind])
 
+  const imageVolumeLocationId =
+    tab.kind === 'volume' &&
+    tab.volumeLocationId !== undefined &&
+    isImageLocationId(tab.volumeLocationId)
+      ? tab.volumeLocationId
+      : undefined
+  const isImageVolumeRoot = imageVolumeLocationId !== undefined
+  const isFolderMountVolumeRoot =
+    tab.kind === 'volume' &&
+    tab.volumeLocationId !== undefined &&
+    isMountLocationId(tab.volumeLocationId)
+
   useEffect(() => {
     let cancelled = false
-    if (node.kind !== 'folder') {
+    // 镜像卷根不做子树枚举（挂载卷不支持），容量由 getFsInfo 提供
+    if (node.kind !== 'folder' || isImageVolumeRoot) {
       setFolderStatsState('idle')
       setFolderStats(undefined)
       return
@@ -460,7 +481,7 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
     return () => {
       cancelled = true
     }
-  }, [node.id, node.kind, tab.documentId, tab.kind, tab.volumeLocationId])
+  }, [node.id, node.kind, isImageVolumeRoot, tab.documentId, tab.kind, tab.volumeLocationId])
 
   useEffect(() => {
     let cancelled = false
@@ -511,6 +532,31 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
 
   const displayNode = mountNode ?? node
 
+  useEffect(() => {
+    let cancelled = false
+    if (imageVolumeLocationId === undefined) {
+      setVolumeFsInfoState('idle')
+      setVolumeFsInfo(undefined)
+      return
+    }
+    setVolumeFsInfoState('loading')
+    setVolumeFsInfo(undefined)
+    Promise.resolve()
+      .then(() => getImageVolume(imageVolumeLocationId).getFsInfo())
+      .then((info) => {
+        if (!cancelled) {
+          setVolumeFsInfo(info)
+          setVolumeFsInfoState('ready')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setVolumeFsInfoState('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [imageVolumeLocationId])
+
   const path =
     tab.kind === 'volume' && tab.volumeLocationId
       ? filesLocationPathRoot(tab.volumeLocationId)
@@ -528,12 +574,29 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
 
   const sizeLabel = (() => {
     if (node.kind === 'folder') {
+      if (isImageVolumeRoot) {
+        if (volumeFsInfoState === 'loading') return '读取中…'
+        if (volumeFsInfoState !== 'ready' || !volumeFsInfo) return '—'
+        return `已用 ${formatFilesByteSize(volumeFsInfo.usedBytes)}，共 ${formatFilesByteSize(volumeFsInfo.totalBytes)}`
+      }
       if (folderStatsState === 'loading') return '计算中…'
       if (folderStatsState === 'error' || !folderStats) return '—'
       return `${folderStats.folderCount} 个文件夹、${folderStats.fileCount} 个文件，共 ${formatFilesByteSize(folderStats.totalBytes)}`
     }
     if (node.kind === 'file') return formatFilesByteSize(displayNode.byteSize)
     return '—'
+  })()
+
+  /** 卷根的格式标注：镜像卷显示文件系统类型，文件夹挂载显示宿主直通 */
+  const volumeFormatLabel = (() => {
+    if (imageVolumeLocationId !== undefined) {
+      if (volumeFsInfoState === 'loading') return '读取中…'
+      if (volumeFsInfoState === 'ready' && volumeFsInfo) return volumeFsInfo.fsType
+      const reason = getImageMountReadError(imageVolumeLocationId)
+      return reason ? `无法读取：${reason}` : '无法读取'
+    }
+    if (isFolderMountVolumeRoot) return '宿主文件夹'
+    return undefined
   })()
 
   const handleSparseToggle = useCallback(
@@ -615,6 +678,12 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
             <dt>种类</dt>
             <dd>{kindLabel}</dd>
           </div>
+          {volumeFormatLabel !== undefined ? (
+            <div class="file-info-app__info-row">
+              <dt>格式</dt>
+              <dd>{volumeFormatLabel}</dd>
+            </div>
+          ) : undefined}
           <div class="file-info-app__info-row">
             <dt>{node.kind === 'file' ? '逻辑大小' : '大小'}</dt>
             <dd>{sizeLabel}</dd>
@@ -635,6 +704,30 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
           </div>
         </dl>
       </details>
+
+      {isImageVolumeRoot && volumeFsInfoState === 'ready' && volumeFsInfo ? (
+        <details class="file-info-app__section" open>
+          <summary class="file-info-app__section-summary">容量</summary>
+          <dl class="file-info-app__info">
+            <div class="file-info-app__info-row">
+              <dt>总容量</dt>
+              <dd>{formatFilesByteSize(volumeFsInfo.totalBytes)}</dd>
+            </div>
+            <div class="file-info-app__info-row">
+              <dt>可用空间</dt>
+              <dd>{formatFilesByteSize(volumeFsInfo.freeBytes)}</dd>
+            </div>
+            <div class="file-info-app__info-row">
+              <dt>已用空间</dt>
+              <dd>{formatFilesByteSize(volumeFsInfo.usedBytes)}</dd>
+            </div>
+            <div class="file-info-app__info-row">
+              <dt>簇大小</dt>
+              <dd>{formatFilesByteSize(volumeFsInfo.clusterBytes)}</dd>
+            </div>
+          </dl>
+        </details>
+      ) : undefined}
 
       <details class="file-info-app__section">
         <summary class="file-info-app__section-summary">更多信息</summary>

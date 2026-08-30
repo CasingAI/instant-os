@@ -122,6 +122,25 @@ async function testInMemoryExfatVolume(): Promise<void> {
   assert.equal(stat?.kind, 'folder')
 }
 
+async function testExfatFsInfoReportsCapacity(): Promise<void> {
+  const volume = new ExfatImageVolume(memoryDisk(createExfatImage()))
+  await volume.prepare()
+  const empty = await volume.getFsInfo()
+  assert.equal(empty.fsType, 'exFAT')
+  assert.equal(empty.totalBytes > 0, true)
+  assert.equal(empty.usedBytes + empty.freeBytes, empty.totalBytes)
+  // exFAT 的分配位图、大写表等元数据文件本身占簇，空卷占用大于 0
+
+  // 目录 + 文件各占一簇
+  await volume.mkdir('notes')
+  await volume.writeFile('notes/hello.txt', new TextEncoder().encode('hello exfat'))
+  const after = await volume.getFsInfo()
+  assert.equal(after.totalBytes, empty.totalBytes)
+  assert.equal(after.clusterBytes, empty.clusterBytes)
+  assert.equal(after.usedBytes, empty.usedBytes + 2 * after.clusterBytes)
+  assert.equal(after.freeBytes, empty.totalBytes - after.usedBytes)
+}
+
 async function testExfatReadsFixtureFiles(): Promise<void> {
   const longName = `一份很长的文件名-${'长'.repeat(40)}.txt`
   const chained = new Uint8Array(9000)
@@ -792,6 +811,7 @@ async function testExfatDiskUtilitySurfacing(): Promise<void> {
 
 async function main(): Promise<void> {
   await testInMemoryExfatVolume()
+  await testExfatFsInfoReportsCapacity()
   await testExfatReadsFixtureFiles()
   await testExfatRangeWrite()
   await testExfatStreamWriteAndAbort()

@@ -4263,6 +4263,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           <button
             type="button"
             class="files__context-item"
+            onClick={() => {
+              setLocationContextMenu(undefined)
+              openApp('file-info', {
+                documentId: encodeVolumeInfoDocumentId(locationContextMenu.locationId),
+              })
+            }}
+          >
+            显示信息
+          </button>
+          <button
+            type="button"
+            class="files__context-item"
             onClick={() =>
               void handleUnmount(locationContextMenu.locationId, locationContextMenu.label)
             }

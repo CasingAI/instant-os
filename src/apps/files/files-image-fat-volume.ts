@@ -1,6 +1,6 @@
 import { countSystemDebugHot } from '../../os/system-debug-log.ts'
 import { mount } from 'libmount'
-import type { ImageVolumeEntry } from './files-image-volume.ts'
+import type { ImageVolumeEntry, ImageVolumeFsInfo } from './files-image-volume.ts'
 
 const SECTOR = 512
 const PREFETCH_MIN = 4096
@@ -652,6 +652,30 @@ export class FatImageVolume {
       return this.withRoot((root) => {
         const file = root.getFile(relativePath)
         return file ? this.toEntry(file) : undefined
+      })
+    })
+  }
+
+  async getFsInfo(): Promise<ImageVolumeFsInfo> {
+    return this.enqueue(async () => {
+      return this.withSectors(() => {
+        const fs = this.ensureMounted()
+        const name = fs.getName()
+        if (name !== 'FAT12' && name !== 'FAT16' && name !== 'FAT32') {
+          throw new Error(`无法识别 FAT 文件系统变体：${name}`)
+        }
+        const clusterBytes = fs.getSizeOfCluster()
+        const totalClusters = fs.getCountOfClusters()
+        // libmount 逐簇查 FAT 表；元数据区已钉进缓存，走内存不落盘
+        const freeClusters = fs.getFreeClusters()
+        const totalBytes = totalClusters * clusterBytes
+        return {
+          fsType: name,
+          totalBytes,
+          usedBytes: (totalClusters - freeClusters) * clusterBytes,
+          freeBytes: freeClusters * clusterBytes,
+          clusterBytes,
+        }
       })
     })
   }

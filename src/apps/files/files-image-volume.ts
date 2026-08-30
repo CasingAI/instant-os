@@ -25,6 +25,15 @@ export type ImageVolumeStreamOptions = {
   expectedSize?: number
 }
 
+export type ImageVolumeFsInfo = {
+  fsType: 'FAT12' | 'FAT16' | 'FAT32' | 'exFAT'
+  /** 数据区容量：簇数 × 簇大小（与 Windows/macOS 资源管理器口径一致） */
+  totalBytes: number
+  usedBytes: number
+  freeBytes: number
+  clusterBytes: number
+}
+
 export type ImageVolume = {
   prepare(): Promise<void>
   flush(): Promise<void>
@@ -35,6 +44,8 @@ export type ImageVolume = {
   hasResidentSector(index: number): boolean
   list(relativeDir: string): Promise<ImageVolumeEntry[]>
   stat(relativePath: string): Promise<ImageVolumeEntry | undefined>
+  /** 卷容量概况：文件系统类型与总/已用/可用空间；解析失败时抛错 */
+  getFsInfo(): Promise<ImageVolumeFsInfo>
   readFile(relativePath: string): Promise<Uint8Array>
   readFileRange(relativePath: string, offset: number, length: number): Promise<Uint8Array>
   writeFile(relativePath: string, data: Uint8Array): Promise<ImageVolumeEntry>

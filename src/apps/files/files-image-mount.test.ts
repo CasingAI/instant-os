@@ -138,6 +138,26 @@ async function testInMemoryFatVolume(): Promise<void> {
   assert.equal(text, 'hi')
 }
 
+async function testFsInfoReportsCapacity(): Promise<void> {
+  const volume = new FatImageVolume(memoryDisk(createFat12Image()))
+  await volume.prepare()
+  const empty = await volume.getFsInfo()
+  assert.equal(empty.fsType, 'FAT12')
+  assert.equal(empty.totalBytes > 0, true)
+  assert.equal(empty.usedBytes + empty.freeBytes, empty.totalBytes)
+  // 空卷数据区没有任何簇被占用
+  assert.equal(empty.usedBytes, 0)
+
+  // 目录 + 文件各占一簇
+  await volume.mkdir('notes')
+  await volume.writeFile('notes/hello.txt', new TextEncoder().encode('hello fat'))
+  const after = await volume.getFsInfo()
+  assert.equal(after.totalBytes, empty.totalBytes)
+  assert.equal(after.clusterBytes, empty.clusterBytes)
+  assert.equal(after.usedBytes, 2 * after.clusterBytes)
+  assert.equal(after.freeBytes, empty.totalBytes - after.usedBytes)
+}
+
 async function resetFiles(): Promise<void> {
   await resetImageMountsForTests()
   resetDiskImageOccupancyForTests()
@@ -831,6 +851,7 @@ async function testStreamWriteReplaceOverwritesExisting(): Promise<void> {
 }
 
 await testInMemoryFatVolume()
+await testFsInfoReportsCapacity()
 await testMountWriteUnmountRemount()
 await testVmOccupancyBlocksMount()
 await testUnreadableImageDegradesGracefully()

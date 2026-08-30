@@ -19,7 +19,7 @@ import {
   type FatVolumeOptions,
   type ImageDiskIo,
 } from './files-image-fat-volume.ts'
-import type { ImageVolume, ImageVolumeEntry } from './files-image-volume.ts'
+import type { ImageVolume, ImageVolumeEntry, ImageVolumeFsInfo } from './files-image-volume.ts'
 
 const SECTOR = 512
 const WRITE_BEHIND_IDLE_MS = 100
@@ -1154,6 +1154,29 @@ export class ExfatImageVolume implements ImageVolume {
     return this.enqueue(async () => {
       const { node } = await this.resolveParent(relativePath)
       return node ? this.toEntry(node) : undefined
+    })
+  }
+
+  async getFsInfo(): Promise<ImageVolumeFsInfo> {
+    return this.enqueue(async () => {
+      const sb = this.requireSuperblock()
+      if (!this.bitmap) {
+        throw new Error('exFAT 分配位图未加载')
+      }
+      // 位 N 对应簇 N+2（见 isClusterFree），直接按位统计空闲簇
+      const bitmap = this.bitmap
+      let freeClusters = 0
+      for (let bit = 0; bit < sb.clusterCount; bit += 1) {
+        if ((bitmap[bit >> 3]! & (1 << (bit & 7))) === 0) freeClusters += 1
+      }
+      const totalBytes = sb.clusterCount * sb.clusterSize
+      return {
+        fsType: 'exFAT',
+        totalBytes,
+        usedBytes: (sb.clusterCount - freeClusters) * sb.clusterSize,
+        freeBytes: freeClusters * sb.clusterSize,
+        clusterBytes: sb.clusterSize,
+      }
     })
   }
 
