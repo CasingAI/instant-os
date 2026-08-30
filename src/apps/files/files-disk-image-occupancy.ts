@@ -35,6 +35,35 @@ export function diskImageOccupiedByFilesMountError(path: string): string {
   return `无法打开 ${path}：这份镜像已在文件里挂载。请先卸载后再交给虚拟机。`
 }
 
+/** 文件操作（删除/改名/移动等）命中占用声明时的文案；action 如「删除」「重命名」 */
+export function diskImageOccupiedForFileOpError(
+  path: string,
+  occupant: DiskImageOccupant,
+  action: string,
+): string {
+  return occupant.kind === 'vm'
+    ? `无法${action} ${path}：虚拟机正在使用这份磁盘镜像。请先关机或从虚拟机里去掉这块盘再${action}。`
+    : `无法${action} ${path}：这份磁盘镜像正在文件里挂载使用。请先推出镜像卷再${action}。`
+}
+
+/**
+ * 返回等于该路径或位于其下的占用声明（如删除 /user/Disks 时命中 /user/Disks/x.img）。
+ * 占用声明数量极少，直接遍历即可，无需枚举子树。
+ */
+export function findOccupiedDiskImagePathUnder(
+  path: string,
+): { path: string; occupant: DiskImageOccupant } | undefined {
+  const normalized = normalizeDiskImagePath(path)
+  if (!normalized) return undefined
+  const prefix = normalized.endsWith('/') ? normalized : `${normalized}/`
+  for (const [claimed, occupant] of occupants) {
+    if (claimed === normalized || claimed.startsWith(prefix)) {
+      return { path: claimed, occupant }
+    }
+  }
+  return undefined
+}
+
 export function claimDiskImagePath(path: string, occupant: DiskImageOccupant): void {
   const normalized = normalizeDiskImagePath(path)
   if (!normalized) {

@@ -1,6 +1,10 @@
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from './files-api.ts'
 import { isDiskImageFileName } from './files-disk-image-name.ts'
-import { normalizeDiskImagePath } from './files-disk-image-occupancy.ts'
+import {
+  diskImageOccupiedByVmError,
+  getDiskImageOccupant,
+  normalizeDiskImagePath,
+} from './files-disk-image-occupancy.ts'
 import {
   forgetImageMount,
   listPersistedImageMounts,
@@ -83,45 +87,55 @@ export async function mountDiskImage(imagePath: string): Promise<ImageMountRecor
   if (stat.byteSize < 512) {
     throw new Error('镜像太小，不像有效的磁盘映像')
   }
+  // 先查占用：VM 可写附加会独占镜像的 OPFS 写句柄，先开写通道只会漏出底层锁定错误
+  if (getDiskImageOccupant(path)?.kind === 'vm') {
+    throw new Error(diskImageOccupiedByVmError(path))
+  }
   const quietWriter = await openQuietBlobWriter(path)
-  const record = await openImageMount({
-    imagePath: path,
-    fileName: stat.name || fileNameFromPath(path),
-    io: {
-      size: stat.byteSize,
-      async read(offset, length) {
-        const blob = await filesReadBlobRange(path, offset, length)
-        return new Uint8Array(await blob.arrayBuffer())
+  try {
+    const record = await openImageMount({
+      imagePath: path,
+      fileName: stat.name || fileNameFromPath(path),
+      io: {
+        size: stat.byteSize,
+        async read(offset, length) {
+          const blob = await filesReadBlobRange(path, offset, length)
+          return new Uint8Array(await blob.arrayBuffer())
+        },
+        async write(offset, data) {
+          if (quietWriter) {
+            await quietWriter.writeAt(offset, data)
+            return
+          }
+          let cursor = 0
+          while (cursor < data.byteLength) {
+            const take = Math.min(RANGE_CHUNK, data.byteLength - cursor)
+            const slice = data.subarray(cursor, cursor + take)
+            const copy = new Uint8Array(take)
+            copy.set(slice)
+            await filesWriteBytesRange(path, offset + cursor, copy)
+            cursor += take
+          }
+        },
+        async flush() {
+          if (quietWriter) {
+            await quietWriter.flush()
+          }
+        },
+        async close() {
+          if (quietWriter) {
+            await quietWriter.close()
+          }
+        },
       },
-      async write(offset, data) {
-        if (quietWriter) {
-          await quietWriter.writeAt(offset, data)
-          return
-        }
-        let cursor = 0
-        while (cursor < data.byteLength) {
-          const take = Math.min(RANGE_CHUNK, data.byteLength - cursor)
-          const slice = data.subarray(cursor, cursor + take)
-          const copy = new Uint8Array(take)
-          copy.set(slice)
-          await filesWriteBytesRange(path, offset + cursor, copy)
-          cursor += take
-        }
-      },
-      async flush() {
-        if (quietWriter) {
-          await quietWriter.flush()
-        }
-      },
-      async close() {
-        if (quietWriter) {
-          await quietWriter.close()
-        }
-      },
-    },
-  })
-  rememberImageMount({ id: record.id, imagePath: record.imagePath })
-  return record
+    })
+    rememberImageMount({ id: record.id, imagePath: record.imagePath })
+    return record
+  } catch (error) {
+    // 挂载失败必须交还 OPFS 写会话，否则泄漏的独占句柄会卡住虚拟机回写
+    await quietWriter?.abort().catch(() => undefined)
+    throw error
+  }
 }
 
 export async function unmountDiskImage(locationId: ImageFilesLocationId): Promise<void> {

@@ -22,7 +22,16 @@ import {
 } from './files-disk-image-occupancy.ts'
 import { resetPersistedImageMountsForTests } from './files-image-mount-persist.ts'
 import { resetFilesDbForTests } from './files-storage.ts'
-import { invalidateFilesVfsPathCaches, listFilesLocations } from './files-vfs.ts'
+import {
+  invalidateFilesVfsPathCaches,
+  listFilesLocations,
+  moveNodeTo,
+  removeNode,
+  removeNodesByPathsBatch,
+  renameNode,
+  resolveNodeByAbsolutePath,
+  trashNode,
+} from './files-vfs.ts'
 import { isImageLocationId } from './files-types.ts'
 import { filesLocationPathRoot } from './files-path.ts'
 import { openImageStreamWrite } from './files-location-image.ts'
@@ -217,10 +226,56 @@ async function testVmOccupancyBlocksMount(): Promise<void> {
   )
   const vm = { kind: 'vm' as const, id: 'vm-1' }
   claimDiskImagePath('/user/disk.img', vm)
-  await assert.rejects(() => mountDiskImage('/user/disk.img'))
+  // 占用冲突必须在打开 OPFS 写通道之前拦截，报友好文案而不是底层锁定错误
+  await assert.rejects(
+    () => mountDiskImage('/user/disk.img'),
+    /虚拟机正在把这份镜像当硬盘使用/,
+  )
   releaseDiskImagePath('/user/disk.img', vm)
   const mounted = await mountDiskImage('/user/disk.img')
   await unmountDiskImage(mounted.id)
+}
+
+async function testOccupiedImageProtectedFromFileOps(): Promise<void> {
+  await resetFiles()
+  await filesMkdir('/user/disks')
+  const image = createFat12Image()
+  await filesCreateBinary(
+    '/user/disks/disk.img',
+    image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength),
+  )
+  const mounted = await mountDiskImage('/user/disks/disk.img')
+  const volumeRoot = filesLocationPathRoot(mounted.id)
+  await filesCreateText(`${volumeRoot}/hello.txt`, 'still here')
+  const imgNode = await resolveNodeByAbsolutePath('/user/disks/disk.img')
+  assert.ok(imgNode)
+  const disksFolder = await resolveNodeByAbsolutePath('/user/disks')
+  assert.ok(disksFolder)
+
+  const mountConflict = /正在文件里挂载使用/
+  await assert.rejects(() => trashNode(imgNode.id), mountConflict)
+  await assert.rejects(() => removeNode(imgNode.id), mountConflict)
+  await assert.rejects(() => renameNode(imgNode.id, 'renamed.img'), mountConflict)
+  await assert.rejects(() => moveNodeTo(imgNode.id, 'local', undefined), mountConflict)
+  // 删除包含镜像的父文件夹同样要拦
+  await assert.rejects(() => removeNode(disksFolder.id), mountConflict)
+  await assert.rejects(() => removeNodesByPathsBatch(['/user/disks']), mountConflict)
+
+  // 拦截不伤及镜像与挂载内容
+  assert.ok(await resolveNodeByAbsolutePath('/user/disks/disk.img'))
+  assert.equal(await filesReadText(`${volumeRoot}/hello.txt`), 'still here')
+
+  // VM 占用同样拦截，文案区分占用方
+  await unmountDiskImage(mounted.id)
+  const vm = { kind: 'vm' as const, id: 'vm-1' }
+  claimDiskImagePath('/user/disks/disk.img', vm)
+  await assert.rejects(() => removeNode(imgNode.id), /虚拟机正在使用这份磁盘镜像/)
+  releaseDiskImagePath('/user/disks/disk.img', vm)
+
+  // 无占用后可正常删除
+  await removeNode(imgNode.id)
+  assert.equal(await resolveNodeByAbsolutePath('/user/disks/disk.img'), undefined)
+  await removeNode(disksFolder.id)
 }
 
 async function testUnreadableImageDegradesGracefully(): Promise<void> {
@@ -854,6 +909,7 @@ await testInMemoryFatVolume()
 await testFsInfoReportsCapacity()
 await testMountWriteUnmountRemount()
 await testVmOccupancyBlocksMount()
+await testOccupiedImageProtectedFromFileOps()
 await testUnreadableImageDegradesGracefully()
 await testRemembersMountAcrossRestart()
 await testManualUnmountDoesNotRestore()

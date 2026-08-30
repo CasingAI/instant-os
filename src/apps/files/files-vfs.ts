@@ -90,6 +90,10 @@ import {
   FILES_IMAGE_MOUNTS_CHANGED_EVENT,
 } from './files-image-mount-store.ts'
 import {
+  diskImageOccupiedForFileOpError,
+  findOccupiedDiskImagePathUnder,
+} from './files-disk-image-occupancy.ts'
+import {
   getModels3dNode,
   listModels3dDirectory,
   readModels3dBlob,
@@ -1564,6 +1568,19 @@ export async function openStreamWrite(params: {
   }
 }
 
+/**
+ * 被占用声明（文件 App 挂载 / 虚拟机使用）的磁盘镜像不能被删除、改名或移动：
+ * 挂载会话与虚拟机按路径读写底层镜像，路径一变即失联变砖。
+ */
+function assertDiskImagesNotOccupied(paths: readonly string[], action: string): void {
+  for (const path of paths) {
+    const hit = findOccupiedDiskImagePathUnder(path)
+    if (hit) {
+      throw new Error(diskImageOccupiedForFileOpError(hit.path, hit.occupant, action))
+    }
+  }
+}
+
 export async function renameNode(id: string, nextName: string): Promise<FilesNode> {
   const trimmed = normalizeFilesNodeName(nextName)
   const node = await getNodeOrThrow(id)
@@ -1572,6 +1589,7 @@ export async function renameNode(id: string, nextName: string): Promise<FilesNod
   }
   assertNodeWritable(node)
   const previousPath = await resolveFilesAbsolutePath(node)
+  assertDiskImagesNotOccupied([previousPath], '重命名')
 
   if (isMountNodeId(id)) {
     // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
@@ -1800,6 +1818,9 @@ export async function moveNodeTo(
     return source
   }
 
+  const sourcePath = await resolveFilesAbsolutePath(source)
+  assertDiskImagesNotOccupied([sourcePath], '移动')
+
   if (canMoveNodeMetadataOnly(source, destLocationId)) {
     const previousPath = await resolveFilesAbsolutePath(source)
     const moved = await moveNodeRecord({
@@ -1849,6 +1870,7 @@ export async function trashNode(id: string): Promise<FilesNode> {
     name: node.name,
   }
   const previousPath = await resolveFilesAbsolutePath(node)
+  assertDiskImagesNotOccupied([previousPath], '移入废纸篓')
   const moved = await moveNodeRecord({
     id,
     locationId: 'trash',
@@ -1986,6 +2008,7 @@ async function removeNodeInner(
 ): Promise<void> {
   const id = node.id
   const path = await resolveFilesAbsolutePath(node)
+  assertDiskImagesNotOccupied([path], '删除')
   if (isMountNodeId(id)) {
     options?.onProgress?.({ done: 0, total: 1 })
     await removeMountNode(id)
@@ -2030,6 +2053,7 @@ export async function removeNodesByPathsBatch(
     if (isFilesNamespaceRoot(absolutePath)) {
       throw new Error('不能删除命名空间根')
     }
+    assertDiskImagesNotOccupied([absolutePath], '删除')
     const parsed = parseFilesAbsolutePath(absolutePath)
     if (!parsed || parsed.segments.length === 0) {
       throw new Error('不能删除卷根')
