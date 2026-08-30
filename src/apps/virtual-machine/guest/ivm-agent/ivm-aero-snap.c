@@ -6,15 +6,17 @@
  *   - 拖到屏幕顶边 → 最大化（真 SW_MAXIMIZE）；
  *   - 拖动已吸附的窗口 → 恢复吸附前尺寸跟随光标（吸附链：同一次拖拽里
  *     再吸附仍记更早的原矩形；放下后链条结束，与 Win7 一致）；
- *   - Win+左/右/上/下 → 前台窗半屏 / 最大化 / 还原→最小化。
+ *   - Win+左/右/上/下 → 前台窗半屏 / 最大化 / 还原→最小化；
+ *   - 边缘触发距离宿主可配（OP_SNAP_EDGE 帧实时下发，默认 12px）。
  *
  * 原理（AltSnap 在 XP 上的实证路线，代码全部原创）：WH_MOUSE_LL 低级鼠标
  * 钩子（免 DLL 注入，NT4 SP3+ 即有）看所有进程的标题栏拖拽；窗口判定用
  * GetAncestor(GA_ROOT) + 跨进程 WM_NCHITTEST（SendMessageTimeoutA 带
  * SMTO_ABORTIFHUNG——目标进程挂死也绝不拖累钩子线程，否则全系统鼠标事件
  * 跟着卡）；目标矩形按 MonitorFromPoint(MONITOR_DEFAULTTONEAREST) 的
- * rcWork 算（避任务栏），触发带按 rcMonitor 边缘 4px（角落让位于左右半
- * 屏，与 Win7 一致）；恢复矩形存 16 项静态表，不用 SetProp（无跨进程写、
+ * rcWork 算（避任务栏），触发带按 rcMonitor 边缘 g_edge_base px（默认 12、
+ * 宿主可配；角落让位于左右半屏，与 Win7 一致）；恢复矩形存 16 项静态表，
+ * 不用 SetProp（无跨进程写、
  * 卸载不留痕）。预览窗单窗方案：WS_EX_LAYERED 整体半透明（AltSnap 的
  * TransWinOpacity 路线；它的默认「4 薄窗拼空心框」是为视觉保真，不必抄）。
  *
@@ -51,7 +53,11 @@
 
 #define SNAP_CLASS "IVMSnapPreview" /* 构建防呆 marker，勿改字符串 */
 
-#define SNAP_EDGE_PX 4            /* 光标贴近屏幕边缘的触发距离 */
+/* 光标贴近屏幕边缘的触发距离（px）：宿主经 OP_SNAP_EDGE 帧可配（v5），
+ * 默认值与宿主 VM_SNAP_EDGE_PX_DEFAULT 保持同步；协议字节侧 clamp 2..64。 */
+#define SNAP_EDGE_BASE_DEFAULT 12
+#define SNAP_EDGE_BASE_MIN 2
+#define SNAP_EDGE_BASE_MAX 64
 #define RESTORE_THRESHOLD_PX 6    /* 吸附窗拖离：超过才取消原生循环接管拖拽 */
 #define OWN_DRAG_STEP_PX 4        /* 接管拖拽的摆位节流步长 */
 #define RESTORE_APPLY_DELAY_MS 50 /* 原生循环退出等待（见文件头第 1 条） */
@@ -61,6 +67,7 @@
 
 #define WM_APP_SNAP (WM_APP + 0x11)        /* 线程内消息：吸附落位（延迟由泵处理） */
 #define WM_APP_SNAP_ENABLE (WM_APP + 0x12) /* 线程内消息：宿主开关（挂/卸钩子） */
+#define WM_APP_SNAP_EDGE (WM_APP + 0x13)   /* 线程内消息：宿主触发距离（px） */
 
 #define HOTKEY_LEFT 1
 #define HOTKEY_RIGHT 2
@@ -245,16 +252,20 @@ static void monitor_work(const POINT *pt, RECT *mon, RECT *wa)
     *mon = *wa; /* 兜底：无监视器信息时用主屏工作区充当屏幕矩形 */
 }
 
+/* 触发距离（宿主 OP_SNAP_EDGE 下发）：泵线程写、钩子线程读，单 int 对齐
+ * 读写 x86 天然原子，无需锁；越界值在泵线程 clamp。 */
+static int g_edge_base = SNAP_EDGE_BASE_DEFAULT;
+
 /* 角落让位于左右半屏（Win7 行为）：先判左右，再判顶。 */
 static int edge_kind(const POINT *pt, const RECT *mon)
 {
-    if (pt->x <= mon->left + SNAP_EDGE_PX) {
+    if (pt->x <= mon->left + g_edge_base) {
         return SNAP_LEFT;
     }
-    if (pt->x >= mon->right - 1 - SNAP_EDGE_PX) {
+    if (pt->x >= mon->right - 1 - g_edge_base) {
         return SNAP_RIGHT;
     }
-    if (pt->y <= mon->top + SNAP_EDGE_PX) {
+    if (pt->y <= mon->top + g_edge_base) {
         return SNAP_MAX;
     }
     return SNAP_NONE;
@@ -705,6 +716,20 @@ static DWORD WINAPI snap_thread_main(void *arg)
             }
             continue;
         }
+        if (msg.message == WM_APP_SNAP_EDGE) {
+            /* 触发距离 clamp 后落全局：无论开关状态都更新，开着时下一次
+             * mousemove 即用新值。 */
+            int px = (int)msg.wParam;
+            if (px < SNAP_EDGE_BASE_MIN) {
+                px = SNAP_EDGE_BASE_MIN;
+            }
+            if (px > SNAP_EDGE_BASE_MAX) {
+                px = SNAP_EDGE_BASE_MAX;
+            }
+            g_edge_base = px;
+            snap_log("snap: edge=%d", px);
+            continue;
+        }
         if (msg.message == WM_APP_SNAP) {
             Sleep(RESTORE_APPLY_DELAY_MS); /* 等原生 move-size 循环退场 */
             apply_snap(g_apply.kind, g_apply.hwnd, &g_apply.orig);
@@ -747,6 +772,15 @@ void ivm_aero_snap_set_enabled(unsigned char on)
 {
     if (g_snap_tid != 0) {
         PostThreadMessageA(g_snap_tid, WM_APP_SNAP_ENABLE, on ? 1 : 0, 0);
+    }
+}
+
+/* 宿主「吸附触发距离」（OP_SNAP_EDGE 帧）：与开关同款 post 给泵线程
+ * （clamp 在那边做）；fire-and-forget，无回执。 */
+void ivm_aero_snap_set_edge(unsigned char px)
+{
+    if (g_snap_tid != 0) {
+        PostThreadMessageA(g_snap_tid, WM_APP_SNAP_EDGE, px, 0);
     }
 }
 

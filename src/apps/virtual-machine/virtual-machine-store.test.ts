@@ -31,6 +31,9 @@ import {
   DEFAULT_VIRTUAL_MACHINE_MEMORY_MB,
   DEFAULT_VIRTUAL_MACHINE_NAME,
   DEFAULT_VIRTUAL_MACHINE_VGA_MEMORY_MB,
+  VM_SNAP_EDGE_PX_DEFAULT,
+  VM_SNAP_EDGE_PX_MAX,
+  VM_SNAP_EDGE_PX_MIN,
 } from './virtual-machine-types.ts'
 
 async function resetState(): Promise<void> {
@@ -80,6 +83,24 @@ function testNormalizeDiskWriteModeFallback(): void {
 
   const poweroff = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'poweroff' })
   assert.equal(poweroff?.diskWriteMode, 'poweroff')
+}
+
+function testNormalizeSnapEdgePx(): void {
+  // 旧记录缺字段：落默认 12（与客机 SNAP_EDGE_BASE_DEFAULT 同步）
+  const missing = normalizeVirtualMachineSettings({ name: 'test' })
+  assert.equal(missing?.enhanceWindowSnapEdgePx, VM_SNAP_EDGE_PX_DEFAULT)
+
+  // 越界 clamp 到滑块范围
+  const low = normalizeVirtualMachineSettings({ name: 'test', enhanceWindowSnapEdgePx: 0 })
+  assert.equal(low?.enhanceWindowSnapEdgePx, VM_SNAP_EDGE_PX_MIN)
+  const high = normalizeVirtualMachineSettings({ name: 'test', enhanceWindowSnapEdgePx: 500 })
+  assert.equal(high?.enhanceWindowSnapEdgePx, VM_SNAP_EDGE_PX_MAX)
+
+  // 非整数四舍五入，非法形态回默认
+  const rounded = normalizeVirtualMachineSettings({ name: 'test', enhanceWindowSnapEdgePx: 13.6 })
+  assert.equal(rounded?.enhanceWindowSnapEdgePx, 14)
+  const bad = normalizeVirtualMachineSettings({ name: 'test', enhanceWindowSnapEdgePx: 'big' })
+  assert.equal(bad?.enhanceWindowSnapEdgePx, VM_SNAP_EDGE_PX_DEFAULT)
 }
 
 function testNormalizeEmptyArrayStaysEmpty(): void {
@@ -417,6 +438,7 @@ testNormalizeDropsHttpUrls()
 testNormalizeRecordRejectsInvalid()
 testNormalizeBuildModeFallback()
 testNormalizeDiskWriteModeFallback()
+testNormalizeSnapEdgePx()
 testNormalizeMemoryMbRange()
 testNormalizeCpuModelFallback()
 testNormalizeKeyMappings()

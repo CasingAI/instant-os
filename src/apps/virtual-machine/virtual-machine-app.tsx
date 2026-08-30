@@ -91,6 +91,7 @@ import type {
 import {
   VM_DISPLAY_MODE_IDS,
   VM_OS_PRESET_AGENT_SUPPORTED,
+  VM_SNAP_EDGE_PX_DEFAULT,
   type VmDisplayModeId,
 } from './virtual-machine-types.ts'
 import './virtual-machine.css'
@@ -750,17 +751,21 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const enhanceActive = (displayedMachine?.osPreset ?? 'windows-xp') !== 'none'
   const enhanceClipboard = enhanceActive && (displayedMachine?.enhanceClipboard ?? true)
   const enhanceFileTransfer = enhanceActive && (displayedMachine?.enhanceFileTransfer ?? true)
-  // 窗口吸附与其它增强不同：开关必须下发客机（钩子挂/卸在那边），所以
-  // 运行中经 agentCommand 实时推 OP_SNAP 帧；未运行只存设置。
+  // 窗口吸附与其它增强不同：开关与触发距离必须下发客机（钩子挂/卸在那边），
+  // 所以运行中经 agentCommand 实时推 OP_SNAP/OP_SNAP_EDGE 帧；未运行只存设置。
   const enhanceWindowSnap = enhanceActive && (displayedMachine?.enhanceWindowSnap ?? true)
+  const enhanceWindowSnapEdgePx =
+    displayedMachine?.enhanceWindowSnapEdgePx ?? VM_SNAP_EDGE_PX_DEFAULT
   useEffect(() => {
     if (displayedId === undefined || !selectedRunning) {
       return
     }
-    void pool.agentCommand(displayedId, 'snap', [enhanceWindowSnap]).catch(() => {})
-    // pool.agentCommand 稳定；agent 未就绪时本帧失败被吞，下一次开关变更
+    void pool
+      .agentCommand(displayedId, 'snap', [enhanceWindowSnap, enhanceWindowSnapEdgePx])
+      .catch(() => {})
+    // pool.agentCommand 稳定；agent 未就绪时本帧失败被吞，下一次设置变更
     // 或机器切换会重发。
-  }, [displayedId, enhanceWindowSnap, selectedRunning, pool.agentCommand])
+  }, [displayedId, enhanceWindowSnap, enhanceWindowSnapEdgePx, selectedRunning, pool.agentCommand])
   useEffect(() => {
     keyTranslatorRef.current.setKeymap(
       compileVmKeyMappings(

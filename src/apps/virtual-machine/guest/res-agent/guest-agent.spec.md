@@ -96,6 +96,7 @@ opcode，宿主经运行时串口发送下发（resolution-serial 泵每秒的�
 | 0x05 | CLICK（0x20） | `0x20 <x:u16><y:u16>` LE | `SetCursorPos` + `mouse_event` 左键单击；回 `[IVM]CLICK=1` |
 | 0x05 | DBLCLICK（0x21） | `0x21 <x:u16><y:u16>` LE | 同上双击（两次单击间隔 60ms）；回 `[IVM]DBLCLK=1` |
 | 0x02 | SNAP（0x13） | `0x13 <0\|1>` | 窗口吸附开关（v4）：挂/卸 LL 钩子（切到 snap 线程执行），fire-and-forget 无回执；宿主「体验增强 → 窗口吸附」实时下发 |
+| 0x02 | SNAP_EDGE（0x14） | `0x14 <px>` | 吸附触发距离（v5）：光标贴近屏幕边缘多少像素触发吸附，客机 clamp 2..64、默认 12；fire-and-forget 无回执；宿主「体验增强 → 窗口吸附 → 吸附触发距离」实时下发 |
 
 关机路径：`ExitWindowsEx` 触发客机 ACPI 切电 → 宿主 `guest-poweroff`
 watcher → `destroyCurrent`（stop → 写回落盘 → 销毁）——即「软关机」。
@@ -180,8 +181,11 @@ ivm-agent v4 在登录常驻实例（持有会话互斥 `InstantVmClipboardBridg
 - 行为 = Win7 Aero Snap 平价：标题栏拖到屏幕左/右缘贴半屏、顶边最大化、
   拖离恢复原尺寸（吸附链与 Win7 一致）、Win+方向键（左/右半屏、上最大化、
   下还原→最小化）；
-- 服务身份不跑（交互增强一律跟桥走）；COM1 协议零变化，v1/v2/v3 帧全部
-  原样；
+- 服务身份不跑（交互增强一律跟桥走）；v4 时 COM1 协议零变化，v5 新增
+  SNAP_EDGE（0x14）触发距离帧——0x13 开关帧与 v1/v2/v3 帧全部原样；
+- 边缘触发距离宿主可配（v5）：设置「体验增强 → 窗口吸附 → 吸附触发距离」
+  经 SNAP_EDGE 帧实时下发，客机 clamp 2..64、默认 12（与宿主
+  `VM_SNAP_EDGE_PX_DEFAULT` 同步）；旧宿主不下发时用客机默认值；
 - 技术要点与边界（WH_MOUSE_LL 免注入、跨进程 NCHITTEST 带
   SMTO_ABORTIFHUNG 超时、吸附表静态 16 项不用 SetProp、预览窗为半透明
   分层单窗、不做毛玻璃实时缩略图——XP 无合成器、XP 最大化 8px 越界用

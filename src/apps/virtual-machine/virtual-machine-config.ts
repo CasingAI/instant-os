@@ -28,6 +28,10 @@ import {
   VM_MEMORY_MB_MAX,
   VM_MEMORY_MB_MIN,
   VM_MEMORY_MB_STEP,
+  VM_SNAP_EDGE_PX_DEFAULT,
+  VM_SNAP_EDGE_PX_MAX,
+  VM_SNAP_EDGE_PX_MIN,
+  VM_SNAP_EDGE_PX_STEP,
   VM_STORAGE_DEVICE_LIMITS,
   VM_STORAGE_DEVICE_SOURCES,
   VM_STORAGE_DEVICE_TYPES,
@@ -83,6 +87,7 @@ export function defaultVirtualMachineSettings(
     enhanceFileTransfer: true,
     enhanceAbsoluteMouse: true,
     enhanceWindowSnap: true,
+    enhanceWindowSnapEdgePx: VM_SNAP_EDGE_PX_DEFAULT,
   }
 }
 
@@ -114,6 +119,7 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     enhanceFileTransfer: record.enhanceFileTransfer,
     enhanceAbsoluteMouse: record.enhanceAbsoluteMouse,
     enhanceWindowSnap: record.enhanceWindowSnap,
+    enhanceWindowSnapEdgePx: record.enhanceWindowSnapEdgePx,
   }
 }
 
@@ -451,6 +457,7 @@ export const VM_OS_PRESET_CHOICES: readonly SettingsChoiceOption[] = VM_OS_PRESE
 )
 
 export { VM_MEMORY_MB_MIN, VM_MEMORY_MB_MAX, VM_MEMORY_MB_STEP }
+export { VM_SNAP_EDGE_PX_DEFAULT, VM_SNAP_EDGE_PX_MAX, VM_SNAP_EDGE_PX_MIN, VM_SNAP_EDGE_PX_STEP }
 export { VM_STORAGE_DEVICE_LIMITS }
 
 export const VM_HARD_DISK_ACCEPT_EXTENSIONS = ['img', 'raw', 'bin', 'dsk'] as const

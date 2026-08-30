@@ -21,6 +21,8 @@ import {
   VM_NETWORK_IDS,
   VM_OS_PRESET_IDS,
   VM_POINTER_MODE_IDS,
+  VM_SNAP_EDGE_PX_MAX,
+  VM_SNAP_EDGE_PX_MIN,
   VM_STORAGE_DEVICE_TYPES,
   VM_VGA_MEMORY_MB_OPTIONS,
   type VirtualMachineRecord,
@@ -57,6 +59,14 @@ function normalizeMemoryMb(raw: unknown, fallback: number): number {
     return fallback
   }
   return clampVmMemoryMb(num)
+}
+
+function normalizeVmSnapEdgePx(raw: unknown, fallback: number): number {
+  const num = typeof raw === 'number' ? raw : Number(raw)
+  if (!Number.isFinite(num)) {
+    return fallback
+  }
+  return Math.round(Math.min(VM_SNAP_EDGE_PX_MAX, Math.max(VM_SNAP_EDGE_PX_MIN, num)))
 }
 
 function normalizePath(raw: unknown): string {
@@ -188,6 +198,10 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
       defaults.enhanceAbsoluteMouse,
     ),
     enhanceWindowSnap: normalizeBoolean(record.enhanceWindowSnap, defaults.enhanceWindowSnap),
+    enhanceWindowSnapEdgePx: normalizeVmSnapEdgePx(
+      record.enhanceWindowSnapEdgePx,
+      defaults.enhanceWindowSnapEdgePx,
+    ),
   }
 }
 

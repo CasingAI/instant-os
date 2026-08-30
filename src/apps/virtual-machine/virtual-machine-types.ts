@@ -20,6 +20,16 @@ export const VM_MEMORY_MB_STEP = 16
 export const DEFAULT_VIRTUAL_MACHINE_MEMORY_MB: VmMemoryMb = 64
 
 /**
+ * 窗口吸附触发距离（px）：光标贴近屏幕边缘多少像素触发吸附。设置滑块范围
+ * 2..48；协议字节侧（运行时 `encodeSnapEdgeFrame` 与客机 `SNAP_EDGE_BASE_*`）
+ * clamp 2..64，默认 12 与客机 `SNAP_EDGE_BASE_DEFAULT` 保持同步。
+ */
+export const VM_SNAP_EDGE_PX_MIN = 2
+export const VM_SNAP_EDGE_PX_MAX = 48
+export const VM_SNAP_EDGE_PX_STEP = 2
+export const VM_SNAP_EDGE_PX_DEFAULT = 12
+
+/**
  * 对应 v86 `vga_memory_size`。默认 16MB：任意分辨率直推后密阶梯最大档
  * 需 ~15.5MiB（2552×1595×32），低于此值高分辨率模式会被驱动显存校验拒绝
  * （todo/vm-arbitrary-resolution R9）。上限 256MB 为 v86 硬上限
@@ -209,6 +219,8 @@ export type VirtualMachineSettings = {
   enhanceAbsoluteMouse: boolean
   /** 窗口吸附：客机内拖窗口到屏幕边缘贴半屏/最大化（Aero Snap，OP_SNAP 下发）。 */
   enhanceWindowSnap: boolean
+  /** 窗口吸附触发距离（px）：OP_SNAP_EDGE 实时下发，运行中改完即生效。 */
+  enhanceWindowSnapEdgePx: number
 }
 
 export type VirtualMachineRecord = VirtualMachineSettings & {

@@ -189,6 +189,7 @@ static void handle_packed_value(unsigned long packed);
 #define OP_EXEC_R 0x11
 #define OP_SHM_QUERY 0x12
 #define OP_SNAP 0x13
+#define OP_SNAP_EDGE 0x14
 #define OP_CLICK 0x20
 #define OP_DBLCLICK 0x21
 
@@ -198,8 +199,9 @@ static void handle_packed_value(unsigned long packed);
 #endif
 
 /* 产品版本号：PONG 回执与单实例弹窗共用，改动协议/行为时递增。
- * v4：登录常驻身份新增 Aero Snap 窗口吸附（ivm-aero-snap.c）。 */
-#define AGENT_VERSION "4"
+ * v4：登录常驻身份新增 Aero Snap 窗口吸附（ivm-aero-snap.c）。
+ * v5：Aero Snap 触发距离可配（OP_SNAP_EDGE 0x14，ivm-aero-snap.c）。 */
+#define AGENT_VERSION "5"
 
 /* 当前 COM1 句柄：命令回执（[IVM]…\r\n）从这里写回宿主。 */
 static HANDLE g_port;
@@ -407,9 +409,10 @@ static void handle_click(unsigned char opcode, const unsigned char *p)
     reply_line("%s=1", (opcode == OP_DBLCLICK) ? "DBLCLK" : "CLICK");
 }
 
-/* ivm-aero-snap.c：窗口吸附（登录常驻身份专属）+ 开关帧。 */
+/* ivm-aero-snap.c：窗口吸附（登录常驻身份专属）+ 开关/触发距离帧。 */
 void ivm_aero_snap_start(void);
 void ivm_aero_snap_command(unsigned char len, const unsigned char *payload);
+void ivm_aero_snap_set_edge(unsigned char px);
 
 static void handle_frame(unsigned char len, const unsigned char *payload)
 {
@@ -456,6 +459,13 @@ static void handle_frame(unsigned char len, const unsigned char *payload)
         break;
     case OP_SNAP:
         ivm_aero_snap_command(len, payload);
+        break;
+    case OP_SNAP_EDGE:
+        if (len == 2) {
+            ivm_aero_snap_set_edge(payload[1]);
+        } else {
+            log_line("res-agent: snap-edge frame len=%u ignored", len);
+        }
         break;
     case OP_CLICK:
     case OP_DBLCLICK:
