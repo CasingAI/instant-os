@@ -698,9 +698,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     powerHint ??
     selectedHint ??
     (agentLink === 'full'
-      ? 'Agent 已连通'
+      ? '体验已增强'
       : agentLink === 'command'
-        ? 'Agent 已连通 · 剪贴板信箱未就绪'
+        ? '体验已增强 · 剪贴板信箱未就绪'
         : undefined)
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
