@@ -128,7 +128,10 @@ async function pushSharedFolderGuestConfig(
   const commands = [
     ...(enabled
       ? [
+          // start= auto 只管下次开机；本次会话必须当场启动 WebClient，否则
+          // net use 直接报「找不到网络名」。已启动时退出码非零，无碍。
           'sc config WebClient start= auto',
+          'net start WebClient',
           'reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\WebClient\\Parameters /v FileSizeLimitInBytes /t REG_DWORD /d 536870912 /f',
         ]
       : []),
@@ -818,6 +821,34 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
     void pool.setSharedFolder(displayedId, sharedFolderActive).catch(() => {})
   }, [displayedId, selectedRunning, sharedFolderActive, sharedFolderPath, pool])
+  // 共享文件夹开机重推：guest 注册表配置是易失的（硬盘写入「不写入」时重启
+  // 即蒸发），agent 的启动自愈只在配置还在时有效。每次开机、agent 命令链
+  // 就绪（PONG 新鲜）后宿主重推一遍——幂等（Seq bump 后 agent 无操作收敛）。
+  // 无论开关状态都推：connected=false / 能力关了也要下写 Enabled=0，压掉
+  // guest 里持久化的旧 Enabled=1，否则开机自愈会把已断开的映射重新挂上。
+  const sharedFolderBootPushedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!selectedId) {
+      return
+    }
+    if (!selectedRunning) {
+      // 停机清标记，下次开机重推。
+      sharedFolderBootPushedRef.current.delete(selectedId)
+      return
+    }
+    if (agentLink === 'off' || sharedFolderBootPushedRef.current.has(selectedId)) {
+      return
+    }
+    if (!selected) {
+      return
+    }
+    sharedFolderBootPushedRef.current.add(selectedId)
+    void pushSharedFolderGuestConfig(
+      isSharedFolderActive(selected),
+      (command) => pool.agentCommand(selectedId, 'exec', [command]),
+      selected.sharedFolderDrive,
+    ).catch(() => {})
+  }, [agentLink, pool.agentCommand, selected, selectedId, selectedRunning])
   useEffect(() => {
     keyTranslatorRef.current.setKeymap(
       compileVmKeyMappings(
