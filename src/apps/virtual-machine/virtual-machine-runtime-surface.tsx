@@ -90,6 +90,7 @@ export function VmRuntimeSurface({
     captureKeyboard,
     releaseKeyboard,
     agentCommand,
+    setSharedFolder,
   } = useVirtualMachineRuntime(
     resolvedOrigin,
     () => onGuestPoweredOff(machineId),
@@ -120,6 +121,7 @@ export function VmRuntimeSurface({
       captureKeyboard,
       releaseKeyboard,
       agentCommand,
+      setSharedFolder,
     })
     return () => onUnregister(machineId)
   }, [

@@ -221,6 +221,14 @@ export type VirtualMachineSettings = {
   enhanceWindowSnap: boolean
   /** 窗口吸附触发距离（px）：OP_SNAP_EDGE 实时下发，运行中改完即生效。 */
   enhanceWindowSnapEdgePx: number
+  /**
+   * 共享文件夹（WebDAV）：客机经 WebClient 把宿主目录映射成网络驱动器。
+   * 开关变更时宿主自动经 EXEC 通道配置客机（WebClient/注册表）并幂等收敛映射，
+   * 无需手工脚本。
+   */
+  sharedFolderEnabled: boolean
+  /** 共享文件夹根（VFS 绝对路径；可为 /mount/... 即宿主真实目录）。 */
+  sharedFolderPath: string
 }
 
 export type VirtualMachineRecord = VirtualMachineSettings & {

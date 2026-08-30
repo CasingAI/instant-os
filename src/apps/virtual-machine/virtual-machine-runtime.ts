@@ -281,6 +281,8 @@ export type VmRuntimeApi = {
   setPointerMode(mode: InstantVmPointerMode): Promise<void>
   /** 运行中切换「体验增强·绝对坐标鼠标」放行位。 */
   setAbsoluteMouse(enabled: boolean): Promise<void>
+  /** 运行中热开关共享文件夹拦截器；未运行时静默（下次 start 按配置生效）。 */
+  setSharedFolder(enabled: boolean): Promise<void>
   setResolution(width: number, height: number): Promise<void>
   /** 运行中换盘（热插）。stream 必须已由宿主注册；回执前镜像不会被 guest 读到。 */
   setCdrom(stream: InstantVmDiskStreamRef): Promise<void>
@@ -704,6 +706,18 @@ export function useVirtualMachineRuntime(
     [request],
   )
 
+  // 运行中热开关共享文件夹拦截器：无状态命令，重发无害。
+  const setSharedFolder = useCallback(
+    async (enabled: boolean) => {
+      await request({
+        type: INSTANT_VM_MESSAGE_TYPE.setSharedFolder,
+        requestId: newVmRequestId(),
+        enabled,
+      })
+    },
+    [request],
+  )
+
   // 分辨率自动对齐的注入点：运行时把值写进 v86 io 表的 read32 闭包。
   // 无状态命令，重发无害；客机代理未安装时运行时静默忽略。
   const setResolution = useCallback(
@@ -852,6 +866,7 @@ export function useVirtualMachineRuntime(
     captureKeyboard,
     releaseKeyboard,
     agentCommand,
+    setSharedFolder,
   }
 }
 
@@ -1174,6 +1189,17 @@ export function useVirtualMachineRuntimePool(
     [],
   )
 
+  const setSharedFolder = useCallback(
+    async (id: string, enabled: boolean): Promise<void> => {
+      const api = apiByIdRef.current.get(id)
+      if (!api) {
+        return
+      }
+      await api.setSharedFolder(enabled)
+    },
+    [],
+  )
+
   const setActiveResolution = useCallback(
     async (id: string, width: number, height: number): Promise<void> => {
       const api = apiByIdRef.current.get(id)
@@ -1251,6 +1277,7 @@ export function useVirtualMachineRuntimePool(
     setActiveDisplayMode,
     setActivePointerMode,
     setActiveAbsoluteMouse,
+    setSharedFolder,
     setActiveResolution,
     setActiveCdrom,
     ejectActiveCdrom,

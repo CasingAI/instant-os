@@ -11,6 +11,7 @@
 #   ivm-agent/ivm-mouse-install.c      /mouse-install：vmmouse 过滤驱动注册
 #   ivm-agent/ivm-audio-install.c      /audio-install：XP 内置 SB16 声卡驱动绑定
 #   ivm-agent/ivm-aero-snap.c          Aero Snap 窗口吸附（登录会话身份专属）
+#   ivm-agent/ivm-shared-folder.c      共享文件夹映射收敛（登录会话身份专属）
 #
 # 管线与旧 build-res-agent.sh 相同：zig cc -nostdlib + patch PE 版本 5.01。
 set -eu
@@ -19,7 +20,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GUEST_DIR="$ROOT/src/apps/virtual-machine/guest"
 OUT_DIR="${1:-$GUEST_DIR/out}"
 OUT="$OUT_DIR/ivm-agent.exe"
-SOURCES="$GUEST_DIR/res-agent/res-agent.c $GUEST_DIR/clipboard-bridge/clipboard-bridge.c $GUEST_DIR/ivm-agent/ivm-mouse-install.c $GUEST_DIR/ivm-agent/ivm-audio-install.c $GUEST_DIR/ivm-agent/ivm-aero-snap.c"
+SOURCES="$GUEST_DIR/res-agent/res-agent.c $GUEST_DIR/clipboard-bridge/clipboard-bridge.c $GUEST_DIR/ivm-agent/ivm-mouse-install.c $GUEST_DIR/ivm-agent/ivm-audio-install.c $GUEST_DIR/ivm-agent/ivm-aero-snap.c $GUEST_DIR/ivm-agent/ivm-shared-folder.c"
 
 command -v zig >/dev/null 2>&1 || { echo "error: 需要 zig（brew install zig）" >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "error: 需要 node" >&2; exit 1; }

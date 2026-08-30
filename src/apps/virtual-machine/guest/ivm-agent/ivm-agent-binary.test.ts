@@ -144,6 +144,7 @@ function buildAndAssert(directory: string): PeInfo {
     'VMware Pointing Device',
     'ctlsb16',
     'IVMSnapPreview',
+    'InstantVM\\SharedFolder',
   ]) {
     assert.ok(image.includes(marker), `产物缺少关键字符串 "${marker}"（旧构建或链接丢了入口分发）`)
   }
@@ -155,20 +156,23 @@ function main() {
     console.log('SKIP: 未安装 zig（brew install zig），ivm-agent 产物校验只在装了工具链的环境跑')
     return
   }
-  // 行数守卫：res-agent v3 放宽到 800，并入合并入口后放宽到 900；
-  // 剪贴板桥 v4 放宽到 1700；鼠标安装助手（安装+/mouse-check 诊断+自愈
-  // 三职责）放宽到 500；声卡驱动助手（三职责 + 就地提取 + 显式自建设备
-  // + /audio-uninstall 回滚）放宽到 700；Aero Snap（钩子+吸附表+预览窗
-  // +热键+开关+排查期文件日志）放宽到 800。
+  // 行数守卫：res-agent v3 放宽到 800，并入合并入口后放宽到 900，v5 加
+  // OP_SNAP_EDGE 分发后放宽到 950；剪贴板桥 v4 放宽到 1700（v5 加共享文
+  // 件夹收敛钩子一行）；鼠标安装助手（安装+/mouse-check 诊断+自愈三职责）
+  // 放宽到 500；声卡驱动助手（三职责+就地提取+显式自建设备+/audio-uninstall
+  // 回滚）放宽到 700；Aero Snap（钩子+吸附表+预览窗+热键+开关+排查期文件
+  // 日志）放宽到 800；共享文件夹（注册表轮询+幂等 net use 收敛+日志）放宽
+  // 到 300。
   const sourceLines = (path: string, limit: number, label: string) => {
     const lines = readFileSync(join(GUEST_DIR, path), 'utf8').split('\n').length
     assert.ok(lines < limit, `${label} 应保持 < ${limit} 行，当前 ${lines} 行`)
   }
-  sourceLines('res-agent/res-agent.c', 900, 'res-agent.c')
+  sourceLines('res-agent/res-agent.c', 950, 'res-agent.c')
   sourceLines('clipboard-bridge/clipboard-bridge.c', 1700, 'clipboard-bridge.c')
   sourceLines('ivm-agent/ivm-mouse-install.c', 500, 'ivm-mouse-install.c')
   sourceLines('ivm-agent/ivm-audio-install.c', 700, 'ivm-audio-install.c')
   sourceLines('ivm-agent/ivm-aero-snap.c', 800, 'ivm-aero-snap.c')
+  sourceLines('ivm-agent/ivm-shared-folder.c', 300, 'ivm-shared-folder.c')
 
   // 两次独立编译：第一次拿属性基线，第二次验证可重现性。
   const infoA = buildAndAssert(mkdtempSync(join(tmpdir(), 'ivm-agent-a-')))

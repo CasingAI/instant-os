@@ -1473,9 +1473,16 @@ static void send_offer_from_clipboard(void)
 
 /* ---- XP 复制检测 + H2G 消费的组合 tick ---- */
 
+/* ivm-shared-folder.c：登录会话内收敛宿主共享文件夹的 net use 映射。 */
+void ivm_shared_folder_tick(void);
+
 static void bridge_tick(void)
 {
     h2g_process();
+
+    /* 共享文件夹收敛：必须在剪贴板 seq 的提前 return 之前，否则空闲时
+     * （seq 不变）轮询被跳过，宿主切换开关要等一次剪贴板动作才生效。 */
+    ivm_shared_folder_tick();
 
     DWORD seq = GetClipboardSequenceNumber();
     if (seq == g_last_seq) {

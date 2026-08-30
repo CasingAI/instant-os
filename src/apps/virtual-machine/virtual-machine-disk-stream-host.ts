@@ -75,7 +75,7 @@ function runtimeOrigins(): string[] {
   }
 }
 
-function isRuntimeOrigin(origin: string): boolean {
+export function isRuntimeOrigin(origin: string): boolean {
   return runtimeOrigins().includes(origin)
 }
 
@@ -575,7 +575,7 @@ async function writeDiskRange(
   }
 }
 
-function postSource(
+export function postSource(
   source: {
     postMessage: (
       message: unknown,

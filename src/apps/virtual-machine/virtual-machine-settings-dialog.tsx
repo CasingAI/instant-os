@@ -353,6 +353,17 @@ export function VirtualMachineSettingsDialog({
     [draft.devices, showSystemOpenDialog, updateDevice],
   )
 
+  const pickSharedFolderPath = useCallback(async () => {
+    const path = await showSystemOpenDialog({
+      title: '选择共享文件夹',
+      selectionMode: 'folder',
+    })
+    if (!path) {
+      return
+    }
+    patch({ sharedFolderPath: path })
+  }, [patch, showSystemOpenDialog])
+
   const openCreateBlankDisk = useCallback(() => {
     setCreateDiskOpen(true)
     setCreateDiskSizeMb(VM_BLANK_DISK_DEFAULT_SIZE_MB)
@@ -1172,6 +1183,37 @@ export function VirtualMachineSettingsDialog({
                 />
                 <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
                   光标贴近屏幕边缘多少像素触发吸附；分辨率越高建议适当调大，运行中修改实时生效。
+                </p>
+              </>
+            ) : null}
+            <SwitchRow
+              label="共享文件夹"
+              checked={enhanceOff ? false : draft.sharedFolderEnabled}
+              disabled={busy || enhanceOff}
+              detail="客机把共享目录映射成网络驱动器 Z:（WebDAV），实时双向读写；开关变更后自动经增强代理配置客机映射，无需手工脚本。需客机装 v5 及以上增强代理，且网卡启用（ne2k + fetch 后端，纯本地假栈、不需要真实网络）。"
+              onChange={(sharedFolderEnabled) => patch({ sharedFolderEnabled })}
+            />
+            {!enhanceOff && draft.sharedFolderEnabled ? (
+              <>
+                <div class="virtual-machine-settings__path">
+                  <input
+                    class="virtual-machine-settings__input"
+                    type="text"
+                    value={draft.sharedFolderPath}
+                    placeholder="/user/Shared"
+                    spellcheck={false}
+                    autoComplete="off"
+                    disabled={busy}
+                    onInput={(event) =>
+                      patch({ sharedFolderPath: (event.currentTarget as HTMLInputElement).value })
+                    }
+                  />
+                  <IosButton size="compact" disabled={busy} onClick={() => void pickSharedFolderPath()}>
+                    选择…
+                  </IosButton>
+                </div>
+                <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
+                  共享根目录；可选挂载的真实目录（/mount/…）。运行中修改：映射与目录即时切换。
                 </p>
               </>
             ) : null}

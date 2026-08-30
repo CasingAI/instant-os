@@ -49,7 +49,7 @@ fi
 # /mouse-install 分发、out/ 还是旧 exe，装到客机静默失败还误报成功）。
 # 交付前逐一验证入口/职责关键字符串，缺一即失败，绝不让旧 exe 溜出去。
 # grep 二进制必须钉 LC_ALL=C：BSD grep 在 UTF-8 locale 下对二进制匹配不稳定。
-for marker in "mouse-install" "mouse-check" "audio-install" "audio-uninstall" "audio-check" "autostart" "VMware Pointing Device" "UpperFilters" "IVMSnapPreview"; do
+for marker in "mouse-install" "mouse-check" "audio-install" "audio-uninstall" "audio-check" "autostart" "VMware Pointing Device" "UpperFilters" "IVMSnapPreview" "shared-folder.log"; do
   LC_ALL=C grep -aq "$marker" "$OUT_DIR/ivm-agent.exe" || {
     echo "error: $OUT_DIR/ivm-agent.exe lacks '$marker' — stale build? rerun scripts/build-ivm-agent.sh" >&2
     exit 1

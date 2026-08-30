@@ -32,6 +32,7 @@ import {
   type VmRemovableMediaMount,
 } from './virtual-machine-disks.ts'
 import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
+import { setWebdavSharedRoot } from './virtual-machine-webdav-host.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
 import {
@@ -107,6 +108,41 @@ const VM_AGENT_PONG_MAX_AGE_MS = 15_000
 const VM_AGENT_PONG_RECHECK_DELAY_MS = 300
 /** 点关机遇状态灯 off 的现场验证上限；超过即按真失联处理。 */
 const VM_AGENT_VERIFY_TIMEOUT_MS = 3_000
+
+const SHARED_FOLDER_REG_KEY = 'HKLM\\SOFTWARE\\InstantVM\\SharedFolder'
+
+/**
+ * 共享文件夹的客机配置（WebClient 服务、大小上限、映射开关），经 EXEC
+ * （SYSTEM 身份）写注册表。映射本身由登录会话的 agent 轮询注册表后在
+ * 用户会话内幂等收敛（net use）——EXEC 直发映射会落进 session 0、用户看不见。
+ * 命令逐条容错：agent 未就绪或旧版失败时静默（与 snap 下发同策略），
+ * 下次设置变更重发；agent 启动自愈兜底。
+ */
+async function pushSharedFolderGuestConfig(
+  enabled: boolean,
+  run: (command: string) => Promise<unknown>,
+): Promise<void> {
+  const commands = enabled
+    ? [
+        'sc config WebClient start= auto',
+        'reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\WebClient\\Parameters /v FileSizeLimitInBytes /t REG_DWORD /d 536870912 /f',
+        `reg add ${SHARED_FOLDER_REG_KEY} /v Url /d http://instant-vm-files.local/ /f`,
+        `reg add ${SHARED_FOLDER_REG_KEY} /v Drive /d Z: /f`,
+        `reg add ${SHARED_FOLDER_REG_KEY} /v Enabled /d 1 /f`,
+        `reg add ${SHARED_FOLDER_REG_KEY} /v Seq /d ${Date.now()} /f`,
+      ]
+    : [
+        `reg add ${SHARED_FOLDER_REG_KEY} /v Enabled /d 0 /f`,
+        `reg add ${SHARED_FOLDER_REG_KEY} /v Seq /d ${Date.now()} /f`,
+      ]
+  for (const command of commands) {
+    try {
+      await run(command)
+    } catch {
+      // 静默：见上。
+    }
+  }
+}
 /** 宿主剪贴板轮询周期（推给客机的方向）；客机→宿主由客机侧 150ms 轮询自发上行。 */
 const VM_CLIPBOARD_SYNC_POLL_MS = 1_000
 /** 页面失焦时浏览器拒绝读写剪贴板；连续失败到该秒数才提示（首次失败属预期）。 */
@@ -766,6 +802,21 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     // pool.agentCommand 稳定；agent 未就绪时本帧失败被吞，下一次设置变更
     // 或机器切换会重发。
   }, [displayedId, enhanceWindowSnap, enhanceWindowSnapEdgePx, selectedRunning, pool.agentCommand])
+  // 共享文件夹：宿主根 + 运行时拦截器热开关跟随当前显示的虚拟机；客机侧映射
+  // 由 agent 启动自愈 + 设置变更时的 EXEC 配置负责。WebDAV 宿主根是全局
+  // 单例，多机同时运行时按当前显示机生效（v1 语义）。
+  const sharedFolderActive =
+    enhanceActive &&
+    (displayedMachine?.sharedFolderEnabled ?? false) &&
+    (displayedMachine?.sharedFolderPath ?? '').startsWith('/')
+  const sharedFolderPath = displayedMachine?.sharedFolderPath ?? ''
+  useEffect(() => {
+    setWebdavSharedRoot(sharedFolderActive ? sharedFolderPath : undefined)
+    if (displayedId === undefined || !selectedRunning) {
+      return
+    }
+    void pool.setSharedFolder(displayedId, sharedFolderActive).catch(() => {})
+  }, [displayedId, selectedRunning, sharedFolderActive, sharedFolderPath, pool])
   useEffect(() => {
     keyTranslatorRef.current.setKeymap(
       compileVmKeyMappings(
@@ -1275,6 +1326,17 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             await pool.setActiveAbsoluteMouse(
               settingsSession.id,
               settings.osPreset !== 'none' && settings.enhanceAbsoluteMouse,
+            )
+            // 共享文件夹：宿主根切换 + 运行时拦截器热开关 + 客机配置写入
+            //（映射由登录会话 agent 轮询注册表后幂等收敛，无需手工脚本）。
+            const sharedRoot =
+              settings.osPreset !== 'none' && settings.sharedFolderEnabled
+                ? settings.sharedFolderPath
+                : undefined
+            setWebdavSharedRoot(sharedRoot)
+            await pool.setSharedFolder(settingsSession.id, sharedRoot !== undefined)
+            await pushSharedFolderGuestConfig(sharedRoot !== undefined, (command) =>
+              pool.agentCommand(settingsSession.id, 'exec', [command]),
             )
             // 光盘/软盘的连接开关与镜像路径也立即生效：与保存前快照逐台比对后热同步。
             const machine: VirtualMachineRecord = {

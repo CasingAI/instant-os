@@ -88,6 +88,8 @@ export function defaultVirtualMachineSettings(
     enhanceAbsoluteMouse: true,
     enhanceWindowSnap: true,
     enhanceWindowSnapEdgePx: VM_SNAP_EDGE_PX_DEFAULT,
+    sharedFolderEnabled: false,
+    sharedFolderPath: '/user/Shared',
   }
 }
 
@@ -120,6 +122,8 @@ export function settingsFromRecord(record: VirtualMachineRecord): VirtualMachine
     enhanceAbsoluteMouse: record.enhanceAbsoluteMouse,
     enhanceWindowSnap: record.enhanceWindowSnap,
     enhanceWindowSnapEdgePx: record.enhanceWindowSnapEdgePx,
+    sharedFolderEnabled: record.sharedFolderEnabled,
+    sharedFolderPath: record.sharedFolderPath,
   }
 }
 

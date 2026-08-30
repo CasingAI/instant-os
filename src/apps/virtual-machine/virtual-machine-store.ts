@@ -202,6 +202,14 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
       record.enhanceWindowSnapEdgePx,
       defaults.enhanceWindowSnapEdgePx,
     ),
+    sharedFolderEnabled: normalizeBoolean(
+      record.sharedFolderEnabled,
+      defaults.sharedFolderEnabled,
+    ),
+    sharedFolderPath:
+      typeof record.sharedFolderPath === 'string' && record.sharedFolderPath.startsWith('/')
+        ? record.sharedFolderPath
+        : defaults.sharedFolderPath,
   }
 }
 

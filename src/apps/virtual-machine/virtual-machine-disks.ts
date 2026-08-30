@@ -126,6 +126,9 @@ export function settingsToStartConfig(settings: VirtualMachineSettings): Instant
     ...(settings.osPreset !== 'none' && settings.enhanceAbsoluteMouse
       ? {}
       : { absoluteMouse: false }),
+    ...(settings.osPreset !== 'none' && settings.sharedFolderEnabled
+      ? { sharedFolderEnabled: true }
+      : {}),
   }
 }
 

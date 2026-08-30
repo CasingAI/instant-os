@@ -38,10 +38,22 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   guestFileReq: 'instant-vm:guest-file-req',
   guestFileData: 'instant-vm:guest-file-data',
   guestFileDone: 'instant-vm:guest-file-done',
+  webdavRequest: 'instant-vm:webdav-request',
+  webdavResult: 'instant-vm:webdav-result',
+  setSharedFolder: 'instant-vm:set-shared-folder',
 } as const
 
 /** 运行时 fetch 拦截器识别的本地镜像流 URL 前缀（挂在运行时 origin 上）。 */
 export const VM_DISK_STREAM_PATH_PREFIX = '/__instant-vm-disk/'
+
+/** WebDAV 共享文件夹使用的保留主机名（fake DNS 任意应答，桥按 Host 头送出）。 */
+export const INSTANT_VM_WEBDAV_HOST = 'instant-vm-files.local'
+
+/**
+ * WebDAV 请求/响应体的单条消息上限。XP 重定向器默认 50MB 文件上限（注册表可调），
+ * 宿主超限时直接回 507；拦截器超限不投递、直接本地合成 507 响应。
+ */
+export const INSTANT_VM_WEBDAV_BODY_MAX_BYTES = 128 * 1024 * 1024
 
 /** 单次范围读/写上限，避免一次把整份大镜像打过 postMessage。 */
 export const INSTANT_VM_DISK_RANGE_MAX_BYTES = 16 * 1024 * 1024
@@ -160,6 +172,12 @@ export type InstantVmStartConfig = {
    * 客机驱动停留在相对模式。省略按 true：行为与旧协议完全一致。
    */
   absoluteMouse?: boolean
+  /**
+   * 共享文件夹（WebDAV over postMessage）：true 时运行时安装 fetch 拦截器，
+   * 把客机发往保留主机名 instant-vm-files.local 的 HTTP 请求转交宿主。
+   * 省略按 false：行为与旧协议完全一致。
+   */
+  sharedFolderEnabled?: boolean
 }
 
 export type InstantVmReadyMessage = {
@@ -242,6 +260,33 @@ export type InstantVmDiskWriteResultMessage = {
   streamId: string
   status: number
   totalSize: number
+}
+
+/** 客机 WebDAV 请求（宿主共享文件夹），由运行时 fetch 拦截器转发。 */
+export type InstantVmWebdavRequestMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.webdavRequest
+  requestId: string
+  method: string
+  url: string
+  headers: Record<string, string>
+  body?: ArrayBuffer
+}
+
+/** 宿主对 WebDAV 请求的应答，运行时据此合成 Response。 */
+export type InstantVmWebdavResultMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.webdavResult
+  requestId: string
+  status: number
+  statusText: string
+  headers: Record<string, string>
+  body?: ArrayBuffer
+}
+
+/** 运行中热开关共享文件夹拦截器（不需重启虚拟机）。 */
+export type InstantVmSetSharedFolderMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.setSharedFolder
+  requestId: string
+  enabled: boolean
 }
 
 export type InstantVmStopMessage = {
@@ -540,6 +585,7 @@ export type InstantVmHostToRuntimeMessage =
   | InstantVmKeyboardMessage
   | InstantVmPointerHintMessage
   | InstantVmAgentCommandMessage
+  | InstantVmSetSharedFolderMessage
 
 export type InstantVmRuntimeToHostMessage =
   | InstantVmReadyMessage
@@ -559,6 +605,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmGuestFileDataMessage
   | InstantVmGuestFileDoneMessage
   | InstantVmNativeKeyMessage
+  | InstantVmWebdavRequestMessage
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 2032
@@ -652,6 +699,9 @@ export function isInstantVmStartConfig(value: unknown): value is InstantVmStartC
     return false
   }
   if (value.resolutionAutoAlign !== undefined && typeof value.resolutionAutoAlign !== 'boolean') {
+    return false
+  }
+  if (value.sharedFolderEnabled !== undefined && typeof value.sharedFolderEnabled !== 'boolean') {
     return false
   }
   return true
@@ -776,6 +826,75 @@ export function isInstantVmDiskWriteResultMessage(
     typeof value.totalSize === 'number' &&
     Number.isFinite(value.totalSize) &&
     value.totalSize >= 0
+  )
+}
+
+function isWebdavMethod(value: unknown): value is string {
+  return typeof value === 'string' && /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,20}$/.test(value)
+}
+
+function isWebdavUrl(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 2048 &&
+    /^https?:\/\//i.test(value)
+  )
+}
+
+function isWebdavHeaders(value: unknown): value is Record<string, string> {
+  if (!isRecord(value)) return false
+  const keys = Object.keys(value)
+  if (keys.length > 64) return false
+  return keys.every((key) => {
+    if (key.length === 0 || key.length > 128) return false
+    const item = value[key]
+    return typeof item === 'string' && item.length <= 4096
+  })
+}
+
+export function isInstantVmWebdavRequestMessage(
+  value: unknown,
+): value is InstantVmWebdavRequestMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.webdavRequest &&
+    isRequestId(value.requestId) &&
+    isWebdavMethod(value.method) &&
+    isWebdavUrl(value.url) &&
+    isWebdavHeaders(value.headers) &&
+    (value.body === undefined ||
+      (value.body instanceof ArrayBuffer && value.body.byteLength <= INSTANT_VM_WEBDAV_BODY_MAX_BYTES))
+  )
+}
+
+export function isInstantVmWebdavResultMessage(
+  value: unknown,
+): value is InstantVmWebdavResultMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.webdavResult &&
+    isRequestId(value.requestId) &&
+    typeof value.status === 'number' &&
+    Number.isInteger(value.status) &&
+    value.status >= 100 &&
+    value.status <= 599 &&
+    typeof value.statusText === 'string' &&
+    value.statusText.length <= 128 &&
+    isWebdavHeaders(value.headers) &&
+    (value.body === undefined ||
+      (value.body instanceof ArrayBuffer && value.body.byteLength <= INSTANT_VM_WEBDAV_BODY_MAX_BYTES))
+  )
+}
+
+export function isInstantVmSetSharedFolderMessage(
+  value: unknown,
+): value is InstantVmSetSharedFolderMessage {
+  return (
+    isRecord(value) &&
+    value.type === INSTANT_VM_MESSAGE_TYPE.setSharedFolder &&
+    isRequestId(value.requestId) &&
+    typeof value.enabled === 'boolean'
   )
 }
 
@@ -1227,7 +1346,8 @@ export function isInstantVmHostToRuntimeMessage(
     isInstantVmSaveStateMessage(value) ||
     isInstantVmKeyboardMessage(value) ||
     isInstantVmPointerHintMessage(value) ||
-    isInstantVmAgentCommandMessage(value)
+    isInstantVmAgentCommandMessage(value) ||
+    isInstantVmSetSharedFolderMessage(value)
   )
 }
 
@@ -1272,6 +1392,9 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.diskWrite) {
     return isInstantVmDiskWriteMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.webdavRequest) {
+    return isInstantVmWebdavRequestMessage(value)
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.agentResult) {
     return isInstantVmAgentResultMessage(value)
