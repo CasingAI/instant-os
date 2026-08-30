@@ -137,8 +137,11 @@ async function pushSharedFolderGuestConfig(
       : []),
     `reg add ${SHARED_FOLDER_REG_KEY} /v Url /d http://instant-vm-files.local/ /f`,
     `reg add ${SHARED_FOLDER_REG_KEY} /v Drive /d ${driveValue}: /f`,
-    `reg add ${SHARED_FOLDER_REG_KEY} /v Enabled /d ${enabled ? 1 : 0} /f`,
-    `reg add ${SHARED_FOLDER_REG_KEY} /v Seq /d ${Date.now()} /f`,
+    // Enabled/Seq 必须显式 /t REG_DWORD：agent 按 DWORD 读（sf_reg_read_dword），
+    // reg add 不带 /t 默认写 REG_SZ，agent 在 Seq 这道门就零动作退出。
+    `reg add ${SHARED_FOLDER_REG_KEY} /v Enabled /t REG_DWORD /d ${enabled ? 1 : 0} /f`,
+    // Date.now() 超出 DWORD 范围（≈42.9 亿），取模截进 32 位；agent 只要求 Seq 变化。
+    `reg add ${SHARED_FOLDER_REG_KEY} /v Seq /t REG_DWORD /d ${Date.now() % 0x100000000} /f`,
   ]
   for (const command of commands) {
     try {
