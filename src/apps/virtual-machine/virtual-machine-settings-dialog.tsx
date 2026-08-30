@@ -430,8 +430,6 @@ export function VirtualMachineSettingsDialog({
           <p class="window-modal__message">
             点「创建」后才会把这台虚拟机加入列表。开机时才会把镜像交给模拟器。
           </p>
-        ) : running ? (
-          <p class="window-modal__message">改动保存后只更新配置，下次开机才会套用。</p>
         ) : null}
         {error ? <p class="window-modal__error">{error}</p> : null}
         {tab === 'general' ? (
