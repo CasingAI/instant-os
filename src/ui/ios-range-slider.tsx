@@ -194,13 +194,23 @@ export function IosRangeSlider({
               style={{ left: `clamp(4px, ${progress * 100}%, calc(100% - 4px))` }}
             />
             {dragging && !disabled ? (
-              <div
-                class="ios-range-slider__tooltip"
-                style={{ left: `clamp(32px, ${progress * 100}%, calc(100% - 32px))` }}
-              >
-                {clampedValue}
-                {suffix}
-              </div>
+              <>
+                <div
+                  class="ios-range-slider__tooltip"
+                  style={
+                    // 气泡中心钳在 [18px, 100%-18px]：中段正好居中于拇指，极限档最多被
+                    // 压回 14px，气泡外缘最多探出轨道端点 12px（轨道区自身留白），不会被面板裁掉。
+                    { left: `clamp(18px, ${progress * 100}%, calc(100% - 18px))` }
+                  }
+                >
+                  {clampedValue}
+                  {suffix}
+                </div>
+                <div
+                  class="ios-range-slider__tooltip-arrow"
+                  style={{ left: `clamp(4px, ${progress * 100}%, calc(100% - 4px))` }}
+                />
+              </>
             ) : null}
           </div>
           {labeledMarks.length > 0 ? (

@@ -140,15 +140,17 @@
   pointer-events: none;
 }
 
-.ios-range-slider__tooltip::after {
-  content: '';
+/* 箭头独立于气泡定位：气泡在两端钳制防外溢时，箭头仍钉在拇指圆心上。 */
+.ios-range-slider__tooltip-arrow {
   position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -4px;
+  bottom: calc(100% + 3px);
+  width: 0;
+  height: 0;
   border: 4px solid transparent;
   border-top-color: rgba(40, 40, 40, 0.92);
   border-bottom: none;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .ios-range-slider__fill {
