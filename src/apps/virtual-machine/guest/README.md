@@ -10,7 +10,7 @@
 
 | 文件 | 是干什么的 | 放到 XP 哪里 |
 |---|---|---|
-| `ivm-agent.exe` | 客机全家桶（一个 exe 多重身份）：服务身份跑 COM1 遥控代理（PING / EXEC / EXEC_R（带退出码执行）/ SHM_QUERY / CLICK / SHUTDOWN / REBOOT）+ 分辨率自动对齐；登录身份跑 OLE 剪贴板桥（文本 + 虚拟文件双向互拷）+ Aero Snap 窗口吸附（见下文「窗口吸附」）；`ivm-agent.exe /mouse-install` 给 VMware 鼠标驱动做注册；`/audio-install` 把 XP 内置的 SB16 声卡驱动绑上（客机无声的解药，见下文「声音」）；`/mouse-check`、`/audio-check` 只读体检；两个常驻身份每次启动还会自愈补挂鼠标与声卡驱动 | 由安装脚本放进 `C:\Tools\ivm-agent.exe` |
+| `ivm-agent.exe` | 客机全家桶（一个 exe 多重身份）：服务身份跑 COM1 遥控代理（PING / EXEC / EXEC_R（带退出码执行）/ SHM_QUERY / CLICK / SHUTDOWN / REBOOT）+ 分辨率自动对齐；登录身份跑 OLE 剪贴板桥（文本 + 虚拟文件双向互拷）+ Aero Snap 窗口吸附（见下文「窗口吸附」）+ 共享文件夹自动映射（见下文「共享文件夹」）；`ivm-agent.exe /mouse-install` 给 VMware 鼠标驱动做注册；`/audio-install` 把 XP 内置的 SB16 声卡驱动绑上（客机无声的解药，见下文「声音」）；`/mouse-check`、`/audio-check` 只读体检；两个常驻身份每次启动还会自愈补挂鼠标与声卡驱动 | 由安装脚本放进 `C:\Tools\ivm-agent.exe` |
 | `ivm-shm.sys` | 共享内存信箱内核驱动：分配 64KB 连续物理内存供宿主（v86 DMA）与客机直连，剪贴板/文件通道的数据面底座 | 由安装脚本放进 `C:\Windows\System32\drivers\` |
 | `vmmouse.sys` + `vmmouse.inf` + `vmmouse.cat` | VMware 绝对坐标鼠标驱动 12.4.0.2（vendor 二进制，见 `vmmouse/README.md`）：装好后客机光标 1:1 跟随宿主光标 | 由安装脚本放进 `C:\Windows\System32\drivers\` 并注册 |
 | `install-agent-v2.bat` | **推荐安装方式**：右键管理员运行，一键装全家桶（agent 服务 + 信箱驱动 + 登录自启 + vmmouse 鼠标驱动 + SB16 声卡驱动；会自动清掉旧的 res-agent.exe / clipboard-bridge.exe 旧装） | 和 exe/sys 放同一目录，双击运行 |
@@ -82,6 +82,25 @@ ivm-agent v4 起，登录身份的常驻实例顺带提供 Win7 Aero Snap 的 XP
   窗口不参与；
 - 升级注意：旧版 agent 还持着会话互斥时，新 exe 的登录实例会单实例退场，
   先结束旧 `ivm-agent.exe`（或重启 XP）再用新功能。
+
+## 共享文件夹（WebDAV，agent v5 起）
+
+宿主「虚拟机设置 → 体验增强 → 共享文件夹」开关 + 目录选择（可选挂载的
+真实目录 `/mount/…`），保存即自动配置客机，**全程无需手工脚本**：
+
+- **链路**：宿主把所选目录暴露成本地 WebDAV 服务（`files-api` 全能力，
+  含 Range 断点/中文名/移动重命名）→ XP 的 WebClient 服务经 v86 虚拟网卡
+  访问 `http://instant-vm-files.local/`（v86 fetch 桥经 postMessage 转发，
+  纯本地假栈、不需要真实网络）→ 客机映射成网络驱动器 `Z:`；
+- **收敛机制**：宿主把配置写进 `HKLM\SOFTWARE\InstantVM\SharedFolder`
+  （Seq/Enabled/Url/Drive），agent 登录实例在 bridge_tick 里 150ms 轮询，
+  按 `HKCU\Network\<盘>` 的 RemotePath 判断现状做幂等 `net use`（直接在
+  设置里开关/换目录，Z: 十秒内自动跟随；EXEC 直映落在 session 0 不可见，
+  所以走注册表下发、登录侧收敛）；
+- **前提**：客机装 v5 及以上 agent（登录实例在跑）+ 虚拟机网卡启用；
+- **日志**：`C:\Tools\shared-folder.log`；
+- **已知限制**：单文件 ≤ 512MB（宿主已调 WebClient 的 FileSizeLimit）；
+  传大文件时 XP 资源管理器进度条不走属正常，等它完成即可。
 
 ## 怎么构建 / 更新 out/
 
