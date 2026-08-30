@@ -155,8 +155,11 @@ static void mlog(const char *fmt, ...)
     }
 }
 
-/* 静默跑一条外部命令（expand.exe）并等它结束（上限 60s）。成败不看退出
- * 码，看产物文件在不在——expand 的 -f/-r 语法在 2000/XP/2003 间有差异。 */
+/* 静默跑一条外部命令（expand.exe）并等它结束（上限 20s）。成败不看退出
+ * 码，看产物文件在不在——expand 的 -f/-r 语法在 2000/XP/2003 间有差异。
+ * 上限 20s 而非更多：expand 扫大 cab（sp2/sp3 有百 MB 级）在 v86 慢速 CPU
+ * 上动辄分钟级，等太久会把每次开机的自愈拖成分钟级；超时弃等后孤儿
+ * expand 仍会抢 CPU，所以宁可靠日志里「没出文件」快速落到下一个来源。 */
 static void run_command_wait(const char *fmt, ...)
 {
     char cmdline[600];
@@ -175,7 +178,7 @@ static void run_command_wait(const char *fmt, ...)
              cmdline);
         return;
     }
-    WaitForSingleObject(pi.hProcess, 60000);
+    WaitForSingleObject(pi.hProcess, 20000);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
 }
@@ -198,6 +201,9 @@ static int extract_driver_file(void)
         if (file_exists(DRIVER_SYS)) {
             return 1;
         }
+        mlog("[extract] expand from %s produced no file (not in cab, or "
+             "timed out on this slow CPU)",
+             cabs[i]);
     }
     for (char drive = 'D'; drive <= 'Z'; drive++) {
         char root[8];
@@ -215,6 +221,7 @@ static int extract_driver_file(void)
         if (file_exists(DRIVER_SYS)) {
             return 1;
         }
+        mlog("[extract] expand from %s produced no file (timed out?)", pack);
     }
     if (file_exists(STAGED_SYS)) {
         mlog("[extract] copying staged %s", STAGED_SYS);

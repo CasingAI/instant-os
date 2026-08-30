@@ -51,12 +51,23 @@ if not exist "%SystemRoot%\__ivm_admin_probe.tmp" (
 del "%SystemRoot%\__ivm_admin_probe.tmp" >nul 2>&1
 
 echo [1/9] stopping existing instances...
+echo   killing leftover agent processes (service + logon instance)...
 taskkill /IM ivm-agent.exe /F >nul 2>&1
 taskkill /IM res-agent.exe /F >nul 2>&1
 taskkill /IM clipboard-bridge.exe /F >nul 2>&1
-sc stop InstantVmAgent >nul 2>&1
-sc stop InstantVmResAgent >nul 2>&1
-sc stop InstantVmShm >nul 2>&1
+rem Only stop services whose state is RUNNING: `sc stop` against a START_PENDING
+rem record (wedged start) makes the SCM serialize on its default 30s timeout,
+rem which used to stall this step. Driver stop (InstantVmShm) is instant either
+rem way -- its unload routine is four lightweight calls.
+echo   stopping the agent service (if running)...
+sc query InstantVmAgent | find "RUNNING" >nul
+if not errorlevel 1 sc stop InstantVmAgent >nul 2>&1
+sc query InstantVmResAgent | find "RUNNING" >nul
+if not errorlevel 1 sc stop InstantVmResAgent >nul 2>&1
+echo   stopping the mailbox kernel driver (if running)...
+sc query InstantVmShm | find "RUNNING" >nul
+if not errorlevel 1 sc stop InstantVmShm >nul 2>&1
+echo   step 1 done.
 
 echo [2/9] removing old services...
 sc delete InstantVmAgent >nul 2>&1

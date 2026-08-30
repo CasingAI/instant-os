@@ -735,6 +735,8 @@ static void svc_set_state(DWORD state)
     st.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     st.dwCurrentState = state;
     st.dwControlsAccepted = (state == SERVICE_RUNNING) ? SERVICE_ACCEPT_STOP : 0;
+    /* 不设的话 SCM 对本服务的每次状态迁移都按默认 30s 超时处理。 */
+    st.dwWaitHint = 3000;
     if (g_svc_status != NULL) {
         SetServiceStatus(g_svc_status, &st);
     }
@@ -752,13 +754,21 @@ static void WINAPI svc_main(DWORD argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    if (!agent_single_instance()) {
-        return; /* 已有实例：直接报告停止，SCM 不会反复拉起（start= auto 只开机起一次） */
-    }
+    /* handler 必须先于一切可能 return 的检查注册：COM1 互斥被登录实例占住
+     * 时若不报状态就 return，服务记录僵死 START_PENDING，SCM 对它的一切
+     * 操作（含 bat 第 1 步的 sc stop）都按默认 30s 超时处理——「bat 每次卡
+     * 在 [1/9] 几十分钟」的元凶之一（2026-08-30）。 */
     g_svc_status = RegisterServiceCtrlHandlerA("InstantVmAgent", svc_handler);
     if (g_svc_status == NULL) {
         return;
     }
+    if (!agent_single_instance()) {
+        /* COM1 归登录实例：如实报告停止。SCM 不会反复拉起
+         * （start= auto 只开机起一次）。 */
+        svc_set_state(SERVICE_STOPPED);
+        return;
+    }
+    shm_probe(); /* 信箱寻址缓存：agent_loop / SHM_QUERY 都要用 */
     svc_set_state(SERVICE_RUNNING);
     ivm_mouse_selfheal(); /* 开机顺手补挂 vmmouse 过滤驱动（毫秒级，见 ivm-mouse-install.c） */
     ivm_audio_selfheal(); /* 开机顺手把 XP 内置 SB16 声卡驱动绑上（见 ivm-audio-install.c） */
@@ -811,10 +821,9 @@ void ivm_agent_entry(void)
         ExitProcess((UINT)ivm_audio_check());
     }
 
-    /* 信箱寻址先于一切路径：服务/交互共用一份缓存。 */
-    shm_probe();
-
-    /* 服务调度器优先：SCM 启动时交互弹框永远出不来。 */
+    /* 服务调度器优先：SCM 启动时交互弹框永远出不来。信箱寻址（shm_probe）
+     * 不能在这里做：SCM 启动流程中先碰 \\.\IVMSHM，驱动侧万一 wedge 会把
+     * 服务启动一并拖死在 START_PENDING——已挪进 svc_main / 交互路径。 */
     static SERVICE_TABLE_ENTRYA svc_table[2];
     svc_table[0].lpServiceName = "InstantVmAgent";
     svc_table[0].lpServiceProc = svc_main;
@@ -824,7 +833,9 @@ void ivm_agent_entry(void)
         return; /* 服务路径：svc_main 已跑完主循环 */
     }
 
-    /* 交互路径：两把锁分别拿。 */
+    /* 交互路径：两把锁分别拿。非 SCM 启动（双击/Run 键）在这里补信箱寻址
+     * 缓存；SCM 路径已在 svc_main 里探过。 */
+    shm_probe();
     int owns_com1 = agent_single_instance();
     CreateMutexA(NULL, TRUE, "InstantVmClipboardBridge");
     int owns_bridge = GetLastError() != ERROR_ALREADY_EXISTS;
