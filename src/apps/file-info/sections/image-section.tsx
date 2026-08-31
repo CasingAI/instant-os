@@ -12,7 +12,7 @@ import {
 /** 超过此大小不再读取正文做缩略图，避免拖慢信息面板 */
 const IMAGE_PREVIEW_MAX_BYTES = 8 * 1024 * 1024
 
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'] as const
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'] as const
 
 type ImageInfo = {
   width: number

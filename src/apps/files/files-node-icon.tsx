@@ -54,7 +54,7 @@ export function isTxtFilesNode(node: Pick<FilesNode, 'kind' | 'name'>): boolean 
 }
 
 const BROWSER_OPEN_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'svg'])
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'])
 const MODEL3D_EXTENSIONS = new Set(['gltf', 'glb'])
 const DOCX_EXTENSIONS = new Set(['docx'])
 const MUSIC_EXTENSIONS = new Set<string>(MUSIC_AUDIO_EXTENSIONS)

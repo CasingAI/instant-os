@@ -3,12 +3,12 @@ import { fileNameExtension } from '../os/file-open-registry.ts'
 export type PreviewKind = 'markdown' | 'text' | 'image' | 'model3d' | 'docx' | 'unsupported'
 
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdx'])
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'])
 const MODEL3D_EXTENSIONS = new Set(['gltf', 'glb'])
 const DOCX_EXTENSIONS = new Set(['docx'])
 
 export const PREVIEW_MARKDOWN_EXTENSIONS = ['md', 'markdown', 'mdx'] as const
-export const PREVIEW_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'] as const
+export const PREVIEW_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'] as const
 export const PREVIEW_MODEL3D_EXTENSIONS = ['gltf', 'glb'] as const
 export const PREVIEW_DOCX_EXTENSIONS = ['docx'] as const
 
@@ -134,6 +134,8 @@ export function guessImageMime(pathOrName: string): string {
       return 'image/webp'
     case 'ico':
       return 'image/x-icon'
+    case 'bmp':
+      return 'image/bmp'
     default:
       return 'application/octet-stream'
   }

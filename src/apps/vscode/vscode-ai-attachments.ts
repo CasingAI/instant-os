@@ -24,7 +24,7 @@ export type VscodeAiImageAttachment = {
   previewUrl?: string
 }
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'])
 
 /** Instant 打开对话框用的图片后缀列表 */
 export const VSCODE_AI_IMAGE_ACCEPT_EXTENSIONS = [
@@ -34,6 +34,7 @@ export const VSCODE_AI_IMAGE_ACCEPT_EXTENSIONS = [
   'gif',
   'webp',
   'ico',
+  'bmp',
 ] as const
 
 const ATTACH_TMP_PREFIX = '/tmp/vscode-ai-attachments'
@@ -174,6 +175,7 @@ function extensionForMime(mime: string): string {
   if (lower.includes('gif')) return 'gif'
   if (lower.includes('webp')) return 'webp'
   if (lower.includes('svg')) return 'svg'
+  if (lower.includes('bmp')) return 'bmp'
   return 'png'
 }
 
