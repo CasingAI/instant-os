@@ -628,6 +628,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const runtimeUnreachableHint = `虚拟机运行时未响应（${runtimeOrigin}）`
   const selectedHint = selected ? pool.hints.get(selected.id) : undefined
   const [agentLink, setAgentLink] = useState<'off' | 'command' | 'full'>('off')
+  // 客机 agent 产品版本（PONG ver= 字段，状态灯展示用）：现场区分镜像里的
+  // exe 是否支持某个协议特性（如 v5 起的吸附触发距离帧）。
+  const [agentVersion, setAgentVersion] = useState<number | null>(null)
+  // 吸附配置镜像：轮询定义在设置派生值之前，轮询周期里经 ref 读最新值顺带下发。
+  const snapPushRef = useRef<{ enabled: boolean; edgePx: number }>({
+    enabled: true,
+    edgePx: VM_SNAP_EDGE_PX_DEFAULT,
+  })
 
   // 现场连通验证：补一刀 PING，等一个串口往返的余量后重读 state，以新鲜的
   // lastPongAgeMs 为准。后台标签页节流会把 PING 拖过期，状态灯 off 里大量是
@@ -640,7 +648,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           window.setTimeout(resolve, VM_AGENT_PONG_RECHECK_DELAY_MS)
         })
         const state = (await pool.agentCommand(machineId, 'state')) as
-          | { lastPongAgeMs?: number | null; shmBase?: number | null }
+          | { lastPongAgeMs?: number | null; shmBase?: number | null; agentVersion?: number | null }
           | undefined
         const commandOk =
           typeof state?.lastPongAgeMs === 'number' &&
@@ -648,6 +656,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         if (!document.hidden) {
           const mailboxOk = typeof state?.shmBase === 'number' && state.shmBase > 0
           setAgentLink(!commandOk ? 'off' : mailboxOk ? 'full' : 'command')
+          setAgentVersion(typeof state?.agentVersion === 'number' ? state.agentVersion : null)
         }
         return commandOk
       } catch {
@@ -671,7 +680,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     // 隐藏期间 setTimeout 被浏览器节流，PING→PONG 读数必然失真，据其降级只会
     // 制造「切回来变未连接」的假象；读数照刷，状态只在可见时更新。
     const applyState = (
-      state: { lastPongAgeMs?: number | null; shmBase?: number | null } | undefined,
+      state: {
+        lastPongAgeMs?: number | null
+        shmBase?: number | null
+        agentVersion?: number | null
+      } | undefined,
     ) => {
       if (cancelled || document.hidden) {
         return
@@ -681,6 +694,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         state.lastPongAgeMs < VM_AGENT_PONG_MAX_AGE_MS
       const mailboxOk = typeof state?.shmBase === 'number' && state.shmBase > 0
       setAgentLink(!commandOk ? 'off' : mailboxOk ? 'full' : 'command')
+      setAgentVersion(typeof state?.agentVersion === 'number' ? state.agentVersion : null)
     }
     const check = async () => {
       if (checking) {
@@ -689,11 +703,22 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       checking = true
       try {
         const state = (await pool.agentCommand(selectedId, 'state')) as
-          | { lastPongAgeMs?: number | null; shmBase?: number | null }
+          | { lastPongAgeMs?: number | null; shmBase?: number | null; agentVersion?: number | null }
           | undefined
         const commandOk =
           typeof state?.lastPongAgeMs === 'number' &&
           state.lastPongAgeMs < VM_AGENT_PONG_MAX_AGE_MS
+        if (commandOk) {
+          // 顺带把窗口吸附配置推下去：agent 刚就绪或上一帧丢失（改设置时
+          // agent 未就绪被吞）时，≤一个轮询周期自动收敛。帧幂等，每周期
+          // 10 字节串口流量可忽略。
+          void pool
+            .agentCommand(selectedId, 'snap', [
+              snapPushRef.current.enabled,
+              snapPushRef.current.edgePx,
+            ])
+            .catch(() => {})
+        }
         if (commandOk || document.hidden) {
           applyState(state)
         } else if (!cancelled) {
@@ -705,6 +730,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         // state 调用本身挂了（运行时不可达）才算真失联；隐藏期间不降级。
         if (!cancelled && !document.hidden) {
           setAgentLink('off')
+          setAgentVersion(null)
         }
       } finally {
         checking = false
@@ -741,13 +767,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
   }, [pool.agentCommand, selectedId, selectedRunning, verifyAgentAlive])
 
+  const agentVersionSuffix = agentVersion !== null ? ` · agent v${agentVersion}` : ''
   const statusHint =
     powerHint ??
     selectedHint ??
     (agentLink === 'full'
-      ? '体验已增强'
+      ? `体验已增强${agentVersionSuffix}`
       : agentLink === 'command'
-        ? '体验已增强 · 剪贴板信箱未就绪'
+        ? `体验已增强${agentVersionSuffix} · 剪贴板信箱未就绪`
         : undefined)
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
@@ -799,9 +826,12 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const enhanceFileTransfer = enhanceActive && (displayedMachine?.enhanceFileTransfer ?? true)
   // 窗口吸附与其它增强不同：开关与触发距离必须下发客机（钩子挂/卸在那边），
   // 所以运行中经 agentCommand 实时推 OP_SNAP/OP_SNAP_EDGE 帧；未运行只存设置。
+  // 设置变更立即推一帧（即时反馈）；agent 未就绪时失败被吞也不要紧——轮询
+  // 周期（5s）里检测到 agent 活着就会顺带补发同款配置，自动收敛。
   const enhanceWindowSnap = enhanceActive && (displayedMachine?.enhanceWindowSnap ?? true)
   const enhanceWindowSnapEdgePx =
     displayedMachine?.enhanceWindowSnapEdgePx ?? VM_SNAP_EDGE_PX_DEFAULT
+  snapPushRef.current = { enabled: enhanceWindowSnap, edgePx: enhanceWindowSnapEdgePx }
   useEffect(() => {
     if (displayedId === undefined || !selectedRunning) {
       return
@@ -809,8 +839,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     void pool
       .agentCommand(displayedId, 'snap', [enhanceWindowSnap, enhanceWindowSnapEdgePx])
       .catch(() => {})
-    // pool.agentCommand 稳定；agent 未就绪时本帧失败被吞，下一次设置变更
-    // 或机器切换会重发。
   }, [displayedId, enhanceWindowSnap, enhanceWindowSnapEdgePx, selectedRunning, pool.agentCommand])
   // 共享文件夹：宿主根 + 运行时拦截器热开关跟随当前显示的虚拟机；客机侧映射
   // 由 agent 启动自愈 + 设置变更时的 EXEC 配置负责。WebDAV 宿主根是全局
