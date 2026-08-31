@@ -4,7 +4,8 @@
  *
  * 四个入口（GUI 子系统不占控制台，成败看退出码 + 日志）：
  *   /audio-install    就地提取驱动文件 + 注册/解禁 ctlsb16 服务 + 给未绑定
- *                     的 *CTL00xx 声卡实例写 Service/Class；注册表里一个实
+ *                     的 *CTL00xx 声卡实例写 Service/Class + 给缺资源的
+ *                     Root 实例补 LogConf 启动资源；注册表里一个实
  *                     例都没有时**自建**一个根枚举设备（见下）。
  *                     0=成功（新写入或本就已装）1=没找到且建不成实例
  *                     2=驱动文件提取失败 / 服务管理器 / 注册表操作失败
@@ -332,16 +333,28 @@ static int ctlsb16_start_type(void)
     return start;
 }
 
-/* 实例有没有 LogConf 子键（根枚举设备靠它拿 IO/IRQ/DMA 资源分配）。只诊断
- * 不写——缺了它设备重启后会 Code 10，真出现了再在 install 里补。 */
+/* 实例有没有资源分配：LogConf 子键下 BootConfig/ForcedConfig/AllocConfig
+ * 任一值在即算。根枚举设备靠 LogConf 拿 IO/IRQ/DMA——缺了它设备重启后
+ * Code 10（这正是 INF LogConfigOverride 该干而注册表直改路径漏掉的活）。 */
 static int has_logconf(HKEY inst_key)
 {
+    static const char *kVals[] = {"BootConfig", "ForcedConfig", "AllocConfig"};
     HKEY k;
-    if (RegOpenKeyExA(inst_key, "LogConf", 0, KEY_READ, &k) != ERROR_SUCCESS) {
+    if (RegOpenKeyExA(inst_key, "LogConf", 0, KEY_QUERY_VALUE, &k) !=
+        ERROR_SUCCESS) {
         return 0;
     }
+    int ok = 0;
+    for (int i = 0; i < 3 && !ok; i++) {
+        DWORD type = 0;
+        DWORD size = 0;
+        if (RegQueryValueExA(k, kVals[i], NULL, &type, NULL, &size) ==
+            ERROR_SUCCESS) {
+            ok = 1;
+        }
+    }
     RegCloseKey(k);
-    return 1;
+    return ok;
 }
 
 /* 实例的 Service 是否等于给定驱动名（只读）。 */
@@ -428,17 +441,121 @@ static int bind_instance(HKEY inst_key, const char *inst_path)
     return 0;
 }
 
+/* SB16 的 LogConf 启动资源表（REG_RESOURCE_LIST = CM_RESOURCE_LIST，x86
+ * 小端，116 字节 = 4 字节 Count + 8 字节 Full 描述符头 + 8 字节列表头 +
+ * 6 × 16 字节资源描述符）。资源与 v86 sb16.js 的硬编码逐一对应：端口
+ * 0x220-0x22F（DSP/混音）、0x330-0x331（MPU-401）、0x388-0x38B（FM），
+ * IRQ 5（边沿触发），DMA 1（8 位）+ DMA 5（16 位）——与 wdma_ctl.inf 的
+ * LogConfigOverride 给向导安装写下的产物同构。常量核对自 wdm.h：
+ * CmResourceTypePort/Interrupt/Dma=1/2/4，DeviceExclusive=2，PORT_IO=0x1，
+ * LATCHED=0x1，DMA_8=0x0/DMA_16=0x1，InterfaceType Isa=1。 */
+static const unsigned char kSb16BootConfig[116] = {
+    0x01, 0x00, 0x00, 0x00, /* Count = 1 个 Full 描述符 */
+    0x01, 0x00, 0x00, 0x00, /* InterfaceType = Isa */
+    0x00, 0x00, 0x00, 0x00, /* BusNumber = 0 */
+    0x01, 0x00,             /* Version = 1 */
+    0x01, 0x00,             /* Revision = 1 */
+    0x06, 0x00, 0x00, 0x00, /* 6 个资源描述符 */
+    /* [0] Port 0x220-0x22F */
+    0x01, 0x02, 0x01, 0x00, /* Port, DeviceExclusive, PORT_IO */
+    0x20, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* Start = 0x220 */
+    0x10, 0x00, 0x00, 0x00,                         /* Length = 0x10 */
+    /* [1] Port 0x330-0x331 */
+    0x01, 0x02, 0x01, 0x00, 0x30, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x02, 0x00, 0x00, 0x00, /* Length = 0x02 */
+    /* [2] Port 0x388-0x38B */
+    0x01, 0x02, 0x01, 0x00, 0x88, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, /* Length = 0x04 */
+    /* [3] IRQ 5，边沿触发（ISA） */
+    0x02, 0x02, 0x01, 0x00, /* Interrupt, DeviceExclusive, LATCHED */
+    0x05, 0x00, 0x00, 0x00, /* Level = 5 */
+    0x05, 0x00, 0x00, 0x00, /* Vector = 5 */
+    0xFF, 0xFF, 0xFF, 0xFF, /* Affinity = 任意 CPU */
+    /* [4] DMA 1，8 位 */
+    0x04, 0x02, 0x00, 0x00, /* Dma, DeviceExclusive, DMA_8 */
+    0x01, 0x00, 0x00, 0x00, /* Channel = 1 */
+    0x00, 0x00, 0x00, 0x00, /* Port（MCA 才用） */
+    0x00, 0x00, 0x00, 0x00, /* Reserved1 */
+    /* [5] DMA 5，16 位 */
+    0x04, 0x02, 0x01, 0x00, /* Dma, DeviceExclusive, DMA_16 */
+    0x05, 0x00, 0x00, 0x00, /* Channel = 5 */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+/* 实例路径是否在 Root 枚举器下：只有根枚举设备需要手工喂资源（ACPI/BIOS
+ * 枚举出的实例资源来自固件，不能替它定）。 */
+static int inst_path_is_root(const char *inst_path)
+{
+    static const char kRoot[] = ENUM_BASE "\\Root\\";
+    size_t n = (size_t)sizeof(kRoot) - 1;
+    for (size_t i = 0; i < n; i++) {
+        if (ivm_lower(inst_path[i]) != ivm_lower(kRoot[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* 给根枚举实例补写启动资源：BootConfig（内核读的启动配置）+ ForcedConfig
+ * （最高优先级强制配置）+ AllocConfig（已分配快照）三个值写同一份表——
+ * XP 内核对根设备走哪条读取路径无法在源码层确证，全写等价无害。调用前
+ * 已确认实例没有资源分配；重启后 PnP 按这份表分配，Code 10 才能消。 */
+static int write_sb16_logconf(HKEY inst_key, const char *inst_path)
+{
+    static const char *kVals[] = {"BootConfig", "ForcedConfig", "AllocConfig"};
+    HKEY k;
+    LONG rc = RegCreateKeyExA(inst_key, "LogConf", 0, NULL,
+                              REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL, &k,
+                              NULL);
+    if (rc != ERROR_SUCCESS) {
+        mlog("[install] create LogConf under %s failed rc=%ld gle=%lu",
+             inst_path, rc, GetLastError());
+        return -1;
+    }
+    int ok = 1;
+    for (int i = 0; i < 3; i++) {
+        ok &= RegSetValueExA(k, kVals[i], 0, REG_RESOURCE_LIST,
+                             kSb16BootConfig,
+                             (DWORD)sizeof(kSb16BootConfig)) == ERROR_SUCCESS;
+    }
+    RegCloseKey(k);
+    if (!ok) {
+        mlog("[install] writing LogConf values under %s failed gle=%lu",
+             inst_path, GetLastError());
+        return -1;
+    }
+    mlog("[install] wrote LogConf boot resources (220/330/388, IRQ 5, "
+         "DMA 1+5) to %s",
+         inst_path);
+    return 0;
+}
+
+/* mode 0 装好后确保根实例有资源可分：只动 Root\ 下的实例，且缺了才补。 */
+static void ensure_sb16_resources(HKEY inst_key, const char *inst_path)
+{
+    if (inst_path_is_root(inst_path) && !has_logconf(inst_key)) {
+        write_sb16_logconf(inst_key, inst_path);
+    }
+}
+
 /* 遍历 Enum 下全部枚举器（SB16 挂在哪个枚举器随 BIOS/HAL 而定，ACPI 与
  * Standard PC 的 Root 都见过，索性全走）。mode：
- *   0 = 安装：给未绑定的候选实例绑 ctlsb16，返回「新绑定+本已绑定」数；
+ *   0 = 安装：给未绑定的候选实例绑 ctlsb16 + 补 LogConf 资源，返回
+ *       「新绑定+本已绑定」数；
  *   1 = 只查：统计已绑定数，每个候选实例的现状追加进 report（可为 NULL）；
  *   2 = 诊断：不限 CTL00xx，把每个实例的硬件 ID 与 Service 落进 report。
- * candidates 出参（可为 NULL）：候选实例数（mode 2 为全部实例数）。 */
+ * candidates 出参（可为 NULL）：候选实例数（mode 2 为全部实例数）。
+ * root_nologconf 出参（可为 NULL）：mode 1 下「已绑定但缺 LogConf 资源」
+ * 的 Root 实例数——绑定齐了但资源没喂，设备照样 Code 10，早退/静默判断
+ * 必须把它算进「还没装好」。 */
 static int walk_enum_all(int mode, char *report, DWORD report_cap,
-                         int *candidates)
+                         int *candidates, int *root_nologconf)
 {
     if (candidates != NULL) {
         *candidates = 0;
+    }
+    if (root_nologconf != NULL) {
+        *root_nologconf = 0;
     }
     HKEY base;
     if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, ENUM_BASE, 0, KEY_READ, &base) !=
@@ -480,7 +597,9 @@ static int walk_enum_all(int mode, char *report, DWORD report_cap,
                 inst_len = (DWORD)sizeof(inst_id);
                 char inst_path[768];
                 wsprintfA(inst_path, "%s\\%s", dev_path, inst_id);
-                DWORD access = (mode == 0) ? (KEY_QUERY_VALUE | KEY_SET_VALUE)
+                DWORD access = (mode == 0) ? (KEY_QUERY_VALUE | KEY_SET_VALUE |
+                                              KEY_CREATE_SUB_KEY |
+                                              KEY_ENUMERATE_SUB_KEYS)
                                            : (KEY_QUERY_VALUE |
                                               KEY_ENUMERATE_SUB_KEYS);
                 HKEY inst_key;
@@ -513,6 +632,11 @@ static int walk_enum_all(int mode, char *report, DWORD report_cap,
                     if (mode == 1) {
                         if (service_equals(inst_key, SERVICE_NAME)) {
                             hits++;
+                            if (root_nologconf != NULL &&
+                                inst_path_is_root(inst_path) &&
+                                !has_logconf(inst_key)) {
+                                (*root_nologconf)++;
+                            }
                         }
                         char hw[64];
                         first_hwid(inst_key, hw, (DWORD)sizeof(hw));
@@ -531,9 +655,11 @@ static int walk_enum_all(int mode, char *report, DWORD report_cap,
                     } else if (service_equals(inst_key, SERVICE_NAME)) {
                         hits++;
                         mlog("[install] already bound: %s", inst_path);
+                        ensure_sb16_resources(inst_key, inst_path);
                     } else if (bind_instance(inst_key, inst_path) == 0) {
                         hits++;
                         mlog("[install] bound %s -> " SERVICE_NAME, inst_path);
+                        ensure_sb16_resources(inst_key, inst_path);
                     }
                 }
                 RegCloseKey(inst_key);
@@ -605,13 +731,14 @@ static int audio_install(int allow_create)
         DeleteFileA(ROLLBACK_FLAG);
     }
     int candidates = 0;
-    int bound = walk_enum_all(1, NULL, 0, &candidates);
+    int root_nologconf = 0;
+    int bound = walk_enum_all(1, NULL, 0, &candidates, &root_nologconf);
     int svc_start = ctlsb16_start_type();
-    /* 早退条件带齐三项：驱动文件在位（提取失败重跑要走提取重试）、服务
-     * 未被禁用（绑定着但服务禁用 = 设备管理器 Code 32，必须落到下面的
-     * ensure 解禁，不能被「已绑定」短路——2026-08-31 教训）。 */
+    /* 早退条件带齐四项：驱动文件在位（提取失败重跑要走提取重试）、服务未
+     * 被禁用（绑定着但服务禁用 = 设备管理器 Code 32）、根实例资源齐（缺
+     * LogConf = Code 10）——都不能被「已绑定」短路（2026-08-31 教训）。 */
     if (bound > 0 && bound == candidates && file_exists(DRIVER_SYS) &&
-        svc_start != SERVICE_DISABLED) {
+        svc_start != SERVICE_DISABLED && root_nologconf == 0) {
         mlog("[install] all %d SB16 instance(s) already bound; nothing to do",
              bound);
         return 0;
@@ -619,6 +746,11 @@ static int audio_install(int allow_create)
     if (svc_start == SERVICE_DISABLED) {
         mlog("[install] " SERVICE_NAME " service is DISABLED (Code 32); "
              "re-enabling below");
+    }
+    if (root_nologconf > 0) {
+        mlog("[install] %d bound root instance(s) missing LogConf resources "
+             "(Code 10); writing them below",
+             root_nologconf);
     }
     if (candidates == 0) {
         if (!allow_create) {
@@ -632,11 +764,11 @@ static int audio_install(int allow_create)
         if (create_sb16_instance() != 0) {
             return 2;
         }
-        bound = walk_enum_all(1, NULL, 0, &candidates);
+        bound = walk_enum_all(1, NULL, 0, &candidates, NULL);
         if (candidates == 0) {
             char dump[900];
             dump[0] = 0;
-            walk_enum_all(2, dump, (DWORD)sizeof(dump), NULL);
+            walk_enum_all(2, dump, (DWORD)sizeof(dump), NULL, NULL);
             mlog("[install] instance creation did not stick; instances "
                  "seen:\r\n%s",
                  dump);
@@ -651,7 +783,7 @@ static int audio_install(int allow_create)
     if (ensure_ctlsb16_service() != 0) {
         return 2;
     }
-    int hits = walk_enum_all(0, NULL, 0, &candidates);
+    int hits = walk_enum_all(0, NULL, 0, &candidates, NULL);
     if (hits > 0) {
         mlog("[install] ok_instances=%d; sound starts when the device "
              "re-enumerates (reboot)",
@@ -744,7 +876,7 @@ int ivm_audio_check(void)
     int svc_start = ctlsb16_start_type();
     int candidates = 0;
     body[0] = 0;
-    int bound = walk_enum_all(1, body, (DWORD)sizeof(body), &candidates);
+    int bound = walk_enum_all(1, body, (DWORD)sizeof(body), &candidates, NULL);
     text[0] = 0;
     sz_append(text, (DWORD)sizeof(text),
               file_ok ? "driver file: present\r\n"
@@ -787,16 +919,22 @@ void ivm_audio_selfheal(void)
         mlog("[self-heal] rollback flag present; audio stays uninstalled");
         return;
     }
-    int bound = walk_enum_all(1, NULL, 0, NULL);
+    int root_nologconf = 0;
+    int bound = walk_enum_all(1, NULL, 0, NULL, &root_nologconf);
     int svc_start = ctlsb16_start_type();
-    if (bound > 0 && svc_start >= 0 && svc_start != SERVICE_DISABLED) {
-        return; /* 已装上且服务可用：静默，别每次开机刷日志 */
+    /* 没绑定、服务缺/禁用、绑定但缺资源——三种「没装好」都要走修复。 */
+    if (bound > 0 && svc_start >= 0 && svc_start != SERVICE_DISABLED &&
+        root_nologconf == 0) {
+        return; /* 已装上且服务/资源都在：静默，别每次开机刷日志 */
     }
     if (bound > 0) {
         mlog("[self-heal] driver bound but " SERVICE_NAME " service is "
              "%s; fixing",
              svc_start == SERVICE_DISABLED ? "DISABLED (Code 32)"
-                                           : "missing");
+                                           : (root_nologconf > 0
+                                                  ? "ok but resources missing "
+                                                    "(Code 10)"
+                                                  : "missing"));
     } else {
         mlog("[self-heal] SB16 audio driver not bound; installing (bind only, "
              "never creates a device)");

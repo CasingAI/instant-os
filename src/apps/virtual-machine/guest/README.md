@@ -46,8 +46,11 @@ v86 模拟的是一张标准 Sound Blaster 16（ISA PnP，IRQ 5 / DMA 1、5 / �
 3. 注册 `ctlsb16` 内核服务（**被禁用就翻回按需启动**——INF 重装不会覆盖
    既有服务的 Start 值，禁用一旦落定只有这里能救，否则设备管理器永远
    Code 32），给实例直写 `Service` / `Class` / `ClassGUID` 并清
-   `ConfigFlags`（注册表直改，无向导无签名问题），重启一次设备重新枚举后
-   生效——任务栏出现音量图标。
+   `ConfigFlags`，**再给 `Root\` 下的实例补写 `LogConf` 启动资源**
+   （端口 220/330/388、IRQ 5、DMA 1+5，与 v86 硬编码一致；INF 的
+   `LogConfigOverride` 本该干的活在注册表直改路径里被跳过，不补的话服务
+   修好后设备照样 Code 10「无法启动」），重启一次设备重新枚举后生效——
+   任务栏出现音量图标。
 
 退出码：`0`=已装/新装成功；`1`=注册表里没有 SB16 设备实例且（显式安装时）
 自建失败（看 `C:\Tools\audio-install.log` 里记录的全部硬件 ID）；`2`=驱动
@@ -70,6 +73,13 @@ agent（弹「遇到问题需要关闭」）——换新 exe 即可。
 > 永久化 → 设备管理器 Code 32（服务已禁用），手动 INF 重装也救不回（INF
 > 不覆盖既有 Start 值）。现版本 install/自愈见禁用必解禁，回滚靠标记与
 > 自愈互斥。
+>
+> 血泪教训之三（2026-08-31 同日）：服务解禁后设备转 Code 10「无法启动」
+> ——根实例从没拿到 IO/IRQ/DMA 资源。注册表直改路径写完 Service 就算配
+> 置完成（ConfigFlags=0），PnP 跳过 INF 处理，`wdma_ctl.inf` 的
+> `LogConfigOverride` 永远没机会应用；历史上手动向导能响正是因为向导走完
+> 整 INF。现版本 install/自愈检测「已绑定但缺 LogConf」并补写启动资源表
+> （BootConfig/ForcedConfig/AllocConfig 三值同内容）。
 
 已知限制：装好驱动只解决「无声」；XP 上 SB16 播放尾段偶发循环是 v86 侧
 模拟时序问题（`todo/vm-windows-xp-sb16-audio-loop.md`），与本驱动无关。

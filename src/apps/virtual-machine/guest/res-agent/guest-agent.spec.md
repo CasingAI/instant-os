@@ -134,7 +134,7 @@ sc stop InstantVmAgent & sc start InstantVmAgent
 |---|---|---|---|
 | `/mouse-install` | 注册 vmmouse 服务 + 挂上 PS/2 鼠标实例的 UpperFilters | 0=成功 1=无 PS/2 设备实例 2=驱动文件/服务/注册表失败 | `C:\Tools\mouse-install.log` |
 | `/mouse-check` | 只读体检 + 报告弹窗 | 0=已挂 1=未挂 2=驱动文件/服务缺失 | 同上 |
-| `/audio-install` | 就地提取 XP 内置 ctlsb16.sys + 注册/解禁服务 + 绑定 `*CTL00xx` 声卡实例；无实例时**自建** `Enum\Root\*CTL0031\0000`；清回滚标记 | 0=成功 1=无实例且建不成 2=提取/服务/注册表失败 | `C:\Tools\audio-install.log` |
+| `/audio-install` | 就地提取 XP 内置 ctlsb16.sys + 注册/解禁服务 + 绑定 `*CTL00xx` 声卡实例 + 给缺资源的 `Root\` 实例补 LogConf 启动资源；无实例时**自建** `Enum\Root\*CTL0031\0000`；清回滚标记 | 0=成功 1=无实例且建不成 2=提取/服务/注册表失败 | `C:\Tools\audio-install.log` |
 | `/audio-uninstall` | 回滚：删自建的 `*CTL0031` 实例 + 禁用 ctlsb16 服务 + 落回滚标记 `C:\Tools\audio-uninstalled.flag`（BIOS/向导枚举的实例不碰） | 0=成功（含本来没装）2=注册表失败 | 同上 |
 | `/audio-check` | 只读体检 + 报告弹窗（服务 Start 类型、实例 `LogConf` 资源现状） | 0=已装 1=未装 2=驱动文件缺失或服务缺失/被禁用 | 同上 |
 
@@ -176,6 +176,13 @@ attached: YES」时，PS/2 鼠标设备开机即启动失败（PnP 加载 UpperF
   Start=SERVICE_DISABLED 必 `ChangeServiceConfig` 翻回按需启动；
   uninstall 落回滚标记、显式 install 清标记，self-heal 见标记退出——回滚
   与自愈不再互相打架；
+- LogConf 启动资源补写（2026-08-31 同日）：服务解禁后设备转 Code 10——
+  根枚举实例没资源。注册表直改写完 Service 即「已配置」（ConfigFlags=0），
+  PnP 跳过 INF，`wdma_ctl.inf` 的 LogConfigOverride 永不应用；向导能响正
+  是走了完整 INF。现版对 `Root\` 下缺资源的已绑定实例补写 116 字节
+  REG_RESOURCE_LIST（端口 220-22F/330-331/388-38B、IRQ 5 边沿、DMA 1+5，
+  与 v86 sb16.js 硬编码一致），BootConfig/ForcedConfig/AllocConfig 三值
+  同内容；walk 增 `root_nologconf` 出参，早退/自愈静默条件都算上它；
 - 血泪教训（2026-08-30 真机）：mlog 的 msg 缓冲曾只有 600 字节，装不下
   wvsprintfA 上限 1024 的 `%s` 长转储，agent 开机即崩（「遇到问题需要
   关闭」）。msg/line 缓冲必须 ≥ wvsprintfA 上限，mouse/audio 两模块同改。

@@ -160,7 +160,8 @@ function main() {
   // OP_SNAP_EDGE 分发后放宽到 950；剪贴板桥 v4 放宽到 1700（v5 加共享文
   // 件夹收敛钩子一行）；鼠标安装助手（安装+/mouse-check 诊断+自愈三职责）
   // 放宽到 500；声卡驱动助手（三职责+就地提取+显式自建设备+/audio-uninstall
-  // 回滚，v6 再加服务解禁+回滚标记+self-heal 冻结）放宽到 850；Aero Snap（钩
+  // 回滚，v6 加服务解禁+回滚标记+self-heal 冻结，v7 再加根实例 LogConf 启动
+  // 资源补写）放宽到 950；Aero Snap（钩
   // 子+吸附表+预览窗+热键+开关+排查期文件
   // 日志）放宽到 800；共享文件夹（注册表轮询+幂等 net use 收敛+日志）放宽
   // 到 300。
@@ -171,7 +172,7 @@ function main() {
   sourceLines('res-agent/res-agent.c', 950, 'res-agent.c')
   sourceLines('clipboard-bridge/clipboard-bridge.c', 1700, 'clipboard-bridge.c')
   sourceLines('ivm-agent/ivm-mouse-install.c', 500, 'ivm-mouse-install.c')
-  sourceLines('ivm-agent/ivm-audio-install.c', 850, 'ivm-audio-install.c')
+  sourceLines('ivm-agent/ivm-audio-install.c', 950, 'ivm-audio-install.c')
   sourceLines('ivm-agent/ivm-aero-snap.c', 800, 'ivm-aero-snap.c')
   sourceLines('ivm-agent/ivm-shared-folder.c', 300, 'ivm-shared-folder.c')
 
