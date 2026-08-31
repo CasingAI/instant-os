@@ -5,6 +5,8 @@
 import assert from 'node:assert/strict'
 import {
   createVmClipboardSyncState,
+  normalizeGuestClipboardText,
+  normalizeHostClipboardTextForGuest,
   onGuestClipboardReceived,
   onHostClipboardChanged,
 } from './virtual-machine-clipboard.ts'
@@ -49,11 +51,48 @@ function testEmptyTextNotSynced(): void {
   assert.equal(onGuestClipboardReceived(state, ''), null)
 }
 
+function testNewlineNormalization(): void {
+  // 宿主→客机：裸 \n / 孤立 \r 都归一成 \r\n；已是 \r\n 原样（幂等）
+  assert.equal(normalizeHostClipboardTextForGuest('a\nb\nc'), 'a\r\nb\r\nc')
+  assert.equal(normalizeHostClipboardTextForGuest('a\rb'), 'a\r\nb')
+  assert.equal(normalizeHostClipboardTextForGuest('a\r\nb'), 'a\r\nb')
+  assert.equal(
+    normalizeHostClipboardTextForGuest(normalizeHostClipboardTextForGuest('x\ny')),
+    'x\r\ny',
+  )
+  // 客机→宿主：\r\n 归一成 \n；裸 \n 原样；孤立 \r 不动（避免误伤罕见内容）
+  assert.equal(normalizeGuestClipboardText('a\r\nb\r\nc'), 'a\nb\nc')
+  assert.equal(normalizeGuestClipboardText('a\nb'), 'a\nb')
+  assert.equal(normalizeGuestClipboardText('a\rb'), 'a\rb')
+  assert.equal(normalizeGuestClipboardText(''), '')
+}
+
+function testNormalizedRoundTripNoLoop(): void {
+  const state = createVmClipboardSyncState()
+  // 宿主复制多行（\n）→ 决策层返回原文，推送前归一成 \r\n
+  const push = onHostClipboardChanged(state, 'sc query\nnet use')
+  assert.equal(push, 'sc query\nnet use')
+  const guestPush = normalizeHostClipboardTextForGuest(push)
+  assert.equal(guestPush, 'sc query\r\nnet use')
+  // 指纹记的是宿主原文：下一轮轮询读到原文 → 不回推
+  assert.equal(onHostClipboardChanged(state, 'sc query\nnet use'), null)
+  // 客机（\r\n）复制送来 → 归一成 \n 后写宿主，指纹与实写一致
+  const write = onGuestClipboardReceived(
+    state,
+    normalizeGuestClipboardText('dir\r\ncd\r\n'),
+  )
+  assert.equal(write, 'dir\ncd\n')
+  // 下一轮轮询读到刚落地的 \n 文本：是回声 → 不回推客机
+  assert.equal(onHostClipboardChanged(state, 'dir\ncd\n'), null)
+}
+
 function main(): void {
   testHostPushAndEchoSuppression()
   testGuestReceiveSuppressesEcho()
   testRepeatedGuestTextIgnored()
   testEmptyTextNotSynced()
+  testNewlineNormalization()
+  testNormalizedRoundTripNoLoop()
   console.log('virtual-machine-clipboard.test.ts ok')
 }
 

@@ -286,6 +286,12 @@ static void fb_utf16z(frame_buf *f, const wchar_t *text)
     f->len += 2;
 }
 
+static wchar_t rd_u16(const unsigned char *b, unsigned long offset)
+{
+    return (wchar_t)(unsigned short)((unsigned long)b[offset] |
+                                     ((unsigned long)b[offset + 1] << 8));
+}
+
 static unsigned long rd_u32(const unsigned char *b, unsigned long offset)
 {
     return (unsigned long)b[offset] | ((unsigned long)b[offset + 1] << 8) |
@@ -1151,6 +1157,32 @@ static void own_clipboard(void)
 
 /* ---- H2G 消费：文本 / PENDING / CLEAR / REQ 应答 / DATA 派发 / DONE ---- */
 
+/* 宿主文本换行多为裸 \n（macOS/浏览器惯例），XP 程序（记事本等）只认
+ * \r\n：落 g_text 前统一转 CRLF。\r\n 原样保留，孤立 \r/\n 都补成 \r\n；
+ * 超过 cap 截断（与调用方 chars 钳位同界）。返回写出字符数。 */
+static unsigned long text_to_crlf(const unsigned char *src, unsigned long chars,
+                                  wchar_t *dst, unsigned long cap)
+{
+    unsigned long out = 0;
+    for (unsigned long i = 0; i < chars && out < cap; i++) {
+        wchar_t c = rd_u16(src, i * 2);
+        if (c == L'\r' && (i + 1 >= chars || rd_u16(src, (i + 1) * 2) != L'\n')) {
+            dst[out++] = L'\r';
+            if (out < cap) {
+                dst[out++] = L'\n';
+            }
+        } else if (c == L'\n') {
+            dst[out++] = L'\r';
+            if (out < cap) {
+                dst[out++] = L'\n';
+            }
+        } else {
+            dst[out++] = c;
+        }
+    }
+    return out;
+}
+
 /* 主循环与流 Read 都可能进来（Read 阻塞期间只有它跑）。 */
 static void h2g_process(void)
 {
@@ -1183,10 +1215,11 @@ static void h2g_process(void)
             if (chars == 0) {
                 continue; /* 空文本：不覆盖剪贴板 */
             }
-            memcpy(g_text, buf, chars * 2);
-            g_text[chars] = 0;
+            unsigned long written =
+                text_to_crlf(buf, chars, g_text, SHM_MAILBOX_DATA / 2 - 1);
+            g_text[written] = 0;
             g_text_ready = 1;
-            log_line("clip-bridge: host text(%lu chars) -> clipboard", chars);
+            log_line("clip-bridge: host text(%lu chars) -> clipboard", written);
             if (g_ole_ok) {
                 own_clipboard();
             } else {

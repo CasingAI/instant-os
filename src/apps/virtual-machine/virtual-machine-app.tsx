@@ -38,6 +38,8 @@ import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
 import {
   createVmClipboardSyncState,
+  normalizeGuestClipboardText,
+  normalizeHostClipboardTextForGuest,
   onGuestClipboardReceived,
   onHostClipboardChanged,
 } from './virtual-machine-clipboard.ts'
@@ -918,11 +920,12 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         readFailures = 0
         const push = onHostClipboardChanged(clipboardSyncRef.current, hostText)
         if (push !== null) {
+          const guestPush = normalizeHostClipboardTextForGuest(push)
           console.info(
-            `[vm-clipboard] 宿主: 剪贴板变化，推向客机(${push.length}字符) ${JSON.stringify(push.slice(0, 60))}`,
+            `[vm-clipboard] 宿主: 剪贴板变化，推向客机(${guestPush.length}字符) ${JSON.stringify(guestPush.slice(0, 60))}`,
           )
           void pool
-            .agentCommand(displayedId, 'clipboardWrite', [push])
+            .agentCommand(displayedId, 'clipboardWrite', [guestPush])
             .catch(() => {})
         }
       } catch {
@@ -954,7 +957,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       if (!enhanceClipboard) {
         return
       }
-      const write = onGuestClipboardReceived(clipboardSyncRef.current, text)
+      const write = onGuestClipboardReceived(
+        clipboardSyncRef.current,
+        normalizeGuestClipboardText(text),
+      )
       if (write === null) {
         console.info(
           '[vm-clipboard] 宿主: 重复/回声/空文本，跳过写入',

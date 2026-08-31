@@ -26,6 +26,26 @@ export function createVmClipboardSyncState(): VmClipboardSyncState {
 }
 
 /**
+ * 换行归一（宿主→客机）：宿主剪贴板是裸 \n（macOS/浏览器惯例），XP 程序
+ * （记事本等）只认 \r\n——推给客机前统一转 CRLF（\r\n 保留原样，孤立
+ * \r/\n 都补成 \r\n）。幂等：客机桥自己也转，两侧叠加结果一致。必须在
+ * onHostClipboardChanged 之后调用：lastSeenHostText 要记宿主剪贴板的原文，
+ * 否则下一轮轮询会把归一差异当成新变化，无限回推。
+ */
+export function normalizeHostClipboardTextForGuest(text: string): string {
+  return text.replace(/\r\n|\r|\n/g, '\r\n')
+}
+
+/**
+ * 换行归一（客机→宿主）：客机（Windows）文本是 \r\n，写进宿主剪贴板前
+ * 归一成 \n，防终端/编辑器里出现 ^M。必须在 onGuestClipboardReceived 之前
+ * 调用：防环指纹要与实际写入宿主剪贴板的内容一致，否则回环判定失配。
+ */
+export function normalizeGuestClipboardText(text: string): string {
+  return text.replace(/\r\n/g, '\n')
+}
+
+/**
  * 宿主剪贴板轮询 tick。返回应推给客机的文本（无变化 / 是回声时返回 null）。
  */
 export function onHostClipboardChanged(
