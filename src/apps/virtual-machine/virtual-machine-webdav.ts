@@ -136,85 +136,73 @@ function isoDate(epochMs: number): string {
   return new Date(epochMs).toISOString()
 }
 
+/**
+ * getlastmodified 属性专用：XP 老版 mrxdav 不认 "GMT" 时区名，要 RFC1123
+ * 的数字时区形式（"-0400"）；UTC 下即 "+0000"。HTTP Last-Modified 头不受
+ * 此限，仍走 httpDate 的 GMT 形式。
+ */
+function davDate(epochMs: number): string {
+  return new Date(epochMs).toUTCString().replace(/ GMT$/, ' +0000')
+}
+
+/**
+ * XP mrxdav 的 XML 解析对 PROPFIND/PROPPATCH 响应零容忍空白——元素之间
+ * 出现换行/缩进即解析失败（net use 报系统错误 67），所有 DAV XML 一律单行
+ * 无缝拼接。且不发 displayname：XP 会拿它替代 href 寻址，造成路径错乱。
+ */
 function propXmlFor(entry: WebdavFsEntry): string {
-  const lines = [
-    '     <D:prop>',
-    `      <D:displayname>${escapeXml(entry.name)}</D:displayname>`,
-    `      <D:creationdate>${isoDate(entry.createdAt)}</D:creationdate>`,
-    `      <D:getlastmodified>${httpDate(entry.updatedAt)}</D:getlastmodified>`,
-  ]
-  if (entry.kind === 'folder') {
-    lines.push('      <D:resourcetype><D:collection/></D:resourcetype>')
-  } else {
-    lines.push('      <D:resourcetype/>')
-    lines.push(`      <D:getcontentlength>${Math.max(0, entry.byteSize)}</D:getcontentlength>`)
-    lines.push(
-      `      <D:getcontenttype>${escapeXml(entry.mimeType ?? 'application/octet-stream')}</D:getcontenttype>`,
-    )
-  }
-  lines.push('     </D:prop>')
-  return lines.join('\n')
+  const resourceType =
+    entry.kind === 'folder'
+      ? '<D:resourcetype><D:collection/></D:resourcetype>'
+      : '<D:resourcetype/>'
+  const fileProps =
+    entry.kind === 'folder'
+      ? ''
+      : `<D:getcontentlength>${Math.max(0, entry.byteSize)}</D:getcontentlength>` +
+        `<D:getcontenttype>${escapeXml(entry.mimeType ?? 'application/octet-stream')}</D:getcontenttype>`
+  return (
+    `<D:prop><D:creationdate>${isoDate(entry.createdAt)}</D:creationdate>` +
+    `<D:getlastmodified>${davDate(entry.updatedAt)}</D:getlastmodified>` +
+    `${resourceType}${fileProps}</D:prop>`
+  )
 }
 
 /** 生成 207 multistatus；href 与条目一一对应。 */
 export function buildPropfindMultistatus(
   responses: readonly { href: string; entry: WebdavFsEntry }[],
 ): string {
-  const parts = [
-    '<?xml version="1.0" encoding="utf-8"?>',
-    '<D:multistatus xmlns:D="DAV:">',
-  ]
+  let xml = '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">'
   for (const response of responses) {
-    parts.push(
-      ' <D:response>',
-      `  <D:href>${escapeXml(response.href)}</D:href>`,
-      '  <D:propstat>',
-      propXmlFor(response.entry),
-      '   <D:status>HTTP/1.1 200 OK</D:status>',
-      '  </D:propstat>',
-      ' </D:response>',
-    )
+    xml +=
+      `<D:response><D:href>${escapeXml(response.href)}</D:href>` +
+      `<D:propstat>${propXmlFor(response.entry)}` +
+      '<D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>'
   }
-  parts.push('</D:multistatus>')
-  return parts.join('\n')
+  return `${xml}</D:multistatus>`
 }
 
 function propfindEntryXml(href: string): string {
-  return [
-    ' <D:response>',
-    `  <D:href>${escapeXml(href)}</D:href>`,
-    '  <D:propstat>',
-    '   <D:prop/>',
-    '   <D:status>HTTP/1.1 200 OK</D:status>',
-    '  </D:propstat>',
-    ' </D:response>',
-  ].join('\n')
+  return (
+    `<D:response><D:href>${escapeXml(href)}</D:href>` +
+    '<D:propstat><D:prop/><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>'
+  )
 }
 
 export function buildProppatchMultistatus(href: string): string {
-  return [
-    '<?xml version="1.0" encoding="utf-8"?>',
-    '<D:multistatus xmlns:D="DAV:">',
-    propfindEntryXml(href),
-    '</D:multistatus>',
-  ].join('\n')
+  return (
+    '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' +
+    `${propfindEntryXml(href)}</D:multistatus>`
+  )
 }
 
 function lockDiscoveryXml(): string {
-  return [
-    '<?xml version="1.0" encoding="utf-8"?>',
-    '<D:prop xmlns:D="DAV:">',
-    ' <D:lockdiscovery>',
-    '  <D:activelock>',
-    '   <D:locktype><D:write/></D:locktype>',
-    '   <D:lockscope><D:exclusive/></D:lockscope>',
-    '   <D:depth>0</D:depth>',
-    '   <D:timeout>Second-3600</D:timeout>',
-    `   <D:locktoken><D:href>${WEBDAV_LOCK_TOKEN}</D:href></D:locktoken>`,
-    '  </D:activelock>',
-    ' </D:lockdiscovery>',
-    '</D:prop>',
-  ].join('\n')
+  return (
+    '<?xml version="1.0" encoding="utf-8"?><D:prop xmlns:D="DAV:"><D:lockdiscovery>' +
+    '<D:activelock><D:locktype><D:write/></D:locktype>' +
+    '<D:lockscope><D:exclusive/></D:lockscope><D:depth>0</D:depth>' +
+    `<D:timeout>Second-3600</D:timeout><D:locktoken><D:href>${WEBDAV_LOCK_TOKEN}</D:href></D:locktoken>` +
+    '</D:activelock></D:lockdiscovery></D:prop>'
+  )
 }
 
 // ---------------------------------------------------------------------------

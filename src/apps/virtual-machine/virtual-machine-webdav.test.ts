@@ -70,7 +70,10 @@ const xml = buildPropfindMultistatus([{ href: '/a.txt', entry }])
 assert.ok(xml.includes('<D:multistatus xmlns:D="DAV:">'))
 assert.ok(xml.includes('<D:href>/a.txt</D:href>'))
 assert.ok(xml.includes('<D:getcontentlength>3</D:getcontentlength>'))
-assert.ok(xml.includes('Thu, 01 Jan 1970 00:00:00 GMT'))
+assert.ok(xml.includes('Thu, 01 Jan 1970 00:00:00 +0000'))
+// XP mrxdav 硬性要求：元素间零空白、不发 displayname（拿它替代 href 寻址）
+assert.equal(/>\s+</.test(xml), false)
+assert.equal(xml.includes('displayname'), false)
 
 // ---------------------------------------------------------------------------
 // 方法路由（假 fs）
