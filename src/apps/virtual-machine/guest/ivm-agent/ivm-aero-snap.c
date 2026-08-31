@@ -7,7 +7,7 @@
  *   - 拖动已吸附的窗口 → 恢复吸附前尺寸跟随光标（吸附链：同一次拖拽里
  *     再吸附仍记更早的原矩形；放下后链条结束，与 Win7 一致）；
  *   - Win+左/右/上/下 → 前台窗半屏 / 最大化 / 还原→最小化；
- *   - 边缘触发距离宿主可配（OP_SNAP_EDGE 帧实时下发，默认 12px）。
+ *   - 边缘触发距离宿主可配（OP_SNAP_EDGE 帧，默认 12px）。
  *
  * 原理（AltSnap 在 XP 上的实证路线，代码全部原创）：WH_MOUSE_LL 低级鼠标
  * 钩子（免 DLL 注入，NT4 SP3+ 即有）看所有进程的标题栏拖拽；窗口判定用
@@ -39,6 +39,13 @@
  * （交互增强一律跟桥走，见 res-agent.c 的 owns_bridge 判定）。入口
  * ivm_aero_snap_start() 起独立线程——LL 钩子所在线程必须泵消息。
  *
+ * 投递（v7）：OP_SNAP/OP_SNAP_EDGE 在持有 COM1 的进程分发（通常 session 0
+ * 服务实例），吸附线程却在登录会话实例——PostThreadMessage 跨进程投不进，
+ * v4~v6 开关/距离帧全被静默丢弃（实测「关了仍吸附、2px 不生效」）。改走
+ * HKLM 注册表中继：分发侧写 SnapEnabled/SnapEdgePx，吸附线程用预览窗
+ * WM_TIMER 每秒轮询，变更才生效（约 1 秒延迟）；宿主 5 秒轮询兜底重推，
+ * 注册表易失场景重启后 ≤5 秒自愈。
+ *
  * 合成输入无需防护：宿主 CLICK 命令走 mouse_event，LL 钩子看得见，但它
  * 是无拖拽单击，状态机天然忽略。
  *
@@ -65,9 +72,15 @@
 #define PREVIEW_BORDER_PX 4       /* 预览白框线宽（2px 在 96DPI 下偏细） */
 #define SNAP_TABLE_SIZE 16
 
-#define WM_APP_SNAP (WM_APP + 0x11)        /* 线程内消息：吸附落位（延迟由泵处理） */
-#define WM_APP_SNAP_ENABLE (WM_APP + 0x12) /* 线程内消息：宿主开关（挂/卸钩子） */
-#define WM_APP_SNAP_EDGE (WM_APP + 0x13)   /* 线程内消息：宿主触发距离（px） */
+/* 宿主配置中继（v7，见文件头「投递」）：分发进程写、吸附线程轮询读。
+ * 放 HKLM 因为分发方多为 session 0 服务实例，登录会话对它只有读权限。 */
+#define SNAP_REG_KEY "Software\\InstantVmAgent"
+#define SNAP_REG_ENABLE "SnapEnabled"
+#define SNAP_REG_EDGE "SnapEdgePx"
+#define SNAP_REG_TIMER_ID 1
+#define SNAP_REG_POLL_MS 1000
+
+#define WM_APP_SNAP (WM_APP + 0x11) /* 线程内消息：吸附落位（延迟由泵处理） */
 
 #define HOTKEY_LEFT 1
 #define HOTKEY_RIGHT 2
@@ -94,6 +107,41 @@ static void snap_log(const char *fmt, ...)
     }
     lstrcatA(buffer, "\r\n");
     OutputDebugStringA(buffer);
+}
+
+/* —— 宿主配置中继：注册表读写（分发进程写 / 吸附线程读，见文件头）—— */
+
+static void snap_reg_write(const char *name, DWORD value)
+{
+    HKEY key;
+    LONG rc = RegCreateKeyExA(HKEY_LOCAL_MACHINE, SNAP_REG_KEY, 0, NULL,
+                              REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL,
+                              &key, NULL);
+    if (rc != ERROR_SUCCESS) {
+        snap_log("snap: reg open for write fail rc=%ld", rc);
+        return;
+    }
+    rc = RegSetValueExA(key, name, 0, REG_DWORD, (const BYTE *)&value, sizeof(value));
+    RegCloseKey(key);
+    if (rc != ERROR_SUCCESS) {
+        snap_log("snap: reg set %s fail rc=%ld", name, rc);
+    }
+}
+
+/* 命中返回 1 并写 *out；键/值不存在或类型不对返回 0（保持现值/默认）。 */
+static int snap_reg_read(const char *name, DWORD *out)
+{
+    HKEY key;
+    DWORD type = 0;
+    DWORD size = sizeof(DWORD);
+    LONG rc;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, SNAP_REG_KEY, 0, KEY_QUERY_VALUE, &key) !=
+        ERROR_SUCCESS) {
+        return 0;
+    }
+    rc = RegQueryValueExA(key, name, NULL, &type, (BYTE *)out, &size);
+    RegCloseKey(key);
+    return rc == ERROR_SUCCESS && type == REG_DWORD && size == sizeof(DWORD);
 }
 
 /* 吸附意图种类 */
@@ -296,8 +344,23 @@ static void compute_target(int kind, const RECT *wa, RECT *out)
  */
 static HWND g_preview;
 
+static void apply_enable(int on);
+static void apply_edge(int px);
+
 static LRESULT CALLBACK preview_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    if (msg == WM_TIMER && wp == SNAP_REG_TIMER_ID) {
+        /* 注册表中继收敛：读到的与现值一致时零动作（不重打日志、不动钩子），
+         * 键不存在（宿主还没推过）就保持默认/现值。 */
+        DWORD v;
+        if (snap_reg_read(SNAP_REG_ENABLE, &v)) {
+            apply_enable(v ? 1 : 0);
+        }
+        if (snap_reg_read(SNAP_REG_EDGE, &v)) {
+            apply_edge((int)v);
+        }
+        return 0;
+    }
     return DefWindowProcA(hwnd, msg, wp, lp);
 }
 
@@ -379,10 +442,9 @@ static struct {
 static int g_pending = SNAP_NONE;
 static RECT g_pending_mon;
 
-/* 开关状态（泵线程私有写；宿主经 OP_SNAP 帧置 0/1，默认开）。 */
+/* 开关状态（泵线程私有写；宿主 OP_SNAP 经注册表中继由 WM_TIMER 收敛，默认开）。 */
 static HHOOK g_hook;
 static int g_enabled = 1;
-static DWORD g_snap_tid;
 
 /* 落位参数暂存：on_up 在 drag_reset 之前抄走，泵里延迟消费。 */
 static struct {
@@ -662,18 +724,63 @@ static LRESULT CALLBACK mouse_hook(int code, WPARAM wp, LPARAM lp)
     return CallNextHookEx(NULL, code, wp, lp);
 }
 
+/* 开关落位（WM_TIMER 收敛调用，见 preview_proc）：LL 钩子必须由安装线程
+ * 挂/卸。关闭顺手复位拖拽状态并藏预览，避免留下孤儿视觉。 */
+static void apply_enable(int on)
+{
+    if (on == g_enabled) {
+        return;
+    }
+    g_enabled = on;
+    if (!on) {
+        drag_reset();
+    }
+    if (!on && g_hook != NULL) {
+        UnhookWindowsHookEx(g_hook);
+        g_hook = NULL;
+    } else if (on && g_hook == NULL) {
+        g_hook = SetWindowsHookExA(WH_MOUSE_LL, mouse_hook, GetModuleHandleA(NULL), 0);
+    }
+    snap_log("snap: enabled=%d hook=%s", g_enabled, g_hook != NULL ? "on" : "off");
+}
+
+/* 触发距离落位：clamp 后与现值比对，变更才写（钩子线程读它，单 int 对齐
+ * 读写 x86 天然原子，无需锁）。 */
+static void apply_edge(int px)
+{
+    if (px < SNAP_EDGE_BASE_MIN) {
+        px = SNAP_EDGE_BASE_MIN;
+    }
+    if (px > SNAP_EDGE_BASE_MAX) {
+        px = SNAP_EDGE_BASE_MAX;
+    }
+    if (px == g_edge_base) {
+        return;
+    }
+    g_edge_base = px;
+    snap_log("snap: edge=%d", px);
+}
+
 /* —— 常驻线程：预览窗 + 热键 + LL 钩子 + 消息泵 —— */
 
 static DWORD WINAPI snap_thread_main(void *arg)
 {
+    DWORD v;
     (void)arg;
-    g_snap_tid = GetCurrentThreadId();
     snap_log("snap: thread start built=" VM_AGENT_BUILD);
     if (!preview_create()) {
         snap_log("snap: module disabled (preview failed)");
         return 1;
     }
     snap_log("snap: preview ok");
+    /* 先收敛一次已持久化的宿主配置（注册表易失时保持编译默认），再按开关
+     * 决定装不装钩子；此后 WM_TIMER 每秒继续收敛（见 preview_proc）。 */
+    if (snap_reg_read(SNAP_REG_ENABLE, &v)) {
+        apply_enable(v ? 1 : 0);
+    }
+    if (snap_reg_read(SNAP_REG_EDGE, &v)) {
+        apply_edge((int)v);
+    }
     /* 热键失败不致命：鼠标拖拽路径照常（宿主截获 Win 键时仅键盘路径失效） */
     if (!RegisterHotKey(NULL, HOTKEY_LEFT, MOD_WIN, VK_LEFT) ||
         !RegisterHotKey(NULL, HOTKEY_RIGHT, MOD_WIN, VK_RIGHT) ||
@@ -684,52 +791,21 @@ static DWORD WINAPI snap_thread_main(void *arg)
     }
     /* XP 对 LL 钩子同样要求真实模块句柄：传 NULL 报 1428
      * （ERROR_HOOK_NEEDS_HMODULE，2026-08-30 真机日志实证）；Win7+ 才
-     * 容忍 NULL。钩子函数就在本 exe 里，给自身句柄（AltSnap 同款）。 */
-    g_hook = SetWindowsHookExA(WH_MOUSE_LL, mouse_hook, GetModuleHandleA(NULL), 0);
-    if (g_hook == NULL) {
-        snap_log("snap: SetWindowsHookEx failed (%lu), module disabled",
-                 GetLastError());
-        return 1;
+     * 容忍 NULL。钩子函数就在本 exe 里，给自身句柄（AltSnap 同款）。
+     * 开关为关时不装（WM_TIMER 收敛到开时由 apply_enable 补装）。 */
+    if (g_enabled) {
+        g_hook = SetWindowsHookExA(WH_MOUSE_LL, mouse_hook, GetModuleHandleA(NULL), 0);
+        if (g_hook == NULL) {
+            snap_log("snap: SetWindowsHookEx failed (%lu), module disabled",
+                     GetLastError());
+            return 1;
+        }
     }
-    snap_log("snap: hook ok, aero-snap active");
+    snap_log("snap: hook=%s, aero-snap active", g_hook != NULL ? "on" : "off");
+    SetTimer(g_preview, SNAP_REG_TIMER_ID, SNAP_REG_POLL_MS, NULL);
 
     MSG msg;
     while (GetMessageA(&msg, NULL, 0, 0) > 0) {
-        if (msg.message == WM_APP_SNAP_ENABLE) {
-            /* LL 钩子必须由安装线程挂/卸：开关只 post 过来，这里执行。
-             * 关闭顺手复位拖拽状态并藏预览，避免留下孤儿视觉。 */
-            int on = (int)msg.wParam;
-            if (on != g_enabled) {
-                g_enabled = on;
-                if (!on) {
-                    drag_reset();
-                }
-                if (!on && g_hook != NULL) {
-                    UnhookWindowsHookEx(g_hook);
-                    g_hook = NULL;
-                } else if (on && g_hook == NULL) {
-                    g_hook = SetWindowsHookExA(WH_MOUSE_LL, mouse_hook,
-                                               GetModuleHandleA(NULL), 0);
-                }
-                snap_log("snap: enabled=%d hook=%s", g_enabled,
-                         g_hook != NULL ? "on" : "off");
-            }
-            continue;
-        }
-        if (msg.message == WM_APP_SNAP_EDGE) {
-            /* 触发距离 clamp 后落全局：无论开关状态都更新，开着时下一次
-             * mousemove 即用新值。 */
-            int px = (int)msg.wParam;
-            if (px < SNAP_EDGE_BASE_MIN) {
-                px = SNAP_EDGE_BASE_MIN;
-            }
-            if (px > SNAP_EDGE_BASE_MAX) {
-                px = SNAP_EDGE_BASE_MAX;
-            }
-            g_edge_base = px;
-            snap_log("snap: edge=%d", px);
-            continue;
-        }
         if (msg.message == WM_APP_SNAP) {
             Sleep(RESTORE_APPLY_DELAY_MS); /* 等原生 move-size 循环退场 */
             apply_snap(g_apply.kind, g_apply.hwnd, &g_apply.orig);
@@ -766,22 +842,20 @@ void ivm_aero_snap_start(void)
     CloseHandle(thread); /* 线程常驻，句柄即弃 */
 }
 
-/* 宿主「窗口吸附」开关（OP_SNAP 帧）：LL 钩子必须在安装线程挂/卸，
- * 所以只 post 消息，泵线程执行；fire-and-forget，无回执。 */
+/* 宿主「窗口吸附」开关（OP_SNAP 帧）：本函数跑在持有 COM1 的进程（多为
+ * session 0 服务实例），吸附线程在登录会话实例——跨进程投不了线程消息，
+ * 写注册表中继，由吸附线程 WM_TIMER 秒级收敛（见文件头「投递」）；
+ * fire-and-forget，无回执。 */
 void ivm_aero_snap_set_enabled(unsigned char on)
 {
-    if (g_snap_tid != 0) {
-        PostThreadMessageA(g_snap_tid, WM_APP_SNAP_ENABLE, on ? 1 : 0, 0);
-    }
+    snap_reg_write(SNAP_REG_ENABLE, on ? 1 : 0);
 }
 
-/* 宿主「吸附触发距离」（OP_SNAP_EDGE 帧）：与开关同款 post 给泵线程
- * （clamp 在那边做）；fire-and-forget，无回执。 */
+/* 宿主「吸附触发距离」（OP_SNAP_EDGE 帧）：与开关同款注册表中继；clamp
+ * 在吸附线程 apply_edge 侧做。 */
 void ivm_aero_snap_set_edge(unsigned char px)
 {
-    if (g_snap_tid != 0) {
-        PostThreadMessageA(g_snap_tid, WM_APP_SNAP_EDGE, px, 0);
-    }
+    snap_reg_write(SNAP_REG_EDGE, px);
 }
 
 /* OP_SNAP 帧的解析（len=2，payload[1]=0/1）。放本模块是为了 res-agent.c

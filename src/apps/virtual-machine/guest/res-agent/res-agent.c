@@ -202,8 +202,12 @@ static void handle_packed_value(unsigned long packed);
  * v4：登录常驻身份新增 Aero Snap 窗口吸附（ivm-aero-snap.c）。
  * v5：Aero Snap 触发距离可配（OP_SNAP_EDGE 0x14，ivm-aero-snap.c）。
  * v6：共享文件夹盘符可配（Drive 注册表值），换盘符/停用时自动清理旧映射
- *   （HKCU\Network 按 RemotePath 枚举，ivm-shared-folder.c）。 */
-#define AGENT_VERSION "6"
+ *   （HKCU\Network 按 RemotePath 枚举，ivm-shared-folder.c）。
+ * v7：Aero Snap 开关/距离帧改注册表中继投递（OP_SNAP/OP_SNAP_EDGE 的
+ *   dispatch 在 COM1 持有进程——多为 session 0 服务实例，而吸附线程在登录
+ *   会话实例，v4~v6 PostThreadMessage 跨进程投递全被静默丢弃；
+ *   ivm-aero-snap.c 写 HKLM\Software\InstantVmAgent，登录侧秒级轮询收敛）。 */
+#define AGENT_VERSION "7"
 
 /* 当前 COM1 句柄：命令回执（[IVM]…\r\n）从这里写回宿主。 */
 static HANDLE g_port;

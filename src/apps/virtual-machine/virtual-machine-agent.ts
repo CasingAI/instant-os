@@ -83,7 +83,8 @@ export type VmAgentController = {
   dblclick(x: number, y: number): Promise<void>
   /**
    * 窗口吸附开关 + 触发距离（OP_SNAP/OP_SNAP_EDGE 帧直发，客机无回执；
-   * 运行中实时生效）。edgeBasePx 由运行时校验 2..64，客机侧再 clamp 兜底。
+   * 客机 v7 起经注册表中继秒级收敛）。edgeBasePx 由运行时校验 2..64，
+   * 客机侧再 clamp 兜底。
    */
   snap(enabled: boolean, edgeBasePx: number): Promise<void>
   shutdown(): Promise<void>

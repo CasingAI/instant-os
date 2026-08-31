@@ -163,7 +163,8 @@ function main() {
   // 回滚，v6 加服务解禁+回滚标记+self-heal 冻结，v7 再加根实例 LogConf 启动
   // 资源补写）放宽到 950；Aero Snap（钩
   // 子+吸附表+预览窗+热键+开关+排查期文件
-  // 日志）放宽到 800；共享文件夹（注册表轮询+幂等 net use 收敛+日志）放宽
+  // 日志）放宽到 800，v7 加注册表中继（读写助手+WM_TIMER 收敛+apply 提取）
+  // 放宽到 900；共享文件夹（注册表轮询+幂等 net use 收敛+日志）放宽
   // 到 300。
   const sourceLines = (path: string, limit: number, label: string) => {
     const lines = readFileSync(join(GUEST_DIR, path), 'utf8').split('\n').length
@@ -173,7 +174,7 @@ function main() {
   sourceLines('clipboard-bridge/clipboard-bridge.c', 1700, 'clipboard-bridge.c')
   sourceLines('ivm-agent/ivm-mouse-install.c', 500, 'ivm-mouse-install.c')
   sourceLines('ivm-agent/ivm-audio-install.c', 950, 'ivm-audio-install.c')
-  sourceLines('ivm-agent/ivm-aero-snap.c', 800, 'ivm-aero-snap.c')
+  sourceLines('ivm-agent/ivm-aero-snap.c', 900, 'ivm-aero-snap.c')
   sourceLines('ivm-agent/ivm-shared-folder.c', 300, 'ivm-shared-folder.c')
 
   // 两次独立编译：第一次拿属性基线，第二次验证可重现性。

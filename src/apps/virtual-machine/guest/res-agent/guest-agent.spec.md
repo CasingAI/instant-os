@@ -88,15 +88,15 @@ opcode，宿主经运行时串口发送下发（resolution-serial 泵每秒的�
 | len | 命令 | payload | 行为 / 回执（`[IVM]…\r\n`，COM1 回传） |
 |---|---|---|---|
 | 0x04 | 分辨率（v1） | `(w<<16)\|h` LE | 就近吸附切换显示模式 |
-| 0x01 | PING（0x01） | — | 回 `[IVM]PONG=<tick> ver=2 built=<YYYYMMDD-HHMMSS>`（构建时间戳由构建脚本注入） |
+| 0x01 | PING（0x01） | — | 回 `[IVM]PONG=<tick> ver=<AGENT_VERSION> built=<YYYYMMDD-HHMMSS>`（构建时间戳由构建脚本注入） |
 | 0x01 | SHUTDOWN（0x02） | — | 回 `[IVM]SDWN=1` 后 `ExitWindowsEx(EWX_SHUTDOWN\|EWX_POWEROFF\|EWX_FORCE)` |
 | 0x01 | REBOOT（0x03） | — | 回 `[IVM]RBOOT=1` 后 `ExitWindowsEx(EWX_REBOOT\|EWX_FORCE)` |
 | N | EXEC（0x10） | `0x10 <cmdline\0>`（ASCII，≤198 字符） | `CreateProcessA`（CREATE_NO_WINDOW）；回 `[IVM]EXEC=1` 或 `[IVM]EXEC=0 err=<GLE>` |
 | 0x02 | SHM_QUERY（0x12） | — | 每次现查 `\\.\IVMSHM` 后回 `[IVM]SHM=<物理基址> size=<n>`（剪贴板信箱握手，v3）；驱动不在回 `SHM=0`。客机重启会重新分配基址，宿主须按应答值重建信箱（未握手 5s 周期重问，已握手 30s 低频复问） |
 | 0x05 | CLICK（0x20） | `0x20 <x:u16><y:u16>` LE | `SetCursorPos` + `mouse_event` 左键单击；回 `[IVM]CLICK=1` |
 | 0x05 | DBLCLICK（0x21） | `0x21 <x:u16><y:u16>` LE | 同上双击（两次单击间隔 60ms）；回 `[IVM]DBLCLK=1` |
-| 0x02 | SNAP（0x13） | `0x13 <0\|1>` | 窗口吸附开关（v4）：挂/卸 LL 钩子（切到 snap 线程执行），fire-and-forget 无回执；宿主「体验增强 → 窗口吸附」实时下发 |
-| 0x02 | SNAP_EDGE（0x14） | `0x14 <px>` | 吸附触发距离（v5）：光标贴近屏幕边缘多少像素触发吸附，客机 clamp 2..64、默认 12；fire-and-forget 无回执；宿主「体验增强 → 窗口吸附 → 吸附触发距离」实时下发 |
+| 0x02 | SNAP（0x13） | `0x13 <0\|1>` | 窗口吸附开关（v4）：写注册表中继 `HKLM\Software\InstantVmAgent\SnapEnabled`，登录会话吸附线程秒级轮询后挂/卸 LL 钩子（v7 前直接 PostThreadMessage——但 COM1 在服务进程、吸附线程在登录实例，跨进程投递静默失败，v7 修复）；fire-and-forget 无回执；宿主「体验增强 → 窗口吸附」下发 |
+| 0x02 | SNAP_EDGE（0x14） | `0x14 <px>` | 吸附触发距离（v5）：光标贴近屏幕边缘多少像素触发吸附，客机 clamp 2..64、默认 12；写注册表中继 `HKLM\Software\InstantVmAgent\SnapEdgePx`（v7 投递语义同上）；fire-and-forget 无回执；宿主「体验增强 → 窗口吸附 → 吸附触发距离」下发 |
 
 关机路径：`ExitWindowsEx` 触发客机 ACPI 切电 → 宿主 `guest-poweroff`
 watcher → `destroyCurrent`（stop → 写回落盘 → 销毁）——即「软关机」。
@@ -198,8 +198,16 @@ ivm-agent v4 在登录常驻实例（持有会话互斥 `InstantVmClipboardBridg
 - 服务身份不跑（交互增强一律跟桥走）；v4 时 COM1 协议零变化，v5 新增
   SNAP_EDGE（0x14）触发距离帧——0x13 开关帧与 v1/v2/v3 帧全部原样；
 - 边缘触发距离宿主可配（v5）：设置「体验增强 → 窗口吸附 → 吸附触发距离」
-  经 SNAP_EDGE 帧实时下发，客机 clamp 2..64、默认 12（与宿主
+  经 SNAP_EDGE 帧下发，客机 clamp 2..64、默认 12（与宿主
   `VM_SNAP_EDGE_PX_DEFAULT` 同步）；旧宿主不下发时用客机默认值；
+- 配置投递走注册表中继（v7）：OP_SNAP/OP_SNAP_EDGE 的 dispatch 跑在持有
+  COM1 的进程（服务化后是 session 0 服务实例），吸附线程却在登录会话实例
+  ——`PostThreadMessage` 跨进程投不进，v4~v6 两帧全被静默丢弃（实测
+  「关了仍吸附、距离不生效」，PONG/EXEC 不受影响因为它们在服务实例自己
+  处理）。v7 起分发侧写 `HKLM\Software\InstantVmAgent` 的
+  `SnapEnabled`/`SnapEdgePx`（REG_DWORD），吸附线程用预览窗 WM_TIMER
+  每秒读、变更才 apply（钩子挂/卸、距离落 `g_edge_base`），约 1 秒生效；
+  宿主 5 秒轮询兜底重推，注册表易失（只读盘）场景重启后 ≤5 秒自愈；
 - 技术要点与边界（WH_MOUSE_LL 免注入、跨进程 NCHITTEST 带
   SMTO_ABORTIFHUNG 超时、吸附表静态 16 项不用 SetProp、预览窗为半透明
   分层单窗、不做毛玻璃实时缩略图——XP 无合成器、XP 最大化 8px 越界用

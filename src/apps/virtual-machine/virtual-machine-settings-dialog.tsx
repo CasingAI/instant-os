@@ -1299,7 +1299,7 @@ export function VirtualMachineSettingsDialog({
               label="窗口吸附"
               checked={enhanceOff ? false : draft.enhanceWindowSnap}
               disabled={busy || enhanceOff}
-              detail="客机里拖窗口到屏幕边缘自动贴半屏、拖到顶边最大化（Win+方向键同效）；需客机装 v5 及以上增强代理，运行中切换实时生效。"
+              detail="客机里拖窗口到屏幕边缘自动贴半屏、拖到顶边最大化（Win+方向键同效）；需客机装 v7 及以上增强代理，约 1 秒生效。"
               onChange={(enhanceWindowSnap) => patch({ enhanceWindowSnap })}
             />
             {!enhanceOff && draft.enhanceWindowSnap ? (
@@ -1315,7 +1315,7 @@ export function VirtualMachineSettingsDialog({
                   onChange={(enhanceWindowSnapEdgePx) => patch({ enhanceWindowSnapEdgePx })}
                 />
                 <p class="virtual-machine-settings__hint virtual-machine-settings__hint--block">
-                  光标贴近屏幕边缘多少像素触发吸附；分辨率越高建议适当调大，运行中修改实时生效。
+                  光标贴近屏幕边缘多少像素触发吸附；分辨率越高建议适当调大，约 1 秒生效。
                 </p>
               </>
             ) : null}
