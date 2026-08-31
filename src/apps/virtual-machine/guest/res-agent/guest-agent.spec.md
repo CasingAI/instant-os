@@ -134,9 +134,9 @@ sc stop InstantVmAgent & sc start InstantVmAgent
 |---|---|---|---|
 | `/mouse-install` | 注册 vmmouse 服务 + 挂上 PS/2 鼠标实例的 UpperFilters | 0=成功 1=无 PS/2 设备实例 2=驱动文件/服务/注册表失败 | `C:\Tools\mouse-install.log` |
 | `/mouse-check` | 只读体检 + 报告弹窗 | 0=已挂 1=未挂 2=驱动文件/服务缺失 | 同上 |
-| `/audio-install` | 就地提取 XP 内置 ctlsb16.sys + 注册服务 + 绑定 `*CTL00xx` 声卡实例；无实例时**自建** `Enum\Root\*CTL0031\0000` | 0=成功 1=无实例且建不成 2=提取/服务/注册表失败 | `C:\Tools\audio-install.log` |
-| `/audio-uninstall` | 回滚：删自建的 `*CTL0031` 实例 + 禁用 ctlsb16 服务（BIOS/向导枚举的实例不碰） | 0=成功（含本来没装）2=注册表失败 | 同上 |
-| `/audio-check` | 只读体检 + 报告弹窗 | 0=已装 1=未装 2=驱动文件/服务缺失 | 同上 |
+| `/audio-install` | 就地提取 XP 内置 ctlsb16.sys + 注册/解禁服务 + 绑定 `*CTL00xx` 声卡实例；无实例时**自建** `Enum\Root\*CTL0031\0000`；清回滚标记 | 0=成功 1=无实例且建不成 2=提取/服务/注册表失败 | `C:\Tools\audio-install.log` |
+| `/audio-uninstall` | 回滚：删自建的 `*CTL0031` 实例 + 禁用 ctlsb16 服务 + 落回滚标记 `C:\Tools\audio-uninstalled.flag`（BIOS/向导枚举的实例不碰） | 0=成功（含本来没装）2=注册表失败 | 同上 |
+| `/audio-check` | 只读体检 + 报告弹窗（服务 Start 类型、实例 `LogConf` 资源现状） | 0=已装 1=未装 2=驱动文件缺失或服务缺失/被禁用 | 同上 |
 
 失败模式备忘（2026-08-30 真机）：`/mouse-check` 报「service: MISSING + filter
 attached: YES」时，PS/2 鼠标设备开机即启动失败（PnP 加载 UpperFilters 找不到
@@ -169,6 +169,13 @@ attached: YES」时，PS/2 鼠标设备开机即启动失败（PnP 加载 UpperF
 - 设备识别：设备键名或 HardwareID 有 `CTL00` 前缀（前导 `*` 忽略）；
   游戏口 `CTL7xxx` 天然排除。自建失败时把扫到的全部硬件 ID 落日志
   （回答「声卡到底被枚举出来没有」）；
+- 服务解禁与回滚标记（2026-08-31）：`/audio-uninstall` 禁用 ctlsb16 服务
+  后，向导/BIOS 枚举出的绑定实例不删，install 与自愈曾全被「已绑定」短路，
+  服务禁用永久化 → 设备管理器 Code 32（CM_PROB_DISABLED_SERVICE），手动
+  INF 重装也救不回（INF 不覆盖既有 Start 值）。现版：install/self-heal 见
+  Start=SERVICE_DISABLED 必 `ChangeServiceConfig` 翻回按需启动；
+  uninstall 落回滚标记、显式 install 清标记，self-heal 见标记退出——回滚
+  与自愈不再互相打架；
 - 血泪教训（2026-08-30 真机）：mlog 的 msg 缓冲曾只有 600 字节，装不下
   wvsprintfA 上限 1024 的 `%s` 长转储，agent 开机即崩（「遇到问题需要
   关闭」）。msg/line 缓冲必须 ≥ wvsprintfA 上限，mouse/audio 两模块同改。

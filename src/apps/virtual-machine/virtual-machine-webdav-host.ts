@@ -118,6 +118,15 @@ function onWebdavMessage(event: MessageEvent): void {
       }
     }
     postSource(target, result, origin, result.body ? [result.body] : [])
+    // [埋点] 共享文件夹排障：每个 DAV 请求的方法/路径/应答状态。
+    console.log(
+      '[vm-webdav-host]',
+      request.method,
+      request.url,
+      '->',
+      result.status,
+      sharedRoot ? `(root=${sharedRoot})` : '(root 未设置!)',
+    )
   })()
 }
 

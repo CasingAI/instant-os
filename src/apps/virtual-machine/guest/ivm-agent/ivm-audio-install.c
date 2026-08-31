@@ -3,19 +3,21 @@
  * 驱动（ctlsb16.sys）绑到 v86 模拟的 SB16 声卡设备上（Windows XP，32 位）。
  *
  * 四个入口（GUI 子系统不占控制台，成败看退出码 + 日志）：
- *   /audio-install    就地提取驱动文件 + 注册 ctlsb16 服务 + 给未绑定的
- *                     *CTL00xx 声卡实例写 Service/Class；注册表里一个实例
- *                     都没有时**自建**一个根枚举设备（见下）。
+ *   /audio-install    就地提取驱动文件 + 注册/解禁 ctlsb16 服务 + 给未绑定
+ *                     的 *CTL00xx 声卡实例写 Service/Class；注册表里一个实
+ *                     例都没有时**自建**一个根枚举设备（见下）。
  *                     0=成功（新写入或本就已装）1=没找到且建不成实例
  *                     2=驱动文件提取失败 / 服务管理器 / 注册表操作失败
  *   /audio-uninstall  标准回滚：删掉自建的 Enum\Root\*CTL0031 实例 +
- *                     禁用 ctlsb16 服务（BIOS/向导枚举出的实例不碰）。
- *                     0=成功（含本来就没装）2=注册表操作失败
- *   /audio-check      只读体检：驱动文件、ctlsb16 服务、每个 *CTL00xx
- *                     实例的绑定现状。报告进日志 + MessageBox 弹窗。
- *                     0=已装 1=未装 2=驱动文件或服务缺失
+ *                     禁用 ctlsb16 服务 + 落回滚标记（BIOS/向导枚举出的
+ *                     实例不碰）。0=成功（含本来就没装）2=注册表操作失败
+ *   /audio-check      只读体检：驱动文件、ctlsb16 服务（含是否被禁用）、
+ *                     每个 *CTL00xx 实例的绑定与 LogConf 资源现状。报告进
+ *                     日志 + MessageBox 弹窗。0=已装 1=未装 2=驱动文件
+ *                     缺失或服务缺失/被禁用
  *   ivm_audio_selfheal()  供 agent 常驻身份（服务/登录）每次启动调用：
- *                     已装就静默返回；缺就补，但**绝不自建设备实例**——
+ *                     回滚标记在册就退出（不跟显式卸载打架）；已装且服务
+ *                     可用就静默返回；缺就补，但**绝不自建设备实例**——
  *                     只绑定本就已枚举出来的实例（保守化，见下）。
  *
  * 背景：v86 下 XP 的 PnP 自动安装经常不触发，设备管理器留黄叹号「多媒体
@@ -49,6 +51,13 @@
  * 缺陷）。教训：凡「给系统造新设备」这类有副作用的写操作，只许放在显式
  * 子命令里，自愈只做幂等补写既有状态。/audio-uninstall 即为此准备的回滚。
  *
+ * 血泪教训之二（2026-08-31）：/audio-uninstall 会禁用 ctlsb16 服务，而向
+ * 导/BIOS 枚举出的实例卸载不删——此后 /audio-install 与自愈全被「已绑定」
+ * 短路，服务禁用永久化，设备管理器报 Code 32（CM_PROB_DISABLED_SERVICE），
+ * 连手动 INF 重装都救不回（INF 不会覆盖既有服务的 Start 值）。故：install
+ * 与 self-heal 见服务禁用必翻回按需启动；uninstall 落回滚标记，self-heal
+ * 见标记退出，二者不再互相打架。
+ *
  * 已知限制：装好驱动只解决「无声」；XP 上 SB16 播放尾段偶发循环是 v86 侧
  * 模拟时序问题（todo/vm-windows-xp-sb16-audio-loop.md），与本驱动无关。
  *
@@ -68,6 +77,7 @@
 #define DRIVERS_DIR "C:\\Windows\\System32\\drivers"
 #define STAGED_SYS "C:\\Tools\\ctlsb16.sys"
 #define LOG_PATH "C:\\Tools\\audio-install.log"
+#define ROLLBACK_FLAG "C:\\Tools\\audio-uninstalled.flag"
 
 static size_t ivm_strlen(const char *s)
 {
@@ -236,7 +246,10 @@ static int extract_driver_file(void)
     return 0;
 }
 
-/* ctlsb16 内核服务：inbox WDM 驱动，PnP 按设备实例的 Service 按需加载。 */
+/* ctlsb16 内核服务：inbox WDM 驱动，PnP 按设备实例的 Service 按需加载。
+ * 服务在册但被 /audio-uninstall 禁用时翻回按需启动——INF 重装不会覆盖既
+ * 有服务的 Start 值，禁用一旦落定只有这里能救（否则设备管理器永远
+ * Code 32）。返回 0=可用（新建/已注册/本次解禁）。 */
 static int ensure_ctlsb16_service(void)
 {
     SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CREATE_SERVICE);
@@ -244,11 +257,37 @@ static int ensure_ctlsb16_service(void)
         mlog("[install] OpenSCManager failed gle=%lu", GetLastError());
         return -1;
     }
-    SC_HANDLE svc = OpenServiceA(scm, SERVICE_NAME, SERVICE_QUERY_CONFIG);
+    SC_HANDLE svc = OpenServiceA(scm, SERVICE_NAME,
+                                 SERVICE_QUERY_CONFIG | SERVICE_CHANGE_CONFIG);
     if (svc != NULL) {
+        char cfgbuf[512];
+        QUERY_SERVICE_CONFIGA *cfg = (QUERY_SERVICE_CONFIGA *)cfgbuf;
+        DWORD need = 0;
+        int rc = 0;
+        if (QueryServiceConfigA(svc, cfg, (DWORD)sizeof(cfgbuf), &need)) {
+            if (cfg->dwStartType == SERVICE_DISABLED) {
+                if (ChangeServiceConfigA(svc, SERVICE_NO_CHANGE,
+                                         SERVICE_DEMAND_START,
+                                         SERVICE_NO_CHANGE, NULL, NULL, NULL,
+                                         NULL, NULL, NULL, NULL)) {
+                    mlog("[install] " SERVICE_NAME " service was DISABLED - "
+                         "re-enabled (demand start); Code 32 clears on next "
+                         "boot");
+                } else {
+                    mlog("[install] re-enabling " SERVICE_NAME
+                         " failed gle=%lu",
+                         GetLastError());
+                    rc = -1;
+                }
+            }
+        } else {
+            mlog("[install] QueryServiceConfig " SERVICE_NAME " failed "
+                 "gle=%lu",
+                 GetLastError());
+        }
         CloseServiceHandle(svc);
         CloseServiceHandle(scm);
-        return 0; /* 已注册 */
+        return rc;
     }
     svc = CreateServiceA(scm, SERVICE_NAME, "Sound Blaster 16 WDM",
                          SERVICE_ALL_ACCESS, SERVICE_KERNEL_DRIVER,
@@ -268,6 +307,41 @@ static int ensure_ctlsb16_service(void)
     CloseServiceHandle(svc);
     CloseServiceHandle(scm);
     return 0;
+}
+
+/* 读 ctlsb16 服务的 Start 类型：服务不存在/打不开返回 -1，否则 0..4
+ * （4=SERVICE_DISABLED）。install 的早退判断、self-heal 与体检共用。 */
+static int ctlsb16_start_type(void)
+{
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT);
+    if (scm == NULL) {
+        return -1;
+    }
+    SC_HANDLE svc = OpenServiceA(scm, SERVICE_NAME, SERVICE_QUERY_CONFIG);
+    int start = -1;
+    if (svc != NULL) {
+        char cfgbuf[512];
+        QUERY_SERVICE_CONFIGA *cfg = (QUERY_SERVICE_CONFIGA *)cfgbuf;
+        DWORD need = 0;
+        if (QueryServiceConfigA(svc, cfg, (DWORD)sizeof(cfgbuf), &need)) {
+            start = (int)cfg->dwStartType;
+        }
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+    return start;
+}
+
+/* 实例有没有 LogConf 子键（根枚举设备靠它拿 IO/IRQ/DMA 资源分配）。只诊断
+ * 不写——缺了它设备重启后会 Code 10，真出现了再在 install 里补。 */
+static int has_logconf(HKEY inst_key)
+{
+    HKEY k;
+    if (RegOpenKeyExA(inst_key, "LogConf", 0, KEY_READ, &k) != ERROR_SUCCESS) {
+        return 0;
+    }
+    RegCloseKey(k);
+    return 1;
 }
 
 /* 实例的 Service 是否等于给定驱动名（只读）。 */
@@ -407,7 +481,8 @@ static int walk_enum_all(int mode, char *report, DWORD report_cap,
                 char inst_path[768];
                 wsprintfA(inst_path, "%s\\%s", dev_path, inst_id);
                 DWORD access = (mode == 0) ? (KEY_QUERY_VALUE | KEY_SET_VALUE)
-                                           : KEY_QUERY_VALUE;
+                                           : (KEY_QUERY_VALUE |
+                                              KEY_ENUMERATE_SUB_KEYS);
                 HKEY inst_key;
                 if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, inst_path, 0, access,
                                   &inst_key) != ERROR_SUCCESS) {
@@ -442,11 +517,14 @@ static int walk_enum_all(int mode, char *report, DWORD report_cap,
                         char hw[64];
                         first_hwid(inst_key, hw, (DWORD)sizeof(hw));
                         char line[960];
-                        wsprintfA(line, "  %s\r\n    hw=%s Service=%s\r\n",
+                        wsprintfA(line,
+                                  "  %s\r\n    hw=%s Service=%s LogConf=%s"
+                                  "\r\n",
                                   inst_path, hw,
                                   service_equals(inst_key, SERVICE_NAME)
                                       ? SERVICE_NAME
-                                      : "(not bound)");
+                                      : "(not bound)",
+                                  has_logconf(inst_key) ? "yes" : "no");
                         if (report != NULL) {
                             sz_append(report, report_cap, line);
                         }
@@ -522,14 +600,25 @@ static int create_sb16_instance(void)
 static int audio_install(int allow_create)
 {
     mlog("[install] === /audio-install begin ===");
+    if (allow_create) {
+        /* 显式安装 = 明确要声音：解除 /audio-uninstall 留下的自愈冻结。 */
+        DeleteFileA(ROLLBACK_FLAG);
+    }
     int candidates = 0;
     int bound = walk_enum_all(1, NULL, 0, &candidates);
-    /* 早退条件带上驱动文件在位：只创建过实例但提取失败的机器重跑时，
-     * 要能走到提取重试，不能被「已绑定」短路。 */
-    if (bound > 0 && bound == candidates && file_exists(DRIVER_SYS)) {
+    int svc_start = ctlsb16_start_type();
+    /* 早退条件带齐三项：驱动文件在位（提取失败重跑要走提取重试）、服务
+     * 未被禁用（绑定着但服务禁用 = 设备管理器 Code 32，必须落到下面的
+     * ensure 解禁，不能被「已绑定」短路——2026-08-31 教训）。 */
+    if (bound > 0 && bound == candidates && file_exists(DRIVER_SYS) &&
+        svc_start != SERVICE_DISABLED) {
         mlog("[install] all %d SB16 instance(s) already bound; nothing to do",
              bound);
         return 0;
+    }
+    if (svc_start == SERVICE_DISABLED) {
+        mlog("[install] " SERVICE_NAME " service is DISABLED (Code 32); "
+             "re-enabling below");
     }
     if (candidates == 0) {
         if (!allow_create) {
@@ -604,8 +693,10 @@ int ivm_audio_uninstall(void)
     } else {
         mlog("[uninstall] no created instance present (nothing to remove)");
     }
-    /* 服务一并在册禁用：实例删了它本就不会再被加载，禁用是双保险——
-     * 真要恢复时 /audio-install 会按需重新配置。 */
+    /* 服务一并在册禁用 + 落回滚标记：实例删了它本就不会再被加载，禁用是
+     * 双保险。标记让 self-heal 从此让路（绑定实例还在时，光禁用撑不过下
+     * 一次开机自愈——2026-08-31 教训）；真要恢复时显式跑 /audio-install，
+     * 它会清标记并把服务翻回按需启动。 */
     SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT);
     if (scm == NULL) {
         mlog("[uninstall] OpenSCManager failed gle=%lu", GetLastError());
@@ -629,6 +720,18 @@ int ivm_audio_uninstall(void)
         mlog("[uninstall] " SERVICE_NAME " service not present (fine)");
     }
     CloseServiceHandle(scm);
+    CreateDirectoryA("C:\\Tools", NULL);
+    HANDLE flag = CreateFileA(ROLLBACK_FLAG, GENERIC_WRITE, FILE_SHARE_READ,
+                              NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (flag != INVALID_HANDLE_VALUE) {
+        CloseHandle(flag);
+        mlog("[uninstall] rollback flag written; self-heal stays off until "
+             "/audio-install runs");
+    } else {
+        mlog("[uninstall] rollback flag write failed gle=%lu (self-heal may "
+             "undo the disable while bound instances remain)",
+             GetLastError());
+    }
     mlog("[uninstall] done; reboot for the changes to take effect");
     return 0;
 }
@@ -638,25 +741,25 @@ int ivm_audio_check(void)
     char body[900];
     char text[1500];
     int file_ok = file_exists(DRIVER_SYS);
-    int svc_ok = 0;
-    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SERVICE_QUERY_STATUS);
-    if (scm != NULL) {
-        SC_HANDLE svc = OpenServiceA(scm, SERVICE_NAME, SERVICE_QUERY_CONFIG);
-        if (svc != NULL) {
-            svc_ok = 1;
-            CloseServiceHandle(svc);
-        }
-        CloseServiceHandle(scm);
-    }
+    int svc_start = ctlsb16_start_type();
     int candidates = 0;
     body[0] = 0;
-    int bound = walk_enum_all(1, body, (DWORD)sizeof(body), &candidates);    text[0] = 0;
+    int bound = walk_enum_all(1, body, (DWORD)sizeof(body), &candidates);
+    text[0] = 0;
     sz_append(text, (DWORD)sizeof(text),
               file_ok ? "driver file: present\r\n"
                       : "driver file: MISSING (run /audio-install)\r\n");
-    sz_append(text, (DWORD)sizeof(text),
-              svc_ok ? "ctlsb16 service: registered\r\n"
-                     : "ctlsb16 service: MISSING\r\n");
+    if (svc_start == -1) {
+        sz_append(text, (DWORD)sizeof(text),
+                  "ctlsb16 service: MISSING (run /audio-install)\r\n");
+    } else if (svc_start == SERVICE_DISABLED) {
+        sz_append(text, (DWORD)sizeof(text),
+                  "ctlsb16 service: DISABLED - device manager shows Code 32; "
+                  "run /audio-install to re-enable\r\n");
+    } else {
+        sz_append(text, (DWORD)sizeof(text),
+                  "ctlsb16 service: registered (demand start)\r\n");
+    }
     sz_append(text, (DWORD)sizeof(text),
               bound > 0 ? "driver bound to SB16 device: YES\r\n"
                         : "driver bound to SB16 device: NO\r\n");
@@ -666,24 +769,38 @@ int ivm_audio_check(void)
                            : "  (no *CTL00xx instance found - is the sound "
                              "card enumerated by the BIOS?)\r\n");
     mlog("[check] === /audio-check ===");
-    mlog("[check] driver file: %s / service: %s / bound: %s",
-         file_ok ? "present" : "MISSING", svc_ok ? "registered" : "MISSING",
-         bound > 0 ? "YES" : "NO");
+    mlog("[check] driver file: %s / service start: %d / bound: %s",
+         file_ok ? "present" : "MISSING", svc_start, bound > 0 ? "YES" : "NO");
     if (body[0] != 0) {
         mlog("[check] instances:\r\n%s", body);
     }
     MessageBoxA(NULL, text, "ivm-audio check", MB_OK | MB_ICONINFORMATION);
-    return (!file_ok || !svc_ok) ? 2 : (bound > 0 ? 0 : 1);
+    int svc_bad = (svc_start == -1 || svc_start == SERVICE_DISABLED);
+    return (!file_ok || svc_bad) ? 2 : (bound > 0 ? 0 : 1);
 }
 
 void ivm_audio_selfheal(void)
 {
-    int bound = walk_enum_all(1, NULL, 0, NULL);
-    if (bound > 0) {
-        return; /* 已装上：静默，别每次开机刷日志 */
+    if (file_exists(ROLLBACK_FLAG)) {
+        /* 用户显式回滚过：自愈永远让路，否则绑定实例还在时会把禁用的服务
+         * 又翻回去，卸载形同虚设。 */
+        mlog("[self-heal] rollback flag present; audio stays uninstalled");
+        return;
     }
-    mlog("[self-heal] SB16 audio driver not bound; installing (bind only, "
-         "never creates a device)");
+    int bound = walk_enum_all(1, NULL, 0, NULL);
+    int svc_start = ctlsb16_start_type();
+    if (bound > 0 && svc_start >= 0 && svc_start != SERVICE_DISABLED) {
+        return; /* 已装上且服务可用：静默，别每次开机刷日志 */
+    }
+    if (bound > 0) {
+        mlog("[self-heal] driver bound but " SERVICE_NAME " service is "
+             "%s; fixing",
+             svc_start == SERVICE_DISABLED ? "DISABLED (Code 32)"
+                                           : "missing");
+    } else {
+        mlog("[self-heal] SB16 audio driver not bound; installing (bind only, "
+             "never creates a device)");
+    }
     int rc = audio_install(0);
     mlog("[self-heal] install rc=%d (0=ok, sound after next reboot; "
          "1=no SB16 instance, run /audio-install explicitly)",
