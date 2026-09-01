@@ -1,0 +1,154 @@
+/* 自适应分栏导航（自包含）：布局与转场原语。Header（返回/操作）与全部
+ * 正文内容由应用自行渲染，组件不强加任何外壳样式；行为与变量由
+ * adaptive-split-nav.tsx 驱动。 */
+
+.adaptive-split-nav {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/*
+ * 形态容器：key 随形态变化重挂载，触发方向性入场过渡——
+ * 进入子页栈从左滑入（pop 语义），进入分栏从右滑入（push 语义）。
+ */
+.adaptive-split-nav__form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  animation: asn-form-in 0.22s ease-out;
+}
+
+.adaptive-split-nav__form--from-left {
+  --asn-form-shift: -20px;
+}
+
+.adaptive-split-nav__form--from-right {
+  --asn-form-shift: 20px;
+}
+
+@keyframes asn-form-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--asn-form-shift, 20px));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 子页栈形态：页面栈占满剩余空间，footer 自然高度 */
+.adaptive-split-nav__form > .page-stack {
+  flex: 1;
+  min-height: 0;
+}
+
+.adaptive-split-nav__form > .adaptive-split-nav__footer {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+/* 分栏形态：左右两栏。列宽由 tsx 写入 --asn-list-min / --asn-list-ratio */
+.adaptive-split-nav__split {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    minmax(var(--asn-list-min, 240px), var(--asn-list-ratio, 38%))
+    minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.adaptive-split-nav__list-pane {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
+}
+
+/* 左栏内容由应用定义：单一根元素撑满（如 .page 自带内部滚动） */
+.adaptive-split-nav__list-pane > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.adaptive-split-nav__detail-pane {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  contain: inline-size;
+}
+
+.adaptive-split-nav__detail-pane > .adaptive-split-nav__frames,
+.adaptive-split-nav__detail-pane > .adaptive-split-nav__detail-empty {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+}
+
+.adaptive-split-nav__detail-pane > .adaptive-split-nav__footer {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* 分栏帧栈空态：中性占位，应用可经 renderDetailEmpty 自定内容 */
+.adaptive-split-nav__detail-empty {
+  position: relative;
+  overflow: hidden;
+}
+
+/*
+ * 分栏帧栈：帧绝对定位叠放——active 帧 translateX(0)，被盖住的底层帧
+ * translateX(-30%) 露边做层次，右侧帧排在 translateX(100%) 待入。
+ * pointer-events 只给 active，动画期间其余帧不接交互。
+ */
+.adaptive-split-nav__frames {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.adaptive-split-nav__frame {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  transition: transform var(--asn-frame-ms, 380ms) ease-in-out;
+}
+
+.adaptive-split-nav__frame.is-active {
+  pointer-events: auto;
+}
+
+/* 帧内容由应用定义：单一根元素撑满（如 .page 自带内部滚动） */
+.adaptive-split-nav__frame > * {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adaptive-split-nav__frame,
+  .adaptive-split-nav__form {
+    animation: none;
+    transition: none;
+  }
+}

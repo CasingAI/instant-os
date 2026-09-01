@@ -106,6 +106,11 @@ export type WindowState = {
   snap?: WindowSnap
   fullscreen: boolean
   restoredBounds?: WindowRestoredBounds
+  /**
+   * 最大化/顶吸附前的吸附方向：还原时重新吸附回去（而不是落成同尺寸的
+   * 悬浮窗），应用层「半屏吸附 = 窄布局」的语义才不会被宽度滞回死区打断。
+   */
+  restoredSnap?: WindowSnap
   enterAnimation?: WindowEnterAnimation
   /** 无窗口应用会话：默认不渲染可见窗框 */
   windowless?: boolean

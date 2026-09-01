@@ -1291,6 +1291,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
             ...dragBounds,
             snap: undefined,
             maximized: false,
+            restoredSnap: undefined,
             restoredBounds: undefined,
           }
         }
@@ -1334,6 +1335,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           return {
             ...window,
             restoredBounds,
+            restoredSnap: window.snap ?? undefined,
             ...bounds,
             maximized: true,
             snap: undefined,
@@ -1344,6 +1346,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         return {
           ...window,
           restoredBounds,
+          restoredSnap: undefined,
           ...bounds,
           maximized: false,
           snap: target,
@@ -1374,7 +1377,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
                 ...window,
                 ...restored,
                 maximized: false,
-                snap: undefined,
+                snap: target.restoredSnap ?? undefined,
+                restoredSnap: undefined,
                 restoredBounds: undefined,
                 zIndex: nextZ,
               }
@@ -1393,6 +1397,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
                 width: window.width,
                 height: window.height,
               },
+              restoredSnap: window.snap ?? undefined,
               ...bounds,
               maximized: true,
               snap: undefined,
@@ -1425,7 +1430,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
                 ...restored,
                 fullscreen: false,
                 maximized: false,
-                snap: undefined,
+                snap: target.restoredSnap ?? undefined,
+                restoredSnap: undefined,
                 restoredBounds: undefined,
                 zIndex: nextZ,
               }
@@ -1446,6 +1452,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           return {
             ...window,
             restoredBounds,
+            restoredSnap: window.snap ?? undefined,
             ...bounds,
             fullscreen: true,
             maximized: false,

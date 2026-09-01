@@ -2,17 +2,33 @@ import type { JSX } from 'preact'
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import { useOs } from '../../os/os-context.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import { usePageStack, PageStack } from '../../ui/page-stack.tsx'
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
 import { PageActionButton } from '../../ui/page-action-button.tsx'
 import { PageButtonGroup } from '../../ui/page-button-group.tsx'
+import {
+  AdaptiveSplitNav,
+  useAdaptiveSplitNav,
+  type AdaptiveFrameSpec,
+} from '../../ui/adaptive-split-nav.tsx'
 import { NAV_KIT_DEMO_BOOKS, totalChapters, totalSections } from './nav-kit-demo-content.ts'
 import './nav-kit-demo.css'
 
 type DemoPageId = string
 
 const ROOT: DemoPageId = 'shelf'
+
+/**
+ * 领域位置：窄屏子页与分栏右栏帧共同的唯一真源。
+ * 帧与页的 id 复用同一套 pageId 函数，两种形态渲染同一份 pane 内容。
+ */
+type Pos =
+  | { kind: 'shelf' }
+  | { kind: 'book'; b: number }
+  | { kind: 'volume'; b: number; v: number }
+  | { kind: 'chapter'; b: number; v: number | null; c: number }
+  | { kind: 'section'; b: number; v: number | null; c: number; s: number }
+  | { kind: 'about'; b: number }
 
 function bookPage(index: number): DemoPageId {
   return `book:${index}`
@@ -28,6 +44,51 @@ function sectionPage(book: number, volume: number | null, chapter: number, secti
 }
 function aboutPage(book: number): DemoPageId {
   return `about:${book}`
+}
+
+function posPageId(pos: Pos): DemoPageId {
+  switch (pos.kind) {
+    case 'shelf':
+      return ROOT
+    case 'book':
+      return bookPage(pos.b)
+    case 'volume':
+      return volumePage(pos.b, pos.v)
+    case 'chapter':
+      return chapterPage(pos.b, pos.v, pos.c)
+    case 'section':
+      return sectionPage(pos.b, pos.v, pos.c, pos.s)
+    case 'about':
+      return aboutPage(pos.b)
+  }
+}
+
+function parentPos(pos: Pos): Pos | null {
+  switch (pos.kind) {
+    case 'shelf':
+      return null
+    case 'book':
+      return { kind: 'shelf' }
+    case 'about':
+      return { kind: 'book', b: pos.b }
+    case 'volume':
+      return { kind: 'book', b: pos.b }
+    case 'chapter':
+      return pos.v === null ? { kind: 'book', b: pos.b } : { kind: 'volume', b: pos.b, v: pos.v }
+    case 'section':
+      return { kind: 'chapter', b: pos.b, v: pos.v, c: pos.c }
+  }
+}
+
+/** 分栏右栏帧路径：从书帧到当前层（书架是左栏，不进帧栈） */
+function framePositions(pos: Pos): Pos[] {
+  const path: Pos[] = []
+  let current: Pos | null = pos
+  while (current && current.kind !== 'shelf') {
+    path.unshift(current)
+    current = parentPos(current)
+  }
+  return path
 }
 
 function parseBook(id: DemoPageId): number | null {
@@ -89,17 +150,27 @@ function NavRow({
 
 export function NavKitDemoApp() {
   const { setAppWindowTitle } = useOs()
-  const { page, stack, transition, navigate, handleMotionEnd } =
-    usePageStack<DemoPageId>(ROOT)
-
   useAppMenuBar('nav-kit-demo', [])
 
   useEffect(() => {
     setAppWindowTitle('nav-kit-demo', '导航组件演示')
   }, [setAppWindowTitle])
 
+  const [pos, setPos] = useState<Pos>({ kind: 'shelf' })
   const [favorites, setFavorites] = useState<ReadonlySet<string>>(new Set())
   const [readChapters, setReadChapters] = useState<ReadonlySet<string>>(new Set())
+
+  const nav = useAdaptiveSplitNav({
+    split: true,
+    narrowPageForState: () => posPageId(pos),
+  })
+
+  // 分栏右栏不空屏：书架位自动展开第一本书（与注册表选中首个命名空间同理）
+  useEffect(() => {
+    if (!nav.layoutReady || nav.narrowLayout) return
+    if (pos.kind !== 'shelf') return
+    setPos({ kind: 'book', b: 0 })
+  }, [nav.layoutReady, nav.narrowLayout, pos.kind])
 
   const toggleFavorite = useCallback(
     (key: string) => {
@@ -125,6 +196,24 @@ export function NavKitDemoApp() {
     [],
   )
 
+  /** 打开一个层级：子页栈形态 push 对应页；分栏形态直接改状态（帧自动派生） */
+  const openPos = useCallback(
+    (next: Pos) => {
+      setPos(next)
+      nav.navigate(posPageId(next), 'push')
+    },
+    [nav],
+  )
+
+  /** 返回上级：子页栈 pop 动画结束后提交；分栏直接提交（旧帧保帧滑出） */
+  const backPos = useCallback(() => {
+    const parent = parentPos(pos)
+    if (!parent) return
+    nav.navigate(posPageId(parent), 'pop', () => setPos(parent))
+  }, [nav, pos])
+
+  // ── 内容渲染：同一份 pane 同时供给窄屏子页与分栏帧（showBack 控制返回键）──
+
   const renderShelf = () => (
     <Page
       header={<PageHeader title="书架" />}
@@ -134,13 +223,13 @@ export function NavKitDemoApp() {
           key={book.id}
           label={book.title}
           sub={`${book.author} · ${book.volumes ? `${book.volumes.length} 卷 · ` : ''}${totalChapters(book)} 章 · ${totalSections(book)} 节`}
-          onClick={() => navigate(bookPage(b), 'push')}
+          onClick={() => openPos({ kind: 'book', b })}
         />
       ))}
     </Page>
   )
 
-  const renderBook = (b: number) => {
+  const renderBook = (b: number, showBack: boolean) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const favKey = `book:${book.id}`
@@ -150,8 +239,8 @@ export function NavKitDemoApp() {
         header={
           <PageHeader
             title={book.title}
-            backLabel="书架"
-            onBack={() => navigate(ROOT, 'pop')}
+            backLabel={showBack ? '书架' : undefined}
+            onBack={showBack ? backPos : undefined}
             actions={
               <PageActionButton
                 activated={isFav}
@@ -173,7 +262,7 @@ export function NavKitDemoApp() {
                   (sum, ch) => sum + ch.sections.length,
                   0,
                 )} 节`}
-                onClick={() => navigate(volumePage(b, v), 'push')}
+                onClick={() => openPos({ kind: 'volume', b, v })}
               />
             ))
           : book.chapters.map((chapter, c) => (
@@ -181,19 +270,19 @@ export function NavKitDemoApp() {
                 key={chapter.title}
                 label={chapter.title}
                 sub={`${chapter.sections.length} 节`}
-                onClick={() => navigate(chapterPage(b, null, c), 'push')}
+                onClick={() => openPos({ kind: 'chapter', b, v: null, c })}
               />
             ))}
         <NavRow
           label="关于本书"
           sub="版本信息"
-          onClick={() => navigate(aboutPage(b), 'push')}
+          onClick={() => openPos({ kind: 'about', b })}
         />
       </Page>
     )
   }
 
-  const renderVolume = (b: number, v: number) => {
+  const renderVolume = (b: number, v: number, showBack: boolean) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     const volume = book?.volumes?.[v]
     if (!book || !volume) return renderShelf()
@@ -202,8 +291,8 @@ export function NavKitDemoApp() {
         header={
           <PageHeader
             title={volume.title}
-            backLabel={book.title}
-            onBack={() => navigate(bookPage(b), 'pop')}
+            backLabel={showBack ? book.title : undefined}
+            onBack={showBack ? backPos : undefined}
           />
         }
       >
@@ -212,14 +301,14 @@ export function NavKitDemoApp() {
             key={chapter.title}
             label={chapter.title}
             sub={`${chapter.sections.length} 节`}
-            onClick={() => navigate(chapterPage(b, v, c), 'push')}
+            onClick={() => openPos({ kind: 'chapter', b, v, c })}
           />
         ))}
       </Page>
     )
   }
 
-  const renderChapter = (b: number, v: number | null, c: number) => {
+  const renderChapter = (b: number, v: number | null, c: number, showBack: boolean) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const chapter = v === null ? book.chapters[c] : book.volumes?.[v]?.chapters[c]
@@ -234,13 +323,8 @@ export function NavKitDemoApp() {
         header={
           <PageHeader
             title={chapter.title}
-            backLabel={parentLabel}
-            onBack={() =>
-              navigate(
-                v === null ? bookPage(b) : volumePage(b, v),
-                'pop',
-              )
-            }
+            backLabel={showBack ? parentLabel : undefined}
+            onBack={showBack ? backPos : undefined}
             actions={
               <PageButtonGroup>
                 <PageActionButton
@@ -266,14 +350,14 @@ export function NavKitDemoApp() {
           <NavRow
             key={section.title}
             label={section.title}
-            onClick={() => navigate(sectionPage(b, v, c, s), 'push')}
+            onClick={() => openPos({ kind: 'section', b, v, c, s })}
           />
         ))}
       </Page>
     )
   }
 
-  const renderSection = (b: number, v: number | null, c: number, s: number) => {
+  const renderSection = (b: number, v: number | null, c: number, s: number, showBack: boolean) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const chapter = v === null ? book.chapters[c] : book.volumes?.[v]?.chapters[c]
@@ -284,8 +368,8 @@ export function NavKitDemoApp() {
         header={
           <PageHeader
             title={section.title}
-            backLabel={chapter.title}
-            onBack={() => navigate(chapterPage(b, v, c), 'pop')}
+            backLabel={showBack ? chapter.title : undefined}
+            onBack={showBack ? backPos : undefined}
           />
         }
       >
@@ -304,7 +388,7 @@ export function NavKitDemoApp() {
     )
   }
 
-  const renderAbout = (b: number) => {
+  const renderAbout = (b: number, showBack: boolean) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const favKey = `book:${book.id}`
@@ -316,8 +400,8 @@ export function NavKitDemoApp() {
         header={
           <PageHeader
             /* 无标题页面：三槽只剩返回与操作，标题位留空 */
-            backLabel={book.title}
-            onBack={() => navigate(bookPage(b), 'pop')}
+            backLabel={showBack ? book.title : undefined}
+            onBack={showBack ? backPos : undefined}
             actions={
               <PageButtonGroup>
                 <PageActionButton
@@ -353,25 +437,49 @@ export function NavKitDemoApp() {
     )
   }
 
-  return (
-    <PageStack
-      stack={stack}
-      page={page}
-      transition={transition}
-      onMotionEnd={handleMotionEnd}
-      renderPage={(target) => {
-        const bookIdx = parseBook(target)
-        if (bookIdx !== null) return renderBook(bookIdx)
-        const vol = parseVolume(target)
-        if (vol) return renderVolume(vol[0], vol[1])
-        const chap = parseChapter(target)
-        if (chap) return renderChapter(chap[0], chap[1], chap[2])
-        const sec = parseSection(target)
-        if (sec) return renderSection(sec[0], sec[1], sec[2], sec[3])
-        const about = parseAbout(target)
-        if (about !== null) return renderAbout(about)
+  // 子页栈：按页 id 分发（层保活，各页按自身实体渲染）
+  const renderNarrowPage = (target: DemoPageId) => {
+    const bookIdx = parseBook(target)
+    if (bookIdx !== null) return renderBook(bookIdx, true)
+    const vol = parseVolume(target)
+    if (vol) return renderVolume(vol[0], vol[1], true)
+    const chap = parseChapter(target)
+    if (chap) return renderChapter(chap[0], chap[1], chap[2], true)
+    const sec = parseSection(target)
+    if (sec) return renderSection(sec[0], sec[1], sec[2], sec[3], true)
+    const about = parseAbout(target)
+    if (about !== null) return renderAbout(about, true)
+    return renderShelf()
+  }
+
+  // 分栏帧：首帧（书帧）不带返回——它的上级书架是左栏；更深层都有父帧
+  const renderFrameContent = (p: Pos) => {
+    switch (p.kind) {
+      case 'shelf':
         return renderShelf()
-      }}
+      case 'book':
+        return renderBook(p.b, false)
+      case 'volume':
+        return renderVolume(p.b, p.v, true)
+      case 'chapter':
+        return renderChapter(p.b, p.v, p.c, true)
+      case 'section':
+        return renderSection(p.b, p.v, p.c, p.s, true)
+      case 'about':
+        return renderAbout(p.b, true)
+    }
+  }
+
+  const renderWideFrames = (): AdaptiveFrameSpec[] =>
+    framePositions(pos).map((p) => ({ id: posPageId(p), content: renderFrameContent(p) }))
+
+  return (
+    <AdaptiveSplitNav
+      controller={nav}
+      renderNarrowPage={renderNarrowPage}
+      renderList={renderShelf}
+      renderWideFrames={renderWideFrames}
+      framesResetKey={pos.kind === 'shelf' ? 'shelf' : `b:${pos.b}`}
     />
   )
 }
