@@ -491,6 +491,7 @@ export function ScanDialog({
     <WindowModal
       open
       title="错误扫描"
+      titleSize="large"
       titleAlign="left"
       themeColor={DISK_UTILITY_THEME}
       wide
@@ -667,6 +668,7 @@ export function BenchmarkDialog({
     <WindowModal
       open
       title="磁盘测速"
+      titleSize="large"
       titleAlign="left"
       themeColor={DISK_UTILITY_THEME}
       wide
