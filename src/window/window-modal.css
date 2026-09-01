@@ -190,7 +190,7 @@
 }
 
 .window-modal__header--with-close:not(.window-modal__header--title-left):not(.window-modal__header--with-actions) {
-  padding-inline-end: 46px;
+  padding-inline-end: 48px;
 }
 
 .window-modal__header--with-close:not(.window-modal__header--title-left):not(.window-modal__header--with-actions)
@@ -222,7 +222,12 @@
   flex: 0 0 auto;
 }
 
-/* 关闭叉走 IosButton icon 档（26×26）；这里只补 IosButton 没有的悬停反馈 */
+/* 关闭叉：覆盖 IosButton icon 档的 26×26，与 actions 动作按钮同高 28px；hover 为 IosButton 缺失项的补偿 */
+.window-modal__close {
+  width: 28px;
+  height: 28px;
+}
+
 .window-modal__close:hover:not(:disabled) {
   color: #1a1a1a;
   filter: brightness(1.04);
