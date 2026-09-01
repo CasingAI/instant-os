@@ -12,6 +12,7 @@ import { FILES_MOUNTS_CHANGED_EVENT } from '../files/files-mount-store.ts'
 import { FILES_IMAGE_MOUNTS_CHANGED_EVENT } from '../files/files-image-mount-store.ts'
 import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
 import { unmountDiskImage } from '../files/files-image-actions.ts'
+import { normalizeDiskImagePath } from '../files/files-disk-image-occupancy.ts'
 import { isImageLocationId } from '../files/files-types.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
@@ -619,7 +620,7 @@ export function DiskUtilityApp() {
     setPage: resetNavPage,
   } = useKeychainNavStack<DiskUtilityScreen>('list')
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<TreeNode | undefined> => {
     const [nextTree, nextStorage] = await Promise.all([
       loadDiskTree(),
       loadBrowserStorageSnapshot(),
@@ -643,6 +644,7 @@ export function DiskUtilityApp() {
       const root = findNode(nextTree, current)
       return root?.kind === 'image-root' ? current : undefined
     })
+    return nextTree
   }, [])
 
   useEffect(() => {
@@ -718,6 +720,8 @@ export function DiskUtilityApp() {
   const runMutation = useCallback(
     async (path: string, work: () => Promise<void>) => {
       if (busyRef.current) return
+      const previousSelectedId = selectedId
+      const previousPartitionViewRootId = partitionViewRootId
       busyRef.current = true
       setBusy(true)
       setDialogError(undefined)
@@ -725,7 +729,10 @@ export function DiskUtilityApp() {
         await withExclusiveImageAccess(path, work)
         setEraseState(undefined)
         setPartitionState(undefined)
-        await refresh()
+        const nextTree = await refresh()
+        const restored = resolveRestoredSelection(nextTree, path, previousSelectedId, previousPartitionViewRootId)
+        if (restored.selectedId) setSelectedId(restored.selectedId)
+        if (restored.partitionViewRootId) setPartitionViewRootId(restored.partitionViewRootId)
       } catch (error) {
         setDialogError(formatError(error))
       } finally {
@@ -733,7 +740,7 @@ export function DiskUtilityApp() {
         setBusy(false)
       }
     },
-    [refresh],
+    [refresh, selectedId, partitionViewRootId],
   )
 
   const runBenchmarkWork = useCallback(
@@ -809,6 +816,8 @@ export function DiskUtilityApp() {
   const runRepairApplyWork = useCallback(
     async (plan: DiskRepairPlan) => {
       if (busyRef.current || plan.actions.length === 0) return
+      const previousSelectedId = selectedId
+      const previousPartitionViewRootId = partitionViewRootId
       busyRef.current = true
       setBusy(true)
       setRepairApplying(true)
@@ -826,7 +835,11 @@ export function DiskUtilityApp() {
         setScanItems(scanItemsForReport(result.after))
         setScanReport(result.after)
         setRepairResult(result)
-        await refresh()
+        const nextTree = await refresh()
+        // 卸载窗口期的事件 refresh 会把选中回退到别的节点，挂回后恢复到修复的这块盘
+        const restored = resolveRestoredSelection(nextTree, plan.path, previousSelectedId, previousPartitionViewRootId)
+        if (restored.selectedId) setSelectedId(restored.selectedId)
+        if (restored.partitionViewRootId) setPartitionViewRootId(restored.partitionViewRootId)
       } catch (error) {
         setDialogError(formatError(error))
       } finally {
@@ -835,7 +848,7 @@ export function DiskUtilityApp() {
         setRepairApplying(false)
       }
     },
-    [refresh],
+    [refresh, selectedId, partitionViewRootId],
   )
 
   const runRepairPlanWork = useCallback(
@@ -1266,4 +1279,42 @@ function findNode(node: TreeNode, id: string): TreeNode | undefined {
     if (found) return found
   }
   return undefined
+}
+
+function findImageNodesByPath(tree: TreeNode, path: string): { root?: TreeNode; partition?: TreeNode } {
+  const normalized = normalizeDiskImagePath(path)
+  let root: TreeNode | undefined
+  let partition: TreeNode | undefined
+  const walk = (node: TreeNode): void => {
+    if (node.imageFile && normalizeDiskImagePath(node.imageFile.path) === normalized) {
+      if (node.kind === 'image-root') root ??= node
+      if (node.kind === 'partition') partition ??= node
+    }
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(tree)
+  return { root, partition }
+}
+
+/**
+ * 排他写（修复/抹掉/分区）会短暂卸载 files-mount，事件驱动的 refresh 会把选中
+ * 单向回退到别的节点；这里在写完挂回后恢复：优先原选中节点（重挂载后 id 稳定复用），
+ * 否则按镜像路径匹配（分区表被重写导致 partition id 变化时落到 image-root）。
+ * partitionViewRootId 仅在原值仍有效时恢复，不做推断。
+ */
+function resolveRestoredSelection(
+  tree: TreeNode | undefined,
+  path: string,
+  previousSelectedId: string | undefined,
+  previousPartitionViewRootId: string | undefined,
+): { selectedId?: string; partitionViewRootId?: string } {
+  if (!tree) return {}
+  const byId = previousSelectedId ? findNode(tree, previousSelectedId) : undefined
+  const { root, partition } = findImageNodesByPath(tree, path)
+  const selected = byId ?? partition ?? root
+  const prevRoot = previousPartitionViewRootId ? findNode(tree, previousPartitionViewRootId) : undefined
+  return {
+    selectedId: selected?.id,
+    partitionViewRootId: prevRoot?.kind === 'image-root' ? previousPartitionViewRootId : undefined,
+  }
 }
