@@ -1,12 +1,13 @@
 /* 按钮组（自包含）：压缩程度按「内容自然宽 / 可用宽」的压缩率决定。
- * 边距（--pg-pad）与折叠/压扁档位由 tsx 侧 ResizeObserver 计算并写入
- * （见 page-button-group.tsx）；这里只负责把变量与档位翻译成样式。 */
+ * 边距（--pg-pad）与压扁比例（--pg-label-scale）由 tsx 侧 ResizeObserver
+ * 计算并写入（见 page-button-group.tsx）；这里只负责把变量翻译成样式。 */
 
 .page-button-group {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  /* 间距由 tsx 侧按压缩档位连续收缩（6px → 1px），见 page-button-group.tsx */
+  gap: var(--pg-gap, 6px);
   /*
    * 宽度由父容器给定（grid 列 stretch / flex 容器 / 块级宽度），
    * 与 container-type 配合时自身宽度不受内容影响。
@@ -16,13 +17,14 @@
   min-width: 0;
   height: 28px;
   container-type: inline-size;
+  transition: gap 0.12s ease;
 }
 
 /*
  * 组内文字按钮的布局宽度由 tsx 测量后显式写死（flex-shrink: 0），
- * 压缩只通过 --pg-pad（连续边距）与压扁/折叠档位发生——避免 flex 二次
- * 压缩把边距啃成残肢、把文字挤成省略号。overflow: hidden 裁掉压扁档下
- * label 仍按自然宽占位、绘制却变窄的布局溢出。
+ * 压缩只通过 --pg-pad（连续边距）与 --pg-label-scale（连续压扁）发生——
+ * 避免 flex 二次压缩把边距啃成残肢、把文字挤成省略号。overflow: hidden
+ * 裁掉压扁档下 label 仍按自然宽占位、绘制却变窄的布局溢出。
  */
 .page-button-group .page-action-button:not(.page-action-button--icon) {
   flex-shrink: 0;
@@ -38,18 +40,22 @@
 /*
  * label 保持自然文字宽的布局（flex-shrink: 0），压扁由 transform 完成：
  * 绘制宽 = 布局宽 × --pg-label-scale，恰好画满按钮分配到的内容宽。
- * 组内放不下就走压扁/折叠，永不出现系统省略号。
+ * 永不出现系统省略号，也永不隐藏按钮。
  */
 .page-button-group .page-action-button__label {
   flex-shrink: 0;
   text-overflow: clip;
 }
 
-/* 压扁档：边距到 2px 仍放不下时，全部可见按钮的 label 按
- * --pg-label-scale 比例整体压扁（替代省略号），折叠档只在该档失效后才发生 */
+/*
+ * 压扁档：全部按钮的 label 按 --pg-label-scale 比例整体压扁（1 → 0 无
+ * 下限）。原点必须取自身中心：label 布局盒比压扁后的按钮内容区宽，被
+ * justify-content: center 居中后两侧对称外溢，以中心为原点收缩时压扁
+ * 文字恰好铺满内容区、视觉居中；取 left 会使文字整体偏向一侧溢出边框。
+ */
 .page-button-group.pg-shrink-label .page-action-button__label {
   transform: scaleX(var(--pg-label-scale, 1));
-  transform-origin: left center;
+  transform-origin: center center;
   transition: transform 0.12s ease;
 }
 

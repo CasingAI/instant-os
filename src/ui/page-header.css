@@ -90,6 +90,15 @@
   align-items: center;
 }
 
+/*
+ * 无标题页操作区要撑满剩余空间（flex: 1 1 0）：按钮组 container-type
+ * 使自身固有宽为 0，trailing 若按内容收缩（默认 0 1 auto）会塌成 0 宽，
+ * 组的 width:100% 随之失去基准。按钮贴右由组内 justify-content 负责。
+ */
+.page-header--no-title .page-header__trailing {
+  flex: 1 1 0;
+}
+
 .page-header--no-title .page-header__back-spacer {
   display: none;
 }
