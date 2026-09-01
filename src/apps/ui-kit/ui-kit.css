@@ -377,7 +377,7 @@
   max-width: 320px;
   border: 1px solid #e5e5e5;
   border-radius: 8px;
-  background: #f4f4f4;
+  background: #fff;
   overflow: auto;
 }
 
@@ -394,6 +394,11 @@
   font-size: 11px;
   color: #8e8e93;
   font-variant-numeric: tabular-nums;
+}
+
+.tree-view__row--selected .ui-kit-demo__tree-size,
+.tree-view__row:active:not(:has(.tree-view__chevron-btn:active)) .ui-kit-demo__tree-size {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .ui-kit-demo__hint {

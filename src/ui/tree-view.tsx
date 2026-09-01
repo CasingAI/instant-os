@@ -242,7 +242,6 @@ function TreeItemRow<T extends TreeViewNodeLike<T>>({
         aria-expanded={hasChildren ? expanded : undefined}
         tabIndex={isActiveRow ? 0 : -1}
         class={`tree-view__row${selected ? ' tree-view__row--selected' : ''}`}
-        style={{ paddingLeft: `${6 + depth * indent}px` }}
         ref={(element) => registerRow(node.id, element)}
         onClick={() => {
           onFocusRow(node.id)
@@ -253,15 +252,20 @@ function TreeItemRow<T extends TreeViewNodeLike<T>>({
         }}
       >
         {hasChildren ? (
+          /* 左侧整块（缩进空白 + 箭头列）都是展开/收起命中区；
+             不进 Tab 序、点击不抢焦点——键盘用 ←/→ 与双击操作 */
           <button
             type="button"
             class="tree-view__chevron-btn"
+            style={{ paddingLeft: `${6 + depth * indent}px` }}
+            tabIndex={-1}
             aria-label={expanded ? '折叠' : '展开'}
             onClick={(event) => {
               event.stopPropagation()
               onToggle(node)
             }}
             onDblClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.preventDefault()}
           >
             <span
               class={`tree-view__chevron${expanded ? ' tree-view__chevron--open' : ''}`}
@@ -280,7 +284,11 @@ function TreeItemRow<T extends TreeViewNodeLike<T>>({
             </span>
           </button>
         ) : (
-          <span class="tree-view__chevron-placeholder" aria-hidden="true" />
+          <span
+            class="tree-view__chevron-placeholder"
+            style={{ paddingLeft: `${6 + depth * indent}px` }}
+            aria-hidden="true"
+          />
         )}
         {renderNode(node, { depth, expanded, selected, hasChildren, toggle: () => onToggle(node) })}
       </div>

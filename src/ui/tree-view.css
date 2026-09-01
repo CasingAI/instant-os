@@ -9,9 +9,11 @@
   gap: 8px;
   width: 100%;
   margin: 0;
-  padding: 3px 10px 3px 6px;
+  padding: 3px 10px 3px 0;
   min-height: 28px;
   box-sizing: border-box;
+  background: #fff;
+  border-bottom: 1px solid #ececec;
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -19,8 +21,10 @@
   cursor: default;
 }
 
-.tree-view__row:hover {
-  background: rgba(0, 0, 0, 0.05);
+/* 末行只去视觉线：保留 1px 边框（transparent）。border-box 下真移除边框会把内容区撑高 1px，
+   垂直居中的行内容整体位移半像素——最后一行是「有子集的 Item」时，展开/收起的瞬间可见这 1px 跳动 */
+.tree-view__row:last-child {
+  border-bottom-color: transparent;
 }
 
 /* 键盘导航时行/chevron 会获得焦点；选中高亮已表达当前项，去浏览器默认焦点环 */
@@ -29,23 +33,38 @@
   outline: none;
 }
 
-.tree-view__row--selected,
-.tree-view__row--selected:hover {
-  background: linear-gradient(180deg, #d6e8fb 0%, #c2dbf5 100%);
+/* 悬停只做浅灰提示；选中才用系统统一的蓝渐变高亮（settings/keychain/registry 同款） */
+.tree-view__row:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
 
+.tree-view__row--selected,
+.tree-view__row--selected:hover {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
+}
+
+/* 按在箭头块上不算 active：:has 守卫排除「chevron 按钮正被按下」的情况，其余才闪深蓝按压态 */
+.tree-view__row:active:not(:has(.tree-view__chevron-btn:active)) {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+  color: #fff;
+}
+
+/* 左侧整块 = 缩进空白 + 箭头列（缩进由行内 paddingLeft 注入），整块都是展开/收起命中区；
+   不写死 height，由 stretch 拉到整行高度；箭头 span 在内容区（16px 列）内居中 */
 .tree-view__chevron-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 16px;
-  height: 16px;
   padding: 0;
+  margin: 0;
   border: none;
   background: transparent;
   color: inherit;
   cursor: default;
   flex-shrink: 0;
+  align-self: stretch;
 }
 
 .tree-view__chevron {
@@ -57,6 +76,11 @@
   flex-shrink: 0;
   color: #8e8e93;
   transition: transform 0.15s ease;
+}
+
+.tree-view__row--selected .tree-view__chevron,
+.tree-view__row:active:not(:has(.tree-view__chevron-btn:active)) .tree-view__chevron {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .tree-view__chevron--open {
