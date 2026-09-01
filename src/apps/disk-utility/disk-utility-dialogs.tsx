@@ -401,13 +401,57 @@ export function ScanDialog({
   }
 
   const hasResult = report !== undefined
-  const showRepairEntry = hasResult && report!.status === 'issues' && !plan && !repairApplying && !busy
   const handleCopy = async () => {
     if (!report || !navigator.clipboard?.writeText) return
     await navigator.clipboard.writeText(diskScanResultText(report))
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1500)
   }
+
+  const ensureController = (): AbortSignal => {
+    let next = controllerRef.current
+    if (!next || next.signal.aborted) {
+      next = new AbortController()
+      controllerRef.current = next
+      setController(next)
+    }
+    return next.signal
+  }
+
+  // 主按钮随流程演进：开始扫描 → 停止扫描 → 扫出问题后同一按钮位变为开始修复（不再另设按钮）
+  const primaryAction = busy
+    ? (repairApplying
+        ? {
+            key: 'stop',
+            label: '正在修复',
+            tone: 'secondary' as const,
+            disabled: true,
+            onClick: () => undefined,
+          }
+        : {
+            key: 'stop',
+            label: '停止扫描',
+            tone: 'danger' as const,
+            disabled: false,
+            onClick: () => controller?.abort(),
+          })
+    : plan
+      ? undefined
+      : report?.status === 'issues'
+        ? {
+            key: 'repair',
+            label: '开始修复',
+            tone: 'primary' as const,
+            disabled: false,
+            onClick: () => onPlanRepair(ensureController()),
+          }
+        : {
+            key: 'run',
+            label: '开始扫描',
+            tone: 'primary' as const,
+            disabled: false,
+            onClick: () => onRun(ensureController()),
+          }
 
   const footerActions = plan
     ? plan.actions.length > 0
@@ -440,58 +484,8 @@ export function ScanDialog({
           disabled: busy || !hasResult,
           onClick: () => void handleCopy(),
         },
-          busy
-          ? (repairApplying
-              ? {
-                  key: 'stop',
-                  label: '正在修复',
-                  tone: 'secondary' as const,
-                  disabled: true,
-                  onClick: () => undefined,
-                }
-              : {
-                  key: 'stop',
-                  label: '停止扫描',
-                  tone: 'danger' as const,
-                  disabled: false,
-                  onClick: () => controller?.abort(),
-                })
-          : undefined,
-          !busy && showRepairEntry
-          ? {
-              key: 'repair',
-              label: '开始修复',
-              tone: 'primary' as const,
-              disabled: false,
-              onClick: () => {
-                let next = controllerRef.current
-                if (!next || next.signal.aborted) {
-                  next = new AbortController()
-                  controllerRef.current = next
-                  setController(next)
-                }
-                onPlanRepair(next.signal)
-              },
-            }
-          : undefined,
-          !busy && !plan
-          ? {
-              key: 'run',
-              label: '开始扫描',
-              tone: 'secondary' as const,
-              disabled: false,
-              onClick: () => {
-                let next = controllerRef.current
-                if (!next || next.signal.aborted) {
-                  next = new AbortController()
-                  controllerRef.current = next
-                  setController(next)
-                }
-                onRun(next.signal)
-              },
-            }
-          : undefined,
-      ].filter((action) => action !== undefined)}
+        ...(primaryAction ? [primaryAction] : []),
+      ]}
     >
       <div class="disk-utility-scan__body-header">
         <h2 class="disk-utility-scan__name">{state.label}</h2>
