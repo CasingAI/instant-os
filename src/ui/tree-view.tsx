@@ -292,24 +292,30 @@ function TreeItemRow<T extends TreeViewNodeLike<T>>({
         )}
         {renderNode(node, { depth, expanded, selected, hasChildren, toggle: () => onToggle(node) })}
       </div>
-      {hasChildren && expanded
-        ? node.children!.map((child) => (
-            <TreeItemRow
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              expandedIds={expandedIds}
-              selectedId={selectedId}
-              activeId={activeId}
-              onSelect={onSelect}
-              onToggle={onToggle}
-              onFocusRow={onFocusRow}
-              registerRow={registerRow}
-              renderNode={renderNode}
-              indent={indent}
-            />
-          ))
-        : undefined}
+      {hasChildren ? (
+        /* children 常驻 DOM 的包裹层：grid-template-rows 0fr↔1fr 过渡实现滑出/滑入；
+           收起动画播完后由 CSS 延迟 visibility 隐藏（读屏跳过折叠内容） */
+        <div class={`tree-view__branch${expanded ? ' tree-view__branch--open' : ''}`}>
+          <div class="tree-view__branch-inner">
+            {node.children!.map((child) => (
+              <TreeItemRow
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                expandedIds={expandedIds}
+                selectedId={selectedId}
+                activeId={activeId}
+                onSelect={onSelect}
+                onToggle={onToggle}
+                onFocusRow={onFocusRow}
+                registerRow={registerRow}
+                renderNode={renderNode}
+                indent={indent}
+              />
+            ))}
+          </div>
+        </div>
+      ) : undefined}
     </>
   )
 }

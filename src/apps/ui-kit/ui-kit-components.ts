@@ -395,7 +395,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'tree-view',
     name: 'TreeView',
-    description: '通用折叠树：递归子级、展开/折叠 chevron、单选高亮；行内容经 renderNode 注入。支持双击展开/收起与键盘导航（↑/↓ 选中、→/← 展开收起、Home/End/Enter）',
+    description: '通用折叠树：递归子级、展开/折叠带滑出/滑入动画、单选高亮；行内容经 renderNode 注入。支持双击展开/收起与键盘导航（↑/↓ 选中、→/← 展开收起、Home/End/Enter）',
     category: 'navigation',
     importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
     props: [

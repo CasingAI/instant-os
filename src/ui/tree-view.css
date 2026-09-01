@@ -21,10 +21,38 @@
   cursor: default;
 }
 
-/* 末行只去视觉线：保留 1px 边框（transparent）。border-box 下真移除边框会把内容区撑高 1px，
-   垂直居中的行内容整体位移半像素——最后一行是「有子集的 Item」时，展开/收起的瞬间可见这 1px 跳动 */
-.tree-view__row:last-child {
-  border-bottom-color: transparent;
+/* 分支包裹层：grid-template-rows 0fr↔1fr 过渡实现 children 滑出/滑入；
+   每行统一保留 1px 分隔线（嵌套结构下无法用 :last-child 表达「整树末行」） */
+.tree-view__branch {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+
+.tree-view__branch--open {
+  grid-template-rows: 1fr;
+}
+
+.tree-view__branch-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  /* 收起动画播完才隐藏，读屏可跳过折叠内容；展开瞬时可见 */
+  transition: visibility 0s linear 0.2s;
+}
+
+.tree-view__branch--open .tree-view__branch-inner {
+  visibility: visible;
+  transition: visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-view__branch,
+  .tree-view__branch-inner {
+    transition: none;
+  }
 }
 
 /* 键盘导航时行/chevron 会获得焦点；选中高亮已表达当前项，去浏览器默认焦点环 */
