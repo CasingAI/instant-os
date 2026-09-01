@@ -762,6 +762,7 @@ export function WindowModalDemo() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [dangerOpen, setDangerOpen] = useState(false)
   const [wideOpen, setWideOpen] = useState(false)
+  const [chromeOpen, setChromeOpen] = useState(false)
   const [result, setResult] = useState('')
 
   return (
@@ -844,6 +845,29 @@ export function WindowModalDemo() {
           <p style={{ marginTop: 8, color: '#666' }}>
             可在此处放置多段文字、列表或设置表单。
           </p>
+        </WindowModal>
+      </DemoVariant>
+
+      <DemoVariant label="左对齐标题栏 + 副标题 + 关闭钮">
+        <button type="button" class="ui-kit-demo__ghost-btn" onClick={() => setChromeOpen(true)}>
+          打开历史记录风格
+        </button>
+        <WindowModal
+          open={chromeOpen}
+          title="历史记录"
+          subtitle="72 个页面"
+          titleAlign="left"
+          showCloseButton
+          onClose={() => setChromeOpen(false)}
+          actions={[
+            {
+              label: '清空历史记录',
+              tone: 'danger',
+              onClick: () => setChromeOpen(false),
+            },
+          ]}
+        >
+          <p class="window-modal__message">浏览历史列表示例内容。</p>
         </WindowModal>
       </DemoVariant>
 

@@ -470,29 +470,34 @@ const buttonRef = useRef(null)
   {
     id: 'window-modal',
     name: 'WindowModal',
-    description: '窗口模态对话框；primary / secondary / danger 按钮，支持 wide / scrollBody',
+    description: '窗口模态对话框；primary / secondary / danger 按钮，支持 wide / scrollBody、标题对齐、副标题与关闭钮',
     category: 'window',
     importPath: "import { WindowModal } from '../../window/window-modal.tsx'",
     props: [
       { name: 'open', type: 'boolean', description: '是否打开' },
       { name: 'title', type: 'string', description: '对话框标题' },
+      { name: 'subtitle', type: 'string?', description: '主标题下方的辅助说明' },
+      { name: 'titleAlign', type: "'center' | 'left'?", description: '标题对齐方式，默认居中' },
+      { name: 'showCloseButton', type: 'boolean?', description: '在标题栏右上角显示关闭按钮' },
       { name: 'onClose', type: '() => void', description: '关闭回调' },
       { name: 'actions', type: 'WindowModalAction[]?', description: '操作按钮列表' },
+      { name: 'headerActions', type: 'WindowModalAction[]?', description: '标题栏右侧操作按钮' },
       { name: 'wide', type: 'boolean?', description: '宽对话框' },
       { name: 'scrollBody', type: 'boolean?', description: '内容区可滚动' },
       { name: 'children', type: 'ComponentChildren', description: '内容区域' },
     ],
     codeExample: `<WindowModal
   open={dialogOpen}
-  title="删除项目"
-  role="alertdialog"
+  title="历史记录"
+  subtitle="72 个页面"
+  titleAlign="left"
+  showCloseButton
   onClose={handleClose}
   actions={[
-    { label: '取消', onClick: handleClose },
-    { label: '删除', tone: 'danger', onClick: handleDelete }
+    { label: '清空历史记录', tone: 'danger', onClick: handleClear }
   ]}
 >
-  <p>此操作无法撤销。</p>
+  <p>内容区域</p>
 </WindowModal>`,
   },
 ]
