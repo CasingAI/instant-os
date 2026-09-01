@@ -393,6 +393,36 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'tree-view',
+    name: 'TreeView',
+    description: '通用折叠树：递归子级、展开/折叠 chevron、单选高亮；行内容经 renderNode 注入。支持双击展开/收起与键盘导航（↑/↓ 选中、→/← 展开收起、Home/End/Enter）',
+    category: 'navigation',
+    importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
+    props: [
+      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表（T 需含 id 与 children）' },
+      { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合' },
+      { name: 'selectedId', type: 'string?', description: '受控选中节点 id' },
+      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调' },
+      { name: 'onExpandedChange', type: '(node: T, expanded: boolean) => void?', description: '展开/折叠变化回调（供懒加载）' },
+      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（图标/标签/附加列）' },
+      { name: 'indent', type: 'number?', description: '每级缩进像素，默认 28' },
+      { name: 'className', type: 'string?', description: '透传到容器（宿主滚动/尺寸样式）' },
+      { name: 'ariaLabel', type: 'string?', description: '容器无障碍标签' },
+    ],
+    codeExample: `<TreeView
+  nodes={folders}
+  defaultExpandedIds={['docs']}
+  selectedId={selectedId}
+  onSelect={(node) => setSelectedId(node.id)}
+  renderNode={(node, ctx) => (
+    <>
+      <span class="ui-kit-demo__tree-label">{node.label}</span>
+      <span class="ui-kit-demo__tree-size">{formatStorageSize(node.size)}</span>
+    </>
+  )}
+/>`,
+  },
+  {
     id: 'emoji-picker-popover',
     name: 'EmojiPickerPopover',
     description: '表情选择弹出层；默认触发器或自定义 children 内容',

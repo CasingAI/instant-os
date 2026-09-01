@@ -24,6 +24,7 @@ import {
   AiModelCapabilityTagsDemo,
   HelpHintDemo,
   PopoverDemo,
+  TreeViewDemo,
 } from './ui-kit-demo-instances.tsx'
 import './ui-kit.css'
 
@@ -57,6 +58,7 @@ const DEMO_COMPONENTS: Record<string, () => preact.JSX.Element> = {
   'ai-model-capability-tags': AiModelCapabilityTagsDemo,
   'help-hint': HelpHintDemo,
   'popover': PopoverDemo,
+  'tree-view': TreeViewDemo,
 }
 
 function buildCategorySections(): CategorySection[] {

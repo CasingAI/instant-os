@@ -20,6 +20,8 @@ import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
 import { AiModelCapabilityTags } from '../../ui/ai-model-capability-tags.tsx'
 import { HelpHint } from '../../ui/help-hint.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
+import { TreeView } from '../../ui/tree-view.tsx'
+import { formatStorageSize } from '../../os/format-storage-size.ts'
 import '../settings/settings.css'
 import '../../ui/ios-nav-back.css'
 
@@ -993,6 +995,68 @@ export function HelpHintDemo() {
       </DemoVariant>
       <DemoVariant label="长文案（视口边缘自动翻转 / 夹紧）">
         <HelpHint text="这是一段较长的说明文字，用于验证气泡在窗口边缘的定位：靠近视口底部时自动向上弹出，宽度超出视口时自动收窄夹紧。" />
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+type DemoTreeNode = {
+  id: string
+  label: string
+  size: number
+  children?: DemoTreeNode[]
+}
+
+const DEMO_TREE: DemoTreeNode[] = [
+  {
+    id: 'photos',
+    label: '照片',
+    size: 2_400_000_000,
+    children: [
+      { id: 'photos-2024', label: '2024 年', size: 1_100_000_000 },
+      {
+        id: 'photos-2025',
+        label: '2025 年',
+        size: 1_300_000_000,
+        children: [
+          { id: 'photos-2025-08', label: '八月', size: 420_000_000 },
+          { id: 'photos-2025-09', label: '九月', size: 880_000_000 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'downloads',
+    label: '下载',
+    size: 860_000_000,
+    children: [
+      { id: 'downloads-iso', label: '系统镜像', size: 640_000_000 },
+      { id: 'downloads-misc', label: '其他', size: 220_000_000 },
+    ],
+  },
+  { id: 'documents', label: '文稿', size: 150_000_000 },
+]
+
+export function TreeViewDemo() {
+  const [selectedId, setSelectedId] = useState<string | undefined>('photos-2025-08')
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="展开 / 折叠 / 选中" wide>
+        <div class="ui-kit-demo__tree">
+          <TreeView
+            nodes={DEMO_TREE}
+            defaultExpandedIds={['photos', 'photos-2025', 'downloads']}
+            selectedId={selectedId}
+            onSelect={(node) => setSelectedId(node.id)}
+            renderNode={(node) => (
+              <>
+                <span class="ui-kit-demo__tree-label">{node.label}</span>
+                <span class="ui-kit-demo__tree-size">{formatStorageSize(node.size)}</span>
+              </>
+            )}
+          />
+        </div>
       </DemoVariant>
     </DemoVariants>
   )
