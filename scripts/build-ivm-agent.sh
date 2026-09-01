@@ -35,7 +35,8 @@ mkdir -p "$OUT_DIR"
 # 两个 .c 各自带 memset/memcpy（static），入口直接指到 ivm_agent_entry。
 # -nostdlib 下 zig 不再自动提供 Windows 头文件，要显式 -isystem。
 # 导入表：kernel32/user32/gdi32（显示模式切换）+ advapi32（服务/注册表）
-# + ole32（OLE 剪贴板），XP 裸机可加载。
+# + ole32（OLE 剪贴板）+ shell32（目标文件夹探测/浏览对话框）
+# + oleaut32（BSTR/Variant 辅助），XP 裸机可加载。
 # 链接后补 PE OS/Subsystem 版本 5.01，否则 XP 加载器拒绝（patch-pe-xp-version.mjs）。
 # -DVM_AGENT_BUILD 注入构建时间戳：PONG 回执的 built= 字段（判断 XP 里的构建版本）。
 BUILD_TS="$(date +%Y%m%d-%H%M%S)"
@@ -44,7 +45,7 @@ zig cc -target x86-windows-gnu -O2 -Wall -nostdlib \
   "-DVM_AGENT_BUILD=\"$BUILD_TS\"" \
   -Wl,--subsystem,windows,-e,ivm_agent_entry \
   -o "$OUT" $SOURCES \
-  -lkernel32 -luser32 -lgdi32 -ladvapi32 -lole32
+  -lkernel32 -luser32 -lgdi32 -ladvapi32 -lole32 -lshell32 -loleaut32
 node "$GUEST_DIR/res-agent/patch-pe-xp-version.mjs" "$OUT"
 
 # 防呆（2026-08 事故：源码已加 /mouse-install 分发、产物还是旧构建，bat 调用

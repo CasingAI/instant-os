@@ -6,18 +6,29 @@ export function DiskMapBar({
   diskBytes,
   selectedId,
   compact,
+  wide,
   onSelect,
 }: {
   segments: DiskMapSegment[]
   diskBytes: number
   selectedId?: string
   compact?: boolean
+  /** 详情区里的 registry 样式：更宽、含 enter 动画 */
+  wide?: boolean
   onSelect?: (nodeId: string) => void
 }): preact.JSX.Element | undefined {
   if (segments.length === 0 || diskBytes <= 0) return undefined
 
+  const wrapClass = [
+    'disk-utility__map',
+    compact ? 'disk-utility__map--compact' : '',
+    wide ? 'disk-utility__map--wide' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div class={`disk-utility__map${compact ? ' disk-utility__map--compact' : ''}`}>
+    <div class={wrapClass}>
       <div class="disk-utility__map-bar" role="list" aria-label="分区布局">
         {segments.map((segment) => {
           const selected = segment.nodeId !== undefined && segment.nodeId === selectedId

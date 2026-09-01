@@ -1,4 +1,4 @@
-import { useRef, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import { Checkbox } from '../../ui/checkbox.tsx'
@@ -20,7 +20,7 @@ import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
 import { AiModelCapabilityTags } from '../../ui/ai-model-capability-tags.tsx'
 import { HelpHint } from '../../ui/help-hint.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
-import { TreeView } from '../../ui/tree-view.tsx'
+import { TreeView, type TreeViewRemovalSelection } from '../../ui/tree-view.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import '../settings/settings.css'
 import '../../ui/ios-nav-back.css'
@@ -1005,6 +1005,8 @@ type DemoTreeNode = {
   label: string
   size: number
   children?: DemoTreeNode[]
+  /** 懒加载分支：展开时由 onExpandedChange 异步注入子级 */
+  lazy?: boolean
 }
 
 const DEMO_TREE: DemoTreeNode[] = [
@@ -1062,39 +1064,103 @@ export function TreeViewDemo() {
   )
 }
 
-export function TreeViewInteractiveDemo() {
-  const [selectedId, setSelectedId] = useState<string | undefined>('photos-2025-08')
-  const [treeNodes, setTreeNodes] = useState<DemoTreeNode[]>(DEMO_TREE)
+/** 增删动画演示的共用状态机：nodes 派生更新 + 选中态，四个动作全部数据驱动。 */
+function useTreePlayground(initialNodes: DemoTreeNode[] | (() => DemoTreeNode[]), initialSelectedId?: string) {
+  const [nodes, setNodes] = useState<DemoTreeNode[]>(initialNodes)
+  const [selectedId, setSelectedId] = useState<string | undefined>(initialSelectedId)
   const seqRef = useRef(0)
 
-  const insertNode = () => {
-    const node: DemoTreeNode = {
-      id: `new-${++seqRef.current}`,
-      label: `新项目 ${seqRef.current}`,
-      size: 12_000_000 * seqRef.current,
-    }
-    setTreeNodes((prev) => {
-      // 选中节点已有子级则插到其下（演示分支内插入），否则插到根层末（演示根层插入）
-      const target = selectedId ? findNodeById(prev, selectedId) : undefined
-      return insertNodeInto(prev, target?.children?.length ? selectedId : undefined, node)
-    })
+  const makeNode = (): DemoTreeNode => {
+    const n = ++seqRef.current
+    return { id: `new-${n}`, label: `新项目 ${n}`, size: 12_000_000 * n }
+  }
+
+  const insertAbove = () => {
+    const node = makeNode()
+    setNodes((prev) => insertNodeAround(prev, selectedId, node, -1))
+    setSelectedId(node.id)
+  }
+
+  const insertBelow = () => {
+    const node = makeNode()
+    setNodes((prev) => insertNodeAround(prev, selectedId, node, 1))
+    setSelectedId(node.id)
+  }
+
+  const insertChild = () => {
+    const node = makeNode()
+    setNodes((prev) => insertNodeInto(prev, selectedId, node))
     setSelectedId(node.id)
   }
 
   const deleteSelected = () => {
     if (!selectedId) return
-    setTreeNodes((prev) => removeNodeById(prev, selectedId))
-    setSelectedId(undefined)
+    // 只删数据；选中走向交给 TreeView 的 removalSelection（经 onSelect 回流），
+    // 'none' 时残留 id 不高亮，视觉等同清空
+    setNodes((prev) => removeNodeById(prev, selectedId))
   }
+
+  return { nodes, selectedId, setSelectedId, insertAbove, insertBelow, insertChild, deleteSelected }
+}
+
+/** 增删动效演示的操作按钮行（上方/下方/子级插入 + 删除选中）。 */
+function TreePlaygroundActions({
+  insertAbove,
+  insertBelow,
+  insertChild,
+  deleteSelected,
+  disabled,
+}: {
+  insertAbove: () => void
+  insertBelow: () => void
+  insertChild: () => void
+  deleteSelected: () => void
+  disabled: boolean
+}) {
+  return (
+    <div class="ui-kit-demo__tree-actions">
+      <button type="button" class="ui-kit-demo__ghost-btn" onClick={insertAbove}>
+        上方插入
+      </button>
+      <button type="button" class="ui-kit-demo__ghost-btn" onClick={insertBelow}>
+        下方插入
+      </button>
+      <button type="button" class="ui-kit-demo__ghost-btn" onClick={insertChild}>
+        插入到选中项下
+      </button>
+      <button
+        type="button"
+        class="ui-kit-demo__ghost-btn ui-kit-demo__ghost-btn--accent"
+        onClick={deleteSelected}
+        disabled={disabled}
+      >
+        删除选中
+      </button>
+    </div>
+  )
+}
+
+/** 删除选中后的补选策略三档（TreeView 的 removalSelection）。 */
+const REMOVAL_SELECTION_ITEMS: readonly { id: TreeViewRemovalSelection; label: string }[] = [
+  { id: 'none', label: '不自动选中' },
+  { id: 'prefer-previous', label: '优先前一个' },
+  { id: 'prefer-next', label: '优先后一个' },
+]
+
+export function TreeViewInteractiveDemo() {
+  const { nodes, selectedId, setSelectedId, insertAbove, insertBelow, insertChild, deleteSelected } =
+    useTreePlayground(DEMO_TREE, 'photos-2025-08')
+  const [removalSelection, setRemovalSelection] = useState<TreeViewRemovalSelection>('prefer-next')
 
   return (
     <DemoVariants>
-      <DemoVariant label="插入 / 删除选中（行高展开收起 + 淡入淡出）" wide>
+      <DemoVariant label="上方 / 下方插入选中行、插入到选中项下、删除选中（行高展开收起 + 淡入淡出）；删除后按补选策略自动选中相邻行" wide>
         <div class="ui-kit-demo__tree">
           <TreeView
-            nodes={treeNodes}
+            nodes={nodes}
             defaultExpandedIds={['photos', 'photos-2025', 'downloads']}
             selectedId={selectedId}
+            removalSelection={removalSelection}
             onSelect={(node) => setSelectedId(node.id)}
             renderNode={(node) => (
               <>
@@ -1105,24 +1171,159 @@ export function TreeViewInteractiveDemo() {
           />
         </div>
         <div class="ui-kit-demo__tree-actions">
-          <button type="button" class="ui-kit-demo__ghost-btn" onClick={insertNode}>
-            插入节点
-          </button>
-          <button
-            type="button"
-            class="ui-kit-demo__ghost-btn ui-kit-demo__ghost-btn--accent"
-            onClick={deleteSelected}
-            disabled={!selectedId}
-          >
-            删除选中
-          </button>
+          <SegmentedControl
+            value={removalSelection}
+            items={REMOVAL_SELECTION_ITEMS}
+            onChange={setRemovalSelection}
+            ariaLabel="删除选中后的补选策略"
+          />
+        </div>
+        <TreePlaygroundActions
+          insertAbove={insertAbove}
+          insertBelow={insertBelow}
+          insertChild={insertChild}
+          deleteSelected={deleteSelected}
+          disabled={!selectedId}
+        />
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+/** 懒加载演示：lazy 标记的分支展开时先注入「加载中…」行（进场动画），模拟异步返回后替换为真实子级。 */
+const LAZY_TREE: DemoTreeNode[] = [
+  {
+    id: 'nas',
+    label: 'NAS 共享',
+    size: 4_800_000_000,
+    children: [
+      { id: 'nas-docs', label: '文档', size: 920_000_000, lazy: true },
+      { id: 'nas-music', label: '音乐', size: 1_200_000_000, lazy: true },
+      {
+        id: 'nas-photos',
+        label: '照片',
+        size: 2_600_000_000,
+        children: [
+          { id: 'nas-photos-2025', label: '2025 年', size: 800_000_000 },
+          { id: 'nas-photos-2024', label: '2024 年', size: 1_100_000_000 },
+        ],
+      },
+    ],
+  },
+]
+
+/** 模拟异步返回的子级（按父节点生成固定三条）。 */
+function loadChildrenFor(node: DemoTreeNode): DemoTreeNode[] {
+  return [
+    { id: `${node.id}-sub1`, label: `${node.label} · 归档`, size: 210_000_000 },
+    { id: `${node.id}-sub2`, label: `${node.label} · 进行中`, size: 96_000_000 },
+    { id: `${node.id}-sub3`, label: `${node.label} · 已分享`, size: 44_000_000 },
+  ]
+}
+
+export function TreeViewLazyLoadDemo() {
+  const [nodes, setNodes] = useState<DemoTreeNode[]>(LAZY_TREE)
+  const [selectedId, setSelectedId] = useState<string | undefined>()
+  const loadTimerRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    return () => {
+      if (loadTimerRef.current !== undefined) window.clearTimeout(loadTimerRef.current)
+    }
+  }, [])
+
+  const handleExpandedChange = (node: DemoTreeNode, expanded: boolean) => {
+    if (!expanded || node.lazy !== true) return
+    const firstChild = node.children?.[0]
+    // 已有真实子级（含已加载完成）就不再重复加载；「加载中…」行是唯一子级时继续等待
+    if (node.children && node.children.length > 0 && firstChild && !firstChild.id.startsWith('loading:')) {
+      return
+    }
+    if (loadTimerRef.current !== undefined) window.clearTimeout(loadTimerRef.current)
+    setNodes((prev) =>
+      replaceNodeChildren(prev, node.id, [{ id: `loading:${node.id}`, label: '加载中…', size: 0 }]),
+    )
+    loadTimerRef.current = window.setTimeout(() => {
+      loadTimerRef.current = undefined
+      setNodes((prev) => replaceNodeChildren(prev, node.id, loadChildrenFor(node)))
+    }, 700)
+  }
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="展开分支触发异步加载：先出「加载中…」行，数据返回后替换为真实子级（两种进场动画都能看到）" wide>
+        <div class="ui-kit-demo__tree">
+          <TreeView
+            nodes={nodes}
+            selectedId={selectedId}
+            onSelect={(node) => setSelectedId(node.id)}
+            onExpandedChange={handleExpandedChange}
+            renderNode={(node) =>
+              node.id.startsWith('loading:') ? (
+                <span class="ui-kit-demo__tree-label ui-kit-demo__tree-loading">加载中…</span>
+              ) : (
+                <>
+                  <span class="ui-kit-demo__tree-label">{node.label}</span>
+                  <span class="ui-kit-demo__tree-size">{formatStorageSize(node.size)}</span>
+                </>
+              )
+            }
+          />
         </div>
       </DemoVariant>
     </DemoVariants>
   )
 }
 
-/** 递归查找节点（判断「选中节点是否已有子级」用）。 */
+/** 大数据量演示：15 个文件夹 × 10 个文件 = 165 行，全部默认展开，验证增删动画不随节点数变贵。 */
+function buildBigTree(): DemoTreeNode[] {
+  const folders: DemoTreeNode[] = []
+  for (let f = 1; f <= 15; f++) {
+    const files: DemoTreeNode[] = []
+    for (let i = 1; i <= 10; i++) {
+      files.push({ id: `folder-${f}-file-${i}`, label: `文件 ${f}-${i}.txt`, size: 1_000_000 + i * 100_000 })
+    }
+    folders.push({ id: `folder-${f}`, label: `文件夹 ${f}`, size: 800_000_000, children: files })
+  }
+  return folders
+}
+
+export function TreeViewBigDataDemo() {
+  const { nodes, selectedId, setSelectedId, insertAbove, insertBelow, insertChild, deleteSelected } =
+    useTreePlayground(buildBigTree, 'folder-1')
+  const allFolderIds = Array.from({ length: 15 }, (_, i) => `folder-${i + 1}`)
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="160+ 行大树里上方 / 下方插入、删除选中仍流畅（删除后自动补选相邻行；树高固定，超出部分内部滚动）" wide>
+        <div class="ui-kit-demo__tree">
+          <TreeView
+            nodes={nodes}
+            defaultExpandedIds={allFolderIds}
+            selectedId={selectedId}
+            removalSelection="prefer-next"
+            onSelect={(node) => setSelectedId(node.id)}
+            renderNode={(node) => (
+              <>
+                <span class="ui-kit-demo__tree-label">{node.label}</span>
+                <span class="ui-kit-demo__tree-size">{formatStorageSize(node.size)}</span>
+              </>
+            )}
+          />
+        </div>
+        <TreePlaygroundActions
+          insertAbove={insertAbove}
+          insertBelow={insertBelow}
+          insertChild={insertChild}
+          deleteSelected={deleteSelected}
+          disabled={!selectedId}
+        />
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+/** 递归查找节点（判断「选中节点是否已有子级」、插入前确认目标存在用）。 */
 function findNodeById(nodes: DemoTreeNode[], id: string): DemoTreeNode | undefined {
   for (const item of nodes) {
     if (item.id === id) return item
@@ -1134,7 +1335,26 @@ function findNodeById(nodes: DemoTreeNode[], id: string): DemoTreeNode | undefin
   return undefined
 }
 
-/** 在 targetId 节点下追加（targetId 缺省则追加到根层末尾），演示插入动画。 */
+/** 在 targetId 所在兄弟列表的 offset 偏移处插入（-1 上方、1 下方）；targetId 缺省/不存在则追加根层末尾。 */
+function insertNodeAround(
+  nodes: DemoTreeNode[],
+  targetId: string | undefined,
+  node: DemoTreeNode,
+  offset: -1 | 1,
+): DemoTreeNode[] {
+  if (targetId === undefined || !findNodeById(nodes, targetId)) return [...nodes, node]
+  const walk = (list: DemoTreeNode[]): DemoTreeNode[] => {
+    const idx = list.findIndex((item) => item.id === targetId)
+    if (idx !== -1) {
+      const at = offset === -1 ? idx : idx + 1
+      return [...list.slice(0, at), node, ...list.slice(at)]
+    }
+    return list.map((item) => (item.children ? { ...item, children: walk(item.children) } : item))
+  }
+  return walk(nodes)
+}
+
+/** 在 targetId 节点下追加（targetId 缺省则追加到根层末尾），演示子级插入动画。 */
 function insertNodeInto(
   nodes: DemoTreeNode[],
   targetId: string | undefined,
@@ -1144,6 +1364,19 @@ function insertNodeInto(
   return nodes.map((item) => {
     if (item.id === targetId) return { ...item, children: [...(item.children ?? []), node] }
     if (item.children) return { ...item, children: insertNodeInto(item.children, targetId, node) }
+    return item
+  })
+}
+
+/** 递归替换 targetId 节点的 children（懒加载注入「加载中…」/真实子级用）。 */
+function replaceNodeChildren(
+  nodes: DemoTreeNode[],
+  targetId: string,
+  children: DemoTreeNode[],
+): DemoTreeNode[] {
+  return nodes.map((item) => {
+    if (item.id === targetId) return { ...item, children }
+    if (item.children) return { ...item, children: replaceNodeChildren(item.children, targetId, children) }
     return item
   })
 }

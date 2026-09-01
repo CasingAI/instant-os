@@ -19,7 +19,7 @@ BUILD_TS := $(shell date +%Y%m%d-%H%M%S)
 
 CFLAGS  ?= -target x86-windows-gnu -O2 -Wall -nostdlib -isystem$(WIN_INC) -DVM_AGENT_BUILD=\"$(BUILD_TS)\"
 LDFLAGS ?= -Wl,--subsystem,windows,-e,ivm_agent_entry
-LDLIBS  ?= -lkernel32 -luser32 -lgdi32 -ladvapi32 -lole32
+LDLIBS  ?= -lkernel32 -luser32 -lgdi32 -ladvapi32 -lole32 -lshell32 -loleaut32
 
 IVM_SOURCES := res-agent.c ../clipboard-bridge/clipboard-bridge.c ../ivm-agent/ivm-mouse-install.c ../ivm-agent/ivm-audio-install.c ../ivm-agent/ivm-aero-snap.c
 

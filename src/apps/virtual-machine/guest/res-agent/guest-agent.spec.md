@@ -10,7 +10,7 @@
 |---|---|
 | 文件 | `ivm-agent.exe`（构建：`make` 或 `scripts/build-ivm-agent.sh`，产物统一落 `guest/out/`） |
 | 架构 | PE32 i386，GUI 子系统，OS/Subsystem 版本 5.01 |
-| 导入表 | 仅 kernel32.dll / user32.dll / advapi32.dll / ole32.dll（XP 裸机自带） |
+| 导入表 | kernel32.dll / user32.dll / gdi32.dll / advapi32.dll / ole32.dll / shell32.dll / oleaut32.dll（XP 裸机自带） |
 | 体积 | < 300 KB（合并后实测 ~34 KB） |
 | 运行形态 | 双击 / HKCU Run = 交互进程；`sc create` 注册后由 SCM 启动 = XP 服务（免登录） |
 
@@ -186,6 +186,18 @@ attached: YES」时，PS/2 鼠标设备开机即启动失败（PnP 加载 UpperF
 - 血泪教训（2026-08-30 真机）：mlog 的 msg 缓冲曾只有 600 字节，装不下
   wvsprintfA 上限 1024 的 `%s` 长转储，agent 开机即崩（「遇到问题需要
   关闭」）。msg/line 缓冲必须 ≥ wvsprintfA 上限，mouse/audio 两模块同改。
+
+## 文件传输（v8 起，桥接管方案）
+
+ivm-agent v8 把宿主→XP 的文件粘贴从「OLE 虚拟文件 FileContents」改成桥接管：
+
+- 宿主把文件/文件夹树展开成元数据清单（目录条目以 `/` 结尾且 `size=0`，文件条目带真实大小；路径可含 `/` 表示嵌套；总量 ≤4096 条），按 PENDING 帧 entries 区字节上限（≈32716）分片，同 session 连续发到 XP；
+- XP 侧收到第一片就 OleSetClipboard 挂一个空 CF_HDROP 占位，Explorer 的粘贴按钮立刻亮；
+- 用户在目标位置按 Ctrl+V 时，Explorer 调 `IDataObject::GetData(CF_HDROP)`，桥探测到这一瞬间，自己解析目标路径（Explorer 窗口 / 桌面 / 右键菜单所有者，都不行则弹 SHBrowseForFolderW 手选），然后弹出 XP 风格自绘进度对话框，逐目录 `CreateDirectory`、逐文件 `REQ` 回宿主拉数据并 `WriteFile` 落盘；
+- 完成/取消/失败分别发 `DONE{ok|cancel|error}`，cut 模式宿主据此把源文件移进废纸篓；取消时保留已写完的文件，只删当前半成品；
+- XP→宿主方向不变：XP 复制文件时桥读 CF_HDROP 发 `OFFER` 给宿主，宿主在文件 APP 粘贴时按 `REQ` 拉数据。
+
+登录身份常驻实例负责 OLE 剪贴板与桥接管；COM1 控制面与文件数据面互不阻塞。
 
 ## Aero Snap（v4 起，登录会话身份专属）
 

@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #ececec; font-family: system-ui, sans-serif; }
+  .panel { width: 360px; padding: 24px; background: #fafafa; border: 1px solid #ccc; box-sizing: content-box; margin: 20px; }
+  .panel.narrow { width: 140px; }
+</style>
+</head>
+<body>
+  <div class="panel" id="p1"></div>
+  <div class="panel" id="p2"></div>
+  <div class="panel narrow" id="p3"></div>
+  <script type="module">
+    import { h, render } from 'preact'
+    import { IosRangeSlider } from '/src/ui/ios-range-slider.tsx'
+
+    // 场景 1：VM 设置对话框内存滑块同参（16–2032 / step 16 / MB）
+    render(
+      h(IosRangeSlider, { value: 1024, min: 16, max: 2032, step: 16, suffix: 'MB', onChange: () => {} }),
+      document.getElementById('p1'),
+    )
+    // 场景 2：无后缀基础滑块
+    render(
+      h(IosRangeSlider, { value: 50, min: 0, max: 100, step: 1, onChange: () => {} }),
+      document.getElementById('p2'),
+    )
+    // 场景 3：极窄轨道（触发 clamp min>max 退化）
+    render(
+      h(IosRangeSlider, { value: 1024, min: 16, max: 2032, step: 16, suffix: 'MB', onChange: () => {} }),
+      document.getElementById('p3'),
+    )
+    window.__ready = true
+  </script>
+</body>
+</html>

@@ -350,3 +350,23 @@ postMessage ◀── {agentResult, requestId, value}  ◀── 成功；失败
   `guestClipboard` 上行 / `clipboardWrite` 下行 + 显示中虚拟机的宿主剪贴板
   1s 轮询同步（回声抑制）。键盘确认无需开发（v86 `keyboard_send_text` 现成）。
 - **res-agent 版本 v2 → v3**（`AGENT_VERSION` 3），PONG 回执 ver 字段可辨。
+
+## 14. v8 扩展（2026-08-31）：文件传输改为桥接管方案
+
+宿主→XP 文件粘贴从「压缩成 zip + OLE 虚拟文件 FileContents」改为桥接管：
+
+- 宿主侧 `virtual-machine-file-transfer.ts` 把选中文件/文件夹递归展开成相对路径树，
+  目录条目以 `/` 结尾且 `size=0`，文件条目带真实大小，路径可含 `/` 表示嵌套；
+  总量上限从 512 条放宽到 4096 条，并按 PENDING 帧 entries 区字节上限
+  （≈32716）分片，同 session 连续调用 `filePending` 推给 XP。
+- XP 侧桥收到第一片就在剪贴板里挂一个空 `CF_HDROP` 占位，Explorer 的粘贴按钮
+  立刻亮；用户按 Ctrl+V 时，`IDataObject::GetData(CF_HDROP)` 被桥拦截，桥自己
+  解析目标路径、弹出 XP 风格进度对话框、逐目录 `CreateDirectory`、逐文件
+  `REQ` 回宿主拉数据并 `WriteFile` 落盘。
+- 完成/取消/失败发 `DONE{ok|cancel|error}`，cut 模式宿主据此删源；取消时
+  保留已写完文件，只删当前半成品。
+- XP→宿主方向保持不变：XP 复制文件时桥读 `CF_HDROP` 发 `OFFER`，宿主在文件
+  APP 粘贴时按 `REQ` 拉数据。
+
+产物变化：ivm-agent v8 起导入表新增 `shell32.dll`（目标文件夹探测、浏览对话框）
+和 `oleaut32.dll`（BSTR/Variant 辅助），`AGENT_VERSION` 升到 8。

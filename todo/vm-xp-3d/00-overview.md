@@ -4,6 +4,12 @@
 > 涉及项目：`instant-app` / `Instant-virtual-machine`  
 > 外部参照：v86gl（改过的 v86 + 客机代理 + 宿主执行器），不是把游戏重编译成网页。
 
+> **2026-08-31 核实更正**：v86gl 经多轮全网精确检索**零命中，确认不存在公开项目**，疑似当时调研有误——四大段没有现成参照，全需自研。另两个改变局面的实测/发现：
+> 1. 客机实测（step1 探针）：XP 里 `CreateDevice` 返回 `D3DERR_NOTAVAILABLE (0x8876086A)`，连软件顶点路径也被拒——「客机无 3D 设备、唯一出路是拦截转发」从推断变为实测事实。
+> 2. 宿主侧运行时仓库 `Instant-virtual-machine` 有制度化的 v86 fork 工作流（`docs/v86-fork.md`：pristine tarball + `scripts/v86-patches/` + 重建脚本）——计划 01「改 v86 加图形设备」有合法落地通道；且 ivm-shm 信箱（op=2）可先承载命令出墙，fork 可以继续推迟。
+>
+> 进度台账见下方「进度」一节。
+
 目标：用户在 Instant OS 的虚拟机里启动 Windows XP，打开一份现成的 Direct3D 9 游戏，三维画面由浏览器 GPU 画出来，而不是走模拟器那条慢的桌面显存。
 
 ---
@@ -73,3 +79,16 @@
 - `Instant-virtual-machine`：改过的模拟器产物、宿主桥、叠加画布、开机时打开图形设备。这部分在 Mac 上用现有网页工具链即可，不编 Windows 库。
 - 客机资产（假 Direct3D 库、送文件代理、精简 XP 快照）：单独管理，不要塞进 git 大镜像。假库在 Mac 上交叉编译，方案见 `02-guest-d3d-proxy.md` 第 3 节（首选 llvm-mingw 32 位旧运行库）。
 - `instant-app`：设置项（是否启用三维加速、是否隐藏桌面）、协议里多几个开关，必要时把游戏目录交给已有的文件共享通道。
+
+---
+
+## 7. 进度台账（2026-08-31）
+
+| 里程碑 | 状态 | 产物/位置 |
+|---|---|---|
+| step1：编译管线验证 + 双窗探针 | ✅ 完成 | `step1-hello/`（ivm-hello.exe、ivm-3dprobe.exe）；实测客机 `CreateDevice = 0x8876086A` |
+| step2：假 d3d9.dll + 命令出墙 | ✅ 代码完成，待实机验证 | `step2-d3d9-proxy/`（见其 README）；宿主 op=2 分流在 `Instant-virtual-machine` 分支 `vm-d3d-channel`（patch 备份：`step2-d3d9-proxy/0001-ivm-shm-op-3d.patch`） |
+| step3：WebGPU 执行器 + 三角形/纹理 | 未开始 | 挂点已留：宿主 `onGuest3dBatch` 回调 |
+| step4+：完整 D3D9 语义 / 藏桌面 / 产品化 | 未开始 | — |
+
+工具链备注：02 文档「首选 llvm-mingw」已被实践取代——实际用仓库现成的 zig 管线（`zig cc -target x86-windows-gnu -nostdlib` + PE 补丁），DLL 的导出名去修饰靠 `patch-export-kill-at.mjs`（lld 不支持 --kill-at/.def，实测）。

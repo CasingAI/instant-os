@@ -1,0 +1,311 @@
+/* 页面栈（自包含）：静止时仅当前页可见；转场时 header 交叉淡移、正文整页滑入/滑出。 */
+
+.page-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page-stack > .page-stack__layer:not([hidden]) {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 静止时也走 layer，保证 key 稳定；仅当前层可见（勿穿透嵌套子栈） */
+.page-stack:not([class*='page-stack--']) > .page-stack__layer:not([hidden]) {
+  position: absolute;
+  inset: 0;
+}
+
+/* 嵌套在 .page 内的子栈（定价 / 词表等）填满父页 */
+.page > .page-stack {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.page:has(> .page-stack) {
+  overflow: hidden;
+}
+
+.page-stack__layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  z-index: 0;
+}
+
+.page-stack__layer > .page {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.page-stack__layer--over {
+  z-index: 1;
+}
+
+/*
+ * 转场时拆开 DOM 盒：两页的 header 叠在同一 Header 栏，
+ * 两页的 .page__body 叠在同一正文区（避免整层背景挡住 Header 交叉淡出）。
+ */
+.page-stack--push,
+.page-stack--pop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.page-stack--push .page-stack__layer,
+.page-stack--pop .page-stack__layer {
+  display: contents;
+  position: static;
+  inset: auto;
+}
+
+/*
+ * display:contents 特异性高于 UA 的 [hidden]{display:none}，
+ * 会把栈里未参与转场的层（如更深页）抬进 Header 交叉动画。
+ * 强制隐藏层继续不渲染。
+ */
+.page-stack--push .page-stack__layer[hidden],
+.page-stack--pop .page-stack__layer[hidden],
+.page-stack--push .page-stack__layer
+  .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer[hidden],
+.page-stack--pop
+  .page-stack__layer
+  .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer[hidden] {
+  display: none !important;
+}
+
+.page-stack--push .page-stack__layer > .page,
+.page-stack--pop .page-stack__layer > .page {
+  display: contents;
+  height: auto;
+}
+
+/* 父级转场时拆开嵌套的 idle 子栈，让 Header/正文仍参与交叉动画 */
+.page-stack--push
+  .page-stack__layer
+  .page-stack:not([class*='page-stack--']),
+.page-stack--pop
+  .page-stack__layer
+  .page-stack:not([class*='page-stack--']) {
+  display: contents;
+}
+
+.page-stack--push
+  .page-stack__layer
+  .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer,
+.page-stack--pop
+  .page-stack__layer
+  .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer {
+  display: contents;
+  position: static;
+  inset: auto;
+}
+
+.page-stack--push
+  .page-stack__layer
+  .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer
+  > .page,
+.page-stack--pop
+  .page-stack__layer
+  .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer
+  > .page {
+  display: contents;
+  height: auto;
+}
+
+/* 转场中忽略一切指针事件，避免点到正在离场的页面 */
+.page-stack--push .page-stack__layer--under .page-header,
+.page-stack--push .page-stack__layer--under .page__body,
+.page-stack--pop .page-stack__layer--under .page-header,
+.page-stack--pop .page-stack__layer--under .page__body,
+.page-stack--pop .page-stack__layer--over .page-header,
+.page-stack--pop .page-stack__layer--over .page__body {
+  pointer-events: none;
+}
+
+.page-stack--push .page-header,
+.page-stack--pop .page-header {
+  grid-row: 1;
+  grid-column: 1;
+  position: relative !important;
+  z-index: 3;
+}
+
+/*
+ * 栈内 Header 不带投影：交叉淡移时 Header 被抬到正文之上（z-index 3/4），
+ * 否则投影会一起浮到正文上，动画结束又消失（钥匙串同款处理）。
+ */
+.page-stack .page-header {
+  box-shadow: none !important;
+}
+
+.page-stack--push
+  .page-stack__layer
+  .page__body,
+.page-stack--pop
+  .page-stack__layer
+  .page__body {
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+  background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
+}
+
+/* Header 交叉淡移 —— push */
+.page-stack--push .page-stack__layer--under .page-header {
+  animation: page-nav-leave-push 0.35s ease-in-out both;
+  z-index: 3;
+}
+
+.page-stack--push .page-stack__layer--over .page-header {
+  animation: page-nav-enter-push 0.35s ease-in-out both;
+  z-index: 4;
+}
+
+/* Header 交叉淡移 —— pop */
+.page-stack--pop .page-stack__layer--over .page-header {
+  animation: page-nav-leave-pop 0.35s ease-in-out both;
+  z-index: 4;
+}
+
+.page-stack--pop .page-stack__layer--under .page-header {
+  animation: page-nav-enter-pop 0.35s ease-in-out both;
+  z-index: 3;
+}
+
+/* 正文滑动 —— push */
+.page-stack--push .page-stack__layer--under .page__body {
+  animation: page-body-under-push 0.35s ease-in-out both;
+  z-index: 1;
+}
+
+.page-stack--push .page-stack__layer--over .page__body {
+  animation: page-body-over-push 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+/* 正文滑动 —— pop */
+.page-stack--pop .page-stack__layer--under .page__body {
+  animation: page-body-under-pop 0.35s ease-in-out both;
+  z-index: 1;
+}
+
+.page-stack--pop .page-stack__layer--over .page__body {
+  animation: page-body-over-pop 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+@keyframes page-nav-leave-push {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(-28%);
+  }
+}
+
+@keyframes page-nav-enter-push {
+  from {
+    opacity: 0;
+    transform: translateX(40%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes page-nav-leave-pop {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(40%);
+  }
+}
+
+@keyframes page-nav-enter-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-28%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes page-body-under-push {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-30%);
+  }
+}
+
+@keyframes page-body-over-push {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes page-body-under-pop {
+  from {
+    transform: translateX(-30%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes page-body-over-pop {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-stack--push .page-stack__layer .page-header,
+  .page-stack--pop .page-stack__layer .page-header,
+  .page-stack--push .page-stack__layer .page__body,
+  .page-stack--pop .page-stack__layer .page__body {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}

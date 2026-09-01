@@ -2019,18 +2019,32 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [modal],
   )
 
-  /** 选中项元数据推给虚拟机桥（XP 剪贴板出现待粘贴虚拟文件；虚拟机不在时静默跳过）。 */
+  /** 不适合传给 XP 虚拟机桥的位置（投影卷、废纸篓等）。 */
+  const VM_TRANSFER_UNSUPPORTED_TOP_LOCATIONS = useMemo(
+    () => new Set<FilesLocationId>(['applications', 'models3d', 'trash']),
+    [],
+  )
+
+  /** 选中项元数据推给虚拟机桥（XP 剪贴板出现待粘贴虚拟文件；虚拟机未运行时静默跳过）。 */
   const pushSelectionToVm = useCallback(
     (nodes: readonly FilesNode[], mode: 'copy' | 'cut') => {
       const root = filesLocationPathRoot(locationId)
-      const paths = nodes.map((node) =>
-        joinFilesAbsolutePath(root, ...pathNodes.map((parent) => parent.name), node.name),
-      )
-      void pushFilesToVm(paths, mode).catch(() => {
-        /* 虚拟机未运行 / 信箱忙：静默——XP 侧只是没有这次的内容 */
+      const paths = nodes
+        .filter((node) => !VM_TRANSFER_UNSUPPORTED_TOP_LOCATIONS.has(node.locationId))
+        .map((node) =>
+          joinFilesAbsolutePath(root, ...pathNodes.map((parent) => parent.name), node.name),
+        )
+      if (paths.length === 0) return
+      void pushFilesToVm(paths, mode).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('虚拟机未运行')) {
+          // 虚拟机不在：这是常态，保持静默
+          return
+        }
+        showToast(`虚拟机粘贴失败：${message}`)
       })
     },
-    [locationId, pathNodes],
+    [locationId, pathNodes, showToast, VM_TRANSFER_UNSUPPORTED_TOP_LOCATIONS],
   )
 
   /** 复制选中项（多选批量；mode=copy） */

@@ -1,0 +1,147 @@
+/* 页面操作按钮（自包含）：与系统 Header 按钮（settings__btn）同款外观与挤压行为。 */
+
+:root {
+  --page-action-plain-color: #333;
+  --page-action-plain-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --page-action-plain-bg-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --page-action-border: 1px solid rgba(0, 0, 0, 0.28);
+  --page-action-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  --page-action-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.page-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* 可挤压：操作多时在 Header 里收缩而不是溢出 */
+  flex-shrink: 1;
+  min-width: 84px;
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 4px;
+  border: var(--page-action-border);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--page-action-plain-color);
+  background: var(--page-action-plain-bg);
+  text-shadow: var(--page-action-text-shadow);
+  box-shadow: var(--page-action-shadow);
+  cursor: pointer;
+}
+
+.page-action-button__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-action-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 方形图标按钮（+ / ⋯ 等），与文字按钮同高 */
+.page-action-button--icon {
+  min-width: 28px;
+  width: 28px;
+  max-width: 28px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.page-action-button--default {
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  border-color: #145da8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.page-action-button--default:active:not(:disabled) {
+  background: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.page-action-button--danger {
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, #ff8a84 0%, #e34b3f 55%, #c9302a 100%);
+  border-color: #a12622;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.page-action-button--danger:active:not(:disabled) {
+  background: linear-gradient(180deg, #c9302a 0%, #e34b3f 100%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.page-action-button--plain:active:not(:disabled) {
+  background: var(--page-action-plain-bg-active);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* 选中态（配合 plain 使用，如「已收藏」「已读」）：蓝底白字，文字保持不变 */
+.page-action-button--plain.page-action-button--activated {
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  border-color: #145da8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.page-action-button--plain.page-action-button--activated:active:not(:disabled) {
+  background: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.page-action-button:disabled {
+  color: #999;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  background: linear-gradient(180deg, #ececec 0%, #dcdcdc 55%, #d0d0d0 100%);
+  border-color: #b8b8b8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 1px 0 rgba(255, 255, 255, 0.2);
+  cursor: default;
+}
+
+.page-action-button__spinner {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: #555;
+  border-radius: 50%;
+  animation: page-action-button-spin 0.7s linear infinite;
+}
+
+.page-action-button--default .page-action-button__spinner,
+.page-action-button--danger .page-action-button__spinner {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+}
+
+@keyframes page-action-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-action-button__spinner {
+    animation: none;
+  }
+}

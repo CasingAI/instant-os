@@ -341,12 +341,14 @@ export async function listFilesLocations(): Promise<readonly FilesLocation[]> {
       label: item.label,
       writable: true as const,
     })),
-    ...images.map((item) => ({
-      id: item.id,
-      label: item.label,
-      writable: true as const,
-      unreadableReason: item.unreadableReason,
-    })),
+    ...images
+      .filter((item) => !item.isPartitionAnchor)
+      .map((item) => ({
+        id: item.id,
+        label: item.label,
+        writable: true as const,
+        unreadableReason: item.unreadableReason,
+      })),
   ]
 }
 
@@ -1540,7 +1542,13 @@ export async function openStreamWrite(params: {
     close: async () => {
       try {
         const startedAt = performance.now()
-        const written = await writer.close()
+        let written
+        try {
+          written = await writer.close()
+        } catch (error) {
+          await writer.abort().catch(() => undefined)
+          throw error
+        }
         await emitNodeModified(written)
         recordFilesIoWrite(
           written,

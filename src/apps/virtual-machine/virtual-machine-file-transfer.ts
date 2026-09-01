@@ -6,9 +6,10 @@
  *         （vm-files 条目）→ 用户在目标文件夹粘贴 → pullFileFromVm 逐块
  *         H2G REQ 向桥拉数据，落盘到粘贴目录。
  *   宿主→XP：文件APP复制/剪切 → pushFilesToVm 推元数据（PENDING，只有
- *         名字+大小）→ 桥挂 OLE 虚拟文件 → 用户在 XP 里 Ctrl+V → 桥的
- *         IStream::Read 触发 REQ 上行 → serveFileReq 按 filesReadBlobRange
- *         供块。桥报 DONE{ok} 后 cut 模式把源文件移进废纸篓（移动语义）。
+ *         名字+大小）→ 桥在 XP 侧挂一个空 CF_HDROP 占位；用户在 XP 里
+ *         Ctrl+V → Explorer 调用 data_GetData → 桥拦截并自己当复制引擎：
+ *         探测目标路径、弹出 XP 风格进度对话框、逐文件 REQ 回宿主拉数据
+ *         并直接 CreateDirectory/CreateFile/WriteFile 写入目标位置。
  *
  * 后端注册：VM 应用持有运行时池与 agent 门面，displayedId 变化时注册/
  * 注销（虚拟机未运行时 requireAgent 抛错，UI 层转成提示）。同一时刻
@@ -19,9 +20,11 @@
  */
 
 import {
+  filesList,
   filesReadBlobRange,
   filesStat,
   filesTrash,
+  type FilesApiEntry,
 } from '../files/files-api.ts'
 import {
   setFilesClipboard,
@@ -30,19 +33,60 @@ import {
 import type { VmAgentController } from './virtual-machine-agent.ts'
 import type { VmGuestFileEvent } from './virtual-machine-protocol.ts'
 
+/** 与桥 MAX_NAME_CHARS 一致（含结尾 NUL）：单个描述符名字最大字符数。 */
+const MAX_PUSH_NAME_CHARS = 260
 /** 与 ivm-shm.ts IVM_FILE_MAX_CHUNK 一致：单块拉取上限。 */
 const FILE_CHUNK_BYTES = 32724
+/** 与 ivm-shm.ts FILE_DATA_HEADER 一致：PENDING 帧固定头部（sub+count+mode+session）。 */
+const PENDING_FRAME_HEADER_BYTES = 8
+/** PENDING 帧里 entries 区可用字节上限。 */
+const PENDING_FRAME_ENTRIES_BYTES = FILE_CHUNK_BYTES - PENDING_FRAME_HEADER_BYTES
+/** 等一块 DATA 的上限（桥侧 5s 超时会先报错）。 */
+const DATA_WAIT_TIMEOUT_MS = 15_000
 /** 信箱忙时的重试（VM 运行时 15ms 快轮询会尽快腾出槽位）。 */
 const RETRY_ATTEMPTS = 10
 const RETRY_DELAY_MS = 200
-/** 等一块 DATA 的上限（桥侧 5s 超时会先报错）。 */
-const DATA_WAIT_TIMEOUT_MS = 15_000
+
+/** 宿主→XP 单条目在 PENDING 帧里占用的字节数（u64 size + utf16z name）。 */
+function pendingEntryBytes(name: string): number {
+  return 8 + 2 * (name.length + 1)
+}
+
+/** 把文件清单按 PENDING 帧 entries 区上限分片；短名字一片可装约 300 条。 */
+function chunkPendingFiles(files: readonly PushFile[]): PushFile[][] {
+  const chunks: PushFile[][] = []
+  let current: PushFile[] = []
+  let currentBytes = 0
+  for (const file of files) {
+    const eBytes = pendingEntryBytes(file.name)
+    if (currentBytes + eBytes > PENDING_FRAME_ENTRIES_BYTES && current.length > 0) {
+      chunks.push(current)
+      current = []
+      currentBytes = 0
+    }
+    current.push(file)
+    currentBytes += eBytes
+  }
+  if (current.length > 0) {
+    chunks.push(current)
+  }
+  return chunks
+}
 
 type VmFileTransferBackend = {
   agent: VmAgentController | null
 }
 
 let backend: VmFileTransferBackend = { agent: null }
+
+/**
+ * 测试注入入口（单测替掉，生产为 files-api 真实实现）。
+ */
+let statSource: (path: string) => Promise<FilesApiEntry | undefined> = filesStat
+let listSource: (path: string) => Promise<FilesApiEntry[]> = filesList
+let readBlobSource: (path: string, start: number, length: number) => Promise<Blob> =
+  filesReadBlobRange
+let trashSource: (path: string) => Promise<FilesApiEntry> = filesTrash
 
 /**
  * VM 应用在 displayedId 变化 / 卸载时调用：agent=null 表示当前没有可用虚拟机。
@@ -145,11 +189,13 @@ export async function pullFileFromVm(
 // #region 宿主 → XP：推元数据 + 按桥的 REQ 供块
 
 type PushFile = {
-  /** 提供给 XP 的文件名（descriptor cFileName / REQ 回程键）。 */
+  /** 提供给 XP 的相对路径（可含 /；目录以 / 结尾，size=0）。 */
   name: string
-  /** 宿主侧绝对路径（供块时 filesReadBlobRange 用）。 */
+  /** 宿主侧绝对路径（供块时 readSourceBlob 用）。 */
   hostPath: string
   size: number
+  /** 目录条目（桥创建目录时不需要宿主供块）。 */
+  isDir: boolean
 }
 
 /** 预读窗跨度：一次存储读 + 一次跨页推送，摊薄每块的固定开销。 */
@@ -173,6 +219,8 @@ type PushSession = {
   queuedWindows: Set<string>
   /** 窗推送串行链（OPFS 读 + 跨页推送不并发）。 */
   windowQueue: Promise<void>
+  /** 剪切模式下的原始源路径（移动语义）。 */
+  cutSourcePaths?: string[]
 }
 
 let pushSession: PushSession | null = null
@@ -189,7 +237,12 @@ function savePushSession(session: PushSession): void {
   try {
     localStorage.setItem(
       PUSH_SESSION_STORAGE_KEY,
-      JSON.stringify({ session: session.session, mode: session.mode, files: session.files }),
+      JSON.stringify({
+        session: session.session,
+        mode: session.mode,
+        files: session.files,
+        cutSourcePaths: session.cutSourcePaths,
+      }),
     )
   } catch {
     // 存不上就算了：最坏情况是刷新后这次粘贴不能续，报错重推即可
@@ -206,6 +259,7 @@ function loadPushSession(sessionId: number): PushSession | null {
       session?: unknown
       mode?: unknown
       files?: unknown
+      cutSourcePaths?: unknown
     }
     if (
       parsed.session !== sessionId ||
@@ -222,15 +276,24 @@ function loadPushSession(sessionId: number): PushSession | null {
         record === null ||
         typeof record.name !== 'string' ||
         typeof record.hostPath !== 'string' ||
-        typeof record.size !== 'number'
+        typeof record.size !== 'number' ||
+        typeof record.isDir !== 'boolean'
       ) {
         return null
       }
-      files.push({ name: record.name, hostPath: record.hostPath, size: record.size })
+      files.push({
+        name: record.name,
+        hostPath: record.hostPath,
+        size: record.size,
+        isDir: record.isDir,
+      })
     }
     if (files.length === 0) {
       return null
     }
+    const cutSourcePaths = Array.isArray(parsed.cutSourcePaths)
+      ? parsed.cutSourcePaths.filter((p): p is string => typeof p === 'string')
+      : undefined
     return {
       session: sessionId,
       mode: parsed.mode,
@@ -239,6 +302,7 @@ function loadPushSession(sessionId: number): PushSession | null {
       windows: [],
       queuedWindows: new Set(),
       windowQueue: Promise.resolve(),
+      cutSourcePaths,
     }
   } catch {
     return null
@@ -253,47 +317,47 @@ function forgetPushSession(): void {
   }
 }
 
-/** 文件APP复制/剪切后调用：把元数据推给桥（几百字节，无数据传输）。 */
-export async function pushFilesToVm(hostPaths: string[], mode: 'copy' | 'cut'): Promise<void> {
-  const agent = requireAgent('发送文件到虚拟机')
-  const files: PushFile[] = []
-  for (const hostPath of hostPaths) {
-    const stat = await filesStat(hostPath)
-    if (!stat || stat.kind !== 'file') {
-      throw new Error(`无法发送「${hostPath}」：不是常规文件`)
-    }
-    files.push({ name: stat.name, hostPath: stat.path, size: stat.byteSize })
-  }
-  const session = newSessionId()
-  const sent = await callWithRetry(() =>
-    agent.filePending(
-      session,
-      mode,
-      files.map((f) => ({ path: f.name, size: f.size })),
-    ),
-  )
-  if (!sent) {
-    throw new Error('虚拟机信箱忙：无法推送文件清单（请重试）')
-  }
-  // 上会话的预读窗按文件名缓存，同名文件若中途改过会推脏数据：开新会话前清掉。
-  await agent.fileWindowsClear().catch(() => false)
-  pushSession = {
-    session,
-    mode,
-    files,
-    currentFile: 0,
-    windows: [],
-    queuedWindows: new Set(),
-    windowQueue: Promise.resolve(),
-  }
-  savePushSession(pushSession)
-}
-
-/** 宿主剪贴板变化（新复制/清空）时作废 XP 侧的待粘贴清单。 */
-export async function clearPendingOffer(): Promise<void> {
-  if (!pushSession) {
+/**
+ * 递归展开文件树为 PENDING 清单条目。
+ * 目录条目：name 以 / 结尾，size=0；文件条目：name 不含尾 /，size=byteSize。
+ * 顺序保证父目录出现在子项之前（深度优先）。
+ *
+ * relativePrefix 表示当前节点所在目录的相对路径前缀（顶层为 ''；进入子
+ * 目录时以 / 结尾），因此当前文件 name = prefix + basename，当前目录
+ * name = prefix + basename + '/'。
+ */
+async function expandPushTree(
+  hostPath: string,
+  relativePrefix: string,
+  out: PushFile[],
+): Promise<void> {
+  const stat = await statSource(hostPath)
+  if (!stat) {
+    console.warn(`[vm-file] 宿主: 跳过无法 stat 的推送路径 ${hostPath}`)
     return
   }
+  if (stat.kind === 'file') {
+    const name = `${relativePrefix}${stat.name}`
+    if (name.length > MAX_PUSH_NAME_CHARS - 1) {
+      throw new Error(`名字太长，无法发送「${hostPath}」`)
+    }
+    out.push({ name, hostPath: stat.path, size: stat.byteSize, isDir: false })
+    return
+  }
+  if (stat.kind === 'folder') {
+    const folderName = `${relativePrefix}${stat.name}/`
+    out.push({ name: folderName, hostPath: stat.path, size: 0, isDir: true })
+    const children = await listSource(stat.path)
+    for (const child of children) {
+      await expandPushTree(child.path, folderName, out)
+    }
+    return
+  }
+  console.warn(`[vm-file] 宿主: 跳过非常规条目 ${hostPath}`)
+}
+
+/** 无条件作废 XP 侧待粘贴清单。推送失败、用户清空等场景都要用它。 */
+async function clearXpPending(): Promise<void> {
   pushSession = null
   forgetPushSession()
   const agent = backend.agent
@@ -301,6 +365,69 @@ export async function clearPendingOffer(): Promise<void> {
     await callWithRetry(() => agent.fileClear())
     void agent.fileWindowsClear().catch(() => false)
   }
+}
+
+/** 文件APP复制/剪切后调用：把元数据推给桥（只有名字+大小，无数据传输）。 */
+export async function pushFilesToVm(hostPaths: string[], mode: 'copy' | 'cut'): Promise<void> {
+  const agent = requireAgent('发送文件到虚拟机')
+  try {
+    const files: PushFile[] = []
+    const cutSourcePaths: string[] = []
+    for (const hostPath of hostPaths) {
+      const before = files.length
+      await expandPushTree(hostPath, '', files)
+      if (files.length > before) {
+        // 记录顶层真实路径（cut 模式移动语义用）
+        const stat = await statSource(hostPath)
+        if (stat) {
+          cutSourcePaths.push(stat.path)
+        }
+      }
+    }
+    if (files.length === 0) {
+      await clearXpPending()
+      return
+    }
+
+    const session = newSessionId()
+    const chunks = chunkPendingFiles(files)
+    for (const chunk of chunks) {
+      const sent = await callWithRetry(() =>
+        agent.filePending(
+          session,
+          mode,
+          chunk.map((f) => ({ path: f.name, size: f.size })),
+        ),
+      )
+      if (!sent) {
+        throw new Error('虚拟机信箱忙：无法推送文件清单（请重试）')
+      }
+    }
+
+    // 上会话的预读窗按文件名缓存，同名文件若中途改过会推脏数据：开新会话前清掉。
+    await agent.fileWindowsClear().catch(() => false)
+    pushSession = {
+      session,
+      mode,
+      files,
+      currentFile: 0,
+      windows: [],
+      queuedWindows: new Set(),
+      windowQueue: Promise.resolve(),
+      cutSourcePaths: cutSourcePaths.length > 0 ? cutSourcePaths : undefined,
+    }
+    savePushSession(pushSession)
+  } catch (error) {
+    await clearXpPending().catch(() => {
+      // 清理旧清单失败不应掩盖原始错误
+    })
+    throw error
+  }
+}
+
+/** 宿主剪贴板变化（新复制/清空）时作废 XP 侧的待粘贴清单。 */
+export async function clearPendingOffer(): Promise<void> {
+  await clearXpPending()
 }
 
 /**
@@ -343,18 +470,35 @@ function queueWindowPush(
 }
 
 /** 供块/预读窗共用的文件读取入口（单测注入；生产即 filesReadBlobRange）。 */
-let readSourceBlob: (path: string, start: number, length: number) => Promise<Blob> = filesReadBlobRange
+let readSourceBlob: (path: string, start: number, length: number) => Promise<Blob> =
+  filesReadBlobRange
 
 /**
- * 仅供单测：替换文件源、直设推送会话（pushFilesToVm 依赖 OPFS 门面）。
- * 传 null 恢复生产读取入口 / 清空会话。
+ * 仅供单测：替换文件源、目录枚举、会话状态（pushFilesToVm 依赖 OPFS 门面）。
+ * 传 null 恢复生产入口 / 清空会话。
  */
 export function fileTransferTestHooks(hooks: {
   readSource?: typeof readSourceBlob
+  statSource?: typeof statSource
+  listSource?: typeof listSource
+  readBlobSource?: typeof readBlobSource
+  trashSource?: typeof trashSource
   pushSession?: PushSession | null
 }): void {
   if (hooks.readSource) {
     readSourceBlob = hooks.readSource
+  }
+  if (hooks.statSource) {
+    statSource = hooks.statSource
+  }
+  if (hooks.listSource) {
+    listSource = hooks.listSource
+  }
+  if (hooks.readBlobSource) {
+    readBlobSource = hooks.readBlobSource
+  }
+  if (hooks.trashSource) {
+    trashSource = hooks.trashSource
   }
   if (hooks.pushSession !== undefined) {
     pushSession = hooks.pushSession
@@ -514,14 +658,15 @@ export function handleVmFileEvent(event: VmGuestFileEvent): void {
       if (agent) {
         void agent.fileWindowsClear().catch(() => false)
       }
-      if (event.result === 'ok' && session.mode === 'cut') {
+      const cutSourcePaths = session.cutSourcePaths
+      if (event.result === 'ok' && session.mode === 'cut' && cutSourcePaths) {
         // 剪切语义：粘贴成功后源文件进废纸篓（移动）
         void (async () => {
-          for (const file of session.files) {
+          for (const path of cutSourcePaths) {
             try {
-              await filesTrash(file.hostPath)
+              await trashSource(path)
             } catch (error) {
-              console.warn(`[vm-file] 宿主: 剪切源删除失败 ${file.hostPath}`, error)
+              console.warn(`[vm-file] 宿主: 剪切源删除失败 ${path}`, error)
             }
           }
         })()

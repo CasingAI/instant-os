@@ -12,6 +12,8 @@ import {
 } from './files-image-mount-persist.ts'
 import {
   closeImageMount,
+  closeImageMountsByPath,
+  getCachedImageMount,
   getImageMountByPath,
   openImageMount,
   type ImageMountRecord,
@@ -142,6 +144,8 @@ export async function unmountDiskImage(locationId: ImageFilesLocationId): Promis
   if (!isImageLocationId(locationId)) {
     throw new Error('不是磁盘镜像卷')
   }
-  await closeImageMount(locationId)
+  const mounted = getCachedImageMount(locationId) ?? getImageMountByPath(locationId)
+  if (mounted) await closeImageMountsByPath(mounted.imagePath)
+  else await closeImageMount(locationId)
   forgetImageMount(locationId)
 }

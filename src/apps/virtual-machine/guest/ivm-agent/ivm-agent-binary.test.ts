@@ -22,8 +22,9 @@ const GUEST_DIR = join(AGENT_DIR, '..')
 
 /** 导入表白名单：XP 裸机上必须都自带。比较时忽略大小写与 .dll 后缀。
  * kernel32/user32/gdi32：COM1 遥控 + 显示模式切换；advapi32：服务/注册表
- * （关机特权 + 服务调度器 + vmmouse 过滤驱动注册）；ole32：OLE 剪贴板桥。 */
-const IMPORT_DLL_WHITELIST = new Set(['kernel32', 'user32', 'gdi32', 'advapi32', 'ole32'])
+ * （关机特权 + 服务调度器 + vmmouse 过滤驱动注册）；ole32/shell32/oleaut32：
+ * OLE 剪贴板桥 + 目标文件夹探测/浏览对话框 + BSTR 辅助。 */
+const IMPORT_DLL_WHITELIST = new Set(['kernel32', 'user32', 'gdi32', 'advapi32', 'ole32', 'shell32', 'oleaut32'])
 
 const MAX_EXE_BYTES = 300 * 1024
 
@@ -158,20 +159,20 @@ function main() {
   }
   // 行数守卫：res-agent v3 放宽到 800，并入合并入口后放宽到 900，v5 加
   // OP_SNAP_EDGE 分发后放宽到 950；剪贴板桥 v4 放宽到 1700（v5 加共享文
-  // 件夹收敛钩子一行）；鼠标安装助手（安装+/mouse-check 诊断+自愈三职责）
-  // 放宽到 500；声卡驱动助手（三职责+就地提取+显式自建设备+/audio-uninstall
-  // 回滚，v6 加服务解禁+回滚标记+self-heal 冻结，v7 再加根实例 LogConf 启动
-  // 资源补写）放宽到 950；Aero Snap（钩
-  // 子+吸附表+预览窗+热键+开关+排查期文件
-  // 日志）放宽到 800，v7 加注册表中继（读写助手+WM_TIMER 收敛+apply 提取）
-  // 放宽到 900；共享文件夹（注册表轮询+幂等 net use 收敛+日志）放宽
-  // 到 300。
+  // 件夹收敛钩子一行）；v8 改为桥接管方案（空 CF_HDROP + 目标路径探测 +
+  // XP 进度对话框 + 自写文件引擎）放宽到 1900；鼠标安装助手（安装+/
+  // mouse-check 诊断+自愈三职责）放宽到 500；声卡驱动助手（三职责+就地提
+  // 取+显式自建设备+/audio-uninstall 回滚，v6 加服务解禁+回滚标记+
+  // self-heal 冻结，v7 再加根实例 LogConf 启动资源补写）放宽到 950；
+  // Aero Snap（钩子+吸附表+预览窗+热键+开关+排查期文件日志）放宽到 800，
+  // v7 加注册表中继（读写助手+WM_TIMER 收敛+apply 提取）放宽到 900；共
+  // 享文件夹（注册表轮询+幂等 net use 收敛+日志）放宽到 300。
   const sourceLines = (path: string, limit: number, label: string) => {
     const lines = readFileSync(join(GUEST_DIR, path), 'utf8').split('\n').length
     assert.ok(lines < limit, `${label} 应保持 < ${limit} 行，当前 ${lines} 行`)
   }
   sourceLines('res-agent/res-agent.c', 950, 'res-agent.c')
-  sourceLines('clipboard-bridge/clipboard-bridge.c', 1700, 'clipboard-bridge.c')
+  sourceLines('clipboard-bridge/clipboard-bridge.c', 1900, 'clipboard-bridge.c')
   sourceLines('ivm-agent/ivm-mouse-install.c', 500, 'ivm-mouse-install.c')
   sourceLines('ivm-agent/ivm-audio-install.c', 950, 'ivm-audio-install.c')
   sourceLines('ivm-agent/ivm-aero-snap.c', 900, 'ivm-aero-snap.c')

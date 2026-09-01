@@ -42,6 +42,7 @@ import {
   isInstantVmSetCdromMessage,
   isInstantVmSetFloppyMessage,
   isInstantVmStartMessage,
+  isFileEntryList,
   parseAllowedOrigins,
   resolveEffectivePointerMode,
   startMessageHasDisk,
@@ -636,6 +637,27 @@ function testGuestClipboardMessage(): void {
   )
 }
 
+function testFileEntryList(): void {
+  assert.equal(isFileEntryList([]), true)
+  assert.equal(isFileEntryList([{ path: 'a.txt', size: 1 }]), true)
+  assert.equal(isFileEntryList([{ path: 'dir/', size: 0 }]), true)
+  assert.equal(isFileEntryList([{ path: 'dir/', size: 1 }]), false)
+  assert.equal(isFileEntryList([{ path: 'a.txt', size: -1 }]), false)
+  assert.equal(isFileEntryList([{ path: '', size: 0 }]), false)
+  assert.equal(
+    isFileEntryList(
+      Array.from({ length: 4096 }, (_, i) => ({ path: `f${i}.txt`, size: i })),
+    ),
+    true,
+  )
+  assert.equal(
+    isFileEntryList(
+      Array.from({ length: 4097 }, (_, i) => ({ path: `f${i}.txt`, size: i })),
+    ),
+    false,
+  )
+}
+
 function testRemovableMediaMessages(): void {
   const stream = { id: 'stream-1', size: 4096 }
   const setCdrom = {
@@ -705,5 +727,6 @@ testDiskWriteMessages()
 testDiskWriteFailedMessage()
 testAgentCommandMessages()
 testGuestClipboardMessage()
+testFileEntryList()
 testRemovableMediaMessages()
 console.log('virtual-machine-protocol.test.ts ok')

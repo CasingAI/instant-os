@@ -32,13 +32,13 @@ function fileId(locationId: ImageFilesLocationId, path: string): string {
 }
 
 function parseImageDirId(id: string): { locationId: ImageFilesLocationId; path: string } | undefined {
-  const match = /^image:([^:]+):d:(.*)$/.exec(id)
+  const match = /^image:([^:]+(?::part\d+)?):d:(.*)$/.exec(id)
   if (!match) return undefined
   return { locationId: `image:${match[1]}`, path: match[2] ?? '' }
 }
 
 function parseImageFileId(id: string): { locationId: ImageFilesLocationId; path: string } | undefined {
-  const match = /^image:([^:]+):f:(.*)$/.exec(id)
+  const match = /^image:([^:]+(?::part\d+)?):f:(.*)$/.exec(id)
   if (!match) return undefined
   return { locationId: `image:${match[1]}`, path: match[2] ?? '' }
 }
@@ -297,21 +297,36 @@ export async function openImageStreamWrite(params: {
   })
   let aborted = false
   let closed = false
+  const failAbort = async (): Promise<void> => {
+    if (aborted) return
+    aborted = true
+    await writer.abort().catch(() => undefined)
+  }
   return {
     node: makeFileNode(locationId, path),
     async write(chunk) {
       if (closed || aborted) return
-      const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
-      await writer.write(bytes)
+      try {
+        const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+        await writer.write(bytes)
+      } catch (error) {
+        await failAbort()
+        throw error
+      }
     },
     async close() {
       if (closed || aborted) return makeFileNode(locationId, path)
-      closed = true
-      const entry = await writer.close()
-      return makeFileNode(locationId, path, entry.byteSize, entry.updatedAt)
+      try {
+        const entry = await writer.close()
+        closed = true
+        return makeFileNode(locationId, path, entry.byteSize, entry.updatedAt)
+      } catch (error) {
+        await failAbort()
+        throw error
+      }
     },
     async abort() {
-      if (closed) return
+      if (closed || aborted) return
       aborted = true
       await writer.abort()
     },

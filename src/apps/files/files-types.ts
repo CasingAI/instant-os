@@ -13,7 +13,18 @@ export type MountFilesLocationId = `mount:${string}`
 /** 磁盘镜像挂载卷：`image:{镜像名键}` */
 export type ImageFilesLocationId = `image:${string}`
 
-export type FilesLocationId = BuiltinFilesLocationId | MountFilesLocationId | ImageFilesLocationId
+/**
+ * 磁盘镜像内某一分区：`image:{镜像名键}:part{N}`，N 从 1 开始。
+ * 分区以镜像整体作为锚点：分区卷关闭不会卸载镜像，但卸载镜像时
+ * 会级联关闭其下所有分区卷。
+ */
+export type ImagePartitionFilesLocationId = `image:${string}:part${number}`
+
+export type FilesLocationId =
+  | BuiltinFilesLocationId
+  | MountFilesLocationId
+  | ImageFilesLocationId
+  | ImagePartitionFilesLocationId
 
 export type FilesNodeKind = 'folder' | 'file' | 'symlink'
 
@@ -122,17 +133,30 @@ export function makeMountLocationId(key: string): MountFilesLocationId {
   return `mount:${key}`
 }
 
-export function isImageLocationId(id: string): id is ImageFilesLocationId {
-  return /^image:[^:]+$/.test(id)
+export function isImageLocationId(id: string): id is ImageFilesLocationId | ImagePartitionFilesLocationId {
+  return /^image:[^:]+(?::part\d+)?$/.test(id)
 }
 
 /** 是否支持移入废纸篓；外接存储（磁盘镜像 / 挂载文件夹）没有可回退的原件，只能永久删除 */
 export function locationSupportsTrash(locationId: FilesLocationId): boolean {
-  return !isMountLocationId(locationId) && !isImageLocationId(locationId)
+  return (
+    !isMountLocationId(locationId) &&
+    !isImageLocationId(locationId) &&
+    !isImagePartitionLocationId(locationId)
+  )
 }
 
 export function isImageNodeId(id: string): boolean {
-  return /^image:[^:]+:[df]:/.test(id)
+  return /^image:[^:]+(?::part\d+)?:[df]:/.test(id)
+}
+
+/**
+ * 分区卷下的节点 id 形态：`image:{key}:part{N}:[df]:path`
+ * 与 isImageNodeId 互斥：分区节点会因 part\\d+ 段而被 isImageNodeId 漏判，
+ * 需独立判断。
+ */
+export function isImagePartitionNodeId(id: string): boolean {
+  return /^image:[^:]+:part\d+:[df]:/.test(id)
 }
 
 export function parseImageLocationKey(locationId: FilesLocationId): string | undefined {
@@ -142,6 +166,40 @@ export function parseImageLocationKey(locationId: FilesLocationId): string | und
 
 export function makeImageLocationId(key: string): ImageFilesLocationId {
   return `image:${key}`
+}
+
+/**
+ * 分区卷 id：`image:{key}:part{N}`。N 从 1 起算，对应 MBR 表项顺序。
+ * 分区卷是镜像的「子卷」：节点 id 与父镜像的卷根节点形态一致，但 locationId 不同。
+ */
+export function isImagePartitionLocationId(id: string): id is ImagePartitionFilesLocationId {
+  return /^image:[^:]+:part\d+$/.test(id)
+}
+
+/** 由分区卷 id 解析出所属镜像 key 与 1-based 分区号；非分区 id 返回 undefined */
+export function parseImagePartitionLocationId(
+  locationId: FilesLocationId,
+): { imageKey: string; partition: number } | undefined {
+  if (!isImagePartitionLocationId(locationId)) return undefined
+  const match = /^image:([^:]+):part(\d+)$/.exec(locationId)
+  if (!match) return undefined
+  const imageKey = match[1] ?? ''
+  const partition = Number.parseInt(match[2] ?? '', 10)
+  if (!imageKey || !Number.isFinite(partition) || partition < 1) return undefined
+  return { imageKey, partition }
+}
+
+export function makeImagePartitionLocationId(
+  imageKey: string,
+  partition: number,
+): ImagePartitionFilesLocationId {
+  if (!/^[^:]+$/.test(imageKey)) {
+    throw new Error('镜像 key 不合法')
+  }
+  if (!Number.isInteger(partition) || partition < 1) {
+    throw new Error('分区号不合法')
+  }
+  return `image:${imageKey}:part${partition}` as ImagePartitionFilesLocationId
 }
 
 export function newImageLocationKey(
@@ -205,7 +263,13 @@ export function newMountLocationKey(
 }
 
 export function isFilesLocationWritable(locationId: FilesLocationId): boolean {
-  if (isMountLocationId(locationId) || isImageLocationId(locationId)) return true
+  if (
+    isMountLocationId(locationId) ||
+    isImageLocationId(locationId) ||
+    isImagePartitionLocationId(locationId)
+  ) {
+    return true
+  }
   return FILES_LOCATIONS.find((item) => item.id === locationId)?.writable === true
 }
 

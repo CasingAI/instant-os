@@ -39,6 +39,13 @@ export type WebdavFsEntry = {
 export type WebdavFs = {
   stat: (path: string) => Promise<WebdavFsEntry | undefined>
   list: (dirPath: string) => Promise<WebdavFsEntry[]>
+  /**
+   * 带真实大小的列举（可选）。挂载卷的 list 是懒条目——文件不带大小和修改
+   * 时间（files-location-mount 为轻量列举刻意不 stat），stat 才是真值；
+   * Depth-1 的 PROPFIND 需要真值（XP 列表按 getcontentlength 显示大小），
+   * 经此枚举；未提供时退回 list。
+   */
+  listDetailed?: (dirPath: string) => Promise<WebdavFsEntry[]>
   readBlob: (path: string) => Promise<Blob>
   readBlobRange: (path: string, offset: number, length: number) => Promise<Blob>
   writeBinary: (path: string, bytes: ArrayBuffer) => Promise<void>
@@ -53,6 +60,73 @@ export type WebdavFs = {
 const WEBDAV_ALLOW = 'OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, MOVE, COPY, LOCK, UNLOCK'
 
 export const WEBDAV_LOCK_TOKEN = 'opaquelocktoken:instant-vm-shared-folder'
+
+// ---------------------------------------------------------------------------
+// 共享目录同步（subst 方案的客机侧拉取）
+// ---------------------------------------------------------------------------
+
+/** 保留路径：客机引导脚本下载的同步脚本本体。 */
+export const SHARE_SYNC_SCRIPT_PATH = '/__sync_script'
+/** 保留路径：同步清单（D/目录、F/文件，行 = 类型<TAB>相对路径）。 */
+export const SHARE_SYNC_MANIFEST_PATH = '/__sync_manifest'
+
+/**
+ * 客机侧同步脚本（VBScript，cscript 执行，系统 ANSI 无中文）。
+ * 引导脚本（exec echo 写入的 8 行）下载本文件后执行；它再拉清单、逐文件
+ * 拉取写入 C:\InstantShare。文件名含中文时清单以 UTF-8 下发，ServerXMLHTTP
+ * responseText 按 charset 解码成 Unicode，FSO 落盘自动转本机 ANSI 文件名。
+ */
+export const SHARE_SYNC_SCRIPT = [
+  'Option Explicit',
+  'Dim fso, log, x, s, lines, line, parts, kind, url, local, root, n',
+  'root = "C:\\InstantShare"',
+  'Set fso = CreateObject("Scripting.FileSystemObject")',
+  'Set log = fso.OpenTextFile("C:\\Tools\\share-sync.txt", 8, True)',
+  'log.WriteLine Now & " sync begin"',
+  'Set x = CreateObject("MSXML2.ServerXMLHTTP")',
+  'x.Open "GET", "http://192.168.87.1/__sync_manifest", False',
+  'x.Send',
+  'If x.status <> 200 Then',
+  '  log.WriteLine "manifest status=" & x.status',
+  '  log.Close',
+  '  WScript.Quit 1',
+  'End If',
+  'lines = Split(x.responseText, vbLf)',
+  'For Each line In lines',
+  '  line = Trim(line)',
+  '  If Len(line) > 0 Then',
+  '    kind = Left(line, 1)',
+  '    If kind = "D" Then',
+  '      local = Mid(line, 3)',
+  '      If Not fso.FolderExists(root & "\\" & local) Then',
+  '        fso.CreateFolder root & "\\" & local',
+  '        log.WriteLine "mkdir " & local',
+  '      End If',
+  '    ElseIf kind = "F" Then',
+  '      parts = Split(line, Chr(9))',
+  '      url = parts(1)',
+  '      local = parts(2)',
+  '      x.Open "GET", "http://192.168.87.1/" & url, False',
+  '      x.Send',
+  '      If x.status <> 200 Then',
+  '        log.WriteLine "fail " & url & " status=" & x.status',
+  '      Else',
+  '        Set s = CreateObject("ADODB.Stream")',
+  '        s.Open',
+  '        s.Type = 1',
+  '        s.Write x.responseBody',
+  '        s.SaveAs root & "\\" & local, 2',
+  '        s.Close',
+  '        Set s = Nothing',
+  '        n = UBound(x.responseBody) + 1',
+  '        log.WriteLine "saved " & local & " bytes=" & n',
+  '      End If',
+  '    End If',
+  '  End If',
+  'Next',
+  'log.WriteLine Now & " sync done"',
+  'log.Close',
+].join('\r\n')
 
 // ---------------------------------------------------------------------------
 // 路径映射
@@ -231,6 +305,32 @@ function xmlResponse(status: number, statusText: string, xml: string, headers?: 
   }
 }
 
+/**
+ * 大小写不敏感的头取值。桥传上来的 headers 由运行时 Headers 对象转换，
+ * 键一律小写（depth/range/destination/overwrite），而旧版按协议大写
+ * 查找（Depth/Range…）全部落空——Depth:0 的 PROPFIND 因此被按 1 处理、
+ * 应答塞进整个目录的子条目，XP MiniRedir 判应答无效退回 SMB 报
+ * 「找不到网络路径」。统一经此查找防再犯。
+ */
+function headerValue(
+  headers: Record<string, string> | undefined,
+  name: string,
+): string | undefined {
+  if (!headers) {
+    return undefined
+  }
+  if (headers[name] !== undefined) {
+    return headers[name]
+  }
+  const lower = name.toLowerCase()
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lower) {
+      return value
+    }
+  }
+  return undefined
+}
+
 function parseDepth(value: string | undefined): 0 | 1 {
   return value === '0' ? 0 : 1
 }
@@ -262,6 +362,54 @@ export function createWebdavHandler(root: string, fs: WebdavFs): (request: Webda
   return async (request: WebdavRequest): Promise<WebdavResponse> => {
     const method = request.method.toUpperCase()
 
+    // 同步脚本/清单走保留路径，绕过 DAV 语义（subst 方案的客机侧拉取）。
+    let pathname = ''
+    try {
+      pathname = new URL(request.url).pathname
+    } catch {
+      pathname = ''
+    }
+    if (pathname === SHARE_SYNC_SCRIPT_PATH) {
+      if (method !== 'GET') {
+        return emptyResponse(405, 'Method Not Allowed')
+      }
+      return textResponse(200, 'OK', SHARE_SYNC_SCRIPT)
+    }
+    if (pathname === SHARE_SYNC_MANIFEST_PATH) {
+      if (method !== 'GET') {
+        return emptyResponse(405, 'Method Not Allowed')
+      }
+      const lines: string[] = []
+      let visited = 0
+      const walk = async (dir: string, prefix: string): Promise<void> => {
+        if (visited > 20_000) {
+          return
+        }
+        for (const entry of await fs.list(dir)) {
+          if (visited > 20_000) {
+            return
+          }
+          visited += 1
+          if (entry.kind === 'symlink') {
+            continue
+          }
+          const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+          if (entry.kind === 'folder') {
+            lines.push(`D\t${rel.split('/').join('\\')}`)
+            await walk(entry.path, rel)
+          } else {
+            const urlPath = rel
+              .split('/')
+              .map((segment) => encodeURIComponent(segment))
+              .join('/')
+            lines.push(`F\t${urlPath}\t${rel.split('/').join('\\')}`)
+          }
+        }
+      }
+      await walk(root.replace(/\/+$/, ''), '')
+      return textResponse(200, 'OK', `${lines.join('\n')}\n`)
+    }
+
     if (method === 'OPTIONS') {
       return emptyResponse(200, 'OK', {
         DAV: '1',
@@ -276,8 +424,8 @@ export function createWebdavHandler(root: string, fs: WebdavFs): (request: Webda
       return textResponse(target.status, target.statusText, target.statusText)
     }
     const isRoot = target.segments.length === 0
-    const depth = parseDepth(request.headers.Depth)
-    const range = parseWebdavRange(request.headers.Range)
+    const depth = parseDepth(headerValue(request.headers, 'Depth'))
+    const range = parseWebdavRange(headerValue(request.headers, 'Range'))
 
     try {
       switch (method) {
@@ -286,14 +434,25 @@ export function createWebdavHandler(root: string, fs: WebdavFs): (request: Webda
           if (!entry) {
             return textResponse(404, 'Not Found', 'Not Found')
           }
+          // XP MiniRedir 对「被请求资源」的 href 要求与请求 URI 精确一致（含
+          // 尾斜杠形态）：根请求 '/' 恰好匹配所以列表正常；点开子文件夹时它
+          // 发 PROPFIND /out（无尾斜杠），应答 href 若归一化成 /out/ 即失配，
+          // 重定向器判资源不存在、退回 SMB 报「找不到网络路径」。目标条目
+          // 原样回显请求 pathname，子条目仍用规范形（目录带尾斜杠）。
+          let requestedHref = '/'
+          try {
+            requestedHref = new URL(request.url).pathname || '/'
+          } catch {
+            // URL 已由 webdavTargetPath 校验过，不会走到这里。
+          }
           const responses: { href: string; entry: WebdavFsEntry }[] = [
             {
-              href: webdavHref(target.segments, entry.kind === 'folder'),
+              href: requestedHref,
               entry,
             },
           ]
           if (entry.kind === 'folder' && depth === 1) {
-            const children = await fs.list(target.path)
+            const children = await (fs.listDetailed ?? fs.list)(target.path)
             for (const child of children) {
               const childSegments = [...target.segments, child.name]
               responses.push({
@@ -398,7 +557,7 @@ export function createWebdavHandler(root: string, fs: WebdavFs): (request: Webda
           if (isRoot) {
             return textResponse(403, 'Forbidden', 'Cannot move or copy the share root')
           }
-          const destination = webdavDestinationPath(request.headers.Destination, root)
+          const destination = webdavDestinationPath(headerValue(request.headers, 'Destination'), root)
           if (!destination.ok) {
             return textResponse(destination.status, destination.statusText, destination.statusText)
           }
@@ -409,7 +568,7 @@ export function createWebdavHandler(root: string, fs: WebdavFs): (request: Webda
           if (!source) {
             return textResponse(404, 'Not Found', 'Not Found')
           }
-          const overwrite = request.headers.Overwrite !== 'F'
+          const overwrite = headerValue(request.headers, 'Overwrite') !== 'F'
           const existingDest = await fs.stat(destination.path)
           if (existingDest && !overwrite) {
             return textResponse(412, 'Precondition Failed', 'Destination exists')

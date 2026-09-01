@@ -199,6 +199,34 @@ assert.ok(propfindXml.includes('<D:href>/hello.txt</D:href>'))
 const propfindSelf = await request('PROPFIND', '/', { headers: { Depth: '0' } })
 assert.equal(new TextDecoder().decode(propfindSelf.body).includes('/hello.txt'), false)
 
+// 挂载卷懒条目回归：files-location-mount 的目录列举刻意轻量——文件条目的
+// byteSize/updatedAt 都是 0，只有 stat 才有真值。Depth-1 子条目必须经
+// listDetailed 拿真值，否则 XP 列表大小全 0。
+const mountLike = makeFs()
+const mountLikeList = mountLike.list
+mountLike.list = async (dirPath) => {
+  const entries = await mountLikeList(dirPath)
+  return entries.map((entry) =>
+    entry.kind === 'file' ? { ...entry, byteSize: 0, updatedAt: 0 } : entry,
+  )
+}
+mountLike.listDetailed = async (dirPath) => mountLikeList(dirPath)
+const mountHandler = createWebdavHandler(ROOT, mountLike)
+const mountXml = new TextDecoder().decode(
+  (
+    await mountHandler({
+      method: 'PROPFIND',
+      url: 'http://instant-vm-files.local/',
+      headers: { Depth: '1' },
+    })
+  ).body,
+)
+assert.ok(
+  mountXml.includes('<D:getcontentlength>5</D:getcontentlength>'),
+  `Depth-1 列表应返回真实大小（hello.txt=5），实际：${mountXml.slice(0, 400)}`,
+)
+assert.equal(mountXml.includes('<D:getcontentlength>0</D:getcontentlength>'), false)
+
 // GET 整文件 / Range / 404
 const get = await request('GET', '/hello.txt')
 assert.equal(get.status, 200)
@@ -257,5 +285,21 @@ assert.ok(lock.headers['Lock-Token'].startsWith('<opaquelocktoken:'))
 const unlock = await request('UNLOCK', '/hello2.txt')
 assert.equal(unlock.status, 204)
 assert.equal((await request('TELEPORT', '/hello2.txt')).status, 501)
+
+// 同步脚本/清单（subst 方案的保留路径）
+const script = await request('GET', '/__sync_script')
+assert.equal(script.status, 200)
+assert.ok(script.headers['Content-Type'].includes('charset=utf-8'))
+const scriptText = new TextDecoder().decode(script.body)
+assert.ok(scriptText.startsWith('Option Explicit'))
+assert.ok(scriptText.includes('__sync_manifest'))
+assert.ok(scriptText.includes('ADODB.Stream'))
+const manifest = await request('GET', '/__sync_manifest')
+assert.equal(manifest.status, 200)
+const manifestText = new TextDecoder().decode(manifest.body)
+assert.ok(manifestText.includes('F\thello2.txt\thello2.txt'), manifestText)
+assert.ok(manifestText.includes('D\tdocs'), manifestText)
+assert.ok(manifestText.includes('F\tdocs/hello2.txt\tdocs\\hello2.txt'), manifestText)
+assert.equal((await request('POST', '/__sync_manifest')).status, 405)
 
 console.log('virtual-machine-webdav.test.ts ok')

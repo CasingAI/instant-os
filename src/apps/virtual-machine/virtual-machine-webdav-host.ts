@@ -30,6 +30,24 @@ import { createWebdavHandler, type WebdavFs } from './virtual-machine-webdav.ts'
 const realFs: WebdavFs = {
   stat: filesStat,
   list: filesList,
+  listDetailed: async (dirPath) => {
+    const entries = await filesList(dirPath)
+    // 挂载卷的目录列举是懒条目（files-location-mount 为轻量刻意不 stat）：
+    // 文件的大小/修改时间都是 0，只有 stat 才读真实元数据。Depth-1 的
+    // PROPFIND 按 getcontentlength 显示大小，必须补真值；本地卷条目已带
+    // 真值，缺的才补、并行一次 stat 往返。
+    const missing = entries.filter(
+      (entry) => entry.kind === 'file' && (entry.byteSize === 0 || entry.updatedAt === 0),
+    )
+    if (missing.length === 0) {
+      return entries
+    }
+    const enriched = await Promise.all(
+      missing.map(async (entry) => (await filesStat(entry.path)) ?? entry),
+    )
+    const byPath = new Map(enriched.map((entry) => [entry.path, entry]))
+    return entries.map((entry) => byPath.get(entry.path) ?? entry)
+  },
   readBlob: filesReadBlob,
   readBlobRange: filesReadBlobRange,
   writeBinary: async (path, bytes) => {
@@ -48,6 +66,26 @@ const realFs: WebdavFs = {
 let sharedRoot: string | undefined
 let handler = createWebdavHandler('', realFs)
 let listenerInstalled = false
+
+/** [排障埋点·临时] 宿主侧 DAV 应答全量打点（与运行时 SF3-resp 同落一份日志）。随埋点一起删。 */
+function zdebug(probeId: string, data: unknown): void {
+  ;(window as unknown as { Z_DEBUGGER?: (id: string, data: unknown) => void }).Z_DEBUGGER?.(
+    probeId,
+    data,
+  )
+}
+
+function textHead(bytes: ArrayBuffer | undefined): string {
+  if (!bytes || bytes.byteLength === 0) {
+    return ''
+  }
+  const view = new Uint8Array(bytes.slice(0, 180))
+  let out = ''
+  for (const ch of view) {
+    out += ch >= 0x20 && ch < 0x7f ? String.fromCharCode(ch) : '.'
+  }
+  return out
+}
 
 function isSourcePostable(source: MessageEvent['source']):
   | {
@@ -127,6 +165,15 @@ function onWebdavMessage(event: MessageEvent): void {
       result.status,
       sharedRoot ? `(root=${sharedRoot})` : '(root 未设置!)',
     )
+    // [排障埋点·临时] 应答状态与响应体头部随 SF10 落日志。随埋点一起删。
+    zdebug('SF10', {
+      method: request.method,
+      url: request.url,
+      status: result.status,
+      statusText: result.statusText,
+      head: textHead(result.body),
+      root: sharedRoot ?? null,
+    })
   })()
 }
 

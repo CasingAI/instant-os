@@ -3,13 +3,15 @@ import type { ComponentChildren } from 'preact'
 import {
   buildTreeParentMap,
   collectTreeIds,
+  findRemovalNeighbor,
   flattenVisibleTree,
   nodeHasDescendant,
   type TreeViewNodeLike,
+  type TreeViewRemovalSelection,
 } from './tree-view-model.ts'
 import './tree-view.css'
 
-export type { TreeViewNodeLike } from './tree-view-model.ts'
+export type { TreeViewNodeLike, TreeViewRemovalSelection } from './tree-view-model.ts'
 
 /** 增删行动画时长见 tree-view.css（220ms）；清空包裹层的定时器多留 30ms 余量 */
 const ROW_ANIMATION_CLEAR_MS = 250
@@ -39,6 +41,9 @@ export type TreeViewProps<T extends TreeViewNodeLike<T>> = {
   defaultExpandedIds?: Iterable<string>
   /** 受控选中节点 id */
   selectedId?: string
+  /** 选中节点随数据被移除后的自动补选：none 不自动选中（默认）；prefer-previous / prefer-next
+   * 按「上一轮可见序」优先向前 / 向后选相邻幸存行，一侧到底后反向兜底，经 onSelect 提议宿主 */
+  removalSelection?: TreeViewRemovalSelection
   onSelect?: (node: T) => void
   /** 展开/折叠变化回调（为懒加载树预留：展开时才取 children） */
   onExpandedChange?: (node: T, expanded: boolean) => void
@@ -65,6 +70,7 @@ export function TreeView<T extends TreeViewNodeLike<T>>({
   nodes,
   defaultExpandedIds,
   selectedId,
+  removalSelection = 'none',
   onSelect,
   onExpandedChange,
   renderNode,
@@ -82,6 +88,10 @@ export function TreeView<T extends TreeViewNodeLike<T>>({
   const [leavingEntries, setLeavingEntries] = useState<readonly LeavingEntry<T>[]>([])
   const isFirstDiffRef = useRef(true)
   const prevNodesRef = useRef<readonly T[]>([])
+  // 宿主常把「删数据」与「清空选中」同批提交，diff 轮读到的 selectedId 可能已是 undefined；
+  // 记住上一轮的非空选中作锚点，宿主清不清选中都能补选
+  const knownSelectedIdRef = useRef<string | undefined>(selectedId)
+  if (selectedId !== undefined) knownSelectedIdRef.current = selectedId
   const rootRef = useRef<HTMLDivElement>(null)
 
   const visible = useMemo(() => flattenVisibleTree(nodes, expandedIds), [nodes, expandedIds])
@@ -105,12 +115,15 @@ export function TreeView<T extends TreeViewNodeLike<T>>({
     const prevParentMap = buildTreeParentMap(prevNodes)
     const prevChildrenIds = buildChildrenIds(prevNodes)
 
-    // 顶层过滤：父节点同为新增/删除的子节点由父级包裹层一次性动画，不再单独包（避免嵌套双重动画）
+    // 顶层过滤：父节点同为本轮新增的子级不再单独包（父级包裹层把整棵新子树一次性动画，
+    // 避免嵌套双重动画）；父节点已存在的新行（任意层级）自己包一层入场动画。
+    // 判据必须是「父节点不在上一轮」——parentMap 按当前树建，任何新增节点的父节点都必在
+    // currIds 里，拿 currIds 判会把全部嵌套插入的动画吞掉（对照下方删除侧的对称写法）
     const freshTop: string[] = []
     for (const id of currIds) {
       if (prevIds.has(id)) continue
       const parent = parentMap.get(id)
-      if (parent && currIds.has(parent.id)) continue
+      if (parent && !prevIds.has(parent.id)) continue
       freshTop.push(id)
     }
     const removedTopIds: string[] = []
@@ -134,6 +147,24 @@ export function TreeView<T extends TreeViewNodeLike<T>>({
           }
         }),
       )
+    }
+    // 选中节点随数据被移除：按配置补选相邻幸存行（可见序优先向前/向后，反向兜底），
+    // 经 onSelect 提议给宿主 + 同步内部焦点。锚点取当前 selectedId，已被同批清空时
+    // 退到上一轮已知选中；effect 只在 nodes/parentMap 变化时跑，闭包即删除发生时的最新配置
+    const anchorId = selectedId ?? knownSelectedIdRef.current
+    if (removalSelection !== 'none' && anchorId !== undefined && !currIds.has(anchorId)) {
+      const neighbor = findRemovalNeighbor(
+        flattenVisibleTree(prevNodes, expandedIds),
+        prevParentMap,
+        anchorId,
+        currIds,
+        removalSelection,
+      )
+      if (neighbor) {
+        onSelect?.(neighbor)
+        setFocusId(neighbor.id)
+        focusRow(neighbor.id)
+      }
     }
     // 每轮都重置清空定时器：动画播放中出现无变化的刷新（如磁盘工具周期扫描）时
     // 上一轮的包裹层仍会按时卸载，不会残留

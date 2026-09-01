@@ -10,7 +10,7 @@
 
 | 文件 | 是干什么的 | 放到 XP 哪里 |
 |---|---|---|
-| `ivm-agent.exe` | 客机全家桶（一个 exe 多重身份）：服务身份跑 COM1 遥控代理（PING / EXEC / EXEC_R（带退出码执行）/ SHM_QUERY / CLICK / SHUTDOWN / REBOOT）+ 分辨率自动对齐；登录身份跑 OLE 剪贴板桥（文本 + 虚拟文件双向互拷）+ Aero Snap 窗口吸附（见下文「窗口吸附」）+ 共享文件夹自动映射（见下文「共享文件夹」）；`ivm-agent.exe /mouse-install` 给 VMware 鼠标驱动做注册；`/audio-install` 把 XP 内置的 SB16 声卡驱动绑上（客机无声的解药，见下文「声音」）；`/mouse-check`、`/audio-check` 只读体检；两个常驻身份每次启动还会自愈补挂鼠标与声卡驱动 | 由安装脚本放进 `C:\Tools\ivm-agent.exe` |
+| `ivm-agent.exe` | 客机全家桶（一个 exe 多重身份）：服务身份跑 COM1 遥控代理（PING / EXEC / EXEC_R（带退出码执行）/ SHM_QUERY / CLICK / SHUTDOWN / REBOOT）+ 分辨率自动对齐；登录身份跑 OLE 剪贴板桥（文本 + 文件双向互拷，v8 起文件通道改为「桥接管」：剪贴板里只挂空 CF_HDROP 占位，用户在目标位置粘贴时由桥自己探测目标路径并弹出 XP 风格进度对话框写入真实目录树）+ Aero Snap 窗口吸附（见下文「窗口吸附」）+ 共享文件夹自动映射（见下文「共享文件夹」）；`ivm-agent.exe /mouse-install` 给 VMware 鼠标驱动做注册；`/audio-install` 把 XP 内置的 SB16 声卡驱动绑上（客机无声的解药，见下文「声音」）；`/mouse-check`、`/audio-check` 只读体检；两个常驻身份每次启动还会自愈补挂鼠标与声卡驱动 | 由安装脚本放进 `C:\Tools\ivm-agent.exe` |
 | `ivm-shm.sys` | 共享内存信箱内核驱动：分配 64KB 连续物理内存供宿主（v86 DMA）与客机直连，剪贴板/文件通道的数据面底座 | 由安装脚本放进 `C:\Windows\System32\drivers\` |
 | `vmmouse.sys` + `vmmouse.inf` + `vmmouse.cat` | VMware 绝对坐标鼠标驱动 12.4.0.2（vendor 二进制，见 `vmmouse/README.md`）：装好后客机光标 1:1 跟随宿主光标 | 由安装脚本放进 `C:\Windows\System32\drivers\` 并注册 |
 | `install-agent-v2.bat` | **推荐安装方式**：右键管理员运行，一键装全家桶（agent 服务 + 信箱驱动 + 登录自启 + vmmouse 鼠标驱动 + SB16 声卡驱动；会自动清掉旧的 res-agent.exe / clipboard-bridge.exe 旧装） | 和 exe/sys 放同一目录，双击运行 |

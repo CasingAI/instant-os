@@ -64,6 +64,7 @@ const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = {
     import('../apps/virtual-machine/virtual-machine-app.tsx').then((m) => m.VirtualMachineApp),
   'ui-kit': () => import('../apps/ui-kit/ui-kit-app.tsx').then((m) => m.UiKitApp),
   'srml-demo': () => import('../apps/srml-demo/srml-app.tsx').then((m) => m.SrmlDemoApp),
+  'nav-kit-demo': () => import('../apps/nav-kit-demo/nav-kit-demo-app.tsx').then((m) => m.NavKitDemoApp),
   'midi-demo': () => import('../apps/midi-demo/midi-demo-app.tsx').then((m) => m.MidiDemoApp),
   'llm-playground': () =>
     import('../apps/llm-playground/llm-playground-app.tsx').then((m) => m.LlmPlaygroundApp),

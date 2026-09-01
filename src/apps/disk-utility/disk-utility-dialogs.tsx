@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { recommendFatVariant, type DiskScheme, type FatVariant } from './disk-utility-format.ts'
@@ -11,6 +11,15 @@ import {
   type BenchmarkItemId,
   type BenchmarkItemState,
 } from './disk-utility-benchmark.ts'
+import {
+  DISK_SCAN_ITEM_LABELS,
+  DISK_SCAN_ITEM_ORDER,
+  diskScanResultText,
+  type DiskScanItemId,
+  type DiskScanItemState,
+  type DiskScanReport,
+} from './disk-utility-scan.ts'
+import type { DiskPartitionInfo } from './disk-utility-data.ts'
 
 export const DISK_UTILITY_THEME = '#2f3640'
 
@@ -70,7 +79,10 @@ export function EraseDiskDialog({
     setVariant('auto')
   }, [state])
 
-  if (!state) return undefined
+  if (!state) {
+    // 保持 WindowModal 挂载：open 变 false 时它自行走退场动画（内容由 contentRef 保留最后一帧）
+    return <WindowModal open={false} title="" onClose={onClose} />
+  }
 
   const sizeLabel = formatStorageSize(state.sizeBytes)
   const isPartition = state.kind === 'partition'
@@ -183,7 +195,10 @@ export function PartitionDiskDialog({
     setVariant('auto')
   }, [state])
 
-  if (!state) return undefined
+  if (!state) {
+    // 保持 WindowModal 挂载：open 变 false 时它自行走退场动画（内容由 contentRef 保留最后一帧）
+    return <WindowModal open={false} title="" onClose={onClose} />
+  }
 
   const handleCount = (next: number) => {
     const clamped = Math.min(4, Math.max(1, next))
@@ -310,6 +325,182 @@ function benchmarkRowValue(state: BenchmarkItemState): string {
   return `失败：${state.message}`
 }
 
+export type ScanDialogState = {
+  path: string
+  label: string
+  partition?: DiskPartitionInfo
+}
+
+function scanRowClass(state: DiskScanItemState): string {
+  if (state.status === 'running') return 'disk-utility-benchmark__row--running'
+  if (state.status === 'done') return 'disk-utility-benchmark__row--done'
+  if (state.status === 'failed') return 'disk-utility-benchmark__row--failed'
+  return 'disk-utility-benchmark__row--pending'
+}
+
+function scanRowValue(state: DiskScanItemState): string {
+  if (state.status === 'pending') return '待扫描'
+  if (state.status === 'running') return state.note
+  if (state.status === 'done') return state.value
+  return `失败：${state.message}`
+}
+
+export function ScanDialog({
+  state,
+  busy,
+  items,
+  report,
+  error,
+  onClose,
+  onRun,
+}: {
+  state: ScanDialogState | undefined
+  busy: boolean
+  items: Record<DiskScanItemId, DiskScanItemState>
+  report: DiskScanReport | undefined
+  error: string | undefined
+  onClose: () => void
+  onRun: (signal: AbortSignal) => void
+}): preact.JSX.Element | undefined {
+  const controllerRef = useRef<AbortController | undefined>(undefined)
+  const [controller, setController] = useState<AbortController | undefined>(undefined)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!state) {
+      controllerRef.current = undefined
+      setController(undefined)
+      return
+    }
+    const next = new AbortController()
+    controllerRef.current = next
+    setController(next)
+    return () => {
+      next.abort()
+      if (controllerRef.current === next) controllerRef.current = undefined
+      setController(undefined)
+    }
+  }, [state])
+
+  if (!state) {
+    // 保持 WindowModal 挂载：open 变 false 时它自行走退场动画（内容由 contentRef 保留最后一帧）
+    return <WindowModal open={false} title="" onClose={onClose} />
+  }
+
+  const hasResult = report !== undefined
+  const handleCopy = async () => {
+    if (!report || !navigator.clipboard?.writeText) return
+    await navigator.clipboard.writeText(diskScanResultText(report))
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <WindowModal
+      open
+      title="错误扫描"
+      titleAlign="left"
+      themeColor={DISK_UTILITY_THEME}
+      wide
+      scrollBody
+      heightType="grow"
+      onClose={busy ? undefined : onClose}
+      showCloseButton
+      headerActions={[
+        {
+          key: 'copy',
+          label: copied ? '已复制' : '复制报告',
+          tone: 'secondary',
+          disabled: busy || !hasResult,
+          onClick: () => void handleCopy(),
+        },
+          busy
+          ? {
+              key: 'stop',
+              label: '停止扫描',
+              tone: 'danger',
+              disabled: false,
+              onClick: () => controller?.abort(),
+            }
+          : {
+              key: 'run',
+              label: '开始扫描',
+              tone: 'primary',
+              disabled: false,
+              onClick: () => {
+                let next = controllerRef.current
+                if (!next || next.signal.aborted) {
+                  next = new AbortController()
+                  controllerRef.current = next
+                  setController(next)
+                }
+                onRun(next.signal)
+              },
+            },
+      ]}
+    >
+      <div class="disk-utility-scan__body-header">
+        <h2 class="disk-utility-scan__name">{state.label}</h2>
+        <p class="disk-utility-scan__intro">
+          只读取「{state.label}」的文件系统结构，不会修改镜像；扫描可能需要一些时间。
+        </p>
+      </div>
+      <table class="disk-utility-scan__table">
+        <thead>
+          <tr>
+            <th class="disk-utility-scan__col-name">检查项</th>
+            <th class="disk-utility-scan__col-result">结果</th>
+          </tr>
+        </thead>
+        <tbody>
+          {DISK_SCAN_ITEM_ORDER.map((id) => (
+            <tr key={id} class={`disk-utility-scan__row ${scanRowClass(items[id])}`}>
+              <td class="disk-utility-scan__col-name">{DISK_SCAN_ITEM_LABELS[id]}</td>
+              <td class="disk-utility-scan__col-result">{scanRowValue(items[id])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {report ? (
+        <section class="disk-utility-scan__report" aria-live="polite">
+          <h4 class="disk-utility-scan__report-title">
+            {report.status === 'clean' ? '未发现问题' : report.status === 'unsupported' ? '暂不支持此文件系统' : '发现文件系统问题'}
+          </h4>
+          <div class="disk-utility-scan__stats">
+            {report.orphanClusters !== undefined ? (
+              <div class="disk-utility-scan__stat">
+                <span>孤儿簇</span>
+                <strong>{report.orphanClusters.toLocaleString()}</strong>
+                <em>{formatStorageSize(report.orphanBytes ?? 0)}</em>
+              </div>
+            ) : undefined}
+            {report.allocatedClusters !== undefined ? (
+              <div class="disk-utility-scan__stat disk-utility-scan__stat--wide">
+                <span>已分配 / 可达 / 空闲</span>
+                <strong>
+                  {report.allocatedClusters.toLocaleString()} / {report.reachableClusters?.toLocaleString() ?? '—'} / {report.freeClusters?.toLocaleString() ?? '—'}
+                </strong>
+              </div>
+            ) : undefined}
+          </div>
+          {report.issues.length > 0 ? (
+            <div class="disk-utility-scan__issues">
+              {report.issues.map((issue) => (
+                <div key={issue.code} class="disk-utility-scan__issue">
+                  <strong>[{issue.severity}]</strong> {issue.message}
+                  {issue.examples?.length ? <span>（{issue.examples.join('、')}）</span> : undefined}
+                </div>
+              ))}
+            </div>
+          ) : undefined}
+        </section>
+      ) : undefined}
+      {error ? <p class="window-modal__error">{error}</p> : undefined}
+    </WindowModal>
+
+  )
+}
+
 export function BenchmarkDialog({
   state,
   busy,
@@ -348,7 +539,10 @@ export function BenchmarkDialog({
     [rowStates],
   )
 
-  if (!state) return undefined
+  if (!state) {
+    // 保持 WindowModal 挂载：open 变 false 时它自行走退场动画（内容由 contentRef 保留最后一帧）
+    return <WindowModal open={false} title="" onClose={onClose} />
+  }
 
   const handleCopy = async () => {
     if (!navigator.clipboard?.writeText) return
@@ -357,55 +551,56 @@ export function BenchmarkDialog({
     window.setTimeout(() => setCopied(false), 1500)
   }
 
+  const handleRun = () => {
+    let next = controller
+    if (!next || next.signal.aborted) {
+      next = new AbortController()
+      setController(next)
+    }
+    onRun(next.signal)
+  }
+
   return (
     <WindowModal
       open
-      title={`测速 · ${state.label}`}
+      title="磁盘测速"
+      titleAlign="left"
       themeColor={DISK_UTILITY_THEME}
+      wide
       scrollBody
-      panelClass="disk-utility-benchmark-modal"
       onClose={busy ? undefined : onClose}
-      footer={
-        <div class="disk-utility-benchmark__footer">
-          <button
-            type="button"
-            class="disk-utility-benchmark__copy-btn"
-            disabled={busy || !hasResult}
-            onClick={() => void handleCopy()}
-          >
-            {copied ? '已复制' : '复制结果'}
-          </button>
-        </div>
-      }
-      actions={[
+      showCloseButton
+      headerActions={[
         {
-          key: 'cancel',
-          label: busy ? '停止' : '关闭',
+          key: 'copy',
+          label: copied ? '已复制' : '复制结果',
           tone: 'secondary',
-          disabled: false,
-          onClick: () => {
-            if (busy) {
-              controller?.abort()
-              return
+          disabled: busy || !hasResult,
+          onClick: () => void handleCopy(),
+        },
+          busy
+          ? {
+              key: 'stop',
+              label: '停止测速',
+              tone: 'danger',
+              disabled: false,
+              onClick: () => controller?.abort(),
             }
-            onClose()
-          },
-        },
-        {
-          key: 'run',
-          label: '开始测速',
-          tone: 'primary',
-          disabled: busy,
-          onClick: () => {
-            if (!controller) return
-            onRun(controller.signal)
-          },
-        },
+          : {
+              key: 'run',
+              label: '开始测速',
+              tone: 'primary',
+              disabled: false,
+              onClick: handleRun,
+            },
       ]}
     >
-      <p class="window-modal__message">
-        将在「{state.label}」创建临时文件并分项测试不同存储路径的速度，测试结束后自动删除。
-      </p>
+      <div class="disk-utility-benchmark__body-header">
+        <h2 class="disk-utility-benchmark__name">{state.label}</h2>
+        <p class="disk-utility-benchmark__intro">
+          将在「{state.label}」创建临时文件并分项测试不同存储路径的速度，测试结束后自动删除。
+        </p>
+      </div>
 
       <table class="disk-utility-benchmark__table">
         <thead>

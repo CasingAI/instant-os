@@ -1,0 +1,104 @@
+/* 页面 Header（自包含）：三槽 grid，标题居中，右侧操作可挤压。 */
+
+:root {
+  --page-header-bg: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  --page-header-border: 1px solid rgba(0, 0, 0, 0.14);
+  --page-header-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72),
+    0 5px 14px -8px rgba(0, 0, 0, 0.22);
+  --page-header-title-color: #222;
+  --page-header-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.page-header {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  background: var(--page-header-bg);
+  border-bottom: var(--page-header-border);
+  box-shadow: var(--page-header-shadow);
+}
+
+.page-header__bar {
+  display: grid;
+  /*
+   * 中间标题列按内容宽（auto，长标题可省略），剩余空间由两侧平分：
+   * 标题不贪占固定 2fr——操作区按钮在宽窗下保持完整，
+   * 整体空间不足时才轮到按钮逐级压缩。
+   */
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  min-height: 28px;
+  gap: 8px;
+}
+
+.page-header__bar > .page-back-button {
+  justify-self: start;
+  flex-shrink: 0;
+  max-width: min(200px, 100%);
+}
+
+.page-header__title {
+  margin: 0;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--page-header-title-color);
+  text-shadow: var(--page-header-title-shadow);
+  /* 避免与两侧按钮抢层叠时文字叠在按钮上 */
+  position: relative;
+  z-index: 0;
+}
+
+.page-header__bar > .page-back-button,
+.page-header__trailing {
+  position: relative;
+  z-index: 1;
+}
+
+.page-header__back-spacer,
+.page-header__trailing {
+  min-width: 0;
+}
+
+/*
+ * 操作区须拉伸占满列宽（保持默认 stretch，不能 justify-self: end）：
+ * 列宽是确定值，PageButtonGroup 的 width:100% 与容器查询（container-type
+ * 使自身宽度不受内容影响）都以它为基准；按钮贴右由内部 flex 负责。
+ */
+.page-header__trailing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+/*
+ * 无标题页：三槽并为两端布局（返回贴左、操作贴右），
+ * 不为标题保留 2fr 空位；无返回时返回位也压缩，操作区仍贴右。
+ */
+.page-header--no-title .page-header__bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.page-header--no-title .page-header__back-spacer {
+  display: none;
+}
+
+/* 空占位：与左侧对称，保证标题视觉居中 */
+.page-header__back-spacer,
+.page-header__trailing--empty {
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
+}

@@ -26,6 +26,8 @@ import {
   PopoverDemo,
   TreeViewDemo,
   TreeViewInteractiveDemo,
+  TreeViewLazyLoadDemo,
+  TreeViewBigDataDemo,
 } from './ui-kit-demo-instances.tsx'
 import './ui-kit.css'
 
@@ -61,6 +63,8 @@ const DEMO_COMPONENTS: Record<string, () => preact.JSX.Element> = {
   'popover': PopoverDemo,
   'tree-view': TreeViewDemo,
   'tree-view-interactive': TreeViewInteractiveDemo,
+  'tree-view-lazy-load': TreeViewLazyLoadDemo,
+  'tree-view-big-data': TreeViewBigDataDemo,
 }
 
 function buildCategorySections(): CategorySection[] {

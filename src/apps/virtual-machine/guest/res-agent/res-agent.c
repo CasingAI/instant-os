@@ -206,8 +206,10 @@ static void handle_packed_value(unsigned long packed);
  * v7：Aero Snap 开关/距离帧改注册表中继投递（OP_SNAP/OP_SNAP_EDGE 的
  *   dispatch 在 COM1 持有进程——多为 session 0 服务实例，而吸附线程在登录
  *   会话实例，v4~v6 PostThreadMessage 跨进程投递全被静默丢弃；
- *   ivm-aero-snap.c 写 HKLM\Software\InstantVmAgent，登录侧秒级轮询收敛）。 */
-#define AGENT_VERSION "7"
+ *   ivm-aero-snap.c 写 HKLM\Software\InstantVmAgent，登录侧秒级轮询收敛）。
+ * v8：文件通道改为桥接管方案：宿主→XP 时剪贴板只挂空 CF_HDROP 占位，
+ *   Explorer 粘贴动作触发桥自己探测目标路径并弹出 XP 风格进度对话框写入。 */
+#define AGENT_VERSION "8"
 
 /* 当前 COM1 句柄：命令回执（[IVM]…\r\n）从这里写回宿主。 */
 static HANDLE g_port;

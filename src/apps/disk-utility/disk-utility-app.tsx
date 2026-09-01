@@ -4,6 +4,7 @@ import { useOs } from '../../os/os-context.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
+import { TreeView } from '../../ui/tree-view.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { KeychainNavStack, useKeychainNavStack } from '../keychain/keychain-nav-stack.tsx'
 import { requestFilesReveal } from '../files/files-reveal-request.ts'
@@ -27,6 +28,13 @@ import {
   type BenchmarkItemId,
   type BenchmarkItemState,
 } from './disk-utility-benchmark.ts'
+import {
+  initialDiskScanItems,
+  runDiskImageScan,
+  type DiskScanItemId,
+  type DiskScanItemState,
+  type DiskScanReport,
+} from './disk-utility-scan.ts'
 import { buildDiskMap, findAncestorImageRoot } from './disk-utility-disk-map.ts'
 import { DiskMapBar } from './disk-utility-disk-map-bar.tsx'
 import {
@@ -42,8 +50,10 @@ import {
   EraseDiskDialog,
   PartitionDiskDialog,
   BenchmarkDialog,
+  ScanDialog,
   type BenchmarkDialogState,
   type EraseDialogState,
+  type ScanDialogState,
   type PartitionDialogState,
 } from './disk-utility-dialogs.tsx'
 import '../../ui/ios-nav-back.css'
@@ -54,7 +64,7 @@ import './disk-utility.css'
 const APP_ID = 'disk-utility' as const
 const DETAIL_REFRESH_DEBOUNCE_MS = 400
 
-type DiskUtilityScreen = 'list' | 'detail'
+type DiskUtilityScreen = 'list' | 'detail' | 'partition'
 
 function usagePercent(used: number, total: number): number {
   if (!total || !Number.isFinite(total)) return 0
@@ -126,16 +136,6 @@ function TrashIcon({ class: cls }: { class?: string }): preact.JSX.Element {
   )
 }
 
-function ChevronIcon({ expanded }: { expanded: boolean }): preact.JSX.Element {
-  return (
-    <span class={`disk-utility__chevron${expanded ? ' disk-utility__chevron--open' : ''}`}>
-      <svg viewBox="0 0 8 8" width="8" height="8" fill="currentColor">
-        <path d="M1.5 1l2.5 3-2.5 3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-    </span>
-  )
-}
-
 function nodeIcon(node: TreeNode): preact.JSX.Element {
   switch (node.kind) {
     case 'system-disk':
@@ -184,114 +184,200 @@ function InfoRow({ name, value, mono }: { name: string; value: string; mono?: bo
   )
 }
 
-function TreeNodeRow({
-  node,
-  depth,
-  selectedId,
-  expandedSet,
-  onToggle,
-  onSelect,
-}: {
-  node: TreeNode
-  depth: number
-  selectedId: string | undefined
-  expandedSet: Set<string>
-  onToggle: (id: string) => void
-  onSelect: (node: TreeNode) => void
-}): preact.JSX.Element {
-  const hasChildren = (node.children?.length ?? 0) > 0
-  const isExpanded = expandedSet.has(node.id)
-  const isSelected = node.id === selectedId
-  const showCapacity = node.capacityBytes !== undefined && node.bytes !== undefined
-  const capacityPct = showCapacity ? usagePercent(node.bytes ?? 0, node.capacityBytes ?? 0) : undefined
-
-  return (
-    <>
-      <div
-        role="option"
-        aria-selected={isSelected}
-        class={`disk-utility__tree-row${isSelected ? ' disk-utility__tree-row--selected' : ''}`}
-        onClick={() => onSelect(node)}
-      >
-        <div class="disk-utility__tree-main" style={{ paddingLeft: `${depth * 16}px` }}>
-          {hasChildren ? (
-            <button
-              type="button"
-              class="disk-utility__chevron-btn"
-              aria-label={isExpanded ? '折叠' : '展开'}
-              onClick={(event) => {
-                event.stopPropagation()
-                onToggle(node.id)
-              }}
-            >
-              <ChevronIcon expanded={isExpanded} />
-            </button>
-          ) : (
-            <span class="disk-utility__chevron-placeholder" />
-          )}
-          {nodeIcon(node)}
-          <span class="disk-utility__tree-label">{node.label}</span>
-          {node.fat ? <span class="disk-utility__fs-badge">{node.fat.variant}</span> : undefined}
-          {node.occupancy && node.occupancy.kind !== 'free' ? (
-            <span class={`disk-utility__occupancy-badge${node.occupancy.kind === 'vm' ? ' disk-utility__occupancy-badge--vm' : ''}`}>
-              {node.occupancy.kind === 'vm'
-                ? '虚拟机占用'
-                : node.occupancy.kind === 'app'
-                  ? '占用中'
-                  : '已挂载'}
-            </span>
-          ) : undefined}
-        </div>
-        <span class="disk-utility__tree-size">
-          {showCapacity
-            ? `${formatBytes(node.bytes)} / ${formatBytes(node.capacityBytes)}`
-            : node.bytes !== undefined
-              ? formatBytes(node.bytes)
-              : ''}
-        </span>
-        <span class="disk-utility__tree-pct">
-          {capacityPct !== undefined ? `${capacityPct.toFixed(0)}%` : ''}
-        </span>
-      </div>
-      {hasChildren && isExpanded
-        ? node.children!.map((child) => (
-            <TreeNodeRow
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              selectedId={selectedId}
-              expandedSet={expandedSet}
-              onToggle={onToggle}
-              onSelect={onSelect}
-            />
-          ))
-        : undefined}
-    </>
-  )
-}
-
 type DetailActions = {
   revealInFiles: (path: string) => void
   openSpaceSniffer: () => void
   eraseImage: (node: TreeNode) => void
   partitionImage: (node: TreeNode) => void
+  enterPartitionView: (node: TreeNode) => void
   erasePartition: (node: TreeNode) => void
   unmountImage: (node: TreeNode) => void
   runBenchmark: (node: TreeNode) => void
+  scanImage: (node: TreeNode) => void
 }
 
 function isVmOccupied(node: TreeNode): boolean {
   return node.occupancy?.kind === 'vm'
 }
 
+type DetailActionEntry = { key: string; node: preact.JSX.Element }
+
+function DetailActionsBar({
+  node,
+  actions,
+  partitionView,
+  placement,
+}: {
+  node: TreeNode | undefined
+  actions: DetailActions
+  partitionView: boolean
+  /** header：主要操作（抹掉/分区）；content：其余次要操作 */
+  placement: 'header' | 'content'
+}): preact.JSX.Element | undefined {
+  if (!node) return undefined
+
+  const vmLocked = isVmOccupied(node)
+  // 第三方占用方同样禁止就地改写（withExclusiveImageAccess 侧另有守卫兜底）
+  const appLocked = node.occupancy?.kind === 'app'
+  const canMutateImage =
+    (node.kind === 'image-root' || node.kind === 'partition') &&
+    Boolean(node.imageFile) &&
+    !vmLocked &&
+    !appLocked
+  const canScanImage =
+    (node.kind === 'partition' ||
+      (node.kind === 'image-root' && !(node.children ?? []).some((child) => child.kind === 'partition'))) &&
+    Boolean(node.imageFile) &&
+    !vmLocked &&
+    !appLocked
+  // 第一级（image-root）只展示「抹掉 / 分区 / 推出」；测速 / 在文件中显示放在分区或卷级别
+  const isLevelOneImageRoot = node.kind === 'image-root'
+  // 分区视图下，若当前节点文件系统未知（无 fat 信息），禁用会落到镜像实体的功能
+  const fsUnknown = !node.fat
+  const disableForUnknownFs =
+    partitionView && node.kind === 'partition' && fsUnknown
+
+  const entries: DetailActionEntry[] = []
+
+  if (node.kind === 'image-root' && canMutateImage) {
+    entries.push({
+      key: 'erase-image',
+      node: (
+        <IosButton tone="danger" size="compact" onClick={() => actions.eraseImage(node)}>
+          抹掉
+        </IosButton>
+      ),
+    })
+    entries.push(
+      partitionView
+        ? {
+            key: 'partition-apply',
+            node: (
+              <IosButton tone="secondary" size="compact" onClick={() => actions.partitionImage(node)}>
+                执行分区
+              </IosButton>
+            ),
+          }
+        : {
+            key: 'partition-view',
+            node: (
+              <IosButton tone="secondary" size="compact" onClick={() => actions.enterPartitionView(node)}>
+                分区
+              </IosButton>
+            ),
+          },
+    )
+    if (isImageLocationId(node.id)) {
+      entries.push({
+        key: 'unmount',
+        node: (
+          <IosButton tone="secondary" size="compact" onClick={() => actions.unmountImage(node)}>
+            推出
+          </IosButton>
+        ),
+      })
+    }
+  }
+
+  if (node.kind === 'partition' && canMutateImage) {
+    entries.push({
+      key: 'erase-partition',
+      node: (
+        <IosButton
+          tone="danger"
+          size="compact"
+          disabled={disableForUnknownFs}
+          onClick={() => actions.erasePartition(node)}
+        >
+          抹掉分区
+        </IosButton>
+      ),
+    })
+  }
+
+  if (!isLevelOneImageRoot && (node.locationId || node.imageFile)) {
+    entries.push({
+      key: 'reveal',
+      node: (
+        <IosButton
+          tone="secondary"
+          size="compact"
+          disabled={disableForUnknownFs}
+          onClick={() => {
+            const path = node.pathRoot ?? node.imageFile?.path
+            if (!path) return
+            actions.revealInFiles(path)
+          }}
+        >
+          在文件中显示
+        </IosButton>
+      ),
+    })
+  }
+
+  if (node.kind === 'volume' || node.kind === 'trash' || node.kind === 'container') {
+    entries.push({
+      key: 'sniff',
+      node: (
+        <IosButton tone="secondary" size="compact" onClick={actions.openSpaceSniffer}>
+          空间嗅探
+        </IosButton>
+      ),
+    })
+  }
+
+  if (canScanImage) {
+    entries.push({
+      key: 'scan',
+      node: (
+        <IosButton
+          tone="secondary"
+          size="compact"
+          disabled={disableForUnknownFs}
+          onClick={() => actions.scanImage(node)}
+        >
+          错误扫描
+        </IosButton>
+      ),
+    })
+  }
+
+  if (!isLevelOneImageRoot && node.pathRoot && node.writable !== false && !vmLocked) {
+    entries.push({
+      key: 'benchmark',
+      node: (
+        <IosButton tone="secondary" size="compact" onClick={() => actions.runBenchmark(node)}>
+          测速
+        </IosButton>
+      ),
+    })
+  }
+
+  // 主要操作留在 Header，其余进正文，避免 Header 里横向滚动
+  const HEADER_KEYS = new Set(['erase-image', 'partition-view', 'partition-apply', 'erase-partition'])
+  const visible =
+    placement === 'header'
+      ? entries.filter((entry) => HEADER_KEYS.has(entry.key))
+      : entries.filter((entry) => !HEADER_KEYS.has(entry.key))
+  if (visible.length === 0) return undefined
+
+  return (
+    <div class={`disk-utility__detail-actions disk-utility__detail-actions--${placement}`}>
+      {visible.map((entry) => entry.node)}
+    </div>
+  )
+}
+
 function DetailPanel({
   node,
   mapNode,
+  showDiskMap,
   onSelectNode,
   actions,
 }: {
   node: TreeNode | undefined
   mapNode: TreeNode | undefined
+  showDiskMap: boolean
   onSelectNode: (node: TreeNode) => void
   actions: DetailActions
 }): preact.JSX.Element {
@@ -304,13 +390,6 @@ function DetailPanel({
   }
 
   const vmLocked = isVmOccupied(node)
-  // 第三方占用方同样禁止就地改写（withExclusiveImageAccess 侧另有守卫兜底）
-  const appLocked = node.occupancy?.kind === 'app'
-  const canMutateImage =
-    (node.kind === 'image-root' || node.kind === 'partition') &&
-    Boolean(node.imageFile) &&
-    !vmLocked &&
-    !appLocked
   const mapSegments = mapNode ? buildDiskMap(mapNode) : undefined
   const showUsed = node.kind !== 'image-root' && node.kind !== 'partition' && node.bytes !== undefined
   const showFat =
@@ -321,11 +400,12 @@ function DetailPanel({
 
   return (
     <section class="settings__section">
-      {mapNode?.imageFile && mapSegments ? (
+      {showDiskMap && mapNode?.imageFile && mapSegments ? (
         <DiskMapBar
           segments={mapSegments}
           diskBytes={mapNode.imageFile.sizeBytes}
           selectedId={node.id}
+          wide
           onSelect={(id) => {
             const target = id === mapNode.id ? mapNode : mapNode.children?.find((child) => child.id === id)
             if (target) onSelectNode(target)
@@ -377,6 +457,8 @@ function DetailPanel({
         ) : undefined}
       </InfoList>
 
+      <DetailActionsBar node={node} actions={actions} partitionView={showDiskMap} placement="content" />
+
       {(node.kind === 'system-disk' || node.kind === 'container') && node.capacityBytes ? (
         <div class="disk-utility__usage-block">
           <div class="disk-utility__detail-bar-row">
@@ -392,56 +474,6 @@ function DetailPanel({
       {vmLocked ? (
         <p class="settings__section-footnote">虚拟机正在使用这块盘，无法抹掉、分区或推出。请先关机或从虚拟机里去掉它。</p>
       ) : undefined}
-
-      <div class="disk-utility__detail-actions">
-        {node.kind === 'image-root' && canMutateImage ? (
-          <>
-            <IosButton tone="danger" size="compact" onClick={() => actions.eraseImage(node)}>
-              抹掉
-            </IosButton>
-            <IosButton tone="secondary" size="compact" onClick={() => actions.partitionImage(node)}>
-              分区
-            </IosButton>
-            {isImageLocationId(node.id) ? (
-              <IosButton tone="secondary" size="compact" onClick={() => actions.unmountImage(node)}>
-                推出
-              </IosButton>
-            ) : undefined}
-          </>
-        ) : undefined}
-
-        {node.kind === 'partition' && canMutateImage ? (
-          <IosButton tone="danger" size="compact" onClick={() => actions.erasePartition(node)}>
-            抹掉分区
-          </IosButton>
-        ) : undefined}
-
-        {node.locationId || node.imageFile ? (
-          <IosButton
-            tone="secondary"
-            size="compact"
-            onClick={() => {
-              const path = node.imageFile?.path ?? node.pathRoot
-              if (!path) return
-              actions.revealInFiles(path)
-            }}
-          >
-            在文件中显示
-          </IosButton>
-        ) : undefined}
-
-        {node.kind === 'volume' || node.kind === 'trash' || node.kind === 'container' ? (
-          <IosButton tone="secondary" size="compact" onClick={actions.openSpaceSniffer}>
-            空间嗅探
-          </IosButton>
-        ) : undefined}
-
-        {node.pathRoot && node.writable !== false && !vmLocked ? (
-          <IosButton tone="secondary" size="compact" onClick={() => actions.runBenchmark(node)}>
-            测速
-          </IosButton>
-        ) : undefined}
-      </div>
     </section>
   )
 }
@@ -541,15 +573,18 @@ export function DiskUtilityApp() {
   const [tree, setTree] = useState<TreeNode | undefined>(undefined)
   const [browserStorage, setBrowserStorage] = useState<BrowserStorageSnapshot | undefined>(undefined)
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
-  const [expandedSet, setExpandedSet] = useState<Set<string>>(
-    () => new Set(['system-disk', 'container:builtin', 'container:mount', 'container:image']),
-  )
+  const [partitionViewRootId, setPartitionViewRootId] = useState<string | undefined>(undefined)
   const [eraseState, setEraseState] = useState<EraseDialogState | undefined>(undefined)
   const [partitionState, setPartitionState] = useState<PartitionDialogState | undefined>(undefined)
   const [benchmarkState, setBenchmarkState] = useState<BenchmarkDialogState | undefined>(undefined)
   const [benchmarkItems, setBenchmarkItems] = useState<Record<BenchmarkItemId, BenchmarkItemState>>(
     initialBenchmarkItems,
   )
+  const [scanState, setScanState] = useState<ScanDialogState | undefined>(undefined)
+  const [scanItems, setScanItems] = useState<Record<DiskScanItemId, DiskScanItemState>>(
+    initialDiskScanItems(),
+  )
+  const [scanReport, setScanReport] = useState<DiskScanReport | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [dialogError, setDialogError] = useState<string | undefined>(undefined)
   const busyRef = useRef(false)
@@ -580,7 +615,19 @@ export function DiskUtilityApp() {
     setSelectedId((current) => {
       if (!current) return current
       if (findNode(nextTree, current)) return current
-      return nextTree.children?.[0]?.id
+      const imageContainer = nextTree.children?.find((child) => child.id === 'container:image')
+      const fallbackImage = imageContainer?.children?.find(
+        (child) =>
+          child.kind === 'image-root' &&
+          ((child.children ?? []).some((grandchild) => grandchild.kind === 'partition' && grandchild.pathRoot) ||
+            child.pathRoot),
+      )
+      return fallbackImage?.id ?? nextTree.children?.[0]?.id
+    })
+    setPartitionViewRootId((current) => {
+      if (!current) return current
+      const root = findNode(nextTree, current)
+      return root?.kind === 'image-root' ? current : undefined
     })
   }, [])
 
@@ -622,30 +669,36 @@ export function DiskUtilityApp() {
   )
 
   const mapNode = useMemo(
-    () => (tree && selectedId ? findAncestorImageRoot(tree, selectedId) : undefined),
-    [tree, selectedId],
+    () => (partitionViewRootId && tree ? findNode(tree, partitionViewRootId) : undefined),
+    [partitionViewRootId, tree],
   )
+  const partitionView = mapNode?.kind === 'image-root'
 
   const dataSpaceNode = tree?.children?.find((child) => child.id === 'container:builtin')
   const showBrowserStorage = selectedNode?.id === 'container:builtin'
 
-  const handleToggle = useCallback((id: string) => {
-    setExpandedSet((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
   const handleSelectNode = useCallback(
     (node: TreeNode) => {
+      if (node.kind === 'partition') {
+        setSelectedId(node.id)
+        const root = tree ? findAncestorImageRoot(tree, node.id) : undefined
+        if (root && root.id !== partitionViewRootId) setPartitionViewRootId(root.id)
+        if (narrowLayout && screen !== 'partition') navigateTo('partition', 'push')
+        return
+      }
+
+      const wasInPartitionView = partitionViewRootId !== undefined
       setSelectedId(node.id)
+      setPartitionViewRootId(undefined)
       if (narrowLayout) {
-        navigateTo('detail', 'push')
+        if (wasInPartitionView) {
+          navigateTo('detail', 'pop')
+        } else if (screen === 'list') {
+          navigateTo('detail', 'push')
+        }
       }
     },
-    [navigateTo, narrowLayout],
+    [navigateTo, narrowLayout, partitionViewRootId, screen, tree],
   )
 
   const runMutation = useCallback(
@@ -698,6 +751,46 @@ export function DiskUtilityApp() {
     [],
   )
 
+  const runScanWork = useCallback(
+    async (signal: AbortSignal, target: ScanDialogState) => {
+      if (busyRef.current) return
+      busyRef.current = true
+      setBusy(true)
+      setDialogError(undefined)
+      setScanReport(undefined)
+      setScanItems(initialDiskScanItems())
+      try {
+        const report = await runDiskImageScan({
+          path: target.path,
+          partition: target.partition,
+          signal,
+          onItemUpdate: (id, state) => {
+            setScanItems((prev) => ({ ...prev, [id]: state }))
+          },
+        })
+        setScanReport(report)
+      } catch (error) {
+        if (error instanceof Error && error.message === 'aborted') {
+          setScanItems((prev) => {
+            const next = { ...prev }
+            for (const [id, item] of Object.entries(next)) {
+              if (item.status === 'running') {
+                next[id as DiskScanItemId] = { status: 'failed', message: '已停止' }
+              }
+            }
+            return next
+          })
+        } else {
+          setDialogError(formatError(error))
+        }
+      } finally {
+        busyRef.current = false
+        setBusy(false)
+      }
+    },
+    [],
+  )
+
   const detailActions = useMemo<DetailActions>(
     () => ({
       revealInFiles: (path: string) => {
@@ -723,6 +816,16 @@ export function DiskUtilityApp() {
           label: node.label,
           sizeBytes: node.imageFile.sizeBytes,
         })
+      },
+      enterPartitionView: (node) => {
+        if (node.kind !== 'image-root') return
+        setPartitionViewRootId(node.id)
+        // 默认选中第一个可读分区；没有分区表（superfloppy）则停留在镜像根
+        const firstReadable =
+          (node.children ?? []).find((child) => child.kind === 'partition' && child.pathRoot) ??
+          (node.pathRoot ? node : undefined)
+        setSelectedId((firstReadable ?? node).id)
+        if (narrowLayout) navigateTo('partition', 'push')
       },
       erasePartition: (node) => {
         if (!node.imageFile || !node.partition) return
@@ -771,8 +874,19 @@ export function DiskUtilityApp() {
           label: node.label,
         })
       },
+      scanImage: (node) => {
+        if (!node.imageFile) return
+        setScanItems(initialDiskScanItems())
+        setScanReport(undefined)
+        setDialogError(undefined)
+        setScanState({
+          path: node.imageFile.path,
+          label: node.label,
+          partition: node.kind === 'partition' ? node.partition : undefined,
+        })
+      },
     }),
-    [modal, openApp, refresh],
+    [modal, navigateTo, narrowLayout, openApp, refresh],
   )
 
   useAppMenuBar(APP_ID, [])
@@ -790,19 +904,36 @@ export function DiskUtilityApp() {
   const renderListContent = () => (
     <div class="settings__content settings__content--compact disk-utility__list-content">
       <div class="disk-utility__sidebar">
-        <div class="disk-utility__tree" role="listbox" aria-label="存储设备">
-          {tree?.children?.map((child) => (
-            <TreeNodeRow
-              key={child.id}
-              node={child}
-              depth={0}
-              selectedId={selectedId}
-              expandedSet={expandedSet}
-              onToggle={handleToggle}
-              onSelect={handleSelectNode}
-            />
-          ))}
-        </div>
+        <TreeView
+          className="disk-utility__tree"
+          ariaLabel="存储设备"
+          nodes={tree?.children ?? []}
+          defaultExpandedIds={['system-disk', 'container:builtin', 'container:mount', 'container:image']}
+          selectedId={selectedId}
+          onSelect={handleSelectNode}
+          renderNode={(node) => {
+            const showCapacity = node.capacityBytes !== undefined && node.bytes !== undefined
+            const capacityPct = showCapacity ? usagePercent(node.bytes ?? 0, node.capacityBytes ?? 0) : undefined
+            return (
+              <>
+                <span class="disk-utility__tree-main">
+                  {nodeIcon(node)}
+                  <span class="disk-utility__tree-label">{node.label}</span>
+                </span>
+                <span class="disk-utility__tree-size">
+                  {showCapacity
+                    ? `${formatBytes(node.bytes)} / ${formatBytes(node.capacityBytes)}`
+                    : node.bytes !== undefined
+                      ? formatBytes(node.bytes)
+                      : ''}
+                </span>
+                <span class="disk-utility__tree-pct">
+                  {capacityPct !== undefined ? `${capacityPct.toFixed(0)}%` : ''}
+                </span>
+              </>
+            )
+          }}
+        />
         <p class="disk-utility__sidebar-footnote">
           {dataSpaceNode
             ? `数据空间 ${formatBytes(dataSpaceNode.bytes)} / ${formatBytes(dataSpaceNode.capacityBytes)}`
@@ -812,25 +943,41 @@ export function DiskUtilityApp() {
     </div>
   )
 
-  const renderDetailNav = (stacked: boolean) => (
-    <div class="settings__nav settings__nav--titled">
+  const renderDetailNav = (
+    stacked: boolean,
+    inPartitionView: boolean,
+    displayNode: TreeNode | undefined = selectedNode,
+  ) => (
+    <div class="settings__nav settings__nav--titled disk-utility__detail-nav">
       <div class="settings__nav-bar">
-        {stacked ? (
+        {inPartitionView ? (
+          <IosNavBackButton
+            label="返回镜像"
+            onClick={() => {
+              if (mapNode) setSelectedId(mapNode.id)
+              setPartitionViewRootId(undefined)
+              if (stacked) navigateTo('detail', 'pop')
+            }}
+          />
+        ) : stacked ? (
           <IosNavBackButton label="磁盘工具" onClick={() => navigateTo('list', 'pop')} />
         ) : (
           <span class="settings__nav-heading-spacer" aria-hidden="true" />
         )}
-        <h1 class="settings__nav-heading">{selectedNode?.label ?? '详情'}</h1>
-        <span class="settings__nav-trailing" aria-hidden="true" />
+        <h1 class="settings__nav-heading">{displayNode?.label ?? ''}</h1>
+        <span class="settings__nav-trailing">
+          <DetailActionsBar node={displayNode} actions={detailActions} partitionView={inPartitionView} placement="header" />
+        </span>
       </div>
     </div>
   )
 
-  const renderDetailContent = () => (
+  const renderDetailContent = (inPartitionView: boolean, displayNode: TreeNode | undefined = selectedNode) => (
     <div class="settings__content settings__content--compact disk-utility__detail-content">
       <DetailPanel
-        node={selectedNode}
+        node={displayNode}
         mapNode={mapNode}
+        showDiskMap={inPartitionView}
         onSelectNode={handleSelectNode}
         actions={detailActions}
       />
@@ -848,11 +995,12 @@ export function DiskUtilityApp() {
   )
 
   const renderScreen = (target: DiskUtilityScreen) => {
-    if (target === 'detail') {
+    if (target === 'detail' || target === 'partition') {
+      const inPartitionView = target === 'partition'
       return (
         <>
-          {renderDetailNav(true)}
-          {renderDetailContent()}
+          {renderDetailNav(true, inPartitionView)}
+          {renderDetailContent(inPartitionView)}
         </>
       )
     }
@@ -873,8 +1021,28 @@ export function DiskUtilityApp() {
             {renderListContent()}
           </div>
           <div ref={detailPanelRef} class="disk-utility__pane disk-utility__pane--detail settings">
-            {renderDetailNav(false)}
-            {renderDetailContent()}
+            <div class="disk-utility__wide-stack">
+              <div
+                class={`settings disk-utility__wide-stack__page${!partitionView ? ' is-active' : ''}`}
+                style={{
+                  transform: partitionView ? 'translateX(-100%)' : 'translateX(0)',
+                  zIndex: partitionView ? 0 : 1,
+                }}
+              >
+                {renderDetailNav(false, false, mapNode ?? selectedNode)}
+                {renderDetailContent(false, mapNode ?? selectedNode)}
+              </div>
+              <div
+                class={`settings disk-utility__wide-stack__page${partitionView ? ' is-active' : ''}`}
+                style={{
+                  transform: partitionView ? 'translateX(0)' : 'translateX(100%)',
+                  zIndex: partitionView ? 1 : 0,
+                }}
+              >
+                {renderDetailNav(false, true, selectedNode)}
+                {renderDetailContent(true, selectedNode)}
+              </div>
+            </div>
           </div>
         </div>
       ) : (
@@ -946,6 +1114,25 @@ export function DiskUtilityApp() {
         onRun={(signal: AbortSignal) => {
           if (!benchmarkState) return
           void runBenchmarkWork(signal, benchmarkState.rootPath)
+        }}
+      />
+
+      <ScanDialog
+        state={scanState}
+        busy={busy}
+        items={scanItems}
+        report={scanReport}
+        error={dialogError}
+        onClose={() => {
+          if (busy) return
+          setScanState(undefined)
+          setScanItems(initialDiskScanItems())
+          setScanReport(undefined)
+          setDialogError(undefined)
+        }}
+        onRun={(signal: AbortSignal) => {
+          if (!scanState) return
+          void runScanWork(signal, scanState)
         }}
       />
     </div>

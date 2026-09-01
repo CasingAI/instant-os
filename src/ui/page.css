@@ -1,0 +1,18 @@
+/* 页面根（自包含）：Header 固定顶部，正文独立滚动。 */
+
+.page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
+}

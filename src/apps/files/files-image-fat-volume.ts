@@ -4,6 +4,8 @@ import type { ImageVolumeEntry, ImageVolumeFsInfo } from './files-image-volume.t
 
 const SECTOR = 512
 const PREFETCH_MIN = 4096
+/** 单次操作允许的缺页补页次数；挂载时已预填 FAT，此上限只防极端碎片 */
+const SECTOR_MISS_RETRY_LIMIT = 1024
 const WRITE_BEHIND_IDLE_MS = 100
 const WRITE_BEHIND_DIRTY_BYTES = 256 * 1024
 export const SECTOR_CACHE_MAX_RESIDENT_BYTES = 32 * 1024 * 1024
@@ -348,6 +350,13 @@ export type FatVolumeOptions = {
   inlineFlushDirtyBytes?: number
   /** 任务结束后空闲回刷的脏数据阈值；默认 256KB */
   writeBehindDirtyBytes?: number
+  /**
+   * 分区卷基址：分区引导扇区相对整盘镜像的字节偏移。整盘挂载时省略，
+   * 由 mount/resolveFileSystem 自动识别。
+   */
+  baseOffset?: number
+  /** 分区卷长度；与 baseOffset 配合限制驱动可见范围 */
+  capacityBytes?: number
 }
 
 export class FatImageVolume {
@@ -362,6 +371,7 @@ export class FatImageVolume {
   private flushing: Promise<void> = Promise.resolve()
   private readonly io: ImageDiskIo
   private mountedFileSystem: FatFileSystem | undefined
+  private metadataPrefetched = false
   private dirty = false
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private clusterChains = new Map<string, number[]>()
@@ -369,14 +379,27 @@ export class FatImageVolume {
   private readonly inlineFlushDirtyBytes: number
   private readonly writeBehindDirtyBytes: number
   private lastHeldYieldAt = 0
+  /** 分区卷基址：0 表示整盘挂载；非 0 表示从该字节偏移开始解析 FAT */
+  private readonly baseOffset: number
 
   constructor(io: ImageDiskIo, options?: FatVolumeOptions) {
-    this.io = io
-    this.cache = new SectorCache(io.size, options?.maxResidentBytes)
+    this.baseOffset = Math.max(0, options?.baseOffset ?? 0)
+    const capacity = Math.max(0, Math.min(io.size - this.baseOffset, options?.capacityBytes ?? io.size - this.baseOffset))
+    const baseOffset = this.baseOffset
+    this.io = baseOffset > 0 || capacity < io.size
+      ? {
+          size: capacity,
+          async read(offset, length) { return io.read(baseOffset + offset, length) },
+          async write(offset, data) { return io.write(baseOffset + offset, data) },
+          async flush() { await io.flush?.() },
+          async close() { await io.close?.() },
+        }
+      : io
+    this.cache = new SectorCache(capacity, options?.maxResidentBytes)
     this.inlineFlushDirtyBytes = Math.max(1, options?.inlineFlushDirtyBytes ?? FAT_VOLUME_INLINE_FLUSH_DIRTY_BYTES)
     this.writeBehindDirtyBytes = Math.max(1, options?.writeBehindDirtyBytes ?? WRITE_BEHIND_DIRTY_BYTES)
     this.driver = {
-      capacity: io.size,
+      capacity,
       read: (address, count) => this.cache.read(address, count),
       write: (address, data) => this.cache.write(address, copyBytes(data)),
     }
@@ -391,9 +414,28 @@ export class FatImageVolume {
     return run
   }
 
+  private async prefetchMetadataIfNeeded(): Promise<void> {
+    if (this.metadataPrefetched) return
+    const fs = this.ensureMounted()
+    let metaBytes = 0
+    try {
+      metaBytes = adaptFatClusterLayout(fs).contentOffset(2)
+    } catch (error) {
+      if (error instanceof ImageSectorMiss) throw error
+      // 拿不到簇布局就跳过预填充，靠缺页重试兜底
+      this.metadataPrefetched = true
+      return
+    }
+    if (metaBytes > 0) {
+      await this.cache.fill(this.io, 0, metaBytes)
+    }
+    this.metadataPrefetched = true
+  }
+
   private async withSectors<T>(fn: () => T | Promise<T>): Promise<T> {
-    for (let attempt = 0; attempt < 80; attempt += 1) {
+    for (let attempt = 0; attempt < SECTOR_MISS_RETRY_LIMIT; attempt += 1) {
       try {
+        await this.prefetchMetadataIfNeeded()
         return await fn()
       } catch (error) {
         if (error instanceof ImageSectorMiss) {
@@ -439,7 +481,8 @@ export class FatImageVolume {
     // 数据区之前的元数据（引导/保留/FAT/FAT12-16 根目录）钉进缓存，
     // 大文件预分配的数据簇不再把 FAT 挤出去；布局异常时跳过，靠单簇重试兜底
     try {
-      this.cache.pinSectorsBelow(Math.floor(adaptFatClusterLayout(fs).contentOffset(2) / SECTOR))
+      const pinSectors = Math.floor(adaptFatClusterLayout(fs).contentOffset(2) / SECTOR)
+      this.cache.pinSectorsBelow(pinSectors)
     } catch {
       // 拿不到簇布局就不钉：正确性由单簇重试保证
     }
@@ -973,9 +1016,46 @@ export class FatImageVolume {
       this.noteDirtyCache()
     }
 
-    await this.enqueue(async () => {
-      await start()
-    })
+    const abortWork = async (): Promise<void> => {
+      if (state.closed || state.aborted) return
+      state.aborted = true
+      state.pending = new Uint8Array(0)
+      // 从未 start：没有临时文件也没有新建草稿，无文件可删
+      if (!state.file) return
+      try {
+        await this.withRoot((root) => {
+          if (isNew) {
+            const file = state.file ?? root.getFile(relativePath)
+            if (!file) return
+            const io = file.open()
+            io?.writeData(new Uint8Array(0))
+            file.delete()
+            return
+          }
+          if (state.workPath) {
+            // 覆盖写回滚：暂存流只删临时文件（目标从未被改动）
+            root.getFile(state.workPath)?.delete()
+            return
+          }
+          // 退化原地新建流：删掉的只是本次写出的草稿
+          root.getFile(relativePath)?.delete()
+        })
+        this.invalidateClusterCache(isNew ? relativePath : (state.workPath ?? relativePath))
+      } finally {
+        this.noteDirtyCache()
+      }
+    }
+
+    try {
+      await this.enqueue(async () => {
+        await start()
+      })
+    } catch (error) {
+      await this.enqueue(async () => {
+        await abortWork()
+      }).catch(() => undefined)
+      throw error
+    }
 
     return {
       write: (chunk) =>
@@ -1015,7 +1095,6 @@ export class FatImageVolume {
             if (!state.file) throw new Error('无法写入文件')
             return this.toEntry(state.file)
           }
-          state.closed = true
           try {
             await start()
             const file = state.file
@@ -1042,6 +1121,7 @@ export class FatImageVolume {
               // 新建 / 目标不存在时退化的原地写：文件本体已就位，直接定稿
               this.invalidateClusterCache(relativePath)
               if (!state.file) throw new Error('无法写入文件')
+              state.closed = true
               return this.toEntry(state.file)
             }
             // 覆盖提交：同目录改名交换（moveTo 原子）。目标先挪备份名腾出原名，
@@ -1079,6 +1159,7 @@ export class FatImageVolume {
             this.invalidateClusterCache(relativePath)
             const finalFile = await this.withRoot((root) => root.getFile(relativePath))
             if (!finalFile) throw new Error('无法替换文件')
+            state.closed = true
             return this.toEntry(finalFile)
           } finally {
             this.noteDirtyCache()
@@ -1086,28 +1167,7 @@ export class FatImageVolume {
         }),
       abort: () =>
         this.enqueue(async () => {
-          if (state.closed) return
-          state.aborted = true
-          state.pending = new Uint8Array(0)
-          const workPath = state.workPath ?? relativePath
-          try {
-            await this.withRoot((root) => {
-              if (isNew) {
-                const file = state.file ?? root.getFile(relativePath)
-                if (!file) return
-                const io = file.open()
-                io?.writeData(new Uint8Array(0))
-                file.delete()
-              } else {
-                // 覆盖写回滚：暂存流只删临时文件（目标从未被改动）；
-                // 退化原地新建流删掉的只是本次写出的草稿
-                root.getFile(workPath)?.delete()
-              }
-            })
-            this.invalidateClusterCache(isNew ? relativePath : workPath)
-          } finally {
-            this.noteDirtyCache()
-          }
+          await abortWork()
         }),
     }
   }

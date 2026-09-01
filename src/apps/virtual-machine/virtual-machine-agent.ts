@@ -35,7 +35,11 @@ export const VM_AGENT_METHODS = [
   'reboot',
 ] as const
 
-/** 文件通道元数据条目（与 ivm-shm.ts IvmFileEntry 同构）。 */
+/**
+ * 文件通道元数据条目（与 ivm-shm.ts IvmFileEntry 同构）。
+ * 目录条目语义：path 以 / 结尾且 size 为 0；文件条目：path 不以 / 结尾，size ≥ 0。
+ * 路径可含 / 表示嵌套，父目录必须出现在子项之前。
+ */
 export type VmFileEntry = { path: string; size: number }
 
 export type VmAgentMethodName = (typeof VM_AGENT_METHODS)[number]

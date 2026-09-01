@@ -25,6 +25,7 @@ export const DEVELOPER_TOOL_APP_IDS: readonly BuiltinAppId[] = [
   'ui-kit',
   'llm-playground',
   'srml-demo',
+  'nav-kit-demo',
   'midi-demo',
   'attunebench',
   'model-vision',

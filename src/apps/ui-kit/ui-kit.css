@@ -404,6 +404,21 @@
   margin-top: 10px;
 }
 
+/* 懒加载「加载中…」行的占位脉冲 */
+.ui-kit-demo__tree-loading {
+  color: #8e8e93;
+  animation: ui-kit-demo-tree-loading 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes ui-kit-demo-tree-loading {
+  from {
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .tree-view__row--selected .ui-kit-demo__tree-size,
 .tree-view__row:active:not(:has(.tree-view__chevron-btn:active)) .ui-kit-demo__tree-size {
   color: rgba(255, 255, 255, 0.85);

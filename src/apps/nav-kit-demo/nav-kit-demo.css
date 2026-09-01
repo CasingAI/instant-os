@@ -1,0 +1,112 @@
+/* 「导航组件演示」内容样式：书架列表、正文段落。组件样式全部来自 src/ui/page-*。 */
+
+.nav-kit-demo__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 18px;
+  border: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  background: transparent;
+  text-align: left;
+  cursor: default;
+  transition: background-color 0.15s ease;
+}
+
+.nav-kit-demo__row:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.nav-kit-demo__row:active {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.nav-kit-demo__row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #1d1d1f;
+}
+
+.nav-kit-demo__row-sub {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #8e8e93;
+}
+
+.nav-kit-demo__row-chevron {
+  flex: 0 0 auto;
+  color: #b8b8bd;
+}
+
+.nav-kit-demo__intro {
+  margin: 0;
+  padding: 14px 18px 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #6e6e73;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.nav-kit-demo__paragraph {
+  margin: 0;
+  padding: 0 18px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #2d2d30;
+}
+
+.nav-kit-demo__paragraph + .nav-kit-demo__paragraph {
+  margin-top: 14px;
+}
+
+.nav-kit-demo__bullets {
+  margin: 20px 18px 24px;
+  padding: 12px 14px 12px 30px;
+  list-style: none;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #4a4a4f;
+}
+
+.nav-kit-demo__bullets li {
+  position: relative;
+  margin-top: 6px;
+}
+
+.nav-kit-demo__bullets li:first-child {
+  margin-top: 0;
+}
+
+.nav-kit-demo__bullets li::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #007aff;
+  opacity: 0.55;
+}
+
+/* 「关于本书」页的元信息列表 */
+.nav-kit-demo__meta {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nav-kit-demo__meta li {
+  padding: 12px 18px;
+  font-size: 13px;
+  color: #4a4a4f;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}

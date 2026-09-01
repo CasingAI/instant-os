@@ -1,0 +1,342 @@
+From a9873a7cdef9dcdf30d78f2e07dcb9db46c41faf Mon Sep 17 00:00:00 2001
+From: John Doe <xieqiqiang00@live.com>
+Date: Mon, 31 Aug 2026 01:03:49 +0800
+Subject: [PATCH] =?UTF-8?q?feat(vm-agent):=20=E4=BF=A1=E7=AE=B1=E6=96=B0?=
+ =?UTF-8?q?=E5=A2=9E=20op=3D2=203D=20=E5=91=BD=E4=BB=A4=E6=89=B9=E6=AC=A1?=
+ =?UTF-8?q?=E4=B8=8A=E8=A1=8C=E2=80=94=E2=80=94vm-xp-3d=20step2=20?=
+ =?UTF-8?q?=E5=81=87=20d3d9.dll=20=E7=9A=84=E5=87=BA=E5=A2=99=E9=80=9A?=
+ =?UTF-8?q?=E9=81=93?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- ivm-shm.ts：IVM_SHM_OP_3D=2 常量 + Ivm3dBatch 编解码（'D3DB' magic + count×24B
+  记录，与客机 d3d9-proxy.c REC 常量逐字节一致）+ IVM_3D_REC opcode 名表
+- vm-agent-control.ts：shmPollTick 新增 op=2 分流 handleGuest3dBatch——解码失败
+  丢帧不卡桥（raw 读已 ACK），成功按方法名计数 console.info（[vm-d3d] 前缀）；
+  VmAgentBinding 新增 last3dActivityAt/onGuest3dBatch（step3 WebGPU 执行器挂点），
+  3D 活跃期与文件通道共用 4ms 快轮询
+- ivm-shm.test.ts：批次编解码回环 + 坏 magic/过短/count 不符丢帧 + op=2 帧
+  全链路（G2H 发布 → raw 读 ACK 保留 op 位）
+- 兼容性：宿主未升级时 readGuestToHostRaw 对 op=2 读走+ACK 后静默丢弃，
+  客机假库不会卡死信箱
+---
+ src/ivm-shm.test.ts     | 56 +++++++++++++++++++++++++++
+ src/ivm-shm.ts          | 83 +++++++++++++++++++++++++++++++++++++++++
+ src/vm-agent-control.ts | 44 +++++++++++++++++++++-
+ 3 files changed, 181 insertions(+), 2 deletions(-)
+
+diff --git a/src/ivm-shm.test.ts b/src/ivm-shm.test.ts
+index 838b43e..ad9a31e 100644
+--- a/src/ivm-shm.test.ts
++++ b/src/ivm-shm.test.ts
+@@ -5,19 +5,24 @@
+ import assert from 'node:assert/strict'
+ import {
+   createIvmShmMailbox,
++  decodeIvm3dBatch,
+   decodeIvmFileFrame,
+   decodeIvmShmHeader,
+   decodeIvmShmText,
++  encodeIvm3dBatch,
+   encodeIvmFileFrame,
+   encodeIvmShmText,
+   ivmCrc32,
+   ivmShmHeadersSnapshot,
++  IVM_3D_BATCH_MAGIC,
++  IVM_3D_REC,
+   IVM_FILE_MAX_CHUNK,
+   IVM_SHM_BLOCK_SIZE,
+   IVM_SHM_G2H_OFFSET,
+   IVM_SHM_H2G_OFFSET,
+   IVM_SHM_MAGIC,
+   IVM_SHM_MAX_TEXT_CHARS,
++  IVM_SHM_OP_3D,
+   IVM_SHM_OP_FILE,
+   IVM_SHM_OP_TEXT,
+   IVM_SHM_STATUS_EMPTY,
+@@ -282,6 +287,56 @@ function testRawMailboxWithOpBits(): void {
+   assert.equal(mailbox.writeHostToGuest('hello'), false)
+ }
+ 
++function test3dBatchDecode(): void {
++  // 编解码回环：Clear（含 float 位型参数）+ Present
++  const batch = encodeIvm3dBatch([
++    { op: IVM_3D_REC.clear, args: [2, 0x00ff00ff, 0x3f800000, 0, 0] },
++    { op: IVM_3D_REC.present, args: [0, 0, 0, 0, 0] },
++  ])
++  const decoded = decodeIvm3dBatch(batch)
++  assert.equal(decoded.records.length, 2)
++  assert.equal(decoded.records[0]?.op, IVM_3D_REC.clear)
++  assert.deepEqual(decoded.records[0]?.args, [2, 0x00ff00ff, 0x3f800000, 0, 0])
++  assert.equal(decoded.records[1]?.op, IVM_3D_REC.present)
++
++  // 坏 magic 丢帧
++  const badMagic = encodeIvm3dBatch([{ op: IVM_3D_REC.present, args: [0, 0, 0, 0, 0] }]).slice()
++  new DataView(badMagic.buffer).setUint32(0, 0x12345678, true)
++  assert.throws(() => decodeIvm3dBatch(badMagic), /magic/)
++  // 过短
++  assert.throws(() => decodeIvm3dBatch(new Uint8Array(4)), /过短/)
++  // count 与 payload 不符
++  const lying = new Uint8Array(8)
++  const view = new DataView(lying.buffer)
++  view.setUint32(0, IVM_3D_BATCH_MAGIC, true)
++  view.setUint32(4, 5, true)
++  assert.throws(() => decodeIvm3dBatch(lying), /payload 不足/)
++
++  // 信箱全链路：op=2 帧走 G2H → readGuestToHostRaw 取走 + ACK（保留 op 位）
++  const { mem } = fakeMemory()
++  const mailbox = createIvmShmMailbox(
++    {
++      read_memory: (offset, length) => mem.slice(offset, offset + length),
++      write_memory: (blob, offset) => mem.set(blob, offset),
++    },
++    0,
++  )
++  const payload = encodeIvm3dBatch([{ op: IVM_3D_REC.direct3dCreate9, args: [32, 0, 0, 0, 0] }])
++  writeHeader(mem, IVM_SHM_G2H_OFFSET, { seq: 1, len: payload.length })
++  mem.set(payload, IVM_SHM_G2H_OFFSET + 16)
++  const statusView = new DataView(mem.buffer)
++  statusView.setUint32(
++    IVM_SHM_G2H_OFFSET + 8,
++    packIvmShmStatus(IVM_SHM_STATUS_READY, IVM_SHM_OP_3D),
++    true,
++  )
++  const raw = mailbox.readGuestToHostRaw()
++  assert.ok(raw, 'op=2 帧必须能被原始读取走')
++  assert.equal(raw.op, IVM_SHM_OP_3D)
++  assert.equal(decodeIvm3dBatch(raw.data).records[0]?.op, IVM_3D_REC.direct3dCreate9)
++  assert.equal(readStatus(mem, IVM_SHM_G2H_OFFSET), packIvmShmStatus(IVM_SHM_STATUS_READ, IVM_SHM_OP_3D))
++}
++
+ function main(): void {
+   testUtf16Roundtrip()
+   testReadGuestToHost()
+@@ -292,6 +347,7 @@ function main(): void {
+   testCrc32()
+   testFileFrameRoundtrip()
+   testRawMailboxWithOpBits()
++  test3dBatchDecode()
+   console.log('ivm-shm.test.ts ok')
+ }
+ 
+diff --git a/src/ivm-shm.ts b/src/ivm-shm.ts
+index 460f004..a765e39 100644
+--- a/src/ivm-shm.ts
++++ b/src/ivm-shm.ts
+@@ -48,6 +48,8 @@ export const IVM_SHM_STATUS_READ = 2
+  */
+ export const IVM_SHM_OP_TEXT = 0
+ export const IVM_SHM_OP_FILE = 1
++/** 3D 命令批次（vm-xp-3d step2：客机假 d3d9.dll 上行，宿主只读不回写）。 */
++export const IVM_SHM_OP_3D = 2
+ 
+ export function packIvmShmStatus(state: number, op: number): number {
+   return ((state & 0xffff) | ((op & 0xffff) << 16)) >>> 0
+@@ -449,6 +451,87 @@ export function decodeIvmFileFrame(data: Uint8Array): IvmFileFrame {
+ 
+ // #endregion
+ 
++// #region 3D 命令批次解码（op=2，vm-xp-3d step2）
++
++/** 批次 payload 布局：u32 magic 'D3DB' + u32 count + count×(u32 op + 5×u32 args)。
++ * 与客机 d3d9-proxy.c 的 REC 常量与 shm_publish_batch 逐字节一致。 */
++export const IVM_3D_BATCH_MAGIC = 0x42334442
++
++/** 记录 opcode（与客机 REC_* 一致）。 */
++export const IVM_3D_REC = {
++  direct3dCreate9: 1,
++  getAdapterDisplayMode: 2,
++  createDevice: 3,
++  testCooperativeLevel: 4,
++  beginScene: 5,
++  endScene: 6,
++  clear: 7,
++  present: 8,
++  reset: 9,
++} as const
++
++export const IVM_3D_REC_NAMES: Record<number, string> = {
++  1: 'Direct3DCreate9',
++  2: 'GetAdapterDisplayMode',
++  3: 'CreateDevice',
++  4: 'TestCooperativeLevel',
++  5: 'BeginScene',
++  6: 'EndScene',
++  7: 'Clear',
++  8: 'Present',
++  9: 'Reset',
++}
++
++export type Ivm3dRecord = { op: number; args: [number, number, number, number, number] }
++export type Ivm3dBatch = { records: Ivm3dRecord[] }
++
++/** 解码 3D 命令批次；结构不符抛错（调用方丢帧，raw 读已 ACK 不阻塞信箱）。 */
++export function decodeIvm3dBatch(data: Uint8Array): Ivm3dBatch {
++  if (data.byteLength < 8) {
++    throw new Error(`3D 批次过短：${data.byteLength} 字节`)
++  }
++  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
++  const magic = view.getUint32(0, true)
++  if (magic !== IVM_3D_BATCH_MAGIC) {
++    throw new Error(`3D 批次 magic 不符：0x${magic.toString(16)}`)
++  }
++  const count = view.getUint32(4, true)
++  if (data.byteLength < 8 + count * 24) {
++    throw new Error(`3D 批次 payload 不足：count=${count} 只有 ${data.byteLength - 8} 字节`)
++  }
++  const records: Ivm3dRecord[] = []
++  for (let i = 0; i < count; i++) {
++    const base = 8 + i * 24
++    records.push({
++      op: view.getUint32(base, true),
++      args: [
++        view.getUint32(base + 4, true),
++        view.getUint32(base + 8, true),
++        view.getUint32(base + 12, true),
++        view.getUint32(base + 16, true),
++        view.getUint32(base + 20, true),
++      ],
++    })
++  }
++  return { records }
++}
++
++/** 编码 3D 命令批次（单测与模拟桥用；客机侧由 d3d9-proxy.c 手工拼字节）。 */
++export function encodeIvm3dBatch(records: readonly Ivm3dRecord[]): Uint8Array {
++  const bytes = new Uint8Array(8 + records.length * 24)
++  const view = new DataView(bytes.buffer)
++  view.setUint32(0, IVM_3D_BATCH_MAGIC, true)
++  view.setUint32(4, records.length, true)
++  records.forEach((record, i) => {
++    const base = 8 + i * 24
++    view.setUint32(base, record.op, true)
++    record.args.forEach((arg, j) => view.setUint32(base + 4 + j * 4, arg, true))
++  })
++  return bytes
++}
++
++// #endregion
++
+ export type IvmShmMailbox = {
+   readonly base: number
+   /**
+diff --git a/src/vm-agent-control.ts b/src/vm-agent-control.ts
+index b3d74b0..71d0ed2 100644
+--- a/src/vm-agent-control.ts
++++ b/src/vm-agent-control.ts
+@@ -19,14 +19,18 @@ import { INSTANT_VM_MESSAGE_TYPE } from './protocol.ts'
+ import { isV86EmulatorHalted } from './v86-fatal-error.ts'
+ import {
+   createIvmShmMailbox,
++  decodeIvm3dBatch,
+   decodeIvmFileFrame,
+   decodeIvmShmText,
+   encodeIvmFileFrame,
+   ivmShmHeadersSnapshot,
++  IVM_3D_REC_NAMES,
+   IVM_FILE_MAX_CHUNK,
+   IVM_SHM_MAX_TEXT_CHARS,
++  IVM_SHM_OP_3D,
+   IVM_SHM_OP_FILE,
+   IVM_SHM_OP_TEXT,
++  type Ivm3dBatch,
+   type IvmFileFrame,
+   type IvmFileMode,
+   type IvmFileResult,
+@@ -276,6 +280,8 @@ type VmAgentBinding = {
+   onGuestClipboard?: (text: string) => void
+   /** ivm-shm 文件通道 G2H 上行帧（offer/req/data/done），v86-runtime 转发宿主。 */
+   onGuestFileEvent?: (frame: IvmFileFrame) => void
++  /** ivm-shm 3D 命令批次（vm-xp-3d step2）。step3 WebGPU 执行器挂点，当前仅日志。 */
++  onGuest3dBatch?: (batch: Ivm3dBatch) => void
+   serialLine: string
+   lastPongAt: number
+   removed: boolean
+@@ -285,6 +291,8 @@ type VmAgentBinding = {
+   lastShmQueryAt: number
+   /** 最近一次文件帧收发的时刻：会话活跃期把信箱轮询加速到 4ms。 */
+   lastFileActivityAt: number
++  /** 最近一次 3D 命令批次收到的时刻：与文件通道共用活跃期加速。 */
++  last3dActivityAt: number
+   /**
+    * 宿主预读窗缓存（「文件名@基址」→ 窗字节）：宿主→XP 粘贴时，宿主把文件
+    * 按大块预读推进来，REQ 命中窗就地在 iframe 供块（纯内存拷贝），免去每块
+@@ -485,7 +493,32 @@ function shmPollTick(): void {
+   }
+   if (raw.op === IVM_SHM_OP_FILE) {
+     handleGuestFileFrame(target, raw.data)
++    return
++  }
++  if (raw.op === IVM_SHM_OP_3D) {
++    handleGuest3dBatch(target, raw.data)
++  }
++}
++
++/** G2H 3D 命令批次（vm-xp-3d step2：假 d3d9.dll 上行）；解码失败只丢帧
++ * （raw 读已 ACK，桥不会被卡住）。导出仅供单测。 */
++export function handleGuest3dBatch(target: VmAgentBinding, data: Uint8Array): void {
++  target.last3dActivityAt = Date.now()
++  let batch: Ivm3dBatch
++  try {
++    batch = decodeIvm3dBatch(data)
++  } catch (error) {
++    console.warn('[vm-d3d] iframe: 3D 批次解码失败（已确认丢弃）', error)
++    return
+   }
++  const counts = new Map<string, number>()
++  for (const record of batch.records) {
++    const name = IVM_3D_REC_NAMES[record.op] ?? `op${record.op}`
++    counts.set(name, (counts.get(name) ?? 0) + 1)
++  }
++  const summary = [...counts.entries()].map(([name, n]) => `${name}×${n}`).join(' ')
++  console.info(`[vm-d3d] iframe: 收到 3D 命令批次（${batch.records.length} 条）${summary ? '：' + summary : ''}`)
++  target.onGuest3dBatch?.(batch)
+ }
+ 
+ /** G2H 文件帧解码分派；解码失败只丢帧（raw 读已 ACK，桥不会被卡住）。
+@@ -782,11 +815,14 @@ function ensureTimers(): void {
+   }
+ }
+ 
+-/** 信箱轮询自排程：文件会话活跃期 15ms，其余 200ms。 */
++/** 信箱轮询自排程：文件/3D 会话活跃期 15ms，其余 200ms。 */
+ function scheduleShmPoll(): void {
+   const target = binding
++  const now = Date.now()
+   const active =
+-    target !== undefined && Date.now() - target.lastFileActivityAt < FILE_ACTIVITY_WINDOW_MS
++    target !== undefined &&
++    (now - target.lastFileActivityAt < FILE_ACTIVITY_WINDOW_MS ||
++      now - target.last3dActivityAt < FILE_ACTIVITY_WINDOW_MS)
+   shmTimer = setTimeout(() => {
+     shmTimer = undefined
+     shmPollTick()
+@@ -821,6 +857,8 @@ export function installVmAgentControl(options: {
+   onGuestClipboard?: (text: string) => void
+   /** ivm-shm 信箱 G2H 读到文件通道帧时回调（offer/req/data/done）。 */
+   onGuestFileEvent?: (frame: IvmFileFrame) => void
++  /** ivm-shm 信箱 G2H 读到 3D 命令批次时回调（vm-xp-3d step2，当前仅日志）。 */
++  onGuest3dBatch?: (batch: Ivm3dBatch) => void
+ }): VmAgentControlHandle {
+   if (!vmAgentEnabled()) {
+     return { unbind: () => {} }
+@@ -832,6 +870,7 @@ export function installVmAgentControl(options: {
+     onAgentReply: options.onAgentReply,
+     onGuestClipboard: options.onGuestClipboard,
+     onGuestFileEvent: options.onGuestFileEvent,
++    onGuest3dBatch: options.onGuest3dBatch,
+     serialLine: '',
+     lastPongAt: 0,
+     removed: false,
+@@ -839,6 +878,7 @@ export function installVmAgentControl(options: {
+     shmPendingWrite: null,
+     lastShmQueryAt: 0,
+     lastFileActivityAt: 0,
++    last3dActivityAt: 0,
+     fileWindows: new Map(),
+     fileCurrentName: new Map(),
+   }
+-- 
+2.39.5 (Apple Git-154)
+

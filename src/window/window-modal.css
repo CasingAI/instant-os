@@ -121,7 +121,7 @@
 .window-modal__header {
   flex-shrink: 0;
   position: relative;
-  padding: 14px 16px 10px;
+  padding: 12px 16px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   background: linear-gradient(
     180deg,
@@ -191,7 +191,7 @@
 .window-modal__header--with-close:not(.window-modal__header--title-left):not(.window-modal__header--with-actions)
   .window-modal__header-trailing {
   position: absolute;
-  top: 10px;
+  top: 12px;
   right: 12px;
 }
 
@@ -533,7 +533,12 @@
   }
 
   .window-modal__header {
-    padding: 12px 12px 8px;
+    padding: 12px;
+  }
+
+  .window-modal__header--with-close:not(.window-modal__header--title-left):not(.window-modal__header--with-actions)
+    .window-modal__header-trailing {
+    top: 12px;
   }
 
   .window-modal__title {
@@ -588,7 +593,12 @@
   }
 
   .window-modal__header {
-    padding: 10px 10px 6px;
+    padding: 10px;
+  }
+
+  .window-modal__header--with-close:not(.window-modal__header--title-left):not(.window-modal__header--with-actions)
+    .window-modal__header-trailing {
+    top: 10px;
   }
 
   .window-modal__title {

@@ -555,10 +555,23 @@ export class ExfatImageVolume implements ImageVolume {
   private dirty = false
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private lastHeldYieldAt = 0
+  private readonly requestedBaseOffset: number | undefined
 
   constructor(io: ImageDiskIo, options?: FatVolumeOptions) {
-    this.io = io
-    this.cache = new SectorCache(io.size, options?.maxResidentBytes)
+    // 分区卷通过包装后的 io 将分区起点映射为局部地址；因此探测器看到的起点是 0。
+    this.requestedBaseOffset = options?.baseOffset !== undefined && options.baseOffset > 0 ? 0 : undefined
+    const baseOffset = options?.baseOffset !== undefined ? Math.max(0, options.baseOffset) : 0
+    const capacity = Math.max(0, Math.min(io.size - baseOffset, options?.capacityBytes ?? io.size - baseOffset))
+    this.io = baseOffset > 0 || capacity < io.size
+      ? {
+          size: capacity,
+          async read(offset, length) { return io.read(baseOffset + offset, length) },
+          async write(offset, data) { return io.write(baseOffset + offset, data) },
+          async flush() { await io.flush?.() },
+          async close() { await io.close?.() },
+        }
+      : io
+    this.cache = new SectorCache(capacity, options?.maxResidentBytes)
     this.inlineFlushDirtyBytes = Math.max(
       1,
       options?.inlineFlushDirtyBytes ?? EXFAT_VOLUME_INLINE_FLUSH_DIRTY_BYTES,
@@ -568,7 +581,7 @@ export class ExfatImageVolume implements ImageVolume {
       options?.writeBehindDirtyBytes ?? WRITE_BEHIND_DIRTY_BYTES,
     )
     this.driver = {
-      capacity: io.size,
+      capacity,
       read: (address, count) => this.cache.read(address, count),
       write: (address, data) => this.cache.write(address, copyBytes(data)),
     }
@@ -1024,6 +1037,12 @@ export class ExfatImageVolume implements ImageVolume {
   /* ── 挂载与卸载 ── */
 
   private async detectBaseOffset(): Promise<number> {
+    if (this.requestedBaseOffset !== undefined) {
+      if (this.requestedBaseOffset + SECTOR > this.io.size) {
+        throw new Error('exFAT 分区越过镜像边界')
+      }
+      return this.requestedBaseOffset
+    }
     const sector0 = await this.io.read(0, SECTOR)
     if (sector0.byteLength >= SECTOR && parseExfatSuperblock(sector0.subarray(0, SECTOR))) {
       return 0

@@ -2,7 +2,7 @@ import { FileInfoIcon } from '../apps/file-info/file-info-icon.tsx'
 import { WelcomeIcon } from '../apps/welcome/welcome-icon.tsx'
 import { WelcomeNextIcon } from '../apps/welcome-next/welcome-next-icon.tsx'
 import { WelcomeHelloIcon } from '../apps/welcome-hello/welcome-hello-icon.tsx'
-import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, DownloaderIcon, SpaceSnifferIcon, DiskUtilityIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, VirtualMachineIcon, UiKitIcon, SrmlDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, StemsIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, DownloaderIcon, SpaceSnifferIcon, DiskUtilityIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, VirtualMachineIcon, UiKitIcon, SrmlDemoIcon, NavKitDemoIcon, MidiDemoIcon, LlmPlaygroundIcon } from '../icons/app-icons.tsx'
 import { RegistryIcon } from '../apps/registry/registry-icon.tsx'
 import { AttuneBenchIcon } from '../apps/attunebench/attunebench-icon.tsx'
 import { withAppIconDecoration } from '../icons/app-icon-decoration.tsx'
@@ -390,6 +390,14 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'srml-demo',
     name: BUILTIN_APP_DISPLAY_NAMES['srml-demo'],
     icon: SrmlDemoIcon,
+    dock: true,
+    desktop: true,
+    iconDecoration: DEV_SLEEVE,
+  }),
+  withAbout({
+    id: 'nav-kit-demo',
+    name: BUILTIN_APP_DISPLAY_NAMES['nav-kit-demo'],
+    icon: NavKitDemoIcon,
     dock: true,
     desktop: true,
     iconDecoration: DEV_SLEEVE,

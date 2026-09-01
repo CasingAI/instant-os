@@ -113,45 +113,153 @@ const VM_AGENT_PONG_RECHECK_DELAY_MS = 300
 const VM_AGENT_VERIFY_TIMEOUT_MS = 3_000
 
 const SHARED_FOLDER_REG_KEY = 'HKLM\\SOFTWARE\\InstantVM\\SharedFolder'
+/** 开机重推失败后的重试间隔/上限：EXEC 通道偶尔比 agent 状态灯翻正得晚。 */
+const VM_SHARED_FOLDER_PUSH_RETRY_MS = 5_000
+const VM_SHARED_FOLDER_PUSH_MAX_ATTEMPTS = 6
+
+/** execResult 回执的读取：agentResult 包一层 {value}，运行时旧路径可能是裸值。 */
+function execReceipt(result: unknown): { rc: number | null; timedOut: boolean; error?: string } {
+  const wrapped = result as
+    | { value?: { exitCode?: number; timedOut?: boolean; error?: string } }
+    | { exitCode?: number; timedOut?: boolean; error?: string }
+    | undefined
+  const value =
+    wrapped && typeof wrapped === 'object' && 'value' in wrapped
+      ? (wrapped as { value?: { exitCode?: number; timedOut?: boolean; error?: string } }).value
+      : (wrapped as { exitCode?: number; timedOut?: boolean; error?: string } | undefined)
+  if (!value || typeof value !== 'object') {
+    return { rc: null, timedOut: false }
+  }
+  return {
+    rc: typeof value.exitCode === 'number' ? value.exitCode : null,
+    timedOut: value.timedOut === true,
+    error: typeof value.error === 'string' ? value.error : undefined,
+  }
+}
 
 /**
- * 共享文件夹的客机配置（WebClient 服务、大小上限、映射开关），经 EXEC
- * （SYSTEM 身份）写注册表。映射本身由登录会话的 agent 轮询注册表后在
- * 用户会话内幂等收敛（net use）——EXEC 直发映射会落进 session 0、用户看不见。
- * 命令逐条容错：agent 未就绪或旧版失败时静默（与 snap 下发同策略），
- * 下次设置变更重发；agent 启动自愈兜底。
+ * 共享文件夹的客机配置（同步目录 + subst 引导 + Run 键注册），逐条经
+ * execResult（SYSTEM 身份、等待退出码）下发；盘符由登录会话的 Run 键脚本
+ * subst（EXEC 在 session 0 里 subst 用户看不见）。
+ * 返回值 = 关键配置（SharedFolder 注册表组）是否全部确认落盘。
+ *
+ * 重入互斥：开机 effect 与保存设置可能并发触发推送，同一时刻全局只允许一个
+ * 推送在飞；后来的调用记录最新参数、在当前完成后按最新参数补跑一次——直接
+ * 复用旧参数 Promise 会把开关状态推错（如保存关闭时上一次开启推送还在飞）。
  */
-async function pushSharedFolderGuestConfig(
+let sharedFolderPushInFlight: Promise<boolean> | null = null
+let sharedFolderPushQueued:
+  | { enabled: boolean; run: (command: string) => Promise<unknown>; drive: string }
+  | null = null
+
+function pushSharedFolderGuestConfig(
   enabled: boolean,
   run: (command: string) => Promise<unknown>,
   drive = 'Z',
-): Promise<void> {
+): Promise<boolean> {
+  if (sharedFolderPushInFlight) {
+    sharedFolderPushQueued = { enabled, run, drive }
+    return sharedFolderPushInFlight.then(() => {
+      const queued = sharedFolderPushQueued
+      sharedFolderPushQueued = null
+      return queued ? pushSharedFolderGuestConfig(queued.enabled, queued.run, queued.drive) : true
+    })
+  }
+  sharedFolderPushInFlight = pushSharedFolderGuestConfigInner(enabled, run, drive).finally(() => {
+    sharedFolderPushInFlight = null
+  })
+  return sharedFolderPushInFlight
+}
+
+async function pushSharedFolderGuestConfigInner(
+  enabled: boolean,
+  run: (command: string) => Promise<unknown>,
+  drive = 'Z',
+): Promise<boolean> {
   const driveValue = /^[A-Z]$/.test(drive) ? drive : 'Z'
-  const commands = [
-    ...(enabled
-      ? [
-          // start= auto 只管下次开机；本次会话必须当场启动 WebClient，否则
-          // net use 直接报「找不到网络名」。已启动时退出码非零，无碍。
-          'sc config WebClient start= auto',
-          'net start WebClient',
-          'reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\WebClient\\Parameters /v FileSizeLimitInBytes /t REG_DWORD /d 536870912 /f',
-        ]
-      : []),
-    `reg add ${SHARED_FOLDER_REG_KEY} /v Url /d http://instant-vm-files.local/ /f`,
-    `reg add ${SHARED_FOLDER_REG_KEY} /v Drive /d ${driveValue}: /f`,
-    // Enabled/Seq 必须显式 /t REG_DWORD：agent 按 DWORD 读（sf_reg_read_dword），
-    // reg add 不带 /t 默认写 REG_SZ，agent 在 Seq 这道门就零动作退出。
-    `reg add ${SHARED_FOLDER_REG_KEY} /v Enabled /t REG_DWORD /d ${enabled ? 1 : 0} /f`,
-    // Date.now() 超出 DWORD 范围（≈42.9 亿），取模截进 32 位；agent 只要求 Seq 变化。
-    `reg add ${SHARED_FOLDER_REG_KEY} /v Seq /t REG_DWORD /d ${Date.now() % 0x100000000} /f`,
-  ]
-  for (const command of commands) {
+  const runLogged = async (
+    command: string,
+  ): Promise<{ rc: number | null; timedOut: boolean; error?: string }> => {
     try {
-      await run(command)
-    } catch {
-      // 静默：见上。
+      return execReceipt(await run(command))
+    } catch (error) {
+      return {
+        rc: null,
+        timedOut: false,
+        error: error instanceof Error ? error.message : String(error),
+      }
     }
   }
+
+  let configOk = true
+  const addSharedFolderValue = async (value: string, data: string) => {
+    const receipt = await runLogged(`reg add ${SHARED_FOLDER_REG_KEY} ${value} ${data}`)
+    if (receipt.rc !== 0 || receipt.error !== undefined) {
+      configOk = false
+    }
+  }
+
+  if (enabled) {
+    // 共享文件夹：网上邻居的 WebDAV（宿主桥）为主通道，XP 的 dav 重定向器
+    // 已验证可用（根/子目录 PROPFIND、GET 均通）。这里的同步 + subst 是盘符
+    // 补充方案：文件内容由客机 msxml 走桥 HTTP 拉取（裸 IP 192.168.87.1，零
+    // DNS），写入 C:\InstantShare；盘符由登录会话的 Run 键脚本 subst 出来。
+    // 这里只做：清目录建目录、写引导脚本、连跑同步。同步脚本本体由桥下发
+    // （__sync_script），引导脚本只有 8 行、可逐行 echo 写入。
+    await runLogged('cmd /c if exist C:\\InstantShare rd /s /q C:\\InstantShare')
+    await runLogged('cmd /c md C:\\InstantShare')
+    // 8 行 echo 合并成一条命令（行内无 &/|/( 等需转义字符），省 7 次 EXEC
+    // 往返；引导脚本只负责下载同步脚本本体并落盘。
+    await runLogged(
+      'cmd /c (echo Set x=CreateObject("MSXML2.ServerXMLHTTP")&echo Set s=CreateObject("ADODB.Stream")&echo x.Open "GET","http://192.168.87.1/__sync_script",False&echo x.Send&echo s.Open&echo s.Type=1&echo s.Write x.responseBody&echo s.SaveAs "C:\\Tools\\share-sync.vbs",2&echo s.Close)>C:\\Tools\\share-boot.vbs',
+    )
+    // 同步本体可能超出 15s EXEC 窗口（大目录），截断无害——每个文件原子落盘，
+    // 连跑三次幂等续完；失败行都进日志。
+    await runLogged('cmd /c cscript //nologo C:\\Tools\\share-boot.vbs')
+    await runLogged(
+      'cmd /c cscript //nologo C:\\Tools\\share-sync.vbs >> C:\\Tools\\share-sync-run.txt 2>&1',
+    )
+    await runLogged(
+      'cmd /c cscript //nologo C:\\Tools\\share-sync.vbs >> C:\\Tools\\share-sync-run.txt 2>&1',
+    )
+    // 登录会话脚本（Run 键，下次登录执行）：Enabled=1 时建目录 + subst 盘符 +
+    // 后台续同步；Enabled=0 时解除盘符。注意 subst/盘符映射是登录会话私有的，
+    // EXEC 在 session 0 里 subst 用户看不见，必须走登录脚本。
+    await runLogged('cmd /c echo @echo off>C:\\Tools\\share-start.bat')
+    await runLogged(
+      'cmd /c echo reg query HKLM\\SOFTWARE\\InstantVM\\SharedFolder /v Enabled ^| findstr 0x1 ^>nul ^|^| goto off>>C:\\Tools\\share-start.bat',
+    )
+    await runLogged('cmd /c echo if not exist C:\\InstantShare md C:\\InstantShare>>C:\\Tools\\share-start.bat')
+    await runLogged(
+      `cmd /c echo subst ${driveValue}: /d ^>nul 2^>^&1>>C:\\Tools\\share-start.bat`,
+    )
+    await runLogged(
+      `cmd /c echo subst ${driveValue}: C:\\InstantShare>>C:\\Tools\\share-start.bat`,
+    )
+    await runLogged(
+      'cmd /c echo start "" /b cscript //nologo C:\\Tools\\share-sync.vbs>>C:\\Tools\\share-start.bat',
+    )
+    await runLogged('cmd /c echo exit /b>>C:\\Tools\\share-start.bat')
+    await runLogged('cmd /c echo :off>>C:\\Tools\\share-start.bat')
+    await runLogged(
+      `cmd /c echo subst ${driveValue}: /d ^>nul 2^>^&1>>C:\\Tools\\share-start.bat`,
+    )
+    await runLogged('cmd /c echo exit /b>>C:\\Tools\\share-start.bat')
+    await runLogged(
+      'cmd /c reg add HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run /v InstantShare /t REG_SZ /d C:\\Tools\\share-start.bat /f',
+    )
+  }
+
+  // Enabled/Seq 必须显式 /t REG_DWORD：agent 按 DWORD 读（sf_reg_read_dword），
+  // reg add 不带 /t 默认写 REG_SZ，agent 在 Seq 这道门就零动作退出。
+  // Seq 放最后：它一变 agent 就动手，必须意味着前面全部就绪。
+  await addSharedFolderValue('/v Url', '/d http://instant-vm-files.local/ /f')
+  await addSharedFolderValue('/v Drive', `/d ${driveValue}: /f`)
+  await addSharedFolderValue('/v Enabled', `/t REG_DWORD /d ${enabled ? 1 : 0} /f`)
+  // Date.now() 超出 DWORD 范围（≈42.9 亿），取模截进 32 位；agent 只要求 Seq 变化。
+  await addSharedFolderValue('/v Seq', `/t REG_DWORD /d ${Date.now() % 0x100000000} /f`)
+
+  return configOk
 }
 /** 宿主剪贴板轮询周期（推给客机的方向）；客机→宿主由客机侧 150ms 轮询自发上行。 */
 const VM_CLIPBOARD_SYNC_POLL_MS = 1_000
@@ -869,18 +977,40 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       sharedFolderBootPushedRef.current.delete(selectedId)
       return
     }
-    if (agentLink === 'off' || sharedFolderBootPushedRef.current.has(selectedId)) {
+    if (agentLink === 'off' || !selected) {
       return
     }
-    if (!selected) {
+    if (sharedFolderBootPushedRef.current.has(selectedId)) {
       return
     }
-    sharedFolderBootPushedRef.current.add(selectedId)
-    void pushSharedFolderGuestConfig(
-      isSharedFolderActive(selected),
-      (command) => pool.agentCommand(selectedId, 'exec', [command]),
-      selected.sharedFolderDrive,
-    ).catch(() => {})
+    // 只有全部关键配置确认落盘才算推完；EXEC 命令链当时没就绪/被吞就隔几秒
+    // 重推，上限兜底——之前是一次尝试失败就静默丢弃，整个会话都没盘符。
+    let cancelled = false
+    let attempts = 0
+    const attempt = () => {
+      if (cancelled || sharedFolderBootPushedRef.current.has(selectedId)) {
+        return
+      }
+      attempts += 1
+      void pushSharedFolderGuestConfig(
+        isSharedFolderActive(selected),
+        (command) => pool.agentCommand(selectedId, 'execResult', [command]),
+        selected.sharedFolderDrive,
+      ).then((ok) => {
+        if (cancelled) {
+          return
+        }
+        if (ok) {
+          sharedFolderBootPushedRef.current.add(selectedId)
+        } else if (attempts < VM_SHARED_FOLDER_PUSH_MAX_ATTEMPTS) {
+          window.setTimeout(attempt, VM_SHARED_FOLDER_PUSH_RETRY_MS)
+        }
+      })
+    }
+    attempt()
+    return () => {
+      cancelled = true
+    }
   }, [agentLink, pool.agentCommand, selected, selectedId, selectedRunning])
   useEffect(() => {
     keyTranslatorRef.current.setKeymap(
@@ -1396,18 +1526,19 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               settingsSession.id,
               settings.osPreset !== 'none' && settings.enhanceAbsoluteMouse,
             )
-            // 共享文件夹：宿主根切换 + 运行时拦截器热开关 + 客机配置写入
-            //（映射由登录会话 agent 轮询注册表后幂等收敛，无需手工脚本）。
+            // 共享文件夹：宿主根切换 + 运行时拦截器热开关立即生效；客机配置
+            // 后台推送（与开机重推同一单飞通道收敛，失败由开机重推兜底）——
+            // 不阻塞保存按钮几十秒。
             const sharedRoot = isSharedFolderActive(settings)
               ? settings.sharedFolderPath
               : undefined
             setWebdavSharedRoot(sharedRoot)
             await pool.setSharedFolder(settingsSession.id, sharedRoot !== undefined)
-            await pushSharedFolderGuestConfig(
+            void pushSharedFolderGuestConfig(
               sharedRoot !== undefined,
-              (command) => pool.agentCommand(settingsSession.id, 'exec', [command]),
+              (command) => pool.agentCommand(settingsSession.id, 'execResult', [command]),
               settings.sharedFolderDrive,
-            )
+            ).catch(() => {})
             // 光盘/软盘的连接开关与镜像路径也立即生效：与保存前快照逐台比对后热同步。
             const machine: VirtualMachineRecord = {
               ...settings,

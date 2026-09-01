@@ -402,6 +402,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'nodes', type: 'readonly T[]', description: '多根节点列表（T 需含 id 与 children）' },
       { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合' },
       { name: 'selectedId', type: 'string?', description: '受控选中节点 id' },
+      { name: 'removalSelection', type: `'none' | 'prefer-previous' | 'prefer-next'?`, description: '选中节点被移除后的自动补选：none 不自动选中（默认）；prefer-previous / prefer-next 按「上一轮可见序」优先向前 / 向后选相邻幸存行，一侧到底后反向兜底，经 onSelect 通知宿主' },
       { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调' },
       { name: 'onExpandedChange', type: '(node: T, expanded: boolean) => void?', description: '展开/折叠变化回调（供懒加载）' },
       { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（图标/标签/附加列）' },
@@ -426,35 +427,102 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'tree-view-interactive',
     name: 'TreeView 增删动效',
     description:
-      'TreeView 动态增删演示：插入节点带高度展开 + 淡入、删除带高度收起 + 淡出，与展开/折叠动画同一套视觉语言；增删均由数据驱动（派生新 nodes 数组），TreeView 内部 diff 触发对应行动画。',
+      'TreeView 动态增删演示：可在选中行上方/下方插入兄弟节点、插入为选中项子级，或删除选中行——插入带高度展开 + 淡入、删除带高度收起 + 淡出，与展开/折叠动画同一套视觉语言；删除选中行后按 removalSelection 自动补选相邻行（优先向前/向后，反向兜底）。增删均由数据驱动（派生新 nodes 数组），TreeView 内部 diff 触发对应行动画。',
     category: 'tree',
     importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
     props: [
       { name: 'nodes', type: 'readonly T[]', description: '多根节点列表；增删即传派生新数组，行动画由 TreeView 内部 diff 触发' },
-      { name: 'selectedId', type: 'string?', description: '受控选中节点 id（「删除选中」演示基于它）' },
-      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调，更新选中态' },
+      { name: 'selectedId', type: 'string?', description: '受控选中节点 id（「上方/下方插入、删除选中」都基于它）' },
+      { name: 'removalSelection', type: `'none' | 'prefer-previous' | 'prefer-next'?`, description: '删除选中行后的补选策略：默认不自动选中；prefer-previous / prefer-next 优先选上一行 / 下一行（可见序），另一侧兜底' },
+      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调，更新选中态；补选结果也经它回流宿主' },
       { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合' },
       { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（图标/标签/附加列）' },
     ],
-    codeExample: `const [nodes, setNodes] = useState(DEMO_TREE)
-const [selectedId, setSelectedId] = useState<string | undefined>()
-const seq = useRef(0)
-
-const insertNode = () => {
+    codeExample: `const insertAbove = () => {
   const node = { id: \`new-\${++seq.current}\`, label: \`新项目 \${seq.current}\` }
-  setNodes((prev) => [...prev, node]) // 新增行：高度展开 + 淡入
+  setNodes((prev) => insertSibling(prev, selectedId, node, -1)) // 选中行上方插入兄弟
+  setSelectedId(node.id)
+}
+
+const insertBelow = () => {
+  const node = { id: \`new-\${++seq.current}\`, label: \`新项目 \${seq.current}\` }
+  setNodes((prev) => insertSibling(prev, selectedId, node, 1)) // 选中行下方插入兄弟
   setSelectedId(node.id)
 }
 
 const deleteSelected = () => {
   if (!selectedId) return
-  setNodes((prev) => prev.filter((n) => n.id !== selectedId)) // 删除行：高度收起 + 淡出
-  setSelectedId(undefined)
+  // 只删数据；补选相邻行由 TreeView 的 removalSelection 负责，经 onSelect 回流
+  setNodes((prev) => removeNode(prev, selectedId))
 }
 
 return (
   <TreeView
     nodes={nodes}
+    selectedId={selectedId}
+    removalSelection="prefer-next"
+    onSelect={(node) => setSelectedId(node.id)}
+    renderNode={(node) => <span class="ui-kit-demo__tree-label">{node.label}</span>}
+  />
+)`,
+  },
+  {
+    id: 'tree-view-lazy-load',
+    name: 'TreeView 异步加载',
+    description:
+      '懒加载演示：展开带 lazy 标记的分支先注入「加载中…」行（进场动画）占位，模拟异步返回后整批替换为真实子级（再次触发进场动画）；展开/折叠状态由 TreeView 内部管理，onExpandedChange 只负责取数，无需受控 expandedIds。',
+    category: 'tree',
+    importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
+    props: [
+      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表；子级为空且带 lazy 标记的分支展开时触发加载' },
+      { name: 'onExpandedChange', type: '(node: T, expanded: boolean) => void?', description: '展开/折叠回调——懒加载在这里注入「加载中…」行并在异步返回后替换为真实子级' },
+      { name: 'selectedId', type: 'string?', description: '受控选中节点 id' },
+      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调' },
+      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容；「加载中…」行可按 id 前缀特判' },
+    ],
+    codeExample: `const handleExpandedChange = (node: DemoTreeNode, expanded: boolean) => {
+  if (!expanded || node.lazy !== true || node.children?.length) return
+  setNodes((prev) => setChildren(prev, node.id, [loadingRow(node.id)])) // 先注入「加载中…」
+  setTimeout(() => {
+    setNodes((prev) => setChildren(prev, node.id, awaitChildren(node))) // 异步返回真实子级
+  }, 600)
+}
+
+return (
+  <TreeView
+    nodes={nodes}
+    onExpandedChange={handleExpandedChange}
+    renderNode={(node) => <span class="ui-kit-demo__tree-label">{node.label}</span>}
+  />
+)`,
+  },
+  {
+    id: 'tree-view-big-data',
+    name: 'TreeView 大数据量',
+    description:
+      '大数据量演示：165 行（15 文件夹 × 10 文件）全展开的大树里上方/下方插入、删除选中仍流畅——增删高度动画每帧只做单元素 block 布局（一次测高后纯 px 过渡），成本不随节点数增长；树高固定，超出部分卡片内部滚动。',
+    category: 'tree',
+    importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
+    props: [
+      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表；大数据量下增删 diff 依旧只动增量行' },
+      { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合（本演示全展开）' },
+      { name: 'selectedId', type: 'string?', description: '受控选中节点 id' },
+      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调' },
+      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（标签/附加列）' },
+    ],
+    codeExample: `const folders = Array.from({ length: 15 }, (_, f) => ({
+  id: \`folder-\${f + 1}\`,
+  label: \`文件夹 \${f + 1}\`,
+  children: Array.from({ length: 10 }, (_, i) => ({
+    id: \`folder-\${f + 1}-file-\${i + 1}\`,
+    label: \`文件 \${f + 1}-\${i + 1}.txt\`,
+  })),
+}))
+
+return (
+  <TreeView
+    nodes={folders}
+    defaultExpandedIds={folders.map((n) => n.id)}
     selectedId={selectedId}
     onSelect={(node) => setSelectedId(node.id)}
     renderNode={(node) => <span class="ui-kit-demo__tree-label">{node.label}</span>}

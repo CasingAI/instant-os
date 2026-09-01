@@ -1160,9 +1160,15 @@ export function isInstantVmGuestClipboardMessage(
 
 /** 与 IVM 仓库 ivm-shm.ts 的 IVM_FILE_MAX_CHUNK 一致（32724）。 */
 const GUEST_FILE_MAX_CHUNK = 32724
-const GUEST_FILE_MAX_ENTRIES = 512
+/** 宿主→XP 一次复制操作允许的条目上限（文件+目录）。桥按 32724 字节/帧分包。 */
+const GUEST_FILE_MAX_ENTRIES = 4096
 
-function isFileEntryList(value: unknown): value is { path: string; size: number }[] {
+/**
+ * 文件清单条目校验。
+ * 目录条目语义：path 以 / 结尾且 size 为 0；文件条目：path 不以 / 结尾，size ≥ 0。
+ * 路径可含 / 表示嵌套（如 "docs/sub/a.txt"），保证父目录出现在子项之前。
+ */
+export function isFileEntryList(value: unknown): value is { path: string; size: number }[] {
   return (
     Array.isArray(value) &&
     value.length <= GUEST_FILE_MAX_ENTRIES &&
@@ -1173,7 +1179,9 @@ function isFileEntryList(value: unknown): value is { path: string; size: number 
         item.path.length > 0 &&
         typeof item.size === 'number' &&
         Number.isInteger(item.size) &&
-        item.size >= 0,
+        item.size >= 0 &&
+        // 目录条目的唯一合法形态：path 以 / 结尾且 size 为 0
+        (!item.path.endsWith('/') || item.size === 0),
     )
   )
 }

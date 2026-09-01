@@ -349,6 +349,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '当前是最简版（不含 tool call），重点验证标签 DSL 的格式遵循率与流式实时解析。',
     ],
   },
+  'nav-kit-demo': {
+    version: '页面栈 · Header 公共组件演示',
+    paragraphs: [
+      '导航组件演示集中展示系统公共「页面栈 + Header」组件套件（Page* 前缀）：进入/退出子页的转场动画、Headers 的返回/标题/操作三槽布局，以及操作按钮的各类状态。',
+      '页面栈动画与钥匙串/注册表一致：Header 交叉淡移、正文整页滑动、滚动位置保留，系统开启「减弱动态效果」时自动直切。',
+    ],
+  },
   'llm-playground': {
     version: 'LLM 调试实验台',
     paragraphs: [

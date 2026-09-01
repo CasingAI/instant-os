@@ -20,7 +20,11 @@ import {
   type ExfatSuperblock,
 } from '../files/files-image-exfat-volume.ts'
 import { filesLocationPathRoot } from '../files/files-path.ts'
-import { isImageLocationId, type FilesLocationId } from '../files/files-types.ts'
+import {
+  isImageLocationId,
+  isImagePartitionLocationId,
+  type FilesLocationId,
+} from '../files/files-types.ts'
 import { getFilesBytesByLocation } from '../files/files-storage.ts'
 import {
   DEVICE_CAPACITY_BYTES,
@@ -431,8 +435,13 @@ async function inspectImageVolume(
               partFs = undefined
             }
           }
+          const partitionId = `${record.id}:part${partition.index}`
+          // 分区是否可读：识别到 FAT/exFAT 文件系统即可读；引导区签名失败只标 unknown 仍留作挂载尝试
+          const partitionPathRoot = partFs
+            ? filesLocationPathRoot(`${record.id}:part${partition.index}` as FilesLocationId)
+            : undefined
           imageRoot.children.push({
-            id: `${record.id}:part${partition.index}`,
+            id: partitionId,
             kind: 'partition',
             label: partFs?.label || `分区 ${partition.index}${partition.active ? '（活动）' : ''}`,
             bytes: partition.sizeBytes,
@@ -440,6 +449,7 @@ async function inspectImageVolume(
             imageFile: imageRoot.imageFile,
             occupancy,
             fat: partFs,
+            pathRoot: partitionPathRoot,
           })
         }
         imageRoot.fat = imageRoot.children.find((child) => child.fat)?.fat
@@ -551,7 +561,9 @@ export async function loadDiskTree(): Promise<TreeNode> {
   const locations: FilesLocationId[] = [
     ...builtinAndMountVolumes.map((v) => parseLocationFromPath(v.path)),
     ...images.map((i) => i.id),
-  ].filter((id): id is FilesLocationId => id !== undefined)
+  ]
+    .filter((id): id is FilesLocationId => id !== undefined)
+    .filter((id) => !isImagePartitionLocationId(id))
 
   const bytesByLocation = new Map(
     (await getFilesBytesByLocation(locations)).map((entry) => [entry.locationId, entry.bytes]),
@@ -602,6 +614,7 @@ export async function loadDiskTree(): Promise<TreeNode> {
   let imageTotalBytes = 0
 
   for (const image of images) {
+    if (isImagePartitionLocationId(image.id)) continue
     if (!isImageLocationId(image.id)) continue
     const { node, bytes } = await inspectImageVolume(image)
     imageTotalBytes += bytes

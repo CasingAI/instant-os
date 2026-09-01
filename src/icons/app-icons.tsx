@@ -1429,3 +1429,26 @@ export function LlmPlaygroundIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function NavKitDemoIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#007aff" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 页面栈：两张叠放的卡片 */}
+        <rect x="14" y="12" width="36" height="40" rx="5" fill="rgba(255,255,255,0.55)" />
+        <rect x="19" y="17" width="26" height="30" rx="4" fill="rgba(255,255,255,0.95)" />
+        {/* 返回箭头 */}
+        <path
+          d="M28 26 l -7 6 7 6 M21 32 h16"
+          stroke="#007aff"
+          stroke-width="3.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          fill="none"
+        />
+        {/* 操作按钮占位 */}
+        <rect x="41" y="28" width="11" height="8" rx="2" fill="#007aff" opacity="0.85" />
+      </svg>
+    </AppIconTile>
+  )
+}
