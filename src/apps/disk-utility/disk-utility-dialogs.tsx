@@ -464,6 +464,29 @@ export function ScanDialog({
         ]
     : undefined
 
+  // intro 随流程阶段切换，单行省略显示，文案保持一行内可读完
+  const intro = repairApplying
+    ? '正在写入修复，完成后自动复扫验证'
+    : plan
+      ? plan.actions.length > 0
+        ? `修复将改写 FAT 表与目录项，共 ${plan.actions.length} 项操作，不动文件数据；建议先复制报告留档`
+        : '问题均无法自动修复，不会修改镜像'
+      : busy
+        ? report
+          ? '正在构建修复计划……'
+          : '正在扫描……不会修改镜像'
+        : !report
+          ? '只读取文件系统结构，不会修改镜像'
+          : report.status === 'issues'
+            ? '发现问题，可「开始修复」：仅改写 FAT 表与目录项，不动文件数据'
+            : report.status === 'clean'
+              ? repairResult
+                ? '修复完成，复扫未发现问题'
+                : '扫描完成，未发现问题'
+              : report.status === 'unsupported'
+                ? '暂不支持此文件系统，未做修改'
+                : '无法识别文件系统，未做修改'
+
   return (
     <WindowModal
       open
@@ -489,17 +512,7 @@ export function ScanDialog({
     >
       <div class="disk-utility-scan__body-header">
         <h2 class="disk-utility-scan__name">{state.label}</h2>
-        {plan && plan.actions.length > 0 ? (
-          <p class="disk-utility-scan__intro">
-            修复将直接修改镜像中的 FAT 表与目录项元数据，共 {plan.actions.length} 项操作；文件数据本身不会被移动。建议先「复制报告」留档。
-          </p>
-        ) : repairApplying ? (
-          <p class="disk-utility-scan__intro">正在写入修复，完成后会自动重新扫描验证……</p>
-        ) : (
-          <p class="disk-utility-scan__intro">
-            只读取「{state.label}」的文件系统结构，不会修改镜像；扫描可能需要一些时间。
-          </p>
-        )}
+        <p class="disk-utility-scan__intro">{intro}</p>
       </div>
       <table class="disk-utility-scan__table">
         <thead>

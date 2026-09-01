@@ -673,10 +673,13 @@
 }
 
 .disk-utility-scan__intro {
+  overflow: hidden;
   margin: 0;
   font-size: 11px;
   line-height: 1.45;
   color: #555;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .disk-utility-scan__table {

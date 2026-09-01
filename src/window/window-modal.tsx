@@ -25,6 +25,8 @@ export type WindowModalAlign = 'center' | 'top'
 
 export type WindowModalTitleAlign = 'center' | 'left'
 
+export type WindowModalTitleSize = 'default' | 'large'
+
 export type WindowModalProps = {
   open: boolean
   title: string
@@ -32,6 +34,8 @@ export type WindowModalProps = {
   subtitle?: string
   /** 标题对齐方式，默认居中 */
   titleAlign?: WindowModalTitleAlign
+  /** 标题字号档位，默认 'default'；'large' 用于需要强调的对话框标题 */
+  titleSize?: WindowModalTitleSize
   role?: 'dialog' | 'alertdialog'
   themeColor?: string
   wide?: boolean
@@ -104,13 +108,14 @@ export function WindowModal({
   open,
   title,
   subtitle,
-  titleAlign = 'center',
-  role = 'dialog',
+  titleAlign,
+  titleSize,
+  role,
   themeColor,
   wide,
   scrollBody,
   heightType,
-  align = 'center',
+  align,
   titleId,
   panelClass,
   onClose,
@@ -128,6 +133,7 @@ export function WindowModal({
     title,
     subtitle,
     titleAlign,
+    titleSize,
     role,
     themeColor,
     wide,
@@ -148,6 +154,7 @@ export function WindowModal({
       title,
       subtitle,
       titleAlign,
+      titleSize,
       role,
       themeColor,
       wide,
@@ -239,7 +246,12 @@ export function WindowModal({
       >
         <div class={headerClass}>
           <div class="window-modal__title-block">
-            <h3 class="window-modal__title" id={displayTitleId}>
+            <h3
+              class={`window-modal__title${
+                display.titleSize === 'large' ? ' window-modal__title--large' : ''
+              }`}
+              id={displayTitleId}
+            >
               {display.title}
             </h3>
             {display.subtitle && (

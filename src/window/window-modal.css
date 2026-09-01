@@ -144,6 +144,11 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
+.window-modal__title--large {
+  font-size: 15px;
+  letter-spacing: -0.1px;
+}
+
 .window-modal__subtitle {
   margin: 2px 0 0;
   font-size: 12px;
@@ -546,6 +551,10 @@
     line-height: 1.35;
   }
 
+  .window-modal__title--large {
+    font-size: 14px;
+  }
+
   .window-modal__body {
     padding: 10px 12px 2px;
   }
@@ -603,6 +612,10 @@
 
   .window-modal__title {
     font-size: 11px;
+  }
+
+  .window-modal__title--large {
+    font-size: 13px;
   }
 
   .window-modal__body {
