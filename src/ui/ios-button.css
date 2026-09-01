@@ -96,6 +96,27 @@
   font-weight: 700;
 }
 
+.ios-button__spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ios-button-spin 0.7s linear infinite;
+}
+
+.ios-button--secondary .ios-button__spinner {
+  border-color: rgba(0, 0, 0, 0.12);
+  border-top-color: #555;
+}
+
+@keyframes ios-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ios-button--secondary:active:not(:disabled) {
   color: var(--ios-button-color-active);
   background: var(--ios-button-bg-active);

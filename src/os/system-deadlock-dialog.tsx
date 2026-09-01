@@ -34,6 +34,7 @@ export function SystemDeadlockDialog() {
       role="alertdialog"
       title={SYSTEM_DEADLOCK_DIALOG_COPY.title}
       panelClass="system-deadlock-dialog"
+      actionsLayout="row"
       actions={[
         {
           key: 'continue',

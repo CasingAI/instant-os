@@ -10,18 +10,6 @@
   pointer-events: auto;
 }
 
-.system-deadlock-dialog .window-modal__actions--pair,
-.system-deadlock-dialog .window-modal__actions--many {
-  flex-direction: row;
-  align-items: stretch;
-}
-
-.system-deadlock-dialog .window-modal__actions--pair .window-modal__btn,
-.system-deadlock-dialog .window-modal__actions--many .window-modal__btn {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
 .system-deadlock-dialog__diag-hint {
   margin: 12px 0 0;
   font-size: 12px;
@@ -37,17 +25,4 @@
   background: #f5f5f5;
   font-size: 12px;
   cursor: pointer;
-}
-
-@media (max-width: 420px) {
-  .system-deadlock-dialog .window-modal__actions--pair,
-  .system-deadlock-dialog .window-modal__actions--many {
-    flex-direction: column;
-  }
-
-  .system-deadlock-dialog .window-modal__actions--pair .window-modal__btn,
-  .system-deadlock-dialog .window-modal__actions--many .window-modal__btn {
-    flex: none;
-    width: 100%;
-  }
 }

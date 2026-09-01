@@ -10,6 +10,8 @@ export type IosButtonProps = {
   size?: IosButtonSize
   /** 方形图标按钮（导航箭头等） */
   icon?: boolean
+  /** 异步进行中：以转圈替换文案并标记 aria-busy */
+  busy?: boolean
   type?: 'button' | 'submit' | 'reset'
   disabled?: boolean
   title?: string
@@ -24,6 +26,7 @@ export function IosButton({
   tone = 'secondary',
   size = 'default',
   icon = false,
+  busy = false,
   type = 'button',
   disabled = false,
   title,
@@ -36,6 +39,7 @@ export function IosButton({
     `ios-button--${tone}`,
     size === 'compact' ? 'ios-button--compact' : undefined,
     icon ? 'ios-button--icon' : undefined,
+    busy ? 'ios-button--busy' : undefined,
     className,
   ]
     .filter(Boolean)
@@ -47,10 +51,19 @@ export function IosButton({
       class={classes}
       disabled={disabled}
       title={title}
-      aria-label={ariaLabel}
+      aria-busy={busy || undefined}
+      aria-label={busy ? (ariaLabel ?? extractText(children)) : ariaLabel}
       onClick={onClick}
     >
-      {children}
+      {busy ? <span class="ios-button__spinner" aria-hidden="true" /> : children}
     </button>
   )
+}
+
+// busy 时文案被 spinner 替换，屏幕阅读器仍需从 children 里取到可读标签
+function extractText(children: ComponentChildren): string | undefined {
+  if (typeof children === 'string') return children
+  if (typeof children === 'number') return String(children)
+  if (Array.isArray(children)) return children.map(extractText).filter(Boolean).join('') || undefined
+  return undefined
 }

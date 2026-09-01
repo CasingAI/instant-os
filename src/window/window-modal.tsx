@@ -3,6 +3,7 @@ import { createContext } from 'preact'
 import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
 import { CloseIcon } from '../icons/app-icons.tsx'
+import { IosButton } from '../ui/ios-button.tsx'
 import './window-modal.css'
 
 export const WindowModalOverlayContext = createContext<HTMLElement | undefined>(undefined)
@@ -26,6 +27,9 @@ export type WindowModalAlign = 'center' | 'top'
 export type WindowModalTitleAlign = 'center' | 'left'
 
 export type WindowModalTitleSize = 'default' | 'large'
+
+/** actions 按钮排布：'auto' 按数量自动（≤2 个横排等分、>2 个纵排）；'row' 恒为横排等分（窄容器自动塌缩为纵排）；'column' 恒为纵排 */
+export type WindowModalActionsLayout = 'auto' | 'row' | 'column'
 
 export type WindowModalProps = {
   open: boolean
@@ -54,6 +58,8 @@ export type WindowModalProps = {
   actions?: WindowModalAction[]
   /** 显示在 header 标题右侧的操作按钮 */
   headerActions?: WindowModalAction[]
+  /** actions 排布方式，默认 'auto' 按按钮数量自动切换横排/纵排 */
+  actionsLayout?: WindowModalActionsLayout
 }
 
 function slugifyTitle(title: string): string {
@@ -68,19 +74,16 @@ function ActionButton({
   closing: boolean
 }): preact.JSX.Element {
   return (
-    <button
+    <IosButton
       key={action.key ?? action.label}
-      type="button"
-      class={`window-modal__btn window-modal__btn--${action.tone ?? 'secondary'}${
-        action.busy ? ' window-modal__btn--busy' : ''
-      }`}
+      class="window-modal__btn"
+      tone={action.tone ?? 'secondary'}
+      busy={action.busy}
       disabled={action.disabled || closing}
-      aria-busy={action.busy || undefined}
-      aria-label={action.busy ? action.label : undefined}
       onClick={() => void action.onClick()}
     >
-      {action.busy ? <span class="window-modal__btn-spinner" aria-hidden="true" /> : action.label}
-    </button>
+      {action.label}
+    </IosButton>
   )
 }
 
@@ -92,15 +95,9 @@ function CloseButton({
   onClick: () => void
 }): preact.JSX.Element {
   return (
-    <button
-      type="button"
-      class="window-modal__close"
-      aria-label="关闭"
-      disabled={disabled}
-      onClick={onClick}
-    >
+    <IosButton icon class="window-modal__close" aria-label="关闭" disabled={disabled} onClick={onClick}>
       <CloseIcon />
-    </button>
+    </IosButton>
   )
 }
 
@@ -124,6 +121,7 @@ export function WindowModal({
   footer,
   actions,
   headerActions,
+  actionsLayout,
 }: WindowModalProps) {
   const overlayRoot = useContext(WindowModalOverlayContext)
   const [visible, setVisible] = useState(open)
@@ -148,6 +146,7 @@ export function WindowModal({
     footer,
     actions,
     headerActions,
+    actionsLayout,
   })
   if (open) {
     contentRef.current = {
@@ -169,12 +168,18 @@ export function WindowModal({
       footer,
       actions,
       headerActions,
+      actionsLayout,
     }
   }
   const display = contentRef.current
   const displayActions = display.actions
   const displayHeaderActions = display.headerActions
-  const actionsMode = (displayActions?.length ?? 0) > 2 ? 'many' : 'pair'
+  const actionsMode =
+    display.actionsLayout === 'row'
+      ? 'row'
+      : display.actionsLayout === 'column' || (displayActions?.length ?? 0) > 2
+        ? 'many'
+        : 'pair'
   const displayTitleId = useMemo(
     () => display.titleId ?? `window-modal-${slugifyTitle(display.title)}-title`,
     [display.title, display.titleId],

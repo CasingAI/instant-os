@@ -222,37 +222,10 @@
   flex: 0 0 auto;
 }
 
-.window-modal__close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.28);
-  border-radius: 5px;
-  background: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
-  color: #5a5a5a;
-  cursor: pointer;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 1px 2px rgba(0, 0, 0, 0.14);
-}
-
+/* 关闭叉走 IosButton icon 档（26×26）；这里只补 IosButton 没有的悬停反馈 */
 .window-modal__close:hover:not(:disabled) {
-  background: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
   color: #1a1a1a;
-}
-
-.window-modal__close:active:not(:disabled) {
-  background: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.18);
-}
-
-.window-modal__close:disabled {
-  opacity: 0.5;
-  cursor: default;
+  filter: brightness(1.04);
 }
 
 .window-modal__body {
@@ -401,123 +374,33 @@
   text-align: center;
 }
 
-.window-modal__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 68px;
-  padding: 5px 14px;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.28);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  color: #333;
-  background: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 1px 0 rgba(255, 255, 255, 0.35);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-  cursor: pointer;
+/* actionsLayout="row"：不限按钮数量一律横排等分；面板过窄时塌缩为纵排 */
+.window-modal:has(.window-modal__actions--row) {
+  container-type: inline-size;
 }
 
-.window-modal__btn-spinner {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: window-modal-btn-spin 0.7s linear infinite;
+.window-modal__actions--row {
+  flex-wrap: nowrap;
 }
 
-.window-modal__btn--busy {
-  min-width: 68px;
+.window-modal__actions--row .window-modal__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  white-space: normal;
+  text-align: center;
 }
 
-.window-modal__btn--secondary .window-modal__btn-spinner,
-.window-modal__btn:not(.window-modal__btn--primary):not(.window-modal__btn--danger)
-  .window-modal__btn-spinner {
-  border-color: rgba(0, 0, 0, 0.12);
-  border-top-color: #555;
-}
-
-.window-modal__btn--primary:disabled .window-modal__btn-spinner {
-  border-color: rgba(255, 255, 255, 0.45);
-  border-top-color: #fff;
-}
-
-@keyframes window-modal-btn-spin {
-  to {
-    transform: rotate(360deg);
+@container (max-width: 330px) {
+  .window-modal__actions--row {
+    flex-direction: column;
+    align-items: stretch;
   }
-}
 
-.window-modal__btn--secondary:active:not(:disabled) {
-  background: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-/* 主按钮与 iCode 分段控件 / 发布按钮同款蓝色，避免 color-mix + var 在渐变中失效 */
-.window-modal__btn--primary {
-  color: #fff;
-  background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
-  border-color: #145da8;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    0 1px 0 rgba(255, 255, 255, 0.25);
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
-}
-
-.window-modal__btn--primary:active:not(:disabled) {
-  background: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-
-.window-modal__btn--primary:disabled {
-  color: rgba(255, 255, 255, 0.92);
-  background: linear-gradient(180deg, #d8ebfc 0%, #b3d7f8 55%, #9ecbf5 100%);
-  border-color: #a8cff0;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
-    0 1px 0 rgba(255, 255, 255, 0.2);
-  text-shadow: none;
-  opacity: 1;
-  cursor: default;
-}
-
-.window-modal__btn--secondary {
-  color: #333;
-  background: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
-  border-color: rgba(0, 0, 0, 0.28);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 1px 0 rgba(255, 255, 255, 0.35);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-}
-
-.window-modal__btn--danger {
-  color: #fff;
-  background: linear-gradient(180deg, #ff6259 0%, #d92121 48%, #b80000 100%);
-  border-color: #8b0000;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 1px 2px rgba(0, 0, 0, 0.25);
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
-}
-
-.window-modal__btn--danger:active:not(:disabled) {
-  background: linear-gradient(180deg, #e54b42 0%, #c01818 48%, #9a0000 100%);
-}
-
-.window-modal__btn:disabled {
-  cursor: default;
-}
-
-.window-modal__btn--secondary:disabled,
-.window-modal__btn--danger:disabled {
-  opacity: 0.5;
+  .window-modal__actions--row .window-modal__btn {
+    flex: none;
+    width: 100%;
+  }
 }
 
 @container app-window (max-width: 520px) {
@@ -579,10 +462,6 @@
     gap: 8px;
     padding: 8px 10px 10px;
   }
-
-  .window-modal__btn {
-    padding-block: 7px;
-  }
 }
 
 @container app-window (max-width: 360px) {
@@ -635,8 +514,9 @@
     gap: 6px;
   }
 
-  .window-modal__btn {
-    font-size: 11px;
-    padding: 6px 10px;
+  /* 按钮皮肤归 IosButton 后，窄容器降档走 --ios-button-* 变量（对 headerActions 同样生效） */
+  .window-modal {
+    --ios-button-font-size: 11px;
+    --ios-button-padding: 0 10px;
   }
 }

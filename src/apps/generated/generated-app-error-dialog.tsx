@@ -136,6 +136,7 @@ export function GeneratedAppErrorDialog({
         themeColor={themeColor}
         panelClass="generated-app-error-alert-modal"
         onClose={onIgnore}
+        actionsLayout="row"
         actions={alertActions}
       >
         <div class="generated-app-error-alert">
@@ -160,6 +161,7 @@ export function GeneratedAppErrorDialog({
         themeColor={themeColor}
         panelClass="generated-app-error-details-modal"
         onClose={onCloseDetails}
+        actionsLayout="row"
         actions={detailActions}
       >
         <div class="generated-app-error-details">
