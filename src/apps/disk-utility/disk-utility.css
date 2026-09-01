@@ -121,6 +121,11 @@
   white-space: nowrap;
 }
 
+/* 占用未知（挂载卷）：比常规数值更弱化 */
+.disk-utility__tree-size--unknown {
+  color: #a1a1a6;
+}
+
 .disk-utility__tree-pct {
   font-size: 11px;
   color: #8e8e93;

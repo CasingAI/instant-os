@@ -391,7 +391,7 @@ function DetailPanel({
 
   const vmLocked = isVmOccupied(node)
   const mapSegments = mapNode ? buildDiskMap(mapNode) : undefined
-  const showUsed = node.kind !== 'image-root' && node.kind !== 'partition' && node.bytes !== undefined
+  const showUsed = node.kind !== 'image-root' && node.kind !== 'partition'
   const showFat =
     node.fat &&
     (node.kind === 'partition' ||
@@ -419,7 +419,12 @@ function DetailPanel({
         {node.writable !== undefined ? (
           <InfoRow name="权限" value={node.writable ? '可读写' : '只读'} />
         ) : undefined}
-        {showUsed ? <InfoRow name="已使用" value={formatStorageSize(node.bytes ?? 0)} /> : undefined}
+        {showUsed ? (
+          <InfoRow
+            name="已使用"
+            value={node.bytes !== undefined ? formatStorageSize(node.bytes) : '未知'}
+          />
+        ) : undefined}
         {node.capacityBytes !== undefined ? (
           <InfoRow name="总容量" value={formatStorageSize(node.capacityBytes)} />
         ) : undefined}
@@ -920,12 +925,14 @@ export function DiskUtilityApp() {
                   {nodeIcon(node)}
                   <span class="disk-utility__tree-label">{node.label}</span>
                 </span>
-                <span class="disk-utility__tree-size">
+                <span
+                  class={`disk-utility__tree-size${node.bytes === undefined ? ' disk-utility__tree-size--unknown' : ''}`}
+                >
                   {showCapacity
                     ? `${formatBytes(node.bytes)} / ${formatBytes(node.capacityBytes)}`
                     : node.bytes !== undefined
                       ? formatBytes(node.bytes)
-                      : ''}
+                      : '未知'}
                 </span>
                 <span class="disk-utility__tree-pct">
                   {capacityPct !== undefined ? `${capacityPct.toFixed(0)}%` : ''}

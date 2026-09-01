@@ -564,6 +564,8 @@ export async function loadDiskTree(): Promise<TreeNode> {
   ]
     .filter((id): id is FilesLocationId => id !== undefined)
     .filter((id) => !isImagePartitionLocationId(id))
+    // 挂载卷内容在本机文件夹（File System Access），不进 IndexedDB 统计，查询无意义
+    .filter((id) => !id.startsWith('mount:'))
 
   const bytesByLocation = new Map(
     (await getFilesBytesByLocation(locations)).map((entry) => [entry.locationId, entry.bytes]),
@@ -590,19 +592,17 @@ export async function loadDiskTree(): Promise<TreeNode> {
   }
 
   /* ── 挂载卷 ── */
+  // 占用未知：File System Access API 没有目录容量/用量接口，逐文件遍历代价无上界，
+  // 故不设 bytes（IndexedDB 统计口径对挂载卷恒为 0，不代表真实占用）。
   const mountChildren: TreeNode[] = []
-  let mountTotalBytes = 0
 
   for (const volume of builtinAndMountVolumes) {
     const locationId = parseLocationFromPath(volume.path)
     if (!locationId || !locationId.startsWith('mount:')) continue
-    const bytes = bytesByLocation.get(locationId) ?? 0
-    mountTotalBytes += bytes
     mountChildren.push({
       id: locationId,
       kind: 'volume',
       label: volume.label,
-      bytes,
       locationId,
       pathRoot: volume.path,
       writable: volume.writable,
@@ -637,7 +637,6 @@ export async function loadDiskTree(): Promise<TreeNode> {
       id: 'container:mount',
       kind: 'container',
       label: '挂载卷',
-      bytes: mountTotalBytes,
       children: mountChildren,
     })
   }
