@@ -8,7 +8,7 @@ export type ComponentDemo = {
   id: string
   name: string
   description: string
-  category: 'form' | 'settings' | 'navigation' | 'picker' | 'other' | 'window'
+  category: 'form' | 'settings' | 'navigation' | 'tree' | 'picker' | 'other' | 'window'
   importPath: string
   props: ComponentProp[]
   codeExample: string
@@ -395,7 +395,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'tree-view',
     name: 'TreeView',
-    description: '通用折叠树：递归子级、展开/折叠带滑出/滑入动画、单选高亮；行内容经 renderNode 注入。支持双击展开/收起与键盘导航（↑/↓ 选中、→/← 展开收起、Home/End/Enter）',
+    description: '通用折叠树：递归子级、展开/折叠带滑出/滑入动画、增删行带高度展开/收起动画、单选高亮；行内容经 renderNode 注入。支持双击展开/收起与键盘导航（↑/↓ 选中、→/← 展开收起、Home/End/Enter）',
     category: 'navigation',
     importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
     props: [
@@ -421,6 +421,45 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     </>
   )}
 />`,
+  },
+  {
+    id: 'tree-view-interactive',
+    name: 'TreeView 增删动效',
+    description:
+      'TreeView 动态增删演示：插入节点带高度展开 + 淡入、删除带高度收起 + 淡出，与展开/折叠动画同一套视觉语言；增删均由数据驱动（派生新 nodes 数组），TreeView 内部 diff 触发对应行动画。',
+    category: 'tree',
+    importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
+    props: [
+      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表；增删即传派生新数组，行动画由 TreeView 内部 diff 触发' },
+      { name: 'selectedId', type: 'string?', description: '受控选中节点 id（「删除选中」演示基于它）' },
+      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调，更新选中态' },
+      { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合' },
+      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（图标/标签/附加列）' },
+    ],
+    codeExample: `const [nodes, setNodes] = useState(DEMO_TREE)
+const [selectedId, setSelectedId] = useState<string | undefined>()
+const seq = useRef(0)
+
+const insertNode = () => {
+  const node = { id: \`new-\${++seq.current}\`, label: \`新项目 \${seq.current}\` }
+  setNodes((prev) => [...prev, node]) // 新增行：高度展开 + 淡入
+  setSelectedId(node.id)
+}
+
+const deleteSelected = () => {
+  if (!selectedId) return
+  setNodes((prev) => prev.filter((n) => n.id !== selectedId)) // 删除行：高度收起 + 淡出
+  setSelectedId(undefined)
+}
+
+return (
+  <TreeView
+    nodes={nodes}
+    selectedId={selectedId}
+    onSelect={(node) => setSelectedId(node.id)}
+    renderNode={(node) => <span class="ui-kit-demo__tree-label">{node.label}</span>}
+  />
+)`,
   },
   {
     id: 'emoji-picker-popover',
@@ -536,6 +575,7 @@ export const COMPONENT_CATEGORIES = [
   { id: 'form', name: '表单控件' },
   { id: 'settings', name: '设置组件' },
   { id: 'navigation', name: '导航交互' },
+  { id: 'tree', name: '树动效' },
   { id: 'picker', name: '选择器' },
   { id: 'other', name: '其他' },
   { id: 'window', name: '窗口系统' },

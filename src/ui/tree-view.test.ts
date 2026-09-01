@@ -3,7 +3,7 @@
  * 运行：node --experimental-strip-types src/ui/tree-view.test.ts
  */
 import assert from 'node:assert/strict'
-import { buildTreeParentMap, flattenVisibleTree } from './tree-view-model.ts'
+import { buildTreeParentMap, collectTreeIds, flattenVisibleTree } from './tree-view-model.ts'
 
 type Node = { id: string; children?: Node[] }
 
@@ -65,6 +65,12 @@ function ids(nodes: Node[]): string[] {
   assert.equal(parents.get('b1')?.id, 'b')
   assert.equal(parents.has('c'), false) // 根节点无父
   assert.equal(parents.size, 5)
+}
+
+{
+  // 全集 id 收集：深度优先、不看展开态（插入/删除动画 diff 用）
+  assert.deepEqual(collectTreeIds(tree), ['a', 'a1', 'a1i', 'a1j', 'a2', 'b', 'b1', 'c'])
+  assert.deepEqual(collectTreeIds([]), [])
 }
 
 console.log('tree-view.test.ts ok')

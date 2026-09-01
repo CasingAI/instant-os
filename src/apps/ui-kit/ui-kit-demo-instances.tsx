@@ -1061,3 +1061,97 @@ export function TreeViewDemo() {
     </DemoVariants>
   )
 }
+
+export function TreeViewInteractiveDemo() {
+  const [selectedId, setSelectedId] = useState<string | undefined>('photos-2025-08')
+  const [treeNodes, setTreeNodes] = useState<DemoTreeNode[]>(DEMO_TREE)
+  const seqRef = useRef(0)
+
+  const insertNode = () => {
+    const node: DemoTreeNode = {
+      id: `new-${++seqRef.current}`,
+      label: `新项目 ${seqRef.current}`,
+      size: 12_000_000 * seqRef.current,
+    }
+    setTreeNodes((prev) => {
+      // 选中节点已有子级则插到其下（演示分支内插入），否则插到根层末（演示根层插入）
+      const target = selectedId ? findNodeById(prev, selectedId) : undefined
+      return insertNodeInto(prev, target?.children?.length ? selectedId : undefined, node)
+    })
+    setSelectedId(node.id)
+  }
+
+  const deleteSelected = () => {
+    if (!selectedId) return
+    setTreeNodes((prev) => removeNodeById(prev, selectedId))
+    setSelectedId(undefined)
+  }
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="插入 / 删除选中（行高展开收起 + 淡入淡出）" wide>
+        <div class="ui-kit-demo__tree">
+          <TreeView
+            nodes={treeNodes}
+            defaultExpandedIds={['photos', 'photos-2025', 'downloads']}
+            selectedId={selectedId}
+            onSelect={(node) => setSelectedId(node.id)}
+            renderNode={(node) => (
+              <>
+                <span class="ui-kit-demo__tree-label">{node.label}</span>
+                <span class="ui-kit-demo__tree-size">{formatStorageSize(node.size)}</span>
+              </>
+            )}
+          />
+        </div>
+        <div class="ui-kit-demo__tree-actions">
+          <button type="button" class="ui-kit-demo__ghost-btn" onClick={insertNode}>
+            插入节点
+          </button>
+          <button
+            type="button"
+            class="ui-kit-demo__ghost-btn ui-kit-demo__ghost-btn--accent"
+            onClick={deleteSelected}
+            disabled={!selectedId}
+          >
+            删除选中
+          </button>
+        </div>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+/** 递归查找节点（判断「选中节点是否已有子级」用）。 */
+function findNodeById(nodes: DemoTreeNode[], id: string): DemoTreeNode | undefined {
+  for (const item of nodes) {
+    if (item.id === id) return item
+    if (item.children) {
+      const found = findNodeById(item.children, id)
+      if (found) return found
+    }
+  }
+  return undefined
+}
+
+/** 在 targetId 节点下追加（targetId 缺省则追加到根层末尾），演示插入动画。 */
+function insertNodeInto(
+  nodes: DemoTreeNode[],
+  targetId: string | undefined,
+  node: DemoTreeNode,
+): DemoTreeNode[] {
+  if (targetId === undefined) return [...nodes, node]
+  return nodes.map((item) => {
+    if (item.id === targetId) return { ...item, children: [...(item.children ?? []), node] }
+    if (item.children) return { ...item, children: insertNodeInto(item.children, targetId, node) }
+    return item
+  })
+}
+
+/** 递归删除 targetId 节点，演示收起动画。 */
+function removeNodeById(nodes: DemoTreeNode[], targetId: string): DemoTreeNode[] {
+  const filtered = nodes.filter((item) => item.id !== targetId)
+  return filtered.map((item) =>
+    item.children ? { ...item, children: removeNodeById(item.children, targetId) } : item,
+  )
+}

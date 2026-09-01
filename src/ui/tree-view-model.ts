@@ -42,6 +42,20 @@ export function buildTreeParentMap<T extends TreeViewNodeLike<T>>(
   return map
 }
 
+/** 深度优先收集整棵树的全部节点 id（不看展开态；插入/删除动画的增删 diff 用）。 */
+export function collectTreeIds<T extends TreeViewNodeLike<T>>(nodes: readonly T[]): string[] {
+  const ids: string[] = []
+  const walk = (list: readonly T[]): void => {
+    for (const node of list) {
+      ids.push(node.id)
+      const children = node.children
+      if (children && children.length > 0) walk(children)
+    }
+  }
+  walk(nodes)
+  return ids
+}
+
 /** node 是否存在 id 为 targetId 的后代（折叠分支导致选中项隐身时判定用）。 */
 export function nodeHasDescendant<T extends TreeViewNodeLike<T>>(
   node: T,

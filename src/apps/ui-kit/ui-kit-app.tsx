@@ -25,6 +25,7 @@ import {
   HelpHintDemo,
   PopoverDemo,
   TreeViewDemo,
+  TreeViewInteractiveDemo,
 } from './ui-kit-demo-instances.tsx'
 import './ui-kit.css'
 
@@ -59,6 +60,7 @@ const DEMO_COMPONENTS: Record<string, () => preact.JSX.Element> = {
   'help-hint': HelpHintDemo,
   'popover': PopoverDemo,
   'tree-view': TreeViewDemo,
+  'tree-view-interactive': TreeViewInteractiveDemo,
 }
 
 function buildCategorySections(): CategorySection[] {

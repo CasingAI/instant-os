@@ -48,10 +48,52 @@
   transition: visibility 0s;
 }
 
+/* 增删行动画：新行高度从 0 展开、把下方行平滑推下并淡入；被删行收起归零、下方行回落并淡出。
+   高度不直接过渡 auto（auto 不可插值），由 JS 在 layout effect 里测一次自然高（scrollHeight）
+   写死 px 再触发 height 过渡：每帧只做单元素 block 高度布局，避免每帧重解嵌套 grid 轨道
+   （0fr↔auto 轨道动画在多层嵌套/大树上掉帧明显）。行本体 min-height:28px 不挡，包裹层裁剪。 */
+.tree-view__enter {
+  height: 0;
+  overflow: hidden;
+  transition: height 0.22s ease;
+}
+
+.tree-view__leave {
+  /* 起始为自然高：JS 先钉住实测 px 再收到 0，给过渡明确起点 */
+  overflow: hidden;
+  transition: height 0.22s ease;
+}
+
+.tree-view__enter > .tree-view__row {
+  animation: tree-view-row-fade-in 220ms ease;
+}
+
+.tree-view__leave > .tree-view__row {
+  /* forwards 兜底：清空定时器略晚时保持淡出终态，不闪回原行 */
+  animation: tree-view-row-fade-out 220ms ease forwards;
+}
+
+@keyframes tree-view-row-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes tree-view-row-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tree-view__branch,
-  .tree-view__branch-inner {
+  .tree-view__branch-inner,
+  .tree-view__enter,
+  .tree-view__leave,
+  .tree-view__enter > .tree-view__row,
+  .tree-view__leave > .tree-view__row {
     transition: none;
+    animation: none;
   }
 }
 
