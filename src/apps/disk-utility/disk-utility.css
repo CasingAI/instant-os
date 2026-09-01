@@ -818,6 +818,23 @@
   overflow-wrap: anywhere;
 }
 
+.disk-utility-scan__repair-note {
+  margin: 9px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #636366;
+}
+
+.disk-utility-scan__result {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(52, 199, 89, 0.14);
+  font-size: 11px;
+  line-height: 1.45;
+  color: #1d7a34;
+}
+
 @container app-window (max-width: 520px) {
   .disk-utility-scan__stats {
     grid-template-columns: 1fr;

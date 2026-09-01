@@ -77,9 +77,32 @@ export type DiskScanOptions = {
   partition?: DiskPartitionInfo
   signal?: AbortSignal
   onItemUpdate?: (id: DiskScanItemId, state: DiskScanItemState) => void
+  /** 修复用：扫描完成时交出簇级结构化数据，普通扫描不传则零开销 */
+  collect?: (collection: FatScanCollection) => void
 }
 
-type FatGeometry = {
+export type FatEntryRecord = {
+  path: string
+  directory: boolean
+  firstCluster: number
+  size: number
+  chain: number[]
+  /** 目录项 32 字节的镜像绝对偏移；FAT32 根目录链等无目录项的记录缺省 */
+  entryOffset?: number
+}
+
+export type FatScanCollection = {
+  geometry: FatGeometry
+  /** FAT 第 1 份副本的完整字节 */
+  fat: Uint8Array
+  allocated: number[]
+  orphan: number[]
+  reachable: Set<number>
+  references: Map<number, string[]>
+  entries: FatEntryRecord[]
+}
+
+export type FatGeometry = {
   variant: 'FAT12' | 'FAT16' | 'FAT32'
   base: number
   volumeBytes: number
@@ -108,6 +131,7 @@ type ScanContext = {
   issues: FatIssue[]
   reachable: Set<number>
   references: Map<number, string[]>
+  entries: FatEntryRecord[]
   entriesSeen: number
   files: number
   directories: number
@@ -246,7 +270,7 @@ function clusterOffset(geometry: FatGeometry, cluster: number): number {
   return geometry.base + (geometry.dataStartSector + (cluster - 2) * geometry.sectorsPerCluster) * geometry.bytesPerSector
 }
 
-function fatEntryFromBytes(geometry: FatGeometry, fat: Uint8Array, cluster: number): number {
+export function fatEntryFromBytes(geometry: FatGeometry, fat: Uint8Array, cluster: number): number {
   if (geometry.variant === 'FAT12') {
     const offset = Math.floor(cluster * 3 / 2)
     const pair = fat[offset]! | (fat[offset + 1]! << 8)
@@ -256,13 +280,13 @@ function fatEntryFromBytes(geometry: FatGeometry, fat: Uint8Array, cluster: numb
   return u32(fat, cluster * 4) & 0x0fffffff
 }
 
-function isEoc(geometry: FatGeometry, value: number): boolean {
+export function isEoc(geometry: FatGeometry, value: number): boolean {
   if (geometry.variant === 'FAT12') return value >= 0xff8
   if (geometry.variant === 'FAT16') return value >= 0xfff8
   return value >= 0x0ffffff8
 }
 
-function isBad(geometry: FatGeometry, value: number): boolean {
+export function isBad(geometry: FatGeometry, value: number): boolean {
   if (geometry.variant === 'FAT12') return value === 0x0ff7
   if (geometry.variant === 'FAT16') return value === 0xfff7
   return value === 0x0ffffff7
@@ -452,7 +476,7 @@ async function walkDirectory(
   fat: Uint8Array,
   path: string,
   chain: number[],
-  rootFixed?: Uint8Array,
+  rootDir?: { bytes: Uint8Array; offset: number },
   depth = 0,
 ): Promise<void> {
   if (depth > MAX_DIRECTORY_DEPTH) {
@@ -462,7 +486,7 @@ async function walkDirectory(
     })
     return
   }
-  const bytes = rootFixed ?? await readDirectoryBytes(context, chain)
+  const bytes = rootDir?.bytes ?? await readDirectoryBytes(context, chain)
   let pendingLfn = ''
   let pendingLfnChecksum: number | undefined
   let pendingLfnSequence = 0
@@ -519,6 +543,20 @@ async function walkDirectory(
     const size = u32(entry, 28)
     const expected = directory ? undefined : Math.ceil(size / context.geometry.clusterBytes)
     const itemChain = walkChain(context, fat, firstCluster, itemPath, expected)
+    const entryOffset = rootDir
+      ? rootDir.offset + offset
+      : chain.length > 0
+        ? clusterOffset(context.geometry, chain[Math.floor(offset / context.geometry.clusterBytes)]!) +
+          (offset % context.geometry.clusterBytes)
+        : undefined
+    context.entries.push({
+      path: itemPath,
+      directory,
+      firstCluster,
+      size,
+      chain: itemChain,
+      ...(entryOffset !== undefined ? { entryOffset } : {}),
+    })
     if (directory) {
       context.directories += 1
       await walkDirectory(context, fat, itemPath, itemChain, undefined, depth + 1)
@@ -570,6 +608,7 @@ async function scanFat(options: DiskScanOptions, totalBytes: number, startedAt: 
     issues,
     reachable: new Set<number>(),
     references: new Map<number, string[]>(),
+    entries: [],
     entriesSeen: 0,
     files: 0,
     directories: 0,
@@ -617,11 +656,12 @@ async function scanFat(options: DiskScanOptions, totalBytes: number, startedAt: 
   update('walk-directory', { status: 'running', note: '遍历目录树' })
   if (geometry.variant === 'FAT32') {
     const rootChain = walkChain(context, fat, geometry.rootCluster, '', undefined)
+    context.entries.push({ path: '', directory: true, firstCluster: geometry.rootCluster, size: 0, chain: rootChain })
     await walkDirectory(context, fat, '', rootChain)
   } else {
     const rootOffset = base + (geometry.reservedSectors + geometry.fatCount * geometry.fatSizeSectors) * geometry.bytesPerSector
     const rootBytes = await read(rootOffset, geometry.rootDirSectors * geometry.bytesPerSector)
-    await walkDirectory(context, fat, '', [], rootBytes)
+    await walkDirectory(context, fat, '', [], { bytes: rootBytes, offset: rootOffset })
   }
   update('walk-directory', { status: 'done', value: `${context.files.toLocaleString()} 个文件 · ${context.directories.toLocaleString()} 个目录` })
 
@@ -642,6 +682,16 @@ async function scanFat(options: DiskScanOptions, totalBytes: number, startedAt: 
     scanUnreferencedChains(context, fat, orphan)
   }
   update('check-clusters', { status: 'done', value: `${orphan.length.toLocaleString()} 个孤儿簇` })
+
+  options.collect?.({
+    geometry,
+    fat,
+    allocated,
+    orphan,
+    reachable: context.reachable,
+    references: context.references,
+    entries: context.entries,
+  })
 
   update('summarize', { status: 'running', note: '生成扫描报告' })
   const status: DiskScanStatus = issues.some((issue) => issue.severity === 'error') || issues.length > 0 ? 'issues' : 'clean'

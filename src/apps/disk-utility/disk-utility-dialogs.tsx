@@ -19,6 +19,7 @@ import {
   type DiskScanItemState,
   type DiskScanReport,
 } from './disk-utility-scan.ts'
+import type { DiskRepairPlan, DiskRepairResult } from './disk-utility-repair.ts'
 import type { DiskPartitionInfo } from './disk-utility-data.ts'
 
 export const DISK_UTILITY_THEME = '#2f3640'
@@ -351,16 +352,28 @@ export function ScanDialog({
   items,
   report,
   error,
+  plan,
+  repairApplying,
+  repairResult,
   onClose,
   onRun,
+  onPlanRepair,
+  onConfirmRepair,
+  onCancelRepair,
 }: {
   state: ScanDialogState | undefined
   busy: boolean
   items: Record<DiskScanItemId, DiskScanItemState>
   report: DiskScanReport | undefined
   error: string | undefined
+  plan: DiskRepairPlan | undefined
+  repairApplying: boolean
+  repairResult: DiskRepairResult | undefined
   onClose: () => void
   onRun: (signal: AbortSignal) => void
+  onPlanRepair: (signal: AbortSignal) => void
+  onConfirmRepair: () => void
+  onCancelRepair: () => void
 }): preact.JSX.Element | undefined {
   const controllerRef = useRef<AbortController | undefined>(undefined)
   const [controller, setController] = useState<AbortController | undefined>(undefined)
@@ -388,12 +401,24 @@ export function ScanDialog({
   }
 
   const hasResult = report !== undefined
+  const showRepairEntry = hasResult && report!.status === 'issues' && !plan && !repairApplying && !busy
   const handleCopy = async () => {
     if (!report || !navigator.clipboard?.writeText) return
     await navigator.clipboard.writeText(diskScanResultText(report))
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1500)
   }
+
+  const footerActions = plan
+    ? plan.actions.length > 0
+      ? [
+          { key: 'repair-cancel', label: '取消', tone: 'secondary' as const, disabled: repairApplying, onClick: onCancelRepair },
+          { key: 'repair-confirm', label: '确认修复', tone: 'danger' as const, disabled: repairApplying, busy: repairApplying, onClick: onConfirmRepair },
+        ]
+      : [
+          { key: 'repair-back', label: '返回', tone: 'secondary' as const, disabled: false, onClick: onCancelRepair },
+        ]
+    : undefined
 
   return (
     <WindowModal
@@ -406,26 +431,54 @@ export function ScanDialog({
       heightType="grow"
       onClose={busy ? undefined : onClose}
       showCloseButton
+      actions={footerActions}
       headerActions={[
         {
           key: 'copy',
           label: copied ? '已复制' : '复制报告',
-          tone: 'secondary',
+          tone: 'secondary' as const,
           disabled: busy || !hasResult,
           onClick: () => void handleCopy(),
         },
           busy
+          ? (repairApplying
+              ? {
+                  key: 'stop',
+                  label: '正在修复',
+                  tone: 'secondary' as const,
+                  disabled: true,
+                  onClick: () => undefined,
+                }
+              : {
+                  key: 'stop',
+                  label: '停止扫描',
+                  tone: 'danger' as const,
+                  disabled: false,
+                  onClick: () => controller?.abort(),
+                })
+          : undefined,
+          !busy && showRepairEntry
           ? {
-              key: 'stop',
-              label: '停止扫描',
-              tone: 'danger',
+              key: 'repair',
+              label: '开始修复',
+              tone: 'primary' as const,
               disabled: false,
-              onClick: () => controller?.abort(),
+              onClick: () => {
+                let next = controllerRef.current
+                if (!next || next.signal.aborted) {
+                  next = new AbortController()
+                  controllerRef.current = next
+                  setController(next)
+                }
+                onPlanRepair(next.signal)
+              },
             }
-          : {
+          : undefined,
+          !busy && !plan
+          ? {
               key: 'run',
               label: '开始扫描',
-              tone: 'primary',
+              tone: 'secondary' as const,
               disabled: false,
               onClick: () => {
                 let next = controllerRef.current
@@ -436,14 +489,23 @@ export function ScanDialog({
                 }
                 onRun(next.signal)
               },
-            },
-      ]}
+            }
+          : undefined,
+      ].filter((action) => action !== undefined)}
     >
       <div class="disk-utility-scan__body-header">
         <h2 class="disk-utility-scan__name">{state.label}</h2>
-        <p class="disk-utility-scan__intro">
-          只读取「{state.label}」的文件系统结构，不会修改镜像；扫描可能需要一些时间。
-        </p>
+        {plan && plan.actions.length > 0 ? (
+          <p class="disk-utility-scan__intro">
+            修复将直接修改镜像中的 FAT 表与目录项元数据，共 {plan.actions.length} 项操作；文件数据本身不会被移动。建议先「复制报告」留档。
+          </p>
+        ) : repairApplying ? (
+          <p class="disk-utility-scan__intro">正在写入修复，完成后会自动重新扫描验证……</p>
+        ) : (
+          <p class="disk-utility-scan__intro">
+            只读取「{state.label}」的文件系统结构，不会修改镜像；扫描可能需要一些时间。
+          </p>
+        )}
       </div>
       <table class="disk-utility-scan__table">
         <thead>
@@ -461,8 +523,42 @@ export function ScanDialog({
           ))}
         </tbody>
       </table>
-      {report ? (
+      {plan ? (
         <section class="disk-utility-scan__report" aria-live="polite">
+          <h4 class="disk-utility-scan__report-title">修复计划</h4>
+          {plan.actions.length > 0 ? (
+            <div class="disk-utility-scan__issues">
+              {plan.actions.map((action, index) => (
+                <div key={`${action.kind}-${index}`} class="disk-utility-scan__issue">
+                  {index + 1}. {action.summary}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p class="disk-utility-scan__repair-note">
+              发现的问题都无法自动修复
+              {plan.skipped.length > 0 ? '，若镜像持续报错可考虑抹掉后重新格式化' : ''}。
+            </p>
+          )}
+          {plan.skipped.length > 0 ? (
+            <div class="disk-utility-scan__repair-note">
+              {plan.skipped.map((issue) => (
+                <div key={issue.code}>无法修复：{issue.message}</div>
+              ))}
+            </div>
+          ) : undefined}
+        </section>
+      ) : report ? (
+        <section class="disk-utility-scan__report" aria-live="polite">
+          {repairResult ? (
+            <p class="disk-utility-scan__result">
+              已执行 {repairResult.applied.length} 项修复，复扫
+              {repairResult.after.status === 'clean'
+                ? '未发现问题'
+                : `仍有 ${repairResult.after.issues.length} 项问题，可再次修复`}
+              。
+            </p>
+          ) : undefined}
           <h4 class="disk-utility-scan__report-title">
             {report.status === 'clean' ? '未发现问题' : report.status === 'unsupported' ? '暂不支持此文件系统' : '发现文件系统问题'}
           </h4>

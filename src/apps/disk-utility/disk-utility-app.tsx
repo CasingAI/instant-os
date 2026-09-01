@@ -31,10 +31,17 @@ import {
 import {
   initialDiskScanItems,
   runDiskImageScan,
+  scanItemsForReport,
   type DiskScanItemId,
   type DiskScanItemState,
   type DiskScanReport,
 } from './disk-utility-scan.ts'
+import {
+  applyDiskImageRepair,
+  planDiskImageRepair,
+  type DiskRepairPlan,
+  type DiskRepairResult,
+} from './disk-utility-repair.ts'
 import { buildDiskMap, findAncestorImageRoot } from './disk-utility-disk-map.ts'
 import { DiskMapBar } from './disk-utility-disk-map-bar.tsx'
 import {
@@ -590,6 +597,9 @@ export function DiskUtilityApp() {
     initialDiskScanItems(),
   )
   const [scanReport, setScanReport] = useState<DiskScanReport | undefined>(undefined)
+  const [repairPlan, setRepairPlan] = useState<DiskRepairPlan | undefined>(undefined)
+  const [repairApplying, setRepairApplying] = useState(false)
+  const [repairResult, setRepairResult] = useState<DiskRepairResult | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [dialogError, setDialogError] = useState<string | undefined>(undefined)
   const busyRef = useRef(false)
@@ -763,6 +773,8 @@ export function DiskUtilityApp() {
       setBusy(true)
       setDialogError(undefined)
       setScanReport(undefined)
+      setRepairPlan(undefined)
+      setRepairResult(undefined)
       setScanItems(initialDiskScanItems())
       try {
         const report = await runDiskImageScan({
@@ -794,6 +806,80 @@ export function DiskUtilityApp() {
       }
     },
     [],
+  )
+
+  const runRepairPlanWork = useCallback(
+    async (signal: AbortSignal, target: ScanDialogState) => {
+      if (busyRef.current) return
+      busyRef.current = true
+      setBusy(true)
+      setDialogError(undefined)
+      setRepairResult(undefined)
+      setScanItems(initialDiskScanItems())
+      try {
+        const { report, plan } = await planDiskImageRepair({
+          path: target.path,
+          partition: target.partition,
+          signal,
+          onItemUpdate: (id, state) => {
+            setScanItems((prev) => ({ ...prev, [id]: state }))
+          },
+        })
+        setScanReport(report)
+        setRepairPlan(plan)
+      } catch (error) {
+        if (error instanceof Error && error.message === 'aborted') {
+          setScanItems((prev) => {
+            const next = { ...prev }
+            for (const [id, item] of Object.entries(next)) {
+              if (item.status === 'running') {
+                next[id as DiskScanItemId] = { status: 'failed', message: '已停止' }
+              }
+            }
+            return next
+          })
+        } else {
+          setDialogError(formatError(error))
+        }
+      } finally {
+        busyRef.current = false
+        setBusy(false)
+      }
+    },
+    [],
+  )
+
+  const runRepairApplyWork = useCallback(
+    async (plan: DiskRepairPlan) => {
+      if (busyRef.current || plan.actions.length === 0) return
+      busyRef.current = true
+      setBusy(true)
+      setRepairApplying(true)
+      setDialogError(undefined)
+      try {
+        // 写入与复扫都在排他访问内完成：VM/第三方占用拒绝，文件挂载先退出、写完恢复
+        const result = await withExclusiveImageAccess(plan.path, () =>
+          applyDiskImageRepair({
+            plan,
+            onItemUpdate: (id, state) => {
+              setScanItems((prev) => ({ ...prev, [id]: state }))
+            },
+          }),
+        )
+        setScanItems(scanItemsForReport(result.after))
+        setScanReport(result.after)
+        setRepairResult(result)
+        setRepairPlan(undefined)
+        await refresh()
+      } catch (error) {
+        setDialogError(formatError(error))
+      } finally {
+        busyRef.current = false
+        setBusy(false)
+        setRepairApplying(false)
+      }
+    },
+    [refresh],
   )
 
   const detailActions = useMemo<DetailActions>(
@@ -883,6 +969,8 @@ export function DiskUtilityApp() {
         if (!node.imageFile) return
         setScanItems(initialDiskScanItems())
         setScanReport(undefined)
+        setRepairPlan(undefined)
+        setRepairResult(undefined)
         setDialogError(undefined)
         setScanState({
           path: node.imageFile.path,
@@ -1130,16 +1218,32 @@ export function DiskUtilityApp() {
         items={scanItems}
         report={scanReport}
         error={dialogError}
+        plan={repairPlan}
+        repairApplying={repairApplying}
+        repairResult={repairResult}
         onClose={() => {
           if (busy) return
           setScanState(undefined)
           setScanItems(initialDiskScanItems())
           setScanReport(undefined)
+          setRepairPlan(undefined)
+          setRepairResult(undefined)
           setDialogError(undefined)
         }}
         onRun={(signal: AbortSignal) => {
           if (!scanState) return
           void runScanWork(signal, scanState)
+        }}
+        onPlanRepair={(signal: AbortSignal) => {
+          if (!scanState) return
+          void runRepairPlanWork(signal, scanState)
+        }}
+        onConfirmRepair={() => {
+          if (repairPlan) void runRepairApplyWork(repairPlan)
+        }}
+        onCancelRepair={() => {
+          setRepairPlan(undefined)
+          setDialogError(undefined)
         }}
       />
     </div>
