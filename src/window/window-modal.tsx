@@ -36,6 +36,8 @@ export type WindowModalProps = {
   themeColor?: string
   wide?: boolean
   scrollBody?: boolean
+  /** 面板高度策略：'auto'（默认，随内容自适应）| 'grow'（撑满可用高度，内容区自动填满并滚动） */
+  heightType?: 'auto' | 'grow'
   align?: WindowModalAlign
   titleId?: string
   panelClass?: string
@@ -107,6 +109,7 @@ export function WindowModal({
   themeColor,
   wide,
   scrollBody,
+  heightType,
   align = 'center',
   titleId,
   panelClass,
@@ -129,6 +132,7 @@ export function WindowModal({
     themeColor,
     wide,
     scrollBody,
+    heightType,
     align,
     titleId,
     panelClass,
@@ -148,6 +152,7 @@ export function WindowModal({
       themeColor,
       wide,
       scrollBody,
+      heightType,
       align,
       titleId,
       panelClass,
@@ -224,7 +229,7 @@ export function WindowModal({
       }}
     >
       <div
-        class={`window-modal${display.wide ? ' window-modal--wide' : ''}${closing ? ' window-modal--closing' : ''}${display.align === 'top' ? ' window-modal--top' : ''}${display.panelClass ? ` ${display.panelClass}` : ''}`}
+        class={`window-modal${display.wide ? ' window-modal--wide' : ''}${closing ? ' window-modal--closing' : ''}${display.align === 'top' ? ' window-modal--top' : ''}${display.heightType === 'grow' ? ' window-modal--grow' : ''}${display.panelClass ? ` ${display.panelClass}` : ''}`}
         style={panelStyle}
         role={display.role}
         aria-modal="true"

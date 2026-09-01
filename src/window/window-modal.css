@@ -104,6 +104,20 @@
   transform-origin: top center;
 }
 
+/* 撑满可用高度：配合 heightType="grow"；body 自动填满剩余空间并滚动 */
+.window-modal--grow {
+  height: min(560px, calc(100% - 48px));
+  overflow: hidden;
+}
+
+.window-modal--grow .window-modal__body,
+.window-modal--grow .window-modal__body--scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none; /* 取消 scrollBody 的 360px 软上限，由面板高度约束 */
+  overflow: auto;
+}
+
 .window-modal__header {
   flex-shrink: 0;
   position: relative;
