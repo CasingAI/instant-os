@@ -19,7 +19,7 @@ import {
   type DiskScanItemState,
   type DiskScanReport,
 } from './disk-utility-scan.ts'
-import type { DiskRepairPlan, DiskRepairResult } from './disk-utility-repair.ts'
+import type { DiskRepairResult } from './disk-utility-repair.ts'
 import type { DiskPartitionInfo } from './disk-utility-data.ts'
 
 export const DISK_UTILITY_THEME = '#2f3640'
@@ -352,28 +352,22 @@ export function ScanDialog({
   items,
   report,
   error,
-  plan,
   repairApplying,
   repairResult,
   onClose,
   onRun,
   onPlanRepair,
-  onConfirmRepair,
-  onCancelRepair,
 }: {
   state: ScanDialogState | undefined
   busy: boolean
   items: Record<DiskScanItemId, DiskScanItemState>
   report: DiskScanReport | undefined
   error: string | undefined
-  plan: DiskRepairPlan | undefined
   repairApplying: boolean
   repairResult: DiskRepairResult | undefined
   onClose: () => void
   onRun: (signal: AbortSignal) => void
   onPlanRepair: (signal: AbortSignal) => void
-  onConfirmRepair: () => void
-  onCancelRepair: () => void
 }): preact.JSX.Element | undefined {
   const controllerRef = useRef<AbortController | undefined>(undefined)
   const [controller, setController] = useState<AbortController | undefined>(undefined)
@@ -435,57 +429,40 @@ export function ScanDialog({
             disabled: false,
             onClick: () => controller?.abort(),
           })
-    : plan
-      ? undefined
-      : report?.status === 'issues'
-        ? {
-            key: 'repair',
-            label: '开始修复',
-            tone: 'primary' as const,
-            disabled: false,
-            onClick: () => onPlanRepair(ensureController()),
-          }
-        : {
-            key: 'run',
-            label: '开始扫描',
-            tone: 'primary' as const,
-            disabled: false,
-            onClick: () => onRun(ensureController()),
-          }
-
-  const footerActions = plan
-    ? plan.actions.length > 0
-      ? [
-          { key: 'repair-cancel', label: '取消', tone: 'secondary' as const, disabled: repairApplying, onClick: onCancelRepair },
-          { key: 'repair-confirm', label: '确认修复', tone: 'danger' as const, disabled: repairApplying, busy: repairApplying, onClick: onConfirmRepair },
-        ]
-      : [
-          { key: 'repair-back', label: '返回', tone: 'secondary' as const, disabled: false, onClick: onCancelRepair },
-        ]
-    : undefined
+    : report?.status === 'issues'
+      ? {
+          key: 'repair',
+          label: '开始修复',
+          tone: 'primary' as const,
+          disabled: false,
+          onClick: () => onPlanRepair(ensureController()),
+        }
+      : {
+          key: 'run',
+          label: '开始扫描',
+          tone: 'primary' as const,
+          disabled: false,
+          onClick: () => onRun(ensureController()),
+        }
 
   // intro 随流程阶段切换，单行省略显示，文案保持一行内可读完
   const intro = repairApplying
     ? '正在写入修复，完成后自动复扫验证'
-    : plan
-      ? plan.actions.length > 0
-        ? `修复将改写 FAT 表与目录项，共 ${plan.actions.length} 项操作，不动文件数据；建议先复制报告留档`
-        : '问题均无法自动修复，不会修改镜像'
-      : busy
-        ? report
-          ? '正在构建修复计划……'
-          : '正在扫描……不会修改镜像'
-        : !report
-          ? '只读取文件系统结构，不会修改镜像'
-          : report.status === 'issues'
-            ? '发现问题，可「开始修复」：仅改写 FAT 表与目录项，不动文件数据'
-            : report.status === 'clean'
-              ? repairResult
-                ? '修复完成，复扫未发现问题'
-                : '扫描完成，未发现问题'
-              : report.status === 'unsupported'
-                ? '暂不支持此文件系统，未做修改'
-                : '无法识别文件系统，未做修改'
+    : busy
+      ? report
+        ? '正在构建修复计划……'
+        : '正在扫描……不会修改镜像'
+      : !report
+        ? '只读取文件系统结构，不会修改镜像'
+        : report.status === 'issues'
+          ? '发现问题，可「开始修复」：仅改写 FAT 表与目录项，不动文件数据'
+          : report.status === 'clean'
+            ? repairResult
+              ? '修复完成，复扫未发现问题'
+              : '扫描完成，未发现问题'
+            : report.status === 'unsupported'
+              ? '暂不支持此文件系统，未做修改'
+              : '无法识别文件系统，未做修改'
 
   return (
     <WindowModal
@@ -499,7 +476,6 @@ export function ScanDialog({
       heightType="grow"
       onClose={busy ? undefined : onClose}
       showCloseButton
-      actions={footerActions}
       headerActions={[
         {
           key: 'copy',
@@ -531,32 +507,7 @@ export function ScanDialog({
           ))}
         </tbody>
       </table>
-      {plan ? (
-        <section class="disk-utility-scan__report" aria-live="polite">
-          <h4 class="disk-utility-scan__report-title">修复计划</h4>
-          {plan.actions.length > 0 ? (
-            <div class="disk-utility-scan__issues">
-              {plan.actions.map((action, index) => (
-                <div key={`${action.kind}-${index}`} class="disk-utility-scan__issue">
-                  {index + 1}. {action.summary}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p class="disk-utility-scan__repair-note">
-              发现的问题都无法自动修复
-              {plan.skipped.length > 0 ? '，若镜像持续报错可考虑抹掉后重新格式化' : ''}。
-            </p>
-          )}
-          {plan.skipped.length > 0 ? (
-            <div class="disk-utility-scan__repair-note">
-              {plan.skipped.map((issue) => (
-                <div key={issue.code}>无法修复：{issue.message}</div>
-              ))}
-            </div>
-          ) : undefined}
-        </section>
-      ) : report ? (
+      {report ? (
         <section class="disk-utility-scan__report" aria-live="polite">
           {repairResult ? (
             <p class="disk-utility-scan__result">

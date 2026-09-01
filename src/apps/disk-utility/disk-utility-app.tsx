@@ -597,7 +597,6 @@ export function DiskUtilityApp() {
     initialDiskScanItems(),
   )
   const [scanReport, setScanReport] = useState<DiskScanReport | undefined>(undefined)
-  const [repairPlan, setRepairPlan] = useState<DiskRepairPlan | undefined>(undefined)
   const [repairApplying, setRepairApplying] = useState(false)
   const [repairResult, setRepairResult] = useState<DiskRepairResult | undefined>(undefined)
   const [busy, setBusy] = useState(false)
@@ -773,7 +772,6 @@ export function DiskUtilityApp() {
       setBusy(true)
       setDialogError(undefined)
       setScanReport(undefined)
-      setRepairPlan(undefined)
       setRepairResult(undefined)
       setScanItems(initialDiskScanItems())
       try {
@@ -786,47 +784,6 @@ export function DiskUtilityApp() {
           },
         })
         setScanReport(report)
-      } catch (error) {
-        if (error instanceof Error && error.message === 'aborted') {
-          setScanItems((prev) => {
-            const next = { ...prev }
-            for (const [id, item] of Object.entries(next)) {
-              if (item.status === 'running') {
-                next[id as DiskScanItemId] = { status: 'failed', message: '已停止' }
-              }
-            }
-            return next
-          })
-        } else {
-          setDialogError(formatError(error))
-        }
-      } finally {
-        busyRef.current = false
-        setBusy(false)
-      }
-    },
-    [],
-  )
-
-  const runRepairPlanWork = useCallback(
-    async (signal: AbortSignal, target: ScanDialogState) => {
-      if (busyRef.current) return
-      busyRef.current = true
-      setBusy(true)
-      setDialogError(undefined)
-      setRepairResult(undefined)
-      setScanItems(initialDiskScanItems())
-      try {
-        const { report, plan } = await planDiskImageRepair({
-          path: target.path,
-          partition: target.partition,
-          signal,
-          onItemUpdate: (id, state) => {
-            setScanItems((prev) => ({ ...prev, [id]: state }))
-          },
-        })
-        setScanReport(report)
-        setRepairPlan(plan)
       } catch (error) {
         if (error instanceof Error && error.message === 'aborted') {
           setScanItems((prev) => {
@@ -869,7 +826,6 @@ export function DiskUtilityApp() {
         setScanItems(scanItemsForReport(result.after))
         setScanReport(result.after)
         setRepairResult(result)
-        setRepairPlan(undefined)
         await refresh()
       } catch (error) {
         setDialogError(formatError(error))
@@ -880,6 +836,68 @@ export function DiskUtilityApp() {
       }
     },
     [refresh],
+  )
+
+  const runRepairPlanWork = useCallback(
+    async (signal: AbortSignal, target: ScanDialogState) => {
+      if (busyRef.current) return
+      busyRef.current = true
+      setBusy(true)
+      setDialogError(undefined)
+      setRepairResult(undefined)
+      setScanItems(initialDiskScanItems())
+      let plan: DiskRepairPlan | undefined
+      try {
+        const { report, plan: built } = await planDiskImageRepair({
+          path: target.path,
+          partition: target.partition,
+          signal,
+          onItemUpdate: (id, state) => {
+            setScanItems((prev) => ({ ...prev, [id]: state }))
+          },
+        })
+        setScanReport(report)
+        plan = built
+      } catch (error) {
+        if (error instanceof Error && error.message === 'aborted') {
+          setScanItems((prev) => {
+            const next = { ...prev }
+            for (const [id, item] of Object.entries(next)) {
+              if (item.status === 'running') {
+                next[id as DiskScanItemId] = { status: 'failed', message: '已停止' }
+              }
+            }
+            return next
+          })
+        } else {
+          setDialogError(formatError(error))
+        }
+      } finally {
+        busyRef.current = false
+        setBusy(false)
+      }
+      if (!plan) return
+      if (plan.actions.length === 0) {
+        await modal.alert({
+          title: '无法修复',
+          message: plan.skipped.length > 0
+            ? `发现的问题均无法自动修复：${plan.skipped.map((issue) => issue.message).join('；')}。`
+            : '发现的问题均无法自动修复。',
+          themeColor: DISK_UTILITY_THEME,
+        })
+        return
+      }
+      const note = plan.skipped.length > 0 ? `另有 ${plan.skipped.length} 项问题无法修复，将被跳过。` : ''
+      const ok = await modal.confirm({
+        title: '确认修复？',
+        message: `将执行 ${plan.actions.length} 项修复：${plan.actions.map((action) => action.summary).join('；')}。${note}修复会写回镜像的 FAT 表与目录项，建议先「复制报告」留档。`,
+        confirmLabel: '开始修复',
+        cancelLabel: '取消',
+        themeColor: DISK_UTILITY_THEME,
+      })
+      if (ok) void runRepairApplyWork(plan)
+    },
+    [modal, runRepairApplyWork],
   )
 
   const detailActions = useMemo<DetailActions>(
@@ -969,7 +987,6 @@ export function DiskUtilityApp() {
         if (!node.imageFile) return
         setScanItems(initialDiskScanItems())
         setScanReport(undefined)
-        setRepairPlan(undefined)
         setRepairResult(undefined)
         setDialogError(undefined)
         setScanState({
@@ -1218,7 +1235,6 @@ export function DiskUtilityApp() {
         items={scanItems}
         report={scanReport}
         error={dialogError}
-        plan={repairPlan}
         repairApplying={repairApplying}
         repairResult={repairResult}
         onClose={() => {
@@ -1226,7 +1242,6 @@ export function DiskUtilityApp() {
           setScanState(undefined)
           setScanItems(initialDiskScanItems())
           setScanReport(undefined)
-          setRepairPlan(undefined)
           setRepairResult(undefined)
           setDialogError(undefined)
         }}
@@ -1237,13 +1252,6 @@ export function DiskUtilityApp() {
         onPlanRepair={(signal: AbortSignal) => {
           if (!scanState) return
           void runRepairPlanWork(signal, scanState)
-        }}
-        onConfirmRepair={() => {
-          if (repairPlan) void runRepairApplyWork(repairPlan)
-        }}
-        onCancelRepair={() => {
-          setRepairPlan(undefined)
-          setDialogError(undefined)
         }}
       />
     </div>
