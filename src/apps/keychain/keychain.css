@@ -607,3 +607,56 @@
 .keychain__context-options .settings__row--check + .settings__row--check {
   margin-top: 12px;
 }
+
+/* ── PageStack 桥接：SettingsChoicePickerView 片段页（.page 包裹）──
+ * 片段页没有 .page-header/.page__body 结构，转场网格里补上显式行列；
+ * 正文滑动复用 page-stack.css 的同名 keyframes。 */
+.keychain__picker-page > .settings__body {
+  overflow-y: auto;
+}
+
+.keychain__picker-page > .settings__body > .settings__content {
+  flex: none;
+}
+
+.page-stack--push .keychain__picker-page > .settings__nav,
+.page-stack--pop .keychain__picker-page > .settings__nav {
+  grid-row: 1;
+  grid-column: 1;
+  position: relative;
+  z-index: 3;
+}
+
+.page-stack--push .keychain__picker-page > .settings__body,
+.page-stack--pop .keychain__picker-page > .settings__body {
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+  background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
+}
+
+.page-stack--push .page-stack__layer--over .keychain__picker-page > .settings__body {
+  animation: page-body-over-push 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+.page-stack--push .page-stack__layer--under .keychain__picker-page > .settings__body {
+  animation: page-body-under-push 0.35s ease-in-out both;
+}
+
+.page-stack--pop .page-stack__layer--over .keychain__picker-page > .settings__body {
+  animation: page-body-over-pop 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+.page-stack--pop .page-stack__layer--under .keychain__picker-page > .settings__body {
+  animation: page-body-under-pop 0.35s ease-in-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-stack--push .keychain__picker-page > .settings__body,
+  .page-stack--pop .keychain__picker-page > .settings__body {
+    animation: none !important;
+  }
+}

@@ -21,15 +21,13 @@ import {
   type AiOpenRouterPricingRef,
 } from '../../ai/ai-providers.ts'
 import { SettingsChoicePickerView } from '../settings/settings-choice-picker-view.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { Page } from '../../ui/page.tsx'
+import { PageHeader } from '../../ui/page-header.tsx'
+import { PageStack, usePageStack } from '../../ui/page-stack.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { KeychainTextFieldDialog } from './keychain-text-field-dialog.tsx'
-import {
-  KeychainNavStack,
-  useKeychainNavStack,
-} from './keychain-nav-stack.tsx'
 
 export const PRICING_NONE_OPTION_ID = ''
 export const PRICING_CUSTOM_OPTION_ID = '__custom__'
@@ -132,11 +130,9 @@ export function KeychainPricingFlow({
     page: screen,
     stack,
     transition,
-    queuedTransition,
-    commitQueuedTransition,
     navigate,
     handleMotionEnd,
-  } = useKeychainNavStack<FlowScreen>('list')
+  } = usePageStack<FlowScreen>('list')
   const [mode, setMode] = useState<PricingMode>(() => modeFromSelection(selection))
   const [pricingRevision, setPricingRevision] = useState(0)
   const [openRouterQueryDialogOpen, setOpenRouterQueryDialogOpen] = useState(false)
@@ -308,42 +304,45 @@ export function KeychainPricingFlow({
   const renderFlowPage = (target: FlowScreen) => {
     if (target === 'preset') {
       return (
-      <SettingsChoicePickerView
-        title="预置库"
-        backLabel="定价"
-        options={presetOptions}
-        value={selection.pricingModelKey ?? ''}
-        searchable
-        searchPlaceholder="搜索模型或供应商"
-        titleInNav
-        closeOnSelect={false}
-        footnote={
-          presetOptions.length === 0
-            ? '暂无预置定价。可在「设置 → 背景刷新」中拉取 PriceToken 数据。'
-            : undefined
-        }
-        onChange={(value) => {
-          if (!value) return
-          onChange({
-            ...clearPricingSelection(),
-            pricingModelKey: value,
-          })
-          navigate('list', 'pop')
-        }}
-        onBack={() => navigate('list', 'pop')}
-      />
+      <div class="page keychain__picker-page">
+        <SettingsChoicePickerView
+          title="预置库"
+          backLabel="定价"
+          options={presetOptions}
+          value={selection.pricingModelKey ?? ''}
+          searchable
+          searchPlaceholder="搜索模型或供应商"
+          titleInNav
+          closeOnSelect={false}
+          footnote={
+            presetOptions.length === 0
+              ? '暂无预置定价。可在「设置 → 背景刷新」中拉取 PriceToken 数据。'
+              : undefined
+          }
+          onChange={(value) => {
+            if (!value) return
+            onChange({
+              ...clearPricingSelection(),
+              pricingModelKey: value,
+            })
+            navigate('list', 'pop')
+          }}
+          onBack={() => navigate('list', 'pop')}
+        />
+      </div>
     )
     }
     if (target === 'source') {
       return (
-      <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            <IosNavBackButton label="定价" onClick={() => navigate('list', 'pop')} />
-            <h1 class="settings__nav-heading">自定义定价</h1>
-            <span class="settings__nav-trailing" aria-hidden="true" />
-          </div>
-        </div>
+      <Page
+        header={
+          <PageHeader
+            title="自定义定价"
+            backLabel="定价"
+            onBack={() => navigate('list', 'pop')}
+          />
+        }
+      >
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
@@ -364,20 +363,18 @@ export function KeychainPricingFlow({
             </p>
           </section>
         </div>
-      </>
+      </Page>
     )
     }
     if (target === 'manual') {
       return (
-      <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            <IosNavBackButton
-              label="自定义定价"
-              onClick={() => navigate('source', 'pop')}
-            />
-            <h1 class="settings__nav-heading">手动定价</h1>
-            <div class="settings__nav-trailing">
+      <Page
+        header={
+          <PageHeader
+            title="手动定价"
+            backLabel="自定义定价"
+            onBack={() => navigate('source', 'pop')}
+            actions={
               <button
                 type="button"
                 class="settings__btn settings__btn--default"
@@ -398,9 +395,10 @@ export function KeychainPricingFlow({
               >
                 完成
               </button>
-            </div>
-          </div>
-        </div>
+            }
+          />
+        }
+      >
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
@@ -426,7 +424,7 @@ export function KeychainPricingFlow({
             <p class="settings__section-footnote">单位：美元 / 百万 token</p>
           </section>
         </div>
-      </>
+      </Page>
     )
     }
     if (target === 'openrouter-results') {
@@ -442,25 +440,27 @@ export function KeychainPricingFlow({
       }
     })
       return (
-      <SettingsChoicePickerView
-        title="OpenRouter 模型"
-        backLabel="自定义定价"
-        options={options}
-        value=""
-        titleInNav
-        closeOnSelect={false}
-        footnote={
-          searchError
-            ? searchError
-            : '选择一个模型以继续选择 Provider。结果不对可返回重新输入。'
-        }
-        onChange={(value) => {
-          if (providersLoading || bindingBusy) return
-          const hit = searchHits.find((item) => item.id === value)
-          if (hit) void openOpenRouterProviders(hit)
-        }}
-        onBack={() => navigate('source', 'pop')}
-      />
+      <div class="page keychain__picker-page">
+        <SettingsChoicePickerView
+          title="OpenRouter 模型"
+          backLabel="自定义定价"
+          options={options}
+          value=""
+          titleInNav
+          closeOnSelect={false}
+          footnote={
+            searchError
+              ? searchError
+              : '选择一个模型以继续选择 Provider。结果不对可返回重新输入。'
+          }
+          onChange={(value) => {
+            if (providersLoading || bindingBusy) return
+            const hit = searchHits.find((item) => item.id === value)
+            if (hit) void openOpenRouterProviders(hit)
+          }}
+          onBack={() => navigate('source', 'pop')}
+        />
+      </div>
     )
     }
     if (target === 'openrouter-providers') {
@@ -477,46 +477,45 @@ export function KeychainPricingFlow({
     })
     const providersBusy = providersLoading || bindingBusy
       return (
-      <SettingsChoicePickerView
-        title="选择 Provider"
-        backLabel="OpenRouter 模型"
-        options={options}
-        value={selection.openRouterPricing?.providerTag ?? ''}
-        titleInNav
-        closeOnSelect={false}
-        loading={providersBusy}
-        loadingLabel={
-          bindingBusy ? '正在绑定定价…' : '正在加载 Provider…'
-        }
-        footnote={
-          endpointError
-            ? endpointError
-            : selectedOpenRouterModel
-              ? `模型 ${selectedOpenRouterModel.id}`
-              : undefined
-        }
-        onChange={(value) => {
-          if (providersBusy) return
-          const hit = endpointHits.find((item) => item.providerTag === value)
-          if (hit) void bindProvider(hit)
-        }}
-        onBack={() => {
-          if (providersBusy) return
-          navigate('openrouter-results', 'pop')
-        }}
-      />
+      <div class="page keychain__picker-page">
+        <SettingsChoicePickerView
+          title="选择 Provider"
+          backLabel="OpenRouter 模型"
+          options={options}
+          value={selection.openRouterPricing?.providerTag ?? ''}
+          titleInNav
+          closeOnSelect={false}
+          loading={providersBusy}
+          loadingLabel={
+            bindingBusy ? '正在绑定定价…' : '正在加载 Provider…'
+          }
+          footnote={
+            endpointError
+              ? endpointError
+              : selectedOpenRouterModel
+                ? `模型 ${selectedOpenRouterModel.id}`
+                : undefined
+          }
+          onChange={(value) => {
+            if (providersBusy) return
+            const hit = endpointHits.find((item) => item.providerTag === value)
+            if (hit) void bindProvider(hit)
+          }}
+          onBack={() => {
+            if (providersBusy) return
+            navigate('openrouter-results', 'pop')
+          }}
+        />
+      </div>
     )
     }
 
     return (
-      <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            <IosNavBackButton label={backLabel} onClick={onClose} />
-            <h1 class="settings__nav-heading">定价</h1>
-            <span class="settings__nav-trailing" aria-hidden="true" />
-          </div>
-        </div>
+      <Page
+        header={
+          <PageHeader title="定价" backLabel={backLabel} onBack={onClose} />
+        }
+      >
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <SettingsChoiceOptionList
@@ -557,18 +556,16 @@ export function KeychainPricingFlow({
             </section>
           )}
         </div>
-      </>
+      </Page>
     )
   }
 
   return (
-    <>
-      <KeychainNavStack
+    <div class="page keychain__flow-page">
+      <PageStack
         stack={stack}
         page={screen}
         transition={transition}
-        queuedTransition={queuedTransition}
-        commitQueuedTransition={commitQueuedTransition}
         onMotionEnd={handleMotionEnd}
         renderPage={renderFlowPage}
       />
@@ -586,6 +583,6 @@ export function KeychainPricingFlow({
         onClose={() => setOpenRouterQueryDialogOpen(false)}
         onSave={runOpenRouterSearch}
       />
-    </>
+    </div>
   )
 }
