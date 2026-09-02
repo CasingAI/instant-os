@@ -8,11 +8,14 @@ import { openKeychainAiProvidersView } from '../../os/keychain-route-open.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId } from '../../os/types.ts'
+import { Page } from '../../ui/page.tsx'
+import { PageHeader } from '../../ui/page-header.tsx'
+import {
+  AdaptiveSplitNav,
+  useAdaptiveSplitNav,
+  type AdaptiveFrameSpec,
+} from '../../ui/adaptive-split-nav.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
-import { KeychainNavStack, useKeychainNavStack } from '../keychain/keychain-nav-stack.tsx'
-import '../keychain/keychain.css'
 import '../settings/settings.css'
 import './welcome.css'
 
@@ -29,7 +32,6 @@ const SETUP_KEY_STEPS = [
   '拖到列表最上面——首位才是首选。',
 ] as const
 
-type WelcomePage = 'list' | 'detail'
 type WelcomeTaskId = 'setup-key' | 'open-browser' | 'try-appstore'
 type AppIcon = ComponentType<{ size?: number }>
 
@@ -191,19 +193,17 @@ function WelcomeAppList({
 
 export function WelcomeApp() {
   const { openApp } = useOs()
-  const { hostRef, narrowLayout } = useAppNarrowLayout()
   const [keyAdded, setKeyAdded] = useState(() => hasOwnAiProvider())
   const [selectedId, setSelectedId] = useState<WelcomeTaskId>('setup-key')
-  const {
-    page,
-    stack,
-    transition,
-    queuedTransition,
-    commitQueuedTransition,
-    navigate,
-    handleMotionEnd,
-    setPage,
-  } = useKeychainNavStack<WelcomePage>('list')
+  // 窄屏是否停在详情页：selectedId 恒有值推不出落点，用这个状态推导
+  // 分栏切回子页栈时的落页
+  const [detailOpen, setDetailOpen] = useState(false)
+
+  const nav = useAdaptiveSplitNav({
+    split: true,
+    narrowPageForState: () => (detailOpen ? 'detail' : 'list'),
+    listPage: 'list',
+  })
 
   useAppMenuBar(APP_ID, [])
 
@@ -212,12 +212,6 @@ export function WelcomeApp() {
       setKeyAdded(hasOwnAiProvider())
     })
   }, [])
-
-  useEffect(() => {
-    if (!narrowLayout) {
-      setPage('list')
-    }
-  }, [narrowLayout, setPage])
 
   const selected = useMemo(() => findItem(selectedId) ?? ALL_ITEMS[0], [selectedId])
 
@@ -234,94 +228,76 @@ export function WelcomeApp() {
   const handleSelect = useCallback(
     (id: WelcomeTaskId) => {
       setSelectedId(id)
-      if (narrowLayout) {
-        navigate('detail', 'push')
+      if (nav.narrowLayout && nav.page === 'list') {
+        setDetailOpen(true)
+        nav.navigate('detail', 'push')
       }
     },
-    [narrowLayout, navigate],
+    [nav],
   )
 
   const handleBack = useCallback(() => {
-    navigate('list', 'pop')
-  }, [navigate])
+    nav.navigate('list', 'pop', () => setDetailOpen(false))
+  }, [nav])
 
-  const renderPage = useCallback(
-    (id: WelcomePage) => {
-      if (id === 'detail') {
-        return (
-          <>
-            <div class="settings__nav settings__nav--titled">
-              <div class="settings__nav-bar">
-                <IosNavBackButton label="欢迎中心" onClick={handleBack} />
-                <h1 class="settings__nav-heading">{taskLabel(selected.id)}</h1>
-                <span class="settings__nav-trailing" aria-hidden="true" />
-              </div>
-            </div>
-            <div class="settings__content welcome-app__pane welcome-app__pane--hero">
-              <WelcomeHero
-                item={selected}
-                keyAdded={keyAdded}
-                iconSize={HERO_ICON_SIZE_NARROW}
-                onOpen={openSelected}
-              />
-            </div>
-          </>
-        )
-      }
-
+  // ── 页面渲染：窄屏子页带导航栏；分栏左栏裸列表（老宽屏的无边框样式）──
+  const renderNarrowPage = (target: string) => {
+    if (target === 'detail') {
       return (
-        <>
-          <div class="settings__nav settings__nav--titled">
-            <div class="settings__nav-bar">
-              <span class="settings__nav-heading-spacer" aria-hidden="true" />
-              <h1 class="settings__nav-heading">欢迎中心</h1>
-              <span class="settings__nav-trailing" aria-hidden="true" />
-            </div>
-          </div>
-          <div class="settings__content welcome-app__pane">
-            <WelcomeAppList
-              narrowLayout
-              selectedId={selected.id}
-              onSelect={handleSelect}
+        <Page
+          header={
+            <PageHeader
+              title={taskLabel(selected.id)}
+              backLabel="欢迎中心"
+              onBack={handleBack}
             />
-          </div>
-        </>
-      )
-    },
-    [handleBack, handleSelect, keyAdded, openSelected, selected],
-  )
-
-  return (
-    <div
-      ref={hostRef}
-      class={`welcome-app${narrowLayout ? ' welcome-app--narrow' : ' welcome-app--wide'}`}
-    >
-      {narrowLayout ? (
-        <KeychainNavStack
-          stack={stack}
-          page={page}
-          transition={transition}
-          queuedTransition={queuedTransition}
-          commitQueuedTransition={commitQueuedTransition}
-          onMotionEnd={handleMotionEnd}
-          renderPage={renderPage}
-          settingsClassName="welcome-app__page"
-        />
-      ) : (
-        <>
-          <WelcomeAppList
-            narrowLayout={false}
-            selectedId={selected.id}
-            onSelect={handleSelect}
-          />
+          }
+        >
           <WelcomeHero
             item={selected}
             keyAdded={keyAdded}
-            iconSize={HERO_ICON_SIZE_WIDE}
+            iconSize={HERO_ICON_SIZE_NARROW}
             onOpen={openSelected}
           />
-        </>
-      )}
-    </div>
+        </Page>
+      )
+    }
+    if (nav.narrowLayout) {
+      return (
+        <Page header={<PageHeader title="欢迎中心" />}>
+          <WelcomeAppList narrowLayout selectedId={selected.id} onSelect={handleSelect} />
+        </Page>
+      )
+    }
+    return <WelcomeAppList narrowLayout={false} selectedId={selected.id} onSelect={handleSelect} />
+  }
+
+  // 分栏帧：宽屏 hero 独占右栏，无导航栏（老宽屏样式）
+  const renderWideFrames = (): AdaptiveFrameSpec[] => [
+    {
+      id: 'detail',
+      content: (
+        <WelcomeHero
+          item={selected}
+          keyAdded={keyAdded}
+          iconSize={HERO_ICON_SIZE_WIDE}
+          onOpen={openSelected}
+        />
+      ),
+    },
+  ]
+
+  return (
+    <AdaptiveSplitNav
+      controller={nav}
+      class={
+        nav.narrowLayout ? 'welcome-app welcome-app--narrow' : 'welcome-app welcome-app--wide'
+      }
+      renderNarrowPage={renderNarrowPage}
+      renderWideFrames={renderWideFrames}
+      /* 对齐原宽屏固定 280px 侧栏的下限 */
+      listMinWidth={280}
+      listRatio={0.36}
+    />
   )
 }
