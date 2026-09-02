@@ -293,20 +293,22 @@
 .vscode__settings {
   padding-left: var(--vscode-caret-size);
   box-sizing: border-box;
-  /* 转场时 .settings 会 display:contents，需由宿主/栈层顶住底色，避免闪白 */
+  /* 转场时页面会拆盒，需由宿主/栈层顶住底色，避免闪白 */
   --settings-page-bg: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
+  /* PageHeader 沿用 settings 导航条 token（settings--dark 时随暗色联动） */
+  --page-header-bg: var(--settings-nav-bg);
+  --page-header-border: var(--settings-nav-border);
   background: var(--settings-page-bg);
 }
 
-.vscode__settings > .keychain-stack,
-.vscode__settings .keychain-stack__layer {
-  background: var(--settings-page-bg);
-}
-
-.vscode__settings > .keychain-stack {
+.vscode__settings > .page-stack {
   flex: 1;
   min-height: 0;
   height: 100%;
+}
+
+.vscode__settings .page__body {
+  background: var(--settings-page-bg);
 }
 
 .vscode__settings-textarea {

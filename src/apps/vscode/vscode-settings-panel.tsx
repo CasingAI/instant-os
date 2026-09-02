@@ -1,15 +1,13 @@
 import type { ComponentChildren } from 'preact'
 import { useCallback, useMemo, useState } from 'preact/hooks'
 import { PlusIcon } from '../../icons/app-icons.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { Page } from '../../ui/page.tsx'
+import { PageHeader } from '../../ui/page-header.tsx'
+import { PageStack, usePageStack } from '../../ui/page-stack.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
-import {
-  KeychainNavStack,
-  useKeychainNavStack,
-} from '../keychain/keychain-nav-stack.tsx'
 import { SettingsChoicePickerView } from '../settings/settings-choice-picker-view.tsx'
 import { labelForVscodeModelPickerDisplay } from './vscode-ai-model-picker-data.ts'
 import {
@@ -40,7 +38,6 @@ import type {
   VscodeSubAgentBuiltinOverride,
   VscodeSubAgentModelSource,
 } from './vscode-prefs.ts'
-import '../../ui/ios-nav-back.css'
 import '../settings/settings.css'
 import '../keychain/keychain.css'
 
@@ -117,20 +114,18 @@ function SettingsPageShell({
   children: ComponentChildren
 }) {
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          {onBack ? (
-            <IosNavBackButton label={backLabel ?? '设置'} onClick={onBack} />
-          ) : (
-            <span class="settings__nav-heading-spacer" aria-hidden="true" />
-          )}
-          <h1 class="settings__nav-heading">{title}</h1>
-          {trailing ?? <span class="settings__nav-trailing" aria-hidden="true" />}
-        </div>
-      </div>
+    <Page
+      header={
+        <PageHeader
+          title={title}
+          backLabel={onBack ? (backLabel ?? '设置') : undefined}
+          onBack={onBack}
+          actions={trailing}
+        />
+      }
+    >
       <div class="settings__content settings__content--compact">{children}</div>
-    </>
+    </Page>
   )
 }
 
@@ -230,11 +225,9 @@ export function VscodeSettingsPanel({
     page: screen,
     stack,
     transition,
-    queuedTransition,
-    commitQueuedTransition,
     navigate,
     handleMotionEnd,
-  } = useKeychainNavStack<VscodeSettingsScreen>('root')
+  } = usePageStack<VscodeSettingsScreen>('root')
 
   const [draftId, setDraftId] = useState('')
   const [draftDescription, setDraftDescription] = useState('')
@@ -524,17 +517,19 @@ export function VscodeSettingsPanel({
 
     if (target === 'theme') {
       return (
-        <SettingsChoicePickerView
-          title="主题"
-          backLabel="设置"
-          titleInNav
-          options={VSCODE_THEME_OPTIONS}
-          value={prefs.theme}
-          onChange={(value) =>
-            onChange({ theme: value as VscodePrefs['theme'] })
-          }
-          onBack={() => navigate('root', 'pop')}
-        />
+        <div class="page keychain__picker-page">
+          <SettingsChoicePickerView
+            title="主题"
+            backLabel="设置"
+            titleInNav
+            options={VSCODE_THEME_OPTIONS}
+            value={prefs.theme}
+            onChange={(value) =>
+              onChange({ theme: value as VscodePrefs['theme'] })
+            }
+            onBack={() => navigate('root', 'pop')}
+          />
+        </div>
       )
     }
 
@@ -1233,16 +1228,13 @@ export function VscodeSettingsPanel({
   }
 
   return (
-    <div class="vscode__settings">
-      <KeychainNavStack
+    <div class={`settings vscode__settings${dark ? ' settings--dark' : ''}`}>
+      <PageStack
         stack={stack}
         page={screen}
         transition={transition}
-        queuedTransition={queuedTransition}
-        commitQueuedTransition={commitQueuedTransition}
         onMotionEnd={handleMotionEnd}
         renderPage={renderPage}
-        settingsClassName={dark ? 'settings--dark' : undefined}
       />
     </div>
   )
