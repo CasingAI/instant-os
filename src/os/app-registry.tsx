@@ -383,6 +383,8 @@ export const APP_REGISTRY: AppDefinition[] = [
     name: BUILTIN_APP_DISPLAY_NAMES['ui-kit'],
     icon: UiKitIcon,
     dock: false,
+    // 不常驻 Dock，但运行中的时候临时上 Dock（关窗即消失）
+    dockWhenRunning: true,
     desktop: true,
     iconDecoration: DEV_SLEEVE,
   }),
