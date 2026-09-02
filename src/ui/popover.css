@@ -36,6 +36,22 @@
   }
 }
 
+/* 退出动画由 useOverlayPresence 驱动：exiting 期间保持挂载，播完再卸载 */
+.popover.popover--exiting {
+  animation: popover-out 120ms ease forwards;
+}
+
+@keyframes popover-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
 /* 箭头：外层描边三角 + 内层填充三角（无 filter/transform）。
    伪元素高 8px：7px 悬在面板外、1px 伸进面板内部，伸进的部分盖掉顶部白色
    高光（inset 0 1px 0），箭头才不会被这条高光与气泡正文劈开。
@@ -131,5 +147,33 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+.popover-modal__backdrop.popover-modal__backdrop--exiting {
+  animation: popover-backdrop-out 150ms ease forwards;
+}
+
+.popover-modal.popover-modal--exiting {
+  animation: popover-modal-out 150ms ease forwards;
+}
+
+@keyframes popover-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes popover-modal-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92);
   }
 }

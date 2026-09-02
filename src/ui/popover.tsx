@@ -4,11 +4,15 @@ import { createPortal } from 'preact/compat'
 import { computeFloatingPanelPosition, FLOATING_PANEL_VIEWPORT_PADDING } from './compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
 import { IosButton } from './ios-button.tsx'
+import { useOverlayPresence } from './use-overlay-presence.ts'
 import './popover.css'
 
 /** 与 useAppNarrowLayout / window-snap 的 NARROW_WORK_AREA_WIDTH 一致（滞回防抖） */
 const POPOVER_NARROW_ENTER_WIDTH = 520
 const POPOVER_NARROW_EXIT_WIDTH = 580
+/** 退出动画时长，与 popover.css 各形态入场动画时长一致 */
+const POPOVER_EXIT_WIDE_MS = 120
+const POPOVER_EXIT_MODAL_MS = 150
 /** 箭头中心距气泡两边的最小距离，避免贴到圆角外 */
 const POPOVER_ARROW_SAFE_INSET = 14
 
@@ -42,6 +46,16 @@ export function Popover({
   const [placement, setPlacement] = useState<'below' | 'above'>('below')
   const [arrowX, setArrowX] = useState(0)
   const [narrow, setNarrow] = useState(false)
+  // 关闭时先进 exiting 态保持挂载播退出动画，定时到点再卸载
+  const { mounted, exiting } = useOverlayPresence(
+    open,
+    narrow ? POPOVER_EXIT_MODAL_MS : POPOVER_EXIT_WIDE_MS,
+  )
+  // 退出动画期间父级可能同步清空 children；保留最后一帧内容避免闪空
+  const childrenRef = useRef(children)
+  if (open) {
+    childrenRef.current = children
+  }
 
   const updatePosition = useCallback(() => {
     const anchor = anchorRef.current
@@ -129,22 +143,25 @@ export function Popover({
     }
   }, [open, onClose])
 
-  if (!open) {
+  if (!mounted) {
     return undefined
   }
 
   if (narrow) {
     return createPortal(
-      <div class="popover-modal__backdrop" onClick={onClose}>
+      <div
+        class={`popover-modal__backdrop${exiting ? ' popover-modal__backdrop--exiting' : ''}`}
+        onClick={onClose}
+      >
         <div
           ref={modalRef}
-          class="popover-modal"
+          class={`popover-modal${exiting ? ' popover-modal--exiting' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label={ariaLabel}
           onClick={(event) => event.stopPropagation()}
         >
-          <div class="popover-modal__body">{children}</div>
+          <div class="popover-modal__body">{childrenRef.current}</div>
           <div class="popover-modal__actions">
             <IosButton tone="primary" size="compact" onClick={onClose}>
               {dismissLabel}
@@ -159,7 +176,7 @@ export function Popover({
   return createPortal(
     <div
       ref={panelRef}
-      class={`popover popover--${placement}`}
+      class={`popover popover--${placement}${exiting ? ' popover--exiting' : ''}`}
       role="dialog"
       aria-label={ariaLabel}
       style={{
@@ -168,7 +185,7 @@ export function Popover({
         '--popover-arrow-x': `${arrowX}px`,
       }}
     >
-      {children}
+      {childrenRef.current}
     </div>,
     getFloatingOverlayRoot(),
   )
