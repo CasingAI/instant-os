@@ -6,7 +6,10 @@ import {
   useRef,
   useState,
 } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { Page } from '../../ui/page.tsx'
+import { PageBackButton } from '../../ui/page-back-button.tsx'
+import { PageHeader } from '../../ui/page-header.tsx'
+import { PageStack, usePageStack } from '../../ui/page-stack.tsx'
 import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
@@ -67,10 +70,6 @@ import {
   formatKeychainContextWindowLabel,
   KeychainContextWindowFlow,
 } from './keychain-context-window-flow.tsx'
-import {
-  KeychainNavStack,
-  useKeychainNavStack,
-} from './keychain-nav-stack.tsx'
 import { subscribeOpenRouterPricingCache } from '../../ai/openrouter-pricing-cache.ts'
 import { subscribeModelPricingCache } from '../../ai/ai-model-pricing-cache.ts'
 import { resolveTokenizerFamily } from '../../ai/model-tokenizer.ts'
@@ -414,12 +413,10 @@ export function KeychainApp() {
     page: screen,
     stack: navStack,
     transition: navTransition,
-    queuedTransition: navQueuedTransition,
-    commitQueuedTransition: commitNavQueuedTransition,
     navigate: navigateTo,
     handleMotionEnd: handleStackMotionEnd,
     setPage: setScreen,
-  } = useKeychainNavStack<Screen>('root')
+  } = usePageStack<Screen>('root')
   const [githubDialogOpen, setGithubDialogOpen] = useState(false)
   const [githubConfigured, setGithubConfigured] = useState(() =>
     hasGithubCredentials(),
@@ -984,63 +981,69 @@ export function KeychainApp() {
 
       return (
         <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            {showSave ? (
-              <button
-                type="button"
-                class="settings__btn settings__btn--plain"
-                onClick={handleProviderCancel}
-              >
-                取消
-              </button>
-            ) : (
-              <IosNavBackButton
-                label="AI 模型供应商"
-                onClick={handleProviderBack}
-              />
-            )}
-            <h1 class="settings__nav-heading">{settingsTitle}</h1>
-            {showSave ? (
-              <div class="settings__nav-trailing">
-                <button
-                  type="button"
-                  class="settings__btn settings__btn--default"
-                  disabled={!entryValid}
-                  onClick={handleProviderSave}
-                >
-                  保存
-                </button>
+        <Page
+          class="keychain__custom-page"
+          header={
+            <div class="settings__nav settings__nav--titled">
+              <div class="settings__nav-bar">
+                {showSave ? (
+                  <button
+                    type="button"
+                    class="settings__btn settings__btn--plain"
+                    onClick={handleProviderCancel}
+                  >
+                    取消
+                  </button>
+                ) : (
+                  <PageBackButton
+                    label="AI 模型供应商"
+                    onClick={handleProviderBack}
+                  />
+                )}
+                <h1 class="settings__nav-heading">{settingsTitle}</h1>
+                {showSave ? (
+                  <div class="settings__nav-trailing">
+                    <button
+                      type="button"
+                      class="settings__btn settings__btn--default"
+                      disabled={!entryValid}
+                      onClick={handleProviderSave}
+                    >
+                      保存
+                    </button>
+                  </div>
+                ) : showDelete ? (
+                  <div class="settings__nav-trailing">
+                    <button
+                      type="button"
+                      class="settings__btn settings__btn--danger"
+                      onClick={handleProviderDelete}
+                    >
+                      删除
+                    </button>
+                  </div>
+                ) : (
+                  <span class="settings__nav-trailing" aria-hidden="true" />
+                )}
               </div>
-            ) : showDelete ? (
-              <div class="settings__nav-trailing">
-                <button
-                  type="button"
-                  class="settings__btn settings__btn--danger"
-                  onClick={handleProviderDelete}
-                >
-                  删除
-                </button>
-              </div>
-            ) : (
-              <span class="settings__nav-trailing" aria-hidden="true" />
-            )}
+            </div>
+          }
+        >
+          <div class="settings__content settings__content--compact">
+            <section class="settings__section">
+              {editingEntry && (
+                <ProviderSettingsForm
+                  entry={editingEntry}
+                  wideLayout={wideLayout}
+                  onChange={setEditingEntry}
+                  onOpenModel={handleOpenModelSettings}
+                  onAddModel={handleOpenAddModel}
+                  onOpenFieldEdit={handleOpenFieldDialog}
+                />
+              )}
+            </section>
           </div>
-        </div>
-        <div class="settings__content settings__content--compact">
-          <section class="settings__section">
-            {editingEntry && (
-              <ProviderSettingsForm
-                entry={editingEntry}
-                wideLayout={wideLayout}
-                onChange={setEditingEntry}
-                onOpenModel={handleOpenModelSettings}
-                onAddModel={handleOpenAddModel}
-                onOpenFieldEdit={handleOpenFieldDialog}
-              />
-            )}
-          </section>
-        </div>
+        </Page>
 
         {editingEntry && fieldMeta && fieldDialog && (
           <KeychainTextFieldDialog
@@ -1070,37 +1073,31 @@ export function KeychainApp() {
 
       return (
         <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            <span class="settings__nav-heading-spacer" aria-hidden="true" />
-            <h1 class="settings__nav-heading">钥匙串</h1>
-            <span class="settings__nav-trailing" aria-hidden="true" />
+        <Page header={<PageHeader title="钥匙串" />}>
+          <div class="settings__content settings__content--compact">
+            <section class="settings__section">
+              <h2 class="settings__section-title">凭证</h2>
+              <div class="settings__list">
+                <SettingsNavRow
+                  label="GitHub"
+                  value={githubConfigured ? '已配置' : '未配置'}
+                  secretLength={
+                    githubTokenLength > 0 ? githubTokenLength : undefined
+                  }
+                  onClick={() => navigateTo('github', 'push')}
+                />
+                <SettingsNavRow
+                  label="AI 模型供应商"
+                  value={aiStatus}
+                  onClick={() => navigateTo('ai-providers', 'push')}
+                />
+              </div>
+              <p class="settings__section-footnote">
+                管理本机保存的 API 凭证。配置仅保存在本机，不会上传到服务器。
+              </p>
+            </section>
           </div>
-        </div>
-        <div class="settings__content settings__content--compact">
-          <section class="settings__section">
-            <h2 class="settings__section-title">凭证</h2>
-            <div class="settings__list">
-              <SettingsNavRow
-                label="GitHub"
-                value={githubConfigured ? '已配置' : '未配置'}
-                secretLength={
-                  githubTokenLength > 0 ? githubTokenLength : undefined
-                }
-                onClick={() => navigateTo('github', 'push')}
-              />
-              <SettingsNavRow
-                label="AI 模型供应商"
-                value={aiStatus}
-                onClick={() => navigateTo('ai-providers', 'push')}
-              />
-            </div>
-            <p class="settings__section-footnote">
-              管理本机保存的 API 凭证。配置仅保存在本机，不会上传到服务器。
-            </p>
-          </section>
-        </div>
-
+        </Page>
         </>
       )
     }
@@ -1108,38 +1105,38 @@ export function KeychainApp() {
     if (target === 'github') {
       return (
         <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            <IosNavBackButton
-              label="钥匙串"
-              onClick={() => {
+        <Page
+          header={
+            <PageHeader
+              title="GitHub"
+              backLabel="钥匙串"
+              onBack={() => {
                 setGithubDialogOpen(false)
                 navigateTo('root', 'pop')
               }}
             />
-            <h1 class="settings__nav-heading">GitHub</h1>
-            <span class="settings__nav-trailing" aria-hidden="true" />
+          }
+        >
+          <div class="settings__content settings__content--compact">
+            <section class="settings__section">
+              <div class="settings__list">
+                <SettingsNavRow
+                  label="Personal Access Token"
+                  value={githubConfigured ? '已配置' : '未配置'}
+                  secretLength={
+                    githubTokenLength > 0 ? githubTokenLength : undefined
+                  }
+                  onClick={() => setGithubDialogOpen(true)}
+                />
+              </div>
+              <p class="settings__section-footnote">
+                用于访问 GitHub API。可在 GitHub 设置中创建，仅保存在本机。若要让 GitHub Desktop
+                自动填真实提交邮箱，classic Token 需 user:email；细粒度 Token 需 Email addresses
+                只读。
+              </p>
+            </section>
           </div>
-        </div>
-        <div class="settings__content settings__content--compact">
-          <section class="settings__section">
-            <div class="settings__list">
-              <SettingsNavRow
-                label="Personal Access Token"
-                value={githubConfigured ? '已配置' : '未配置'}
-                secretLength={
-                  githubTokenLength > 0 ? githubTokenLength : undefined
-                }
-                onClick={() => setGithubDialogOpen(true)}
-              />
-            </div>
-            <p class="settings__section-footnote">
-              用于访问 GitHub API。可在 GitHub 设置中创建，仅保存在本机。若要让 GitHub Desktop
-              自动填真实提交邮箱，classic Token 需 user:email；细粒度 Token 需 Email addresses
-              只读。
-            </p>
-          </section>
-        </div>
+        </Page>
 
         <GithubCredentialsDialog
           open={githubDialogOpen}
@@ -1154,80 +1151,85 @@ export function KeychainApp() {
     if (target === 'ai-providers') {
       return (
         <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            {dirty ? (
-              <button
-                type="button"
-                class="settings__btn settings__btn--plain"
-                onClick={handleCancelChanges}
-              >
-                取消
-              </button>
-            ) : (
-              <IosNavBackButton
-                label="钥匙串"
-                onClick={() => navigateTo('root', 'pop')}
-              />
-            )}
-            <h1 class="settings__nav-heading">AI 模型供应商</h1>
-            <div class="settings__nav-trailing">
-              {dirty ? (
-                <button
-                  type="button"
-                  class="settings__btn settings__btn--default"
-                  onClick={handleSave}
-                >
-                  保存
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  class="settings__btn settings__btn--plain"
-                  onClick={handleAddProvider}
-                >
-                  添加
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-        <div class="settings__content settings__content--compact">
-          <section class="settings__section">
-            {!hasAnyModel ? (
-              <div class="settings__box settings__empty">
-                尚未添加供应商。点击右上角「添加」来配置 AI 模型。
+        <Page
+          class="keychain__custom-page"
+          header={
+            <div class="settings__nav settings__nav--titled">
+              <div class="settings__nav-bar">
+                {dirty ? (
+                  <button
+                    type="button"
+                    class="settings__btn settings__btn--plain"
+                    onClick={handleCancelChanges}
+                  >
+                    取消
+                  </button>
+                ) : (
+                  <PageBackButton
+                    label="钥匙串"
+                    onClick={() => navigateTo('root', 'pop')}
+                  />
+                )}
+                <h1 class="settings__nav-heading">AI 模型供应商</h1>
+                <div class="settings__nav-trailing">
+                  {dirty ? (
+                    <button
+                      type="button"
+                      class="settings__btn settings__btn--default"
+                      onClick={handleSave}
+                    >
+                      保存
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      class="settings__btn settings__btn--plain"
+                      onClick={handleAddProvider}
+                    >
+                      添加
+                    </button>
+                  )}
+                </div>
               </div>
-            ) : (
-              <>
-                <SegmentedControl
-                  value={activeCapability}
-                  ariaLabel="模型能力"
-                  className="keychain__capability-tabs"
-                  items={AI_MODEL_CAPABILITIES.map((capability) => ({
-                    id: capability,
-                    label: AI_MODEL_CAPABILITY_LABELS[capability],
-                  }))}
-                  onChange={setActiveCapability}
-                />
-                <CapabilitySection
-                  capability={activeCapability}
-                  providers={workingProviders}
-                  preferred={preferredByCapability[activeCapability]}
-                  order={capabilityOrder[activeCapability]}
-                  onReorder={(ordered) =>
-                    handleReorderCapability(activeCapability, ordered)
-                  }
-                  onOpenProvider={handleOpenProviderSettings}
-                />
-                <p class="settings__section-footnote">
-                  拖拽排序，首位模型将作为当前类别的首选。
-                </p>
-              </>
-            )}
-          </section>
-        </div>
-
+            </div>
+          }
+        >
+          <div class="settings__content settings__content--compact">
+            <section class="settings__section">
+              {!hasAnyModel ? (
+                <div class="settings__box settings__empty">
+                  尚未添加供应商。点击右上角「添加」来配置 AI 模型。
+                </div>
+              ) : (
+                <>
+                  <SegmentedControl
+                    value={activeCapability}
+                    ariaLabel="模型能力"
+                    className="keychain__capability-tabs"
+                    items={AI_MODEL_CAPABILITIES.map((capability) => ({
+                      id: capability,
+                      label: AI_MODEL_CAPABILITY_LABELS[capability],
+                    }))}
+                    onChange={setActiveCapability}
+                  />
+                  <CapabilitySection
+                    capability={activeCapability}
+                    providers={workingProviders}
+                    preferred={preferredByCapability[activeCapability]}
+                    order={capabilityOrder[activeCapability]}
+                    onReorder={(ordered) =>
+                      handleReorderCapability(activeCapability, ordered)
+                    }
+                    onOpenProvider={handleOpenProviderSettings}
+                  />
+                  <p class="settings__section-footnote">
+                    拖拽排序，首位模型将作为当前类别的首选。
+                  </p>
+                </>
+              )}
+            </section>
+          </div>
+        </Page>
         </>
       )
     }
@@ -1235,16 +1237,16 @@ export function KeychainApp() {
   }
 
   return (
-    <KeychainNavStack
-      stack={navStack}
-      page={screen}
-      transition={navTransition}
-      queuedTransition={navQueuedTransition}
-      commitQueuedTransition={commitNavQueuedTransition}
-      onMotionEnd={handleStackMotionEnd}
-      hostRef={providerSettingsHostRef}
-      renderPage={renderScreen}
-    />
+    <div class="keychain-app">
+      <PageStack
+        stack={navStack}
+        page={screen}
+        transition={navTransition}
+        onMotionEnd={handleStackMotionEnd}
+        hostRef={providerSettingsHostRef}
+        renderPage={renderScreen}
+      />
+    </div>
   )
 }
 
@@ -1821,11 +1823,9 @@ function AddModelView({
     page: pickerPage,
     stack: pickerStack,
     transition: pickerTransition,
-    queuedTransition: pickerQueuedTransition,
-    commitQueuedTransition: commitPickerQueuedTransition,
     navigate: navigatePicker,
     handleMotionEnd: handlePickerMotionEnd,
-  } = useKeychainNavStack<'form' | AddModelPicker>('form')
+  } = usePageStack<'form' | AddModelPicker>('form')
 
   const trimmed = draftModelId.trim()
   const duplicate = trimmed.length > 0 && existingModelIds.includes(trimmed)
@@ -1912,6 +1912,7 @@ function AddModelView({
     }
     if (page === 'tokenizer') {
       return (
+      <div class="page keychain__picker-page">
         <SettingsChoicePickerView
         title="词表"
         backLabel={title}
@@ -1929,10 +1930,12 @@ function AddModelView({
         }}
         onBack={() => navigatePicker('form', 'pop')}
         />
+      </div>
       )
     }
     if (page === 'context') {
       return (
+      <div class="page keychain__picker-page">
         <KeychainContextWindowFlow
           backLabel={title}
           providerId={providerId}
@@ -1943,42 +1946,47 @@ function AddModelView({
           }}
           onClose={() => navigatePicker('form', 'pop')}
         />
+      </div>
       )
     }
     return (
-      <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <button
-            type="button"
-            class="settings__btn settings__btn--plain"
-            onClick={onCancel}
-          >
-            取消
-          </button>
-          <h1 class="settings__nav-heading">{title}</h1>
-          <div class="settings__nav-trailing">
-            <button
-              type="button"
-              class="settings__btn settings__btn--default"
-              disabled={!canSubmit}
-              onClick={() =>
-                onComplete({
-                  modelId: trimmed,
-                  supportsVision,
-                  ...pricingSelection,
-                  tokenizerFamily,
-                  ...(contextWindowMode ? { contextWindowMode } : {}),
-                  ...(contextWindow !== undefined ? { contextWindow } : {}),
-                })
-              }
-            >
-              下一步
-            </button>
+      <Page
+        class="keychain__custom-page"
+        header={
+          <div class="settings__nav settings__nav--titled">
+            <div class="settings__nav-bar">
+              <button
+                type="button"
+                class="settings__btn settings__btn--plain"
+                onClick={onCancel}
+              >
+                取消
+              </button>
+              <h1 class="settings__nav-heading">{title}</h1>
+              <div class="settings__nav-trailing">
+                <button
+                  type="button"
+                  class="settings__btn settings__btn--default"
+                  disabled={!canSubmit}
+                  onClick={() =>
+                    onComplete({
+                      modelId: trimmed,
+                      supportsVision,
+                      ...pricingSelection,
+                      tokenizerFamily,
+                      ...(contextWindowMode ? { contextWindowMode } : {}),
+                      ...(contextWindow !== undefined ? { contextWindow } : {}),
+                    })
+                  }
+                >
+                  下一步
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-      <div class="settings__content settings__content--compact">
+        }
+      >
+        <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <div class="keychain__form-stack">
             <div class="keychain__form-group">
@@ -2066,20 +2074,20 @@ function AddModelView({
         onClose={() => setModelIdDialogOpen(false)}
         onSave={applyModelId}
       />
-      </>
-    )
-  }
+        </Page>
+      )
+    }
 
   return (
-    <KeychainNavStack
-      stack={pickerStack}
-      page={pickerPage}
-      transition={pickerTransition}
-      queuedTransition={pickerQueuedTransition}
-      commitQueuedTransition={commitPickerQueuedTransition}
-      onMotionEnd={handlePickerMotionEnd}
-      renderPage={renderPickerPage}
-    />
+    <div class="page keychain__flow-page">
+      <PageStack
+        stack={pickerStack}
+        page={pickerPage}
+        transition={pickerTransition}
+        onMotionEnd={handlePickerMotionEnd}
+        renderPage={renderPickerPage}
+      />
+    </div>
   )
 }
 
@@ -2106,11 +2114,9 @@ function ModelSettingsView({
     page: pickerPage,
     stack: pickerStack,
     transition: pickerTransition,
-    queuedTransition: pickerQueuedTransition,
-    commitQueuedTransition: commitPickerQueuedTransition,
     navigate: navigatePicker,
     handleMotionEnd: handlePickerMotionEnd,
-  } = useKeychainNavStack<'form' | AddModelPicker>('form')
+  } = usePageStack<'form' | AddModelPicker>('form')
   const [pricingRevision, setPricingRevision] = useState(0)
 
   useEffect(() => {
@@ -2273,6 +2279,7 @@ function ModelSettingsView({
     }
     if (page === 'tokenizer') {
       return (
+      <div class="page keychain__picker-page">
         <SettingsChoicePickerView
         title="词表"
         backLabel={title}
@@ -2291,10 +2298,12 @@ function ModelSettingsView({
         }
         onBack={() => navigatePicker('form', 'pop')}
         />
+      </div>
       )
     }
     if (page === 'context') {
       return (
+      <div class="page keychain__picker-page">
         <KeychainContextWindowFlow
           backLabel={title}
           providerId={entry.providerId}
@@ -2307,30 +2316,31 @@ function ModelSettingsView({
           }}
           onClose={() => navigatePicker('form', 'pop')}
         />
+      </div>
       )
     }
     return (
-      <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <IosNavBackButton label={backLabel} onClick={onBack} />
-          <h1 class="settings__nav-heading">{title}</h1>
-          {showRemove ? (
-            <div class="settings__nav-trailing">
-              <button
-                type="button"
-                class="settings__btn settings__btn--danger"
-                onClick={handleRemove}
-              >
-                移除
-              </button>
-            </div>
-          ) : (
-            <span class="settings__nav-trailing" aria-hidden="true" />
-          )}
-        </div>
-      </div>
-      <div class="settings__content settings__content--compact">
+      <Page
+        header={
+          <PageHeader
+            title={title}
+            backLabel={backLabel}
+            onBack={onBack}
+            actions={
+              showRemove ? (
+                <button
+                  type="button"
+                  class="settings__btn settings__btn--danger"
+                  onClick={handleRemove}
+                >
+                  移除
+                </button>
+              ) : undefined
+            }
+          />
+        }
+      >
+        <div class="settings__content settings__content--compact">
         <section class="settings__section">
           {editingRow ? (
             <div class="keychain__form-stack">
@@ -2423,20 +2433,20 @@ function ModelSettingsView({
             <div class="settings__box settings__empty">找不到该模型</div>
           )}
         </section>
-      </div>
-      </>
+        </div>
+      </Page>
     )
   }
 
   return (
-    <KeychainNavStack
-      stack={pickerStack}
-      page={pickerPage}
-      transition={pickerTransition}
-      queuedTransition={pickerQueuedTransition}
-      commitQueuedTransition={commitPickerQueuedTransition}
-      onMotionEnd={handlePickerMotionEnd}
-      renderPage={renderPickerPage}
-    />
+    <div class="page keychain__flow-page">
+      <PageStack
+        stack={pickerStack}
+        page={pickerPage}
+        transition={pickerTransition}
+        onMotionEnd={handlePickerMotionEnd}
+        renderPage={renderPickerPage}
+      />
+    </div>
   )
 }
