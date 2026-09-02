@@ -1,55 +1,65 @@
-/* 服务 — 钥匙串式整页；宽屏左右两栏撑满窗口 */
+/* 服务 — AdaptiveSplitNav 布局原语（宽屏分栏 / 窄屏子页栈） */
 
+/* 内容样式随 settings 样式表分发，但 token 定义在 .settings 上；换系统壳
+   （Page/.page）后在此补齐用到的 token（nav-kit-demo 同款做法） */
 .services-host {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.services-host--narrow {
-  min-height: 0;
-}
-
-.services-host--narrow > .keychain-stack {
-  flex: 1;
-  min-height: 0;
-}
-
-.services-split {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(220px, 36%) minmax(0, 1fr);
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  gap: 0;
-  overflow: visible;
-}
-
-.services-split__pane {
-  min-height: 0;
-  min-width: 0;
-  height: 100%;
-}
-
-.services-split__pane--list {
-  border-right: 1px solid rgba(0, 0, 0, 0.18);
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
-}
-
-.services-split__pane--detail {
-  position: relative;
-  z-index: 1;
-  overflow: visible;
+  --settings-list-bg: #fff;
+  --settings-list-border: #a8a8a8;
+  --settings-list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  --settings-row-border: #ececec;
+  --settings-row-size: #666;
+  --settings-section-title: #555;
+  --settings-section-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-footnote: #666;
+  --settings-footnote-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 /* 分栏 pane 已是窗口的一部分，不适用整页 860px 居中留白 */
 @container app-window (min-width: 700px) {
-  .services-split__pane > .settings__content--compact {
+  .services-host .settings__content--compact {
     --settings-content-pad-x: 18px;
     padding: 14px 18px 18px;
+  }
+}
+
+/* 详情页/详情帧的返回键只在窄形态有：A 型形变（窄→宽）随滑轨淡出，
+   C 型（宽→窄）落定交棒后才出现——短淡入代替硬蹦（nav-kit-demo 同款） */
+.services__back-fade-out .page-back-button {
+  pointer-events: none;
+  animation: services-back-out var(--asn-frame-ms, 380ms)
+    cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes services-back-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+.services__back-fade-in-0 .page-back-button,
+.services__back-fade-in-1 .page-back-button {
+  animation: services-back-in 240ms ease-out both;
+}
+
+@keyframes services-back-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .services__back-fade-out .page-back-button,
+  .services__back-fade-in-0 .page-back-button,
+  .services__back-fade-in-1 .page-back-button {
+    animation: none;
   }
 }
 
@@ -112,40 +122,4 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
-}
-
-/* tooltip 式左向尖尖，对齐左侧选中行中心（仅宽屏） */
-.services__detail-caret {
-  position: absolute;
-  top: var(--services-caret-y, 50%);
-  left: var(--services-caret-x, 36%);
-  z-index: 4;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.services__detail-caret::before,
-.services__detail-caret::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  right: 0;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.services__detail-caret::before {
-  border-width: 9px 9px 9px 0;
-  border-color: transparent rgba(0, 0, 0, 0.18) transparent transparent;
-}
-
-.services__detail-caret::after {
-  border-width: 8px 8px 8px 0;
-  border-color: transparent var(--services-caret-fill, #ececec) transparent transparent;
-  right: -1px;
 }
