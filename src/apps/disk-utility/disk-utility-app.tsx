@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
-import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { Page } from '../../ui/page.tsx'
+import { PageHeader } from '../../ui/page-header.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
+import {
+  AdaptiveSplitNav,
+  useAdaptiveSplitNav,
+  type AdaptiveFrameSpec,
+} from '../../ui/adaptive-split-nav.tsx'
 import { TreeView } from '../../ui/tree-view.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
-import { KeychainNavStack, useKeychainNavStack } from '../keychain/keychain-nav-stack.tsx'
 import { requestFilesReveal } from '../files/files-reveal-request.ts'
 import { FILES_MOUNTS_CHANGED_EVENT } from '../files/files-mount-store.ts'
 import { FILES_IMAGE_MOUNTS_CHANGED_EVENT } from '../files/files-image-mount-store.ts'
@@ -64,15 +68,11 @@ import {
   type ScanDialogState,
   type PartitionDialogState,
 } from './disk-utility-dialogs.tsx'
-import '../../ui/ios-nav-back.css'
 import '../settings/settings.css'
-import '../keychain/keychain.css'
 import './disk-utility.css'
 
 const APP_ID = 'disk-utility' as const
 const DETAIL_REFRESH_DEBOUNCE_MS = 400
-
-type DiskUtilityScreen = 'list' | 'detail' | 'partition'
 
 function usagePercent(used: number, total: number): number {
   if (!total || !Number.isFinite(total)) return 0
@@ -580,7 +580,6 @@ function formatError(error: unknown): string {
 }
 
 export function DiskUtilityApp() {
-  const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
   const { openApp } = useOs()
   const modal = useWindowModal()
   const [tree, setTree] = useState<TreeNode | undefined>(undefined)
@@ -603,22 +602,16 @@ export function DiskUtilityApp() {
   const [busy, setBusy] = useState(false)
   const [dialogError, setDialogError] = useState<string | undefined>(undefined)
   const busyRef = useRef(false)
-  const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
-  const splitRef = useRef<HTMLDivElement>(null)
-  const listPaneRef = useRef<HTMLDivElement>(null)
-  const detailPanelRef = useRef<HTMLDivElement>(null)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  const {
-    page: screen,
-    stack: navStack,
-    transition: navTransition,
-    queuedTransition: navQueuedTransition,
-    commitQueuedTransition: commitNavQueuedTransition,
-    navigate: navigateTo,
-    handleMotionEnd: handleStackMotionEnd,
-    setPage: resetNavPage,
-  } = useKeychainNavStack<DiskUtilityScreen>('list')
+  // 单一真源是领域状态（选中节点 + 分区视图根）：窄屏子页与分栏帧都从它派生，
+  // 分栏切回子页栈的落点也由它推导。
+  const nav = useAdaptiveSplitNav({
+    split: true,
+    narrowPageForState: () =>
+      partitionViewRootId ? 'partition' : selectedId ? 'detail' : 'list',
+    listPage: 'list',
+  })
 
   const refresh = useCallback(async (): Promise<TreeNode | undefined> => {
     const [nextTree, nextStorage] = await Promise.all([
@@ -669,16 +662,6 @@ export function DiskUtilityApp() {
     }
   }, [refresh])
 
-  useLayoutEffect(() => {
-    if (!layoutReady) return
-    const previous = prevNarrowLayoutRef.current
-    prevNarrowLayoutRef.current = narrowLayout
-    if (previous === undefined) return
-    if (previous && !narrowLayout) {
-      resetNavPage('list')
-    }
-  }, [layoutReady, narrowLayout, resetNavPage])
-
   const selectedNode = useMemo(
     () => (tree && selectedId ? findNode(tree, selectedId) : undefined),
     [tree, selectedId],
@@ -699,22 +682,24 @@ export function DiskUtilityApp() {
         setSelectedId(node.id)
         const root = tree ? findAncestorImageRoot(tree, node.id) : undefined
         if (root && root.id !== partitionViewRootId) setPartitionViewRootId(root.id)
-        if (narrowLayout && screen !== 'partition') navigateTo('partition', 'push')
+        if (nav.narrowLayout && nav.page !== 'partition') nav.navigate('partition', 'push')
         return
       }
 
       const wasInPartitionView = partitionViewRootId !== undefined
       setSelectedId(node.id)
-      setPartitionViewRootId(undefined)
-      if (narrowLayout) {
+      if (nav.narrowLayout) {
         if (wasInPartitionView) {
-          navigateTo('detail', 'pop')
-        } else if (screen === 'list') {
-          navigateTo('detail', 'push')
+          // 退出分区视图回详情：状态在 pop 落定后提交，动画期间分区页保持原画面
+          nav.navigate('detail', 'pop', () => setPartitionViewRootId(undefined))
+        } else if (nav.page === 'list') {
+          nav.navigate('detail', 'push')
         }
+      } else {
+        setPartitionViewRootId(undefined)
       }
     },
-    [navigateTo, narrowLayout, partitionViewRootId, screen, tree],
+    [nav, partitionViewRootId, tree],
   )
 
   const runMutation = useCallback(
@@ -947,7 +932,7 @@ export function DiskUtilityApp() {
           (node.children ?? []).find((child) => child.kind === 'partition' && child.pathRoot) ??
           (node.pathRoot ? node : undefined)
         setSelectedId((firstReadable ?? node).id)
-        if (narrowLayout) navigateTo('partition', 'push')
+        if (nav.narrowLayout) nav.navigate('partition', 'push')
       },
       erasePartition: (node) => {
         if (!node.imageFile || !node.partition) return
@@ -1009,23 +994,42 @@ export function DiskUtilityApp() {
         })
       },
     }),
-    [modal, navigateTo, narrowLayout, openApp, refresh],
+    [modal, nav, openApp, refresh],
   )
 
   useAppMenuBar(APP_ID, [])
 
-  const renderListNav = () => (
-    <div class="settings__nav settings__nav--titled">
-      <div class="settings__nav-bar">
-        <span class="settings__nav-heading-spacer" aria-hidden="true" />
-        <h1 class="settings__nav-heading">磁盘工具</h1>
-        <span class="settings__nav-trailing" aria-hidden="true" />
-      </div>
-    </div>
-  )
+  // ── 形变期返回键对齐（nav-kit-demo 同款）：详情页/详情帧的返回键只在窄
+  // 形态有、分栏静置没有。A 型（窄→宽）先挂着随滑轨淡出；C 型（宽→窄）
+  // 落定交棒给子页栈后才出现，给一次透明度 0→1 的短淡入代替硬蹦。epoch
+  // 递增 + 双类名交替，背靠背再触发也能重播；必须用 layout effect，类要在
+  // 面板移除的同一帧 paint 前挂上。
+  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
+  const backFadeTimerRef = useRef(0)
+  const prevMorphingRef = useRef(false)
+  useLayoutEffect(() => {
+    const was = prevMorphingRef.current
+    prevMorphingRef.current = nav.morphing
+    if (was === nav.morphing) return
+    if (nav.morphing || !nav.narrowLayout) return
+    // 落定页是详情页（唯一返回键有形态差的页）才淡入
+    if (partitionViewRootId || !selectedId) return
+    window.clearTimeout(backFadeTimerRef.current)
+    setBackFadeEpoch((epoch) => epoch + 1)
+    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
+  }, [nav.morphing, nav.narrowLayout, partitionViewRootId, selectedId])
+  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
 
-  const renderListContent = () => (
-    <div class="settings__content settings__content--compact disk-utility__list-content">
+  /** 退出分区视图回镜像详情：窄屏 pop 落定后提交状态，分栏即时提交（帧滑出） */
+  const backToImageRoot = useCallback(() => {
+    if (mapNode) setSelectedId(mapNode.id)
+    nav.navigate('detail', 'pop', () => setPartitionViewRootId(undefined))
+  }, [mapNode, nav])
+
+  // ── 页面渲染：同一份内容同时供给窄屏子页与分栏帧（返回键按形态挂/摘）──
+
+  const renderListPage = () => (
+    <Page class="disk-utility__list-page" header={<PageHeader title="磁盘工具" />}>
       <div class="disk-utility__sidebar">
         <TreeView
           className="disk-utility__tree"
@@ -1065,122 +1069,111 @@ export function DiskUtilityApp() {
             : '加载中…'}
         </p>
       </div>
-    </div>
+    </Page>
   )
 
-  const renderDetailNav = (
-    stacked: boolean,
+  // 详情/分区页：返回键文案与行为随形态由调用方决定（分区视图回「返回镜像」，
+  // 详情窄屏回「磁盘工具」；分栏详情帧静置不带返回）。
+  const renderDetailPage = (
     inPartitionView: boolean,
+    showBack: boolean,
+    headerClass?: string,
     displayNode: TreeNode | undefined = selectedNode,
   ) => (
-    <div class="settings__nav settings__nav--titled disk-utility__detail-nav">
-      <div class="settings__nav-bar">
-        {inPartitionView ? (
-          <IosNavBackButton
-            label="返回镜像"
-            onClick={() => {
-              if (mapNode) setSelectedId(mapNode.id)
-              setPartitionViewRootId(undefined)
-              if (stacked) navigateTo('detail', 'pop')
+    <Page
+      header={
+        <PageHeader
+          class={headerClass}
+          title={displayNode?.label ?? ''}
+          backLabel={showBack ? (inPartitionView ? '返回镜像' : '磁盘工具') : undefined}
+          onBack={
+            showBack
+              ? inPartitionView
+                ? backToImageRoot
+                : () => nav.navigate('list', 'pop')
+              : undefined
+          }
+          actions={
+            <DetailActionsBar
+              node={displayNode}
+              actions={detailActions}
+              partitionView={inPartitionView}
+              placement="header"
+            />
+          }
+        />
+      }
+    >
+      <div class="settings__content settings__content--compact disk-utility__detail-content">
+        <DetailPanel
+          node={displayNode}
+          mapNode={mapNode}
+          showDiskMap={inPartitionView}
+          onSelectNode={handleSelectNode}
+          actions={detailActions}
+        />
+        {showBrowserStorage && browserStorage ? (
+          <BrowserStorageSection
+            storage={browserStorage}
+            onRefresh={() => void refresh()}
+            onRequestPersistence={async () => {
+              await requestBrowserPersistence()
+              await refresh()
             }}
           />
-        ) : stacked ? (
-          <IosNavBackButton label="磁盘工具" onClick={() => navigateTo('list', 'pop')} />
-        ) : (
-          <span class="settings__nav-heading-spacer" aria-hidden="true" />
-        )}
-        <h1 class="settings__nav-heading">{displayNode?.label ?? ''}</h1>
-        <span class="settings__nav-trailing">
-          <DetailActionsBar node={displayNode} actions={detailActions} partitionView={inPartitionView} placement="header" />
-        </span>
+        ) : undefined}
       </div>
-    </div>
+    </Page>
   )
 
-  const renderDetailContent = (inPartitionView: boolean, displayNode: TreeNode | undefined = selectedNode) => (
-    <div class="settings__content settings__content--compact disk-utility__detail-content">
-      <DetailPanel
-        node={displayNode}
-        mapNode={mapNode}
-        showDiskMap={inPartitionView}
-        onSelectNode={handleSelectNode}
-        actions={detailActions}
-      />
-      {showBrowserStorage && browserStorage ? (
-        <BrowserStorageSection
-          storage={browserStorage}
-          onRefresh={() => void refresh()}
-          onRequestPersistence={async () => {
-            await requestBrowserPersistence()
-            await refresh()
-          }}
-        />
-      ) : undefined}
-    </div>
-  )
-
-  const renderScreen = (target: DiskUtilityScreen) => {
-    if (target === 'detail' || target === 'partition') {
-      const inPartitionView = target === 'partition'
-      return (
-        <>
-          {renderDetailNav(true, inPartitionView)}
-          {renderDetailContent(inPartitionView)}
-        </>
+  const renderNarrowPage = (target: string) => {
+    if (target === 'detail') {
+      return renderDetailPage(
+        false,
+        true,
+        backFadeEpoch > 0 && target === nav.page
+          ? `disk-utility__back-fade-in-${backFadeEpoch % 2}`
+          : undefined,
       )
     }
-    return (
-      <>
-        {renderListNav()}
-        {renderListContent()}
-      </>
-    )
+    if (target === 'partition') return renderDetailPage(true, true)
+    return renderListPage()
+  }
+
+  // 分栏帧：详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
+  // 先挂着返回随滑轨淡出；分区视图帧带「返回镜像」。
+  const keepDetailBack =
+    nav.morphing && nav.morphKind === 'A' && !partitionViewRootId && selectedId !== undefined
+
+  const renderWideFrames = (): AdaptiveFrameSpec[] => {
+    const frames: AdaptiveFrameSpec[] = [
+      {
+        id: 'detail',
+        content: renderDetailPage(
+          false,
+          keepDetailBack,
+          keepDetailBack ? 'disk-utility__back-fade-out' : undefined,
+          mapNode ?? selectedNode,
+        ),
+      },
+    ]
+    if (partitionView) {
+      frames.push({
+        id: 'partition',
+        content: renderDetailPage(true, true, undefined, selectedNode),
+      })
+    }
+    return frames
   }
 
   return (
-    <div ref={hostRef} class={`disk-utility${narrowLayout ? ' disk-utility--narrow' : ''}`}>
-      {!narrowLayout ? (
-        <div ref={splitRef} class="disk-utility__split">
-          <div ref={listPaneRef} class="disk-utility__pane disk-utility__pane--list settings">
-            {renderListNav()}
-            {renderListContent()}
-          </div>
-          <div ref={detailPanelRef} class="disk-utility__pane disk-utility__pane--detail settings">
-            <div class="disk-utility__wide-stack">
-              <div
-                class={`settings disk-utility__wide-stack__page${!partitionView ? ' is-active' : ''}`}
-                style={{
-                  transform: partitionView ? 'translateX(-100%)' : 'translateX(0)',
-                  zIndex: partitionView ? 0 : 1,
-                }}
-              >
-                {renderDetailNav(false, false, mapNode ?? selectedNode)}
-                {renderDetailContent(false, mapNode ?? selectedNode)}
-              </div>
-              <div
-                class={`settings disk-utility__wide-stack__page${partitionView ? ' is-active' : ''}`}
-                style={{
-                  transform: partitionView ? 'translateX(0)' : 'translateX(100%)',
-                  zIndex: partitionView ? 1 : 0,
-                }}
-              >
-                {renderDetailNav(false, true, selectedNode)}
-                {renderDetailContent(true, selectedNode)}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <KeychainNavStack
-          stack={navStack}
-          page={screen}
-          transition={navTransition}
-          queuedTransition={navQueuedTransition}
-          commitQueuedTransition={commitNavQueuedTransition}
-          onMotionEnd={handleStackMotionEnd}
-          renderPage={renderScreen}
-        />
-      )}
+    <>
+      <AdaptiveSplitNav
+        controller={nav}
+        class="disk-utility"
+        renderNarrowPage={renderNarrowPage}
+        renderWideFrames={renderWideFrames}
+      />
 
       <EraseDiskDialog
         state={eraseState}
@@ -1267,7 +1260,7 @@ export function DiskUtilityApp() {
           void runRepairPlanWork(signal, scanState)
         }}
       />
-    </div>
+    </>
   )
 }
 
