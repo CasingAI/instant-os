@@ -55,7 +55,20 @@
   box-shadow: none;
 }
 
-.adaptive-split-nav__list-pane > .page-stack {
+/*
+ * 左栏轨道：PageStack 的常驻包装层。常态随左栏撑满；A 型形变时由 tsx
+ * 内联钉住终宽并 translateX(-L→0)，让列表作为刚性面板自左缘滑入（左缘
+ * 溢出由左栏 overflow: hidden 裁掉，即抽屉效果），避免内容随宽度逐帧重排。
+ */
+.adaptive-split-nav__list-track {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.adaptive-split-nav__list-track > .page-stack {
   flex: 1;
   min-height: 0;
 }

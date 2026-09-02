@@ -23,9 +23,10 @@ import './adaptive-split-nav.css'
  * - 未开启 `split`：任何宽度都渲染为子页栈（普通页面栈布局）；
  * - 开启 `split`：宽屏左右分栏（列表 + 派生帧栈详情），窄屏自动回子页栈。
  *
- * 宽窄形变 = 刚性面板滑轨：右栏帧容器作为面板与左栏 width 过渡同曲线
- * 联动，四种方向连续交接（窄子页滑退成右栏 / 右栏自右缘滑入 / 面板扩张
- * 盖满交棒子页栈 / 面板滑出右缘），前后画面共享同一份内容与几何，无硬切。
+ * 宽窄形变 = 刚性面板滑轨：右栏帧容器作为面板与左栏内容同曲线联动，四种
+ * 方向连续交接（窄子页滑退成右栏、列表刚性面板自左缘滑入 / 右栏自右缘
+ * 滑入 / 面板扩张盖满交棒子页栈 / 面板滑出右缘），前后画面共享同一份内容
+ * 与几何，无硬切。
  *
  * 单一真源是应用的领域状态：子页与帧都从它派生，本组件不持有任何业务
  * 导航历史。子页栈（PageStack，壳无关）由组件接管——应用经
@@ -132,9 +133,8 @@ export function useAdaptiveSplitNav(options: {
     exitWidth,
     // 左右半屏吸附视为窄形态（不受宽度滞回死区影响）
     snapForcesNarrow: true,
-    // 拖拽调宽中跨阈值：立即翻转、形态跟随指针（滑轨没有可演的起止点，
-    // 形变启动识别 --resizing 走即时切换）；松手/一步跳变等宽度停变后
-    // 提交，才播完整滑轨形变。
+    // 拖拽调宽中不提交翻转（hook 里 hold），松手/一步跳变等宽度停变后提交，
+    // 才播完整滑轨形变——拖拽中提交会让滑轨没有可演的起止点。
     settleMs: SPLIT_FLIP_SETTLE_MS,
   })
   // 渲染形态：未开启 split 时恒为子页栈
@@ -294,8 +294,9 @@ const MORPH_EASING = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
 
 /**
  * 形变分型：
- * - A 窄(子页)→宽：面板从满屏宽收缩到右栏宽（右缘钉住），子页原位退成右栏、
- *   根列表从左缘被揭开；
+ * - A 窄(子页)→宽：面板从满屏宽收缩到右栏宽（右缘钉住），子页原位退成
+ *   右栏，根列表钉在最终宽度作为刚性面板自左缘滑入（列表右缘与面板左缘
+ *   同式联动，任意中间帧严丝合缝）；
  * - B 窄(根列表)→宽：面板以最终宽度从窗口右缘外整体滑入；
  * - C 宽(子页)→窄：面板从右栏宽扩张盖满，落定后交棒给同内容子页栈；
  * - D 宽(根列表)→窄：面板整体滑出右缘。
@@ -313,6 +314,9 @@ type MorphGesture = {
   sheet: HTMLElement | undefined
   detailPane: HTMLElement | undefined
   anim: Animation | undefined
+  /** A 型：左栏列表刚性滑入的轨道，收尾时还原内联样式 */
+  listTrack: HTMLElement | undefined
+  trackAnim: Animation | undefined
   timer: number
   observer: ResizeObserver
   done: boolean
@@ -344,6 +348,7 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const framesRef = useRef<HTMLDivElement | null>(null)
   const detailPaneRef = useRef<HTMLDivElement | null>(null)
+  const listTrackRef = useRef<HTMLDivElement | null>(null)
   // 分栏左栏显示不变量：分栏形态固定渲染根列表页（listPage），栈顶残留页
   // 只在栈里保活、不上屏；未配置 listPage 时退回显示栈顶页（原行为）。
   // 例外：宽→窄形变（C/D）期间继续渲染 listPage——左栏是滑轨要盖过去的
@@ -451,10 +456,10 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
   })
 
   // ── 宽窄形变：刚性面板滑轨 ──
-  // 右栏帧容器作为「面板」参与滑轨，与左栏 width 过渡同曲线联动（时长取
-  // 同源的 --asn-frame-ms）。跳过形变：reduced-motion、指针拖拽调宽
-  // （--resizing）——两者都退化为即时切换（拖拽本身是连续动画）。松手、
-  // 双击缩放、吸附还原等一步跳变等宽度停变后才到这里，照常播完整滑轨。
+  // 右栏帧容器作为「面板」参与滑轨，A 型时左栏列表作为刚性面板自左缘滑入，
+  // 两者同曲线联动（时长取同源的 --asn-frame-ms）。翻转统一在宽度停变
+  // （松手/一步跳变）后提交，到这里必有稳定的起止点；仅 reduced-motion 与
+  // 「提交撞上拖拽态」的竞态装甲退化为即时切换。
   // 形变中途宿主再变尺寸则立即落定清理（RO 装甲，忽略首次回调）。
   const morphRef = useRef<MorphGesture | undefined>(undefined)
   const pendingSlideRef = useRef(false)
@@ -485,6 +490,14 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
       sheet.style.left = ''
       sheet.style.width = ''
     }
+    const track = gesture.listTrack
+    if (track) {
+      // 同理：fill 保持的终态 translateX(0) 即常态，cancel + 去掉内联宽度
+      // 回到流内（左栏 width 过渡与滑轨同拍，此刻已停稳在终宽，无跳变）
+      gesture.trackAnim?.cancel()
+      track.style.width = ''
+      track.style.transform = ''
+    }
     if (gesture.detailPane) {
       gesture.detailPane.style.zIndex = ''
       gesture.detailPane.style.overflow = ''
@@ -505,12 +518,12 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
   }
   finishMorphRef.current = finishMorph
 
-  const playSheetAnim = (
-    sheet: HTMLElement,
+  const playMorphAnim = (
+    target: HTMLElement,
     keyframes: Keyframe[],
     duration: number,
   ) => {
-    const anim = sheet.animate(keyframes, {
+    const anim = target.animate(keyframes, {
       duration,
       easing: MORPH_EASING,
       fill: 'both',
@@ -528,8 +541,9 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
     if (previous === undefined || previous === narrowLayout) return
 
     const root = rootRef.current
-    // 拖拽调宽中（--resizing）跨阈值：不播滑轨，形态立即跟随指针——拖拽
-    // 本身就是动画，滑轨没有可演的起止点，硬播也会被 RO 装甲掐掉；
+    // 装甲：拖拽中（--resizing）hook 已 hold 翻转、不该有提交到这里，但
+    // 松手后 settle 计时窗口内又开拖的竞态仍可能把提交撞进拖拽态——此时
+    // 不播滑轨（起止点在流变，硬播也会被 RO 装甲掐掉），退化为即时切换。
     // reduced-motion 同样退化为即时切换。翻转当帧已经把 morphing 标亮，
     // 不播滑轨就要立刻清掉，否则应用会按起始 chrome 一直画到下一次翻转。
     const dragging = !!root?.closest('.window-frame--resizing')
@@ -603,6 +617,8 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
       sheet,
       detailPane,
       anim: undefined,
+      listTrack: undefined,
+      trackAnim: undefined,
       timer: 0,
       observer,
       done: false,
@@ -633,7 +649,9 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
 
     if (!sheet) {
       // 帧未就绪（B 型：书架位切宽时应用常晚一帧自动展开首帧）：武装，
-      // 等帧挂载的 paint 前补播滑入；届时已超时收尾则自然作废
+      // 等帧挂载的 paint 前补播滑入；届时已超时收尾则自然作废。
+      // A 型帧容器缺失不补播（列表轨道在下方、同样不会启动），由计时器
+      // 收尾，退化为即时切换而非错误动画。
       if (kind === 'B') pendingSlideRef.current = true
       return
     }
@@ -648,6 +666,24 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
     if (kind === 'A') {
       sheet.style.width = `${stageW}px`
       keyframes = [{ width: `${stageW}px` }, { width: `${detailW}px` }]
+      // 列表刚性面板自左缘滑入：内容钉在最终宽度排版（此刻面板盖满全窗，
+      // 满宽→终宽的改排不可见），translateX(-L→0) 的右缘 = -L(1-e)+L =
+      // L·e(t) 恰与面板左缘同式，缝隙恒等式成立；同时免掉 width 过渡的
+      // 逐帧重排挤压
+      const track = listTrackRef.current
+      if (track) {
+        const listW = stageW - detailW
+        track.style.width = `${listW}px`
+        gesture.listTrack = track
+        gesture.trackAnim = playMorphAnim(
+          track,
+          [
+            { transform: `translateX(${-listW}px)` },
+            { transform: 'translateX(0px)' },
+          ],
+          gesture.duration,
+        )
+      }
     } else if (kind === 'C') {
       sheet.style.width = `${detailW}px`
       keyframes = [{ width: `${detailW}px` }, { width: `${stageW}px` }]
@@ -664,7 +700,7 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
         { transform: `translateX(${detailW}px)` },
       ]
     }
-    gesture.anim = playSheetAnim(sheet, keyframes, gesture.duration)
+    gesture.anim = playMorphAnim(sheet, keyframes, gesture.duration)
   }, [
     layoutReady,
     narrowLayout,
@@ -689,7 +725,7 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
     sheet.style.left = 'auto'
     sheet.style.width = `${gesture.detailW}px`
     gesture.sheet = sheet
-    gesture.anim = playSheetAnim(
+    gesture.anim = playMorphAnim(
       sheet,
       [
         { transform: `translateX(${gesture.detailW}px)` },
@@ -793,13 +829,15 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
     >
       <div class="adaptive-split-nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
         <div class="adaptive-split-nav__list-pane">
-          <PageStack
-            stack={controller.stackView.stack}
-            page={displayPage}
-            transition={controller.stackView.transition}
-            onMotionEnd={controller.stackView.handleMotionEnd}
-            renderPage={renderNarrowPage}
-          />
+          <div ref={listTrackRef} class="adaptive-split-nav__list-track">
+            <PageStack
+              stack={controller.stackView.stack}
+              page={displayPage}
+              transition={controller.stackView.transition}
+              onMotionEnd={controller.stackView.handleMotionEnd}
+              renderPage={renderNarrowPage}
+            />
+          </div>
           {narrowLayout && footer ? (
             <div class="adaptive-split-nav__footer">{footer}</div>
           ) : undefined}
