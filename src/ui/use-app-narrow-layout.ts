@@ -15,10 +15,10 @@ export type AppNarrowLayoutOptions = {
   /** 覆盖退出窄屏的退出阈值（默认 APP_NARROW_LAYOUT_EXIT_WIDTH） */
   exitWidth?: number
   /**
-   * 宽度持续变化期间（窗口尺寸动画、拖拽调整边缘），窄/宽翻转延迟到
-   * 「宽度稳定 settleMs 后」才提交——每次尺寸事件都会重置计时器，事件
-   * 停了才切换，保证形态切换只发生一次且发生在窗口落定之后。
-   * 默认 0 = 测量即提交（与旧行为一致）。
+   * 窄/宽翻转延迟到「宽度稳定 settleMs 后」才提交——每次尺寸事件都会重置
+   * 计时器，事件停了才切换，一步跳变（尺寸动画、吸附还原）拿完整形变。
+   * 例外：指针拖拽中（.window-frame--resizing）立即提交、形态跟随指针，
+   * 形变动画由消费方跳过。默认 0 = 测量即提交（与旧行为一致）。
    */
   settleMs?: number
   /**
@@ -53,6 +53,7 @@ export function useAppNarrowLayout(options?: AppNarrowLayoutOptions): {
   // 且滞回比较基于「已提交」的窄态，而非动画中途的中间态
   const narrowRef = useRef(false)
   const pendingRef = useRef<{ timer: number; target: boolean } | undefined>(undefined)
+  const layoutReadyRef = useRef(false)
 
   const hostRef = useCallback((node: HTMLElement | null) => {
     observerRef.current?.disconnect()
@@ -65,17 +66,42 @@ export function useAppNarrowLayout(options?: AppNarrowLayoutOptions): {
     }
 
     if (!node) {
+      layoutReadyRef.current = false
       setLayoutReady(false)
       return
     }
 
     const sync = () => {
       const width = node.clientWidth
-      setLayoutReady((ready) => ready || true)
       const snapped =
         snapForceRef.current &&
         !!node.closest('.window-frame--snapped-left, .window-frame--snapped-right')
       const target = snapped || (narrowRef.current ? width < exitRef.current : width <= enterRef.current)
+
+      // 首次测量立刻落定：settle 只保护之后的翻转，避免挂载后先闪一帧错形态
+      if (!layoutReadyRef.current) {
+        layoutReadyRef.current = true
+        setLayoutReady(true)
+        narrowRef.current = target
+        setNarrow(target)
+        return
+      }
+
+      // settle 开启时：指针拖拽中（--resizing 挂着）宽度在流式变化，翻转
+      // 不再压到松手——立即提交、形态跟着指针走（滞回死区防来回抖动，形变
+      // 动画由消费方识别拖拽态跳过）；松手拿掉 --resizing 后宽度停变，才走
+      // settle + 完整形变。settle=0 的调用方保持逐帧跟随。
+      if (settleRef.current > 0 && node.closest('.window-frame--resizing')) {
+        if (pendingRef.current) {
+          clearTimeout(pendingRef.current.timer)
+          pendingRef.current = undefined
+        }
+        if (target !== narrowRef.current) {
+          narrowRef.current = target
+          setNarrow(target)
+        }
+        return
+      }
       if (target === narrowRef.current) {
         // 目标与现值一致：撤销还在等待的翻转
         if (pendingRef.current) {
@@ -105,9 +131,9 @@ export function useAppNarrowLayout(options?: AppNarrowLayoutOptions): {
     observer.observe(node)
     observerRef.current = observer
 
-    // 吸附态可能在不改变宽度的情况下切换（同宽吸附↔悬浮），
-    // 观察所在窗口根的 class 变化（吸附类名挂在 .window-frame 上）
-    if (snapForceRef.current) {
+    // 吸附态（同宽吸附↔悬浮）与拖边缘（--resizing 挂/卸）都可能在宽度不变
+    // 时改变形态提交时机。仅在真正用到这两路时观察，避免拖拽改写其它应用的形态。
+    if (snapForceRef.current || settleRef.current > 0) {
       const frame = node.closest('.window-frame')
       if (frame instanceof HTMLElement) {
         const mutation = new MutationObserver(sync)

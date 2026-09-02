@@ -1,46 +1,18 @@
 /* 「导航组件演示」内容样式：书架列表、正文段落。组件样式全部来自 src/ui/page-*。 */
 
-.nav-kit-demo__row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 11px 18px;
-  border: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
-  background: transparent;
-  text-align: left;
-  cursor: default;
-  transition: background-color 0.15s ease;
-}
-
-.nav-kit-demo__row:hover {
-  background: rgba(255, 255, 255, 0.55);
-}
-
-.nav-kit-demo__row:active {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.nav-kit-demo__row-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  color: #1d1d1f;
-}
-
-.nav-kit-demo__row-sub {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: #8e8e93;
-}
-
-.nav-kit-demo__row-chevron {
-  flex: 0 0 auto;
-  color: #b8b8bd;
+/*
+ * 行列表容器：包裹系统组件 SettingsNavRow 的 settings__list 内嵌分组。
+ * settings 的主题 token 定义在 .settings 作用域下，demo 侧按 settings.css
+ * 同值补齐（浅色），行/分组才能正确着色。
+ */
+.nav-kit-demo__rows {
+  padding: 12px 18px 16px;
+  --settings-list-bg: #fff;
+  --settings-list-border: #a8a8a8;
+  --settings-list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  --settings-row-border: #ececec;
+  --settings-row-size: #666;
+  --settings-disclosure: #b4b4b4;
 }
 
 .nav-kit-demo__intro {
@@ -109,4 +81,54 @@
   font-size: 13px;
   color: #4a4a4f;
   border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+/*
+ * 书页「书架」返回：只在窄形态有、分栏静置没有。
+ * 形变 A（窄→宽）先挂着再随滑轨淡出；C（宽→窄）面板不带返回，
+ * 返回键等落定交棒给子页栈后才出现。
+ * 时长/曲线取分栏根上的 --asn-frame-ms，与面板滑轨同拍。
+ */
+.nav-kit-demo__back-fade-out .page-back-button {
+  pointer-events: none;
+  animation: nav-kit-demo-back-out var(--asn-frame-ms, 380ms)
+    cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes nav-kit-demo-back-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+/*
+ * 宽→窄形变落定交棒：窄屏书页的「书架」返回此刻才出现（两种形态 chrome
+ * 的差异在这时补齐），透明度 0→1 短淡入代替硬蹦。一次性，播完由应用撤类。
+ * 类名带 epoch 交替（-0/-1）：背靠背再触发时换名才能重播动画。
+ */
+.nav-kit-demo__back-fade-in-0 .page-back-button,
+.nav-kit-demo__back-fade-in-1 .page-back-button {
+  animation: nav-kit-demo-back-in 240ms ease-out both;
+}
+
+@keyframes nav-kit-demo-back-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-kit-demo__back-fade-out .page-back-button,
+  .nav-kit-demo__back-fade-in-0 .page-back-button,
+  .nav-kit-demo__back-fade-in-1 .page-back-button {
+    animation: none;
+  }
 }

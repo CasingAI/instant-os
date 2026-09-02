@@ -394,12 +394,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: true,
     iconDecoration: DEV_SLEEVE,
   }),
+  // 组件演示应用：不上桌面（Dock 保留），从 ui-kit 组件库的 AdaptiveSplitNav 卡片打开
   withAbout({
     id: 'nav-kit-demo',
     name: BUILTIN_APP_DISPLAY_NAMES['nav-kit-demo'],
     icon: NavKitDemoIcon,
     dock: true,
-    desktop: true,
+    desktop: false,
     iconDecoration: DEV_SLEEVE,
   }),
   withAbout({

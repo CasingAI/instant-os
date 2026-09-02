@@ -1,11 +1,17 @@
-import type { JSX } from 'preact'
-import { useCallback, useEffect, useState } from 'preact/hooks'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'preact/hooks'
 import { useOs } from '../../os/os-context.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
 import { PageActionButton } from '../../ui/page-action-button.tsx'
 import { PageButtonGroup } from '../../ui/page-button-group.tsx'
+import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import {
   AdaptiveSplitNav,
   useAdaptiveSplitNav,
@@ -13,6 +19,8 @@ import {
 } from '../../ui/adaptive-split-nav.tsx'
 import { NAV_KIT_DEMO_BOOKS, totalChapters, totalSections } from './nav-kit-demo-content.ts'
 import './nav-kit-demo.css'
+// SettingsNavRow 的行样式随 settings 应用样式表分发（ui-kit 组件 demo 同款用法）
+import '../settings/settings.css'
 
 type DemoPageId = string
 
@@ -114,40 +122,6 @@ function parseAbout(id: DemoPageId): number | null {
   return m ? Number(m[1]) : null
 }
 
-/** 列表中「卷 / 章 / 节」的行 */
-function NavRow({
-  label,
-  sub,
-  onClick,
-}: {
-  label: string
-  sub?: string
-  onClick: () => void
-}): JSX.Element {
-  return (
-    <button type="button" class="nav-kit-demo__row" onClick={onClick}>
-      <span class="nav-kit-demo__row-label">{label}</span>
-      {sub ? <span class="nav-kit-demo__row-sub">{sub}</span> : undefined}
-      <svg
-        class="nav-kit-demo__row-chevron"
-        width="10"
-        height="16"
-        viewBox="0 0 10 16"
-        aria-hidden="true"
-      >
-        <path
-          d="M2 2 L8 8 L2 14"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-    </button>
-  )
-}
-
 export function NavKitDemoApp() {
   const { setAppWindowTitle } = useOs()
   useAppMenuBar('nav-kit-demo', [])
@@ -163,6 +137,8 @@ export function NavKitDemoApp() {
   const nav = useAdaptiveSplitNav({
     split: true,
     narrowPageForState: () => posPageId(pos),
+    // 分栏左栏显示的根列表页（书架）——与窄屏根页同一份渲染
+    listPage: ROOT,
   })
 
   // 分栏右栏不空屏：书架位自动展开第一本书（与注册表选中首个命名空间同理）
@@ -212,24 +188,48 @@ export function NavKitDemoApp() {
     nav.navigate(posPageId(parent), 'pop', () => setPos(parent))
   }, [nav, pos])
 
-  // ── 内容渲染：同一份 pane 同时供给窄屏子页与分栏帧（showBack 控制返回键）──
+  // 宽→窄形变落定交棒：窄屏书页的「书架」返回此刻才无中生有（分栏没有
+  // 这颗键），给一次透明度 0→1 的短淡入代替硬蹦；只挂落定时栈顶那页，
+  // 播完即撤，不影响之后的正常进退。拖拽即时切同样走这里：翻转当帧
+  // morphing 被标亮又被即时路径收掉，监听到同样的真→假。reduced-motion
+  // 下 morphing 恒为假，淡入天然不触发。必须用 layout effect：类要在面板
+  // 移除的同一帧 paint 前挂上，否则返回键先硬蹦一帧再从 0 重淡入。
+  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
+  const backFadeTimerRef = useRef(0)
+  const prevMorphingRef = useRef(false)
+  useLayoutEffect(() => {
+    const was = prevMorphingRef.current
+    prevMorphingRef.current = nav.morphing
+    if (was === nav.morphing) return
+    if (nav.morphing || !nav.narrowLayout || pos.kind !== 'book') return
+    window.clearTimeout(backFadeTimerRef.current)
+    // epoch 递增 + 双类名交替：320ms 内背靠背再触发也能重播动画
+    setBackFadeEpoch((epoch) => epoch + 1)
+    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
+  }, [nav.morphing, nav.narrowLayout, pos.kind])
+  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
 
+  // ── 内容渲染：同一份 pane 同时供给窄屏子页与分栏帧（showBack 控制返回键）──
   const renderShelf = () => (
     <Page
       header={<PageHeader title="书架" />}
     >
-      {NAV_KIT_DEMO_BOOKS.map((book, b) => (
-        <NavRow
-          key={book.id}
-          label={book.title}
-          sub={`${book.author} · ${book.volumes ? `${book.volumes.length} 卷 · ` : ''}${totalChapters(book)} 章 · ${totalSections(book)} 节`}
-          onClick={() => openPos({ kind: 'book', b })}
-        />
-      ))}
+      <div class="nav-kit-demo__rows">
+        <div class="settings__list">
+          {NAV_KIT_DEMO_BOOKS.map((book, b) => (
+            <SettingsNavRow
+              key={book.id}
+              label={book.title}
+              value={`${book.author} · ${book.volumes ? `${book.volumes.length} 卷 · ` : ''}${totalChapters(book)} 章 · ${totalSections(book)} 节`}
+              onClick={() => openPos({ kind: 'book', b })}
+            />
+          ))}
+        </div>
+      </div>
     </Page>
   )
 
-  const renderBook = (b: number, showBack: boolean) => {
+  const renderBook = (b: number, showBack: boolean, headerClass?: string) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const favKey = `book:${book.id}`
@@ -238,6 +238,7 @@ export function NavKitDemoApp() {
       <Page
         header={
           <PageHeader
+            class={headerClass}
             title={book.title}
             backLabel={showBack ? '书架' : undefined}
             onBack={showBack ? backPos : undefined}
@@ -253,31 +254,35 @@ export function NavKitDemoApp() {
         }
       >
         <p class="nav-kit-demo__intro">{book.intro}</p>
-        {book.volumes
-          ? book.volumes.map((volume, v) => (
-              <NavRow
-                key={volume.title}
-                label={volume.title}
-                sub={`${volume.chapters.length} 章 · ${volume.chapters.reduce(
-                  (sum, ch) => sum + ch.sections.length,
-                  0,
-                )} 节`}
-                onClick={() => openPos({ kind: 'volume', b, v })}
-              />
-            ))
-          : book.chapters.map((chapter, c) => (
-              <NavRow
-                key={chapter.title}
-                label={chapter.title}
-                sub={`${chapter.sections.length} 节`}
-                onClick={() => openPos({ kind: 'chapter', b, v: null, c })}
-              />
-            ))}
-        <NavRow
-          label="关于本书"
-          sub="版本信息"
-          onClick={() => openPos({ kind: 'about', b })}
-        />
+        <div class="nav-kit-demo__rows">
+          <div class="settings__list">
+            {book.volumes
+              ? book.volumes.map((volume, v) => (
+                  <SettingsNavRow
+                    key={volume.title}
+                    label={volume.title}
+                    value={`${volume.chapters.length} 章 · ${volume.chapters.reduce(
+                      (sum, ch) => sum + ch.sections.length,
+                      0,
+                    )} 节`}
+                    onClick={() => openPos({ kind: 'volume', b, v })}
+                  />
+                ))
+              : book.chapters.map((chapter, c) => (
+                  <SettingsNavRow
+                    key={chapter.title}
+                    label={chapter.title}
+                    value={`${chapter.sections.length} 节`}
+                    onClick={() => openPos({ kind: 'chapter', b, v: null, c })}
+                  />
+                ))}
+            <SettingsNavRow
+              label="关于本书"
+              value="版本信息"
+              onClick={() => openPos({ kind: 'about', b })}
+            />
+          </div>
+        </div>
       </Page>
     )
   }
@@ -296,14 +301,18 @@ export function NavKitDemoApp() {
           />
         }
       >
-        {volume.chapters.map((chapter, c) => (
-          <NavRow
-            key={chapter.title}
-            label={chapter.title}
-            sub={`${chapter.sections.length} 节`}
-            onClick={() => openPos({ kind: 'chapter', b, v, c })}
-          />
-        ))}
+        <div class="nav-kit-demo__rows">
+          <div class="settings__list">
+            {volume.chapters.map((chapter, c) => (
+              <SettingsNavRow
+                key={chapter.title}
+                label={chapter.title}
+                value={`${chapter.sections.length} 节`}
+                onClick={() => openPos({ kind: 'chapter', b, v, c })}
+              />
+            ))}
+          </div>
+        </div>
       </Page>
     )
   }
@@ -346,13 +355,18 @@ export function NavKitDemoApp() {
           />
         }
       >
-        {chapter.sections.map((section, s) => (
-          <NavRow
-            key={section.title}
-            label={section.title}
-            onClick={() => openPos({ kind: 'section', b, v, c, s })}
-          />
-        ))}
+        <div class="nav-kit-demo__rows">
+          <div class="settings__list">
+            {chapter.sections.map((section, s) => (
+              <SettingsNavRow
+                key={section.title}
+                label={section.title}
+                value=""
+                onClick={() => openPos({ kind: 'section', b, v, c, s })}
+              />
+            ))}
+          </div>
+        </div>
       </Page>
     )
   }
@@ -440,7 +454,14 @@ export function NavKitDemoApp() {
   // 子页栈：按页 id 分发（层保活，各页按自身实体渲染）
   const renderNarrowPage = (target: DemoPageId) => {
     const bookIdx = parseBook(target)
-    if (bookIdx !== null) return renderBook(bookIdx, true)
+    if (bookIdx !== null)
+      return renderBook(
+        bookIdx,
+        true,
+        backFadeEpoch > 0 && target === nav.page
+          ? `nav-kit-demo__back-fade-in-${backFadeEpoch % 2}`
+          : undefined,
+      )
     const vol = parseVolume(target)
     if (vol) return renderVolume(vol[0], vol[1], true)
     const chap = parseChapter(target)
@@ -452,13 +473,25 @@ export function NavKitDemoApp() {
     return renderShelf()
   }
 
-  // 分栏帧：首帧（书帧）不带返回——它的上级书架是左栏；更深层都有父帧
+  // 分栏帧：静置时首帧（书帧）不带返回——它的上级书架是左栏。
+  // 形变盖住画面的是这份帧，不是子页栈：窄屏书页有「书架」返回、分栏没有，
+  // 形变期面板按起始（分栏）形态画。
   const renderFrameContent = (p: Pos) => {
     switch (p.kind) {
       case 'shelf':
         return renderShelf()
-      case 'book':
-        return renderBook(p.b, false)
+      case 'book': {
+        // 「书架」返回只挂在 A 型（窄→宽）滑轨的顶帧上随滑轨淡出——滑轨
+        // 的退出方向就是这颗键的消失方向。C 型（宽→窄）顶帧不带返回：
+        // 书架由滑轨盖过去，返回键等形变落定、交棒给子页栈后才出现
+        const keepBack =
+          nav.morphing && nav.morphKind === 'A' && pos.kind === 'book'
+        return renderBook(
+          p.b,
+          keepBack,
+          keepBack ? 'nav-kit-demo__back-fade-out' : undefined,
+        )
+      }
       case 'volume':
         return renderVolume(p.b, p.v, true)
       case 'chapter':
@@ -477,7 +510,6 @@ export function NavKitDemoApp() {
     <AdaptiveSplitNav
       controller={nav}
       renderNarrowPage={renderNarrowPage}
-      renderList={renderShelf}
       renderWideFrames={renderWideFrames}
       framesResetKey={pos.kind === 'shelf' ? 'shelf' : `b:${pos.b}`}
     />

@@ -40,6 +40,16 @@
   z-index: 0;
 }
 
+/*
+ * UA 的 [hidden]{display:none} 属于 UA 样式，会被上面 .page-stack__layer
+ * 的 display:flex（author 样式）无条件压过：保活层不显式关掉就会全尺寸
+ * 渲染、DOM 末位者盖住当前页。窄形态下当前页恰好总在末位而从未暴露；
+ * 分栏形态左栏固定显示根列表后立刻露馅。转场态已有同款规则（下方）。
+ */
+.page-stack__layer[hidden] {
+  display: none !important;
+}
+
 .page-stack__layer > .page {
   flex: 1;
   min-height: 0;
@@ -167,26 +177,52 @@
   background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
 }
 
-/* Header 交叉淡移 —— push */
-.page-stack--push .page-stack__layer--under .page-header {
-  animation: page-nav-leave-push 0.35s ease-in-out both;
-  z-index: 3;
+/*
+ * Header 交叉淡移：底色不参与动画。转场期唯一的持续条带画在栈的伪元素
+ * 上（两页 Header 都透明，谁也不盖谁的底色），交叉淡移只发生在栏内一排
+ * 元素（返回/标题/操作）上。旧实现整块 Header 淡出，底色一透明就露出
+ * 后面的白底——看起来像整条栏被抽空、返回键孤零零浮在白板上。
+ */
+.page-stack--push::before,
+.page-stack--pop::before {
+  content: '';
+  grid-row: 1;
+  grid-column: 1;
+  z-index: 2;
+  background: var(--page-header-bg);
+  border-bottom: var(--page-header-border);
 }
 
-.page-stack--push .page-stack__layer--over .page-header {
-  animation: page-nav-enter-push 0.35s ease-in-out both;
-  z-index: 4;
-}
-
-/* Header 交叉淡移 —— pop */
+/* 转场期两页 Header 都不铺底色：持续底色由上面的伪元素提供 */
+.page-stack--push .page-stack__layer--under .page-header,
+.page-stack--push .page-stack__layer--over .page-header,
+.page-stack--pop .page-stack__layer--under .page-header,
 .page-stack--pop .page-stack__layer--over .page-header {
-  animation: page-nav-leave-pop 0.35s ease-in-out both;
+  background: transparent;
+}
+
+/* 进场 Header 抬到离场之上，两排元素才有先后遮蔽关系 */
+.page-stack--push .page-stack__layer--over .page-header,
+.page-stack--pop .page-stack__layer--under .page-header {
   z-index: 4;
 }
 
-.page-stack--pop .page-stack__layer--under .page-header {
+/* 栏内元素交叉淡移 —— push */
+.page-stack--push .page-stack__layer--under .page-header__bar {
+  animation: page-nav-leave-push 0.35s ease-in-out both;
+}
+
+.page-stack--push .page-stack__layer--over .page-header__bar {
+  animation: page-nav-enter-push 0.35s ease-in-out both;
+}
+
+/* 栏内元素交叉淡移 —— pop */
+.page-stack--pop .page-stack__layer--over .page-header__bar {
+  animation: page-nav-leave-pop 0.35s ease-in-out both;
+}
+
+.page-stack--pop .page-stack__layer--under .page-header__bar {
   animation: page-nav-enter-pop 0.35s ease-in-out both;
-  z-index: 3;
 }
 
 /* 正文滑动 —— push */
@@ -300,8 +336,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .page-stack--push .page-stack__layer .page-header,
-  .page-stack--pop .page-stack__layer .page-header,
+  .page-stack--push::before,
+  .page-stack--pop::before {
+    content: none;
+  }
+
+  .page-stack--push .page-stack__layer .page-header__bar,
+  .page-stack--pop .page-stack__layer .page-header__bar,
   .page-stack--push .page-stack__layer .page__body,
   .page-stack--pop .page-stack__layer .page__body {
     animation: none !important;

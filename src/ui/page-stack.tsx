@@ -123,6 +123,18 @@ export function usePageStack<T extends string>(initial: T) {
     setPageState(next)
   }, [])
 
+  /**
+   * 静默把某页置顶显示：栈里已有的层原样保活（滚动位置保留），没有则
+   * 追加到栈顶；不播转场、不截断栈。供「同一份内容在两种布局间交接」
+   * 的场景使用（如分栏↔子页栈切换时浮出根列表 / 当前位置页）。
+   */
+  const showPage = useCallback((next: T) => {
+    setTransition(undefined)
+    settledRef.current = undefined
+    setStack((prev) => (prev.includes(next) ? prev : [...prev, next]))
+    setPageState(next)
+  }, [])
+
   return {
     page,
     stack,
@@ -130,6 +142,7 @@ export function usePageStack<T extends string>(initial: T) {
     navigate,
     handleMotionEnd,
     setPage: setPageSilent,
+    showPage,
   }
 }
 

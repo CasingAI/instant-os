@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { useOs } from '../../os/os-context.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import { Checkbox } from '../../ui/checkbox.tsx'
@@ -757,6 +758,20 @@ export function AdaptiveActionMenuDemo() {
         </DemoVariant>
       )}
     </DemoVariants>
+  )
+}
+
+export function AdaptiveSplitNavDemo() {
+  const { openApp } = useOs()
+  return (
+    <div class="ui-kit-demo__app-launch">
+      <p class="ui-kit-demo__status">
+        布局原语，需整应用承载：拖窗口边缘跨过宽度阈值形态即时跟随，松手或双击标题栏播完整滑轨形变。
+      </p>
+      <IosButton tone="primary" onClick={() => openApp('nav-kit-demo')}>
+        打开「导航组件演示」应用
+      </IosButton>
+    </div>
   )
 }
 

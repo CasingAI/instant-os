@@ -1242,14 +1242,20 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         if (window.id !== windowId || window.fullscreen) {
           return window
         }
-        resized = window.maximized
-          ? {
-              ...window,
-              ...bounds,
-              maximized: false,
-              restoredBounds: undefined,
-            }
-          : { ...window, ...bounds }
+        // 拖边缘缩放即解除锚定（macOS 解铺语义）：吸附/最大化窗口被用户
+        // 亲手改形后，吸附安排作废，形态改由宽度判定——否则 snapForcesNarrow
+        // 会把布局钉死在窄形态，拖到多宽都不切换
+        resized =
+          window.maximized || window.snap
+            ? {
+                ...window,
+                ...bounds,
+                maximized: false,
+                snap: undefined,
+                restoredSnap: undefined,
+                restoredBounds: undefined,
+              }
+            : { ...window, ...bounds }
         return resized
       })
       if (resized) persistWindowSize(resized)

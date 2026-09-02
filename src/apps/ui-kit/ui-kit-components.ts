@@ -331,6 +331,35 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'adaptive-split-nav',
+    name: 'AdaptiveSplitNav',
+    description: '自适应分栏导航：宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
+    category: 'navigation',
+    importPath: "import { AdaptiveSplitNav, useAdaptiveSplitNav } from '../../ui/adaptive-split-nav.tsx'",
+    props: [
+      { name: 'controller', type: 'AdaptiveSplitNavController', description: 'useAdaptiveSplitNav() 返回的控制器' },
+      { name: 'renderNarrowPage', type: '(page: string) => ComponentChildren', description: '窄屏子页栈页面渲染' },
+      { name: 'renderWideFrames', type: '() => AdaptiveFrameSpec[]', description: '分栏右栏帧序列（从领域状态派生，末位最上）' },
+      { name: 'framesResetKey', type: 'string?', description: '帧栈全量重置键（选中条目身份切换时整体替换）' },
+      { name: 'narrowPageForState', type: '() => string', description: 'useAdaptiveSplitNav：由领域状态推导当前子页 id' },
+      { name: 'listPage', type: 'string?', description: 'useAdaptiveSplitNav：分栏左栏根列表页 id' },
+      { name: 'frameAnimationMs', type: 'number?', description: '形变/帧动画时长，默认 380' },
+    ],
+    codeExample: `const nav = useAdaptiveSplitNav({
+  // 由领域状态推导窄屏应处的子页 id
+  narrowPageForState: () => posPageId(pos),
+  split: true,
+  // 分栏左栏显示的根列表页
+  listPage: ROOT,
+})
+
+<AdaptiveSplitNav
+  controller={nav}
+  renderNarrowPage={renderNarrowPage}
+  renderWideFrames={renderWideFrames}
+/>`,
+  },
+  {
     id: 'document-tab-bar',
     name: 'DocumentTabBar',
     description: '文档标签栏；脏状态、关闭动画、拥挤时悬停加宽、minTabsToShow',

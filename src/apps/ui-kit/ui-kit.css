@@ -435,6 +435,14 @@
   color: #666;
 }
 
+/* 整应用承载的组件（AdaptiveSplitNav 等）：说明 + 打开演示应用按钮 */
+.ui-kit-demo__app-launch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
 .ui-kit-demo__settings-group {
   background: #fff;
   border: 1px solid #e5e5e5;
