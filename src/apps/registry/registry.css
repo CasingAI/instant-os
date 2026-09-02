@@ -1,132 +1,72 @@
 /* 注册表 — 对齐系统设置的组件 / 样式（复用 settings.css，此处仅补充注册表特有布局） */
 
+/* 内容样式随 settings 样式表分发，但 token 定义在 .settings 上；换系统壳
+   （Page/.page）后在此补齐用到的 token（nav-kit-demo 同款做法） */
 .registry {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
+  --settings-list-bg: #fff;
+  --settings-list-border: #a8a8a8;
+  --settings-list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  --settings-row-border: #ececec;
+  --settings-row-size: #666;
+  --settings-disclosure: #b4b4b4;
+  --settings-section-title: #555;
+  --settings-section-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-section-subtitle: #666;
+  --settings-footnote: #666;
+  --settings-footnote-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-input-border: #a8a8a8;
+  --settings-input-bg: #fff;
+  --settings-input-ink: #222;
+  --settings-error: #c0392b;
 }
 
-.registry--narrow > .keychain-stack {
-  flex: 1;
-  min-height: 0;
-}
-
-.registry--wide {
-  display: flex;
-  flex-direction: column;
-}
-
-.registry__split {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(220px, 34%) minmax(0, 1fr);
-  flex: 1;
-  min-height: 0;
-  overflow: visible;
-}
-
-.registry__list-pane,
-.registry__detail-pane {
-  min-width: 0;
-  min-height: 0;
-}
-
-.registry__list-pane {
-  position: relative;
-  z-index: 2;
-  border-right: 1px solid rgba(0, 0, 0, 0.18);
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
-}
-
-.registry__detail-pane {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  isolation: isolate;
-  contain: inline-size;
-}
-
-.registry__detail-pane > .registry__wide-stack,
-.registry__detail-pane > .settings {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  width: 100%;
-  max-width: 100%;
-}
-
-.registry__wide-stack {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-.registry__wide-stack__page {
-  position: absolute;
-  inset: 0;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
+/* 详情页/详情帧的返回键只在窄形态有：A 型形变（窄→宽）随滑轨淡出，
+   C 型（宽→窄）落定交棒后才出现——短淡入代替硬蹦（nav-kit-demo 同款） */
+.registry__back-fade-out .page-back-button {
   pointer-events: none;
-  transition: transform 0.35s ease-in-out;
+  animation: registry-back-out var(--asn-frame-ms, 380ms)
+    cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
-.registry__wide-stack__page.is-active {
-  pointer-events: auto;
+@keyframes registry-back-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+.registry__back-fade-in-0 .page-back-button,
+.registry__back-fade-in-1 .page-back-button {
+  animation: registry-back-in 240ms ease-out both;
+}
+
+@keyframes registry-back-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .registry__wide-stack__page {
-    transition: none;
+  .registry__back-fade-out .page-back-button,
+  .registry__back-fade-in-0 .page-back-button,
+  .registry__back-fade-in-1 .page-back-button {
+    animation: none;
   }
 }
 
 /* 分栏 pane 已是窗口的一部分，不适用整页 860px 居中留白 */
 @container app-window (min-width: 700px) {
-  .registry--wide .registry__list-pane > .settings__content--compact,
-  .registry--wide .registry__detail-pane .settings__content--compact {
+  .registry--wide .settings__content--compact {
     --settings-content-pad-x: 18px;
     padding: 14px 18px 18px;
   }
-}
-
-/* tooltip 式左向尖尖，对齐左侧选中行中心（仅宽屏） */
-.registry__detail-caret {
-  position: absolute;
-  top: var(--registry-caret-y, 50%);
-  left: var(--registry-caret-x, 34%);
-  z-index: 4;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.registry__detail-caret::before,
-.registry__detail-caret::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  right: 0;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.registry__detail-caret::before {
-  border-width: 9px 9px 9px 0;
-  border-color: transparent rgba(0, 0, 0, 0.18) transparent transparent;
-}
-
-.registry__detail-caret::after {
-  border-width: 8px 8px 8px 0;
-  border-color: transparent var(--registry-caret-fill, #ececec) transparent transparent;
-  right: -1px;
 }
 
 .registry--wide .settings__disclosure {
@@ -295,13 +235,13 @@
 
 /* ── 键值编辑页：textarea 占满剩余高度 ── */
 
-.registry .settings:has(> .registry__value-content) {
+.registry .page__body:has(> .registry__value-content) {
   overflow: hidden;
   min-width: 0;
   max-width: 100%;
 }
 
-.registry .settings:has(> .registry__value-content) > .settings__content.registry__value-content {
+.registry .page__body:has(> .registry__value-content) > .settings__content.registry__value-content {
   display: flex;
   flex: 1;
   flex-direction: column;

@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { Ref } from 'preact'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { Page } from '../../ui/page.tsx'
+import { PageHeader } from '../../ui/page-header.tsx'
+import {
+  AdaptiveSplitNav,
+  useAdaptiveSplitNav,
+  type AdaptiveFrameSpec,
+} from '../../ui/adaptive-split-nav.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
-import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { ForwardIcon } from '../../icons/app-icons.tsx'
 import {
   createGlobalRegistry,
@@ -16,7 +20,6 @@ import { loadInstalledAppsFromCache } from '../../os/generated-apps-store.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { KeychainNavStack, useKeychainNavStack } from '../keychain/keychain-nav-stack.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import {
   formatNodeForEditor,
@@ -38,8 +41,6 @@ import {
   type JsonNodeKind,
   type JsonPath,
 } from './registry-json-path.ts'
-import '../../ui/ios-nav-back.css'
-import '../keychain/keychain.css'
 import '../settings/settings.css'
 import './registry.css'
 
@@ -48,7 +49,6 @@ const DATE_TIME_LOCALE = 'zh-CN'
 const PAGE_ROOT = 'root'
 const PAGE_KEYS = 'keys'
 const PAGE_EDIT = 'edit'
-const WIDE_STACK_MS = 380
 
 function browsePageId(depth: number): string {
   return `b:${depth}`
@@ -202,15 +202,6 @@ function writeErrorMessage(error: unknown): string {
 
 function sortedNamespaces(namespaces: GlobalNamespaceInfo[]): GlobalNamespaceInfo[] {
   return [...namespaces].sort((left, right) => right.bytes - left.bytes)
-}
-
-function settingsPanelColorAt(ratio: number): string {
-  const t = Math.min(1, Math.max(0, ratio))
-  const channel = (top: number, bottom: number) => Math.round(top + (bottom - top) * t)
-  const r = channel(0xec, 0xd8)
-  const g = channel(0xec, 0xd8)
-  const b = channel(0xec, 0xd8)
-  return `rgb(${r}, ${g}, ${b})`
 }
 
 type DrillState = {
@@ -409,23 +400,16 @@ function buildWideFrames(
 type NamespaceListProps = {
   namespaces: GlobalNamespaceInfo[]
   selectedAppId?: string
-  selectedRowRef?: Ref<HTMLButtonElement>
   onSelect: (appId: string) => void
 }
 
-function NamespaceList({
-  namespaces,
-  selectedAppId,
-  selectedRowRef,
-  onSelect,
-}: NamespaceListProps) {
+function NamespaceList({ namespaces, selectedAppId, onSelect }: NamespaceListProps) {
   return (
     <div class="settings__list">
       {sortedNamespaces(namespaces).map((namespace) => (
         <SettingsNavRow
           key={namespace.appId}
           selected={namespace.appId === selectedAppId}
-          rowRef={namespace.appId === selectedAppId ? selectedRowRef : undefined}
           label={
             <span class="registry__row-meta">
               <span>{appLabel(namespace.appId)}</span>
@@ -491,7 +475,6 @@ type RegistryRootPaneProps = {
   namespaces: GlobalNamespaceInfo[]
   loading: boolean
   selectedAppId?: string
-  selectedRowRef?: Ref<HTMLButtonElement>
   footnote: string
   onSelect: (appId: string) => void
 }
@@ -500,19 +483,11 @@ function RegistryRootPane({
   namespaces,
   loading,
   selectedAppId,
-  selectedRowRef,
   footnote,
   onSelect,
 }: RegistryRootPaneProps) {
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <span class="settings__nav-heading-spacer" aria-hidden="true" />
-          <h1 class="settings__nav-heading">注册表管理</h1>
-          <span class="settings__nav-trailing" aria-hidden="true" />
-        </div>
-      </div>
+    <Page header={<PageHeader title="注册表管理" />}>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <p class="settings__section-subtitle">
@@ -531,14 +506,13 @@ function RegistryRootPane({
             <NamespaceList
               namespaces={namespaces}
               selectedAppId={selectedAppId}
-              selectedRowRef={selectedRowRef}
               onSelect={onSelect}
             />
           )}
           <p class="settings__section-footnote">{footnote}</p>
         </section>
       </div>
-    </>
+    </Page>
   )
 }
 
@@ -550,6 +524,7 @@ type RegistryDetailPaneProps = {
   deletingKey: string | undefined
   clearing: boolean
   showBack: boolean
+  headerClass?: string
   onBack?: () => void
   onOpenKey: (key: string) => void
   onDeleteKey: (key: string) => void
@@ -564,23 +539,22 @@ function RegistryDetailPane({
   deletingKey,
   clearing,
   showBack,
+  headerClass,
   onBack,
   onOpenKey,
   onDeleteKey,
   onConfirmClear,
 }: RegistryDetailPaneProps) {
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          {showBack && onBack ? (
-            <IosNavBackButton label="注册表管理" onClick={onBack} />
-          ) : (
-            <span class="settings__nav-heading-spacer" aria-hidden="true" />
-          )}
-          <h1 class="settings__nav-heading">{appLabel(selectedAppId)}</h1>
-          {entries.length > 0 ? (
-            <div class="settings__nav-trailing">
+    <Page
+      header={
+        <PageHeader
+          class={headerClass}
+          title={appLabel(selectedAppId)}
+          backLabel={showBack ? '注册表管理' : undefined}
+          onBack={showBack ? onBack : undefined}
+          actions={
+            entries.length > 0 ? (
               <button
                 type="button"
                 class="settings__btn settings__btn--danger"
@@ -589,12 +563,11 @@ function RegistryDetailPane({
               >
                 {clearing ? '清空中…' : '清空'}
               </button>
-            </div>
-          ) : (
-            <span class="settings__nav-trailing" aria-hidden="true" />
-          )}
-        </div>
-      </div>
+            ) : undefined
+          }
+        />
+      }
+    >
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <p class="settings__section-footnote">
@@ -633,24 +606,17 @@ function RegistryDetailPane({
           </p>
         </section>
       </div>
-    </>
+    </Page>
   )
 }
 
 function RegistryDetailEmpty() {
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <span class="settings__nav-heading-spacer" aria-hidden="true" />
-          <h1 class="settings__nav-heading">注册表管理</h1>
-          <span class="settings__nav-trailing" aria-hidden="true" />
-        </div>
-      </div>
+    <Page header={<PageHeader title="注册表管理" />}>
       <div class="settings__content settings__content--compact">
         <div class="settings__box settings__empty">选择左侧应用以查看注册表键</div>
       </div>
-    </>
+    </Page>
   )
 }
 
@@ -674,18 +640,20 @@ function RegistryBrowsePane({
   onEditJson,
 }: RegistryBrowsePaneProps) {
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <IosNavBackButton label={backLabel} onClick={onBack} />
-          <h1 class="settings__nav-heading">{title}</h1>
-          <div class="settings__nav-trailing">
+    <Page
+      header={
+        <PageHeader
+          title={title}
+          backLabel={backLabel}
+          onBack={onBack}
+          actions={
             <button type="button" class="settings__btn settings__btn--default" onClick={onEditJson}>
               编辑 JSON
             </button>
-          </div>
-        </div>
-      </div>
+          }
+        />
+      }
+    >
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <p class="settings__section-footnote">{footnote}</p>
@@ -725,7 +693,7 @@ function RegistryBrowsePane({
           )}
         </section>
       </div>
-    </>
+    </Page>
   )
 }
 
@@ -773,12 +741,13 @@ function RegistryValuePane({
   }, [draft, initial, onDirtyChange])
 
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <IosNavBackButton label={backLabel} onClick={onBack} />
-          <h1 class="settings__nav-heading">{title}</h1>
-          <div class="settings__nav-trailing">
+    <Page
+      header={
+        <PageHeader
+          title={title}
+          backLabel={backLabel}
+          onBack={onBack}
+          actions={
             <button
               type="button"
               class="settings__btn settings__btn--default"
@@ -787,9 +756,10 @@ function RegistryValuePane({
             >
               {saving ? '保存中…' : '保存'}
             </button>
-          </div>
-        </div>
-      </div>
+          }
+        />
+      }
+    >
       <div class="settings__content settings__content--compact registry__value-content">
         <p class="settings__section-footnote">{footnote}</p>
         {parseError ? <p class="registry__value-error">{parseError}</p> : undefined}
@@ -802,25 +772,16 @@ function RegistryValuePane({
           onInput={(event) => setDraft((event.currentTarget as HTMLTextAreaElement).value)}
         />
       </div>
-    </>
+    </Page>
   )
 }
 
 export function RegistryApp() {
   const modal = useWindowModal()
-  const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
-  const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
-  const splitRef = useRef<HTMLDivElement>(null)
-  const listPaneRef = useRef<HTMLDivElement>(null)
-  const detailPanelRef = useRef<HTMLDivElement>(null)
-  const selectedRowRef = useRef<HTMLButtonElement>(null)
   const editorDirtyRef = useRef(false)
   const selectedAppIdRef = useRef<string | undefined>(undefined)
   const drillRef = useRef<DrillState>(EMPTY_DRILL)
   const skipRegistryChangeAlertRef = useRef(false)
-  const [caretPos, setCaretPos] = useState<
-    { x: number; y: number; fill: string } | undefined
-  >(undefined)
 
   const [namespaces, setNamespaces] = useState<GlobalNamespaceInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -832,24 +793,17 @@ export function RegistryApp() {
   const [deletingKey, setDeletingKey] = useState<string | undefined>(undefined)
   const [clearing, setClearing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [heldFrames, setHeldFrames] = useState<WideFrame[]>([])
-  const [wideIndex, setWideIndex] = useState(0)
   const entriesCacheRef = useRef(new Map<string, RegistryEntry[]>())
   const hasDisplayedDetailRef = useRef(false)
-  const heldFramesRef = useRef<WideFrame[]>([])
-  const wideAppRef = useRef<string | undefined>(undefined)
-  const prevLiveLenRef = useRef(0)
 
-  const {
-    page: screen,
-    stack: navStack,
-    transition: navTransition,
-    queuedTransition: navQueuedTransition,
-    commitQueuedTransition: commitNavQueuedTransition,
-    navigate: navigateTo,
-    handleMotionEnd: handleStackMotionEnd,
-    setPage: setPageSilent,
-  } = useKeychainNavStack<string>(PAGE_ROOT)
+  // 单一真源是 selectedAppId + drill：窄屏子页（root/keys/b:N/edit）与
+  // 分栏右栏帧栈都从它派生，分栏切回子页栈的落点也由它推导。
+  const nav = useAdaptiveSplitNav({
+    split: true,
+    narrowPageForState: () => currentNarrowPage(selectedAppId, drill),
+    listPage: PAGE_ROOT,
+  })
+  const { narrowLayout, layoutReady, page: screen, setPageSilent } = nav
 
   const applyDisplayedEntries = useCallback((appId: string, next: RegistryEntry[]) => {
     entriesCacheRef.current.set(appId, next)
@@ -1085,93 +1039,6 @@ export function RegistryApp() {
     }
   }, [drill, narrowLayout, resetDrill, screen, selectedEntry, setPageSilent])
 
-  useLayoutEffect(() => {
-    if (!layoutReady) {
-      return
-    }
-
-    const previous = prevNarrowLayoutRef.current
-    if (previous === undefined) {
-      prevNarrowLayoutRef.current = narrowLayout
-      return
-    }
-    if (previous === narrowLayout) {
-      return
-    }
-
-    prevNarrowLayoutRef.current = narrowLayout
-
-    if (narrowLayout) {
-      setPageSilent(currentNarrowPage(selectedAppId, drill))
-      return
-    }
-
-    setPageSilent(PAGE_ROOT)
-  }, [drill, layoutReady, narrowLayout, selectedAppId, setPageSilent])
-
-  const syncCaretPos = useCallback(() => {
-    if (narrowLayout) {
-      setCaretPos(undefined)
-      return
-    }
-    const row = selectedRowRef.current
-    const split = splitRef.current
-    const panel = detailPanelRef.current
-    if (!row || !split || !panel) {
-      setCaretPos(undefined)
-      return
-    }
-    const rowRect = row.getBoundingClientRect()
-    const splitRect = split.getBoundingClientRect()
-    const panelRect = panel.getBoundingClientRect()
-    const rowCenterY = rowRect.top + rowRect.height / 2
-    const gradientT =
-      panelRect.height > 0 ? (rowCenterY - panelRect.top) / panelRect.height : 0
-    setCaretPos({
-      x: panelRect.left - splitRect.left,
-      y: rowCenterY - splitRect.top,
-      fill: settingsPanelColorAt(gradientT),
-    })
-  }, [narrowLayout])
-
-  useLayoutEffect(() => {
-    syncCaretPos()
-  }, [syncCaretPos, selectedAppId, namespaces, loading, narrowLayout, drill])
-
-  useEffect(() => {
-    const listPane = listPaneRef.current
-    const split = splitRef.current
-    const panel = detailPanelRef.current
-    const row = selectedRowRef.current
-    listPane?.addEventListener('scroll', syncCaretPos, { passive: true })
-    panel?.addEventListener('scroll', syncCaretPos, { passive: true })
-    const observer =
-      typeof ResizeObserver !== 'undefined'
-        ? new ResizeObserver(() => {
-            syncCaretPos()
-          })
-        : undefined
-    if (split) {
-      observer?.observe(split)
-    }
-    if (panel) {
-      observer?.observe(panel)
-    }
-    if (listPane) {
-      observer?.observe(listPane)
-    }
-    if (row) {
-      observer?.observe(row)
-    }
-    window.addEventListener('resize', syncCaretPos)
-    return () => {
-      listPane?.removeEventListener('scroll', syncCaretPos)
-      panel?.removeEventListener('scroll', syncCaretPos)
-      observer?.disconnect()
-      window.removeEventListener('resize', syncCaretPos)
-    }
-  }, [syncCaretPos, selectedAppId, namespaces, narrowLayout, drill])
-
   const handleDeleteKey = async (key: string) => {
     if (!selectedAppId || deletingKey !== undefined) {
       return
@@ -1322,11 +1189,8 @@ export function RegistryApp() {
       return
     }
     const entry = selectedEntry
-    if (narrowLayout) {
-      navigateTo(parentPageId(drill, entry), 'pop', () => applyPop(entry))
-      return
-    }
-    applyPop(entry)
+    // 窄屏 pop 落定后提交 drill，分栏即时提交（旧帧保帧滑出）
+    nav.navigate(parentPageId(drill, entry), 'pop', () => applyPop(entry))
   }
 
   const openEntry = (key: string) => {
@@ -1337,13 +1201,13 @@ export function RegistryApp() {
     if (jsonOpenMode(entry.value, entryValueType(entry)) === 'browse') {
       setDrill({ selectedKey: key, jsonPath: [], editorOpen: false })
       if (narrowLayout) {
-        navigateTo(browsePageId(0), 'push')
+        nav.navigate(browsePageId(0), 'push')
       }
       return
     }
     setDrill({ selectedKey: key, jsonPath: [], editorOpen: true })
     if (narrowLayout) {
-      navigateTo(PAGE_EDIT, 'push')
+      nav.navigate(PAGE_EDIT, 'push')
     }
   }
 
@@ -1357,20 +1221,20 @@ export function RegistryApp() {
     if (isJsonContainer(node)) {
       setDrill({ selectedKey: entry.key, jsonPath: nextPath, editorOpen: false })
       if (narrowLayout) {
-        navigateTo(browsePageId(nextPath.length), 'push')
+        nav.navigate(browsePageId(nextPath.length), 'push')
       }
       return
     }
     setDrill({ selectedKey: entry.key, jsonPath: nextPath, editorOpen: true })
     if (narrowLayout) {
-      navigateTo(PAGE_EDIT, 'push')
+      nav.navigate(PAGE_EDIT, 'push')
     }
   }
 
   const openEditJson = (entry: RegistryEntry, path: JsonPath) => {
     setDrill({ selectedKey: entry.key, jsonPath: path, editorOpen: true })
     if (narrowLayout) {
-      navigateTo(PAGE_EDIT, 'push')
+      nav.navigate(PAGE_EDIT, 'push')
     }
   }
 
@@ -1389,9 +1253,9 @@ export function RegistryApp() {
           applyDisplayedEntries(appId, cached)
         }
         if (narrowLayout && appId !== selectedAppId) {
-          navigateTo(PAGE_KEYS, 'push')
+          nav.navigate(PAGE_KEYS, 'push')
         } else if (narrowLayout && !selectedAppId) {
-          navigateTo(PAGE_KEYS, 'push')
+          nav.navigate(PAGE_KEYS, 'push')
         }
       }
       void switchTo()
@@ -1401,18 +1265,18 @@ export function RegistryApp() {
       confirmDiscard,
       drill.editorOpen,
       narrowLayout,
-      navigateTo,
+      nav,
       resetDrill,
       selectedAppId,
     ],
   )
 
   const closeDetail = useCallback(() => {
-    navigateTo(PAGE_ROOT, 'pop', () => {
+    nav.navigate(PAGE_ROOT, 'pop', () => {
       setSelectedAppId(undefined)
       resetDrill()
     })
-  }, [navigateTo, resetDrill])
+  }, [nav, resetDrill])
 
   const jumpToPathCrumb = async (index: number) => {
     if (!selectedAppId || !drill.selectedKey) {
@@ -1490,49 +1354,24 @@ export function RegistryApp() {
     [displayedAppId, drill, selectedEntry],
   )
 
+  // ── 形变期返回键对齐（nav-kit-demo 同款）：keys 页/keys 帧的返回键只在窄
+  // 形态有、分栏静置没有。A 型（窄→宽）先挂着随滑轨淡出；C 型（宽→窄）
+  // 落定交棒后才出现，给一次透明度 0→1 的短淡入代替硬蹦。
+  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
+  const backFadeTimerRef = useRef(0)
+  const prevMorphingRef = useRef(false)
   useLayoutEffect(() => {
-    heldFramesRef.current = heldFrames
-  }, [heldFrames])
-
-  useLayoutEffect(() => {
-    if (narrowLayout) {
-      return
-    }
-    const previous = heldFramesRef.current
-    const appChanged = wideAppRef.current !== selectedAppId
-    wideAppRef.current = selectedAppId
-    const prevLen = prevLiveLenRef.current
-    const nextLen = liveFrames.length
-
-    if (appChanged || Math.abs(nextLen - prevLen) > 1 || previous.length === 0) {
-      prevLiveLenRef.current = nextLen
-      setHeldFrames(liveFrames)
-      setWideIndex(Math.max(0, nextLen - 1))
-      return
-    }
-
-    if (nextLen >= prevLen) {
-      setHeldFrames(liveFrames)
-      return
-    }
-
-    setWideIndex(Math.max(0, nextLen - 1))
-    const timer = window.setTimeout(() => {
-      prevLiveLenRef.current = nextLen
-      setHeldFrames(liveFrames)
-    }, WIDE_STACK_MS)
-    return () => window.clearTimeout(timer)
-  }, [liveFrames, narrowLayout, selectedAppId])
-
-  useEffect(() => {
-    if (narrowLayout) {
-      return
-    }
-    if (heldFrames.length > prevLiveLenRef.current) {
-      prevLiveLenRef.current = heldFrames.length
-      setWideIndex(heldFrames.length - 1)
-    }
-  }, [heldFrames, narrowLayout])
+    const was = prevMorphingRef.current
+    prevMorphingRef.current = nav.morphing
+    if (was === nav.morphing) return
+    if (nav.morphing || !narrowLayout) return
+    // 落定页是 keys 页（唯一返回键有形态差的页）才淡入
+    if (!selectedAppId || drill.selectedKey) return
+    window.clearTimeout(backFadeTimerRef.current)
+    setBackFadeEpoch((epoch) => epoch + 1)
+    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
+  }, [nav.morphing, narrowLayout, selectedAppId, drill.selectedKey])
+  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
 
   const findEntry = (appId: string, key: string): RegistryEntry | undefined => {
     if (appId === displayedAppId) {
@@ -1567,7 +1406,7 @@ export function RegistryApp() {
     return pathTitle(entry.key, path.slice(0, -1), root)
   }
 
-  const renderDetailPane = (appId: string, showBack: boolean) => (
+  const renderDetailPane = (appId: string, showBack: boolean, headerClass?: string) => (
     <RegistryDetailPane
       selectedAppId={appId}
       namespace={appId === selectedAppId ? selectedNamespace : displayedNamespace}
@@ -1576,6 +1415,7 @@ export function RegistryApp() {
       deletingKey={deletingKey}
       clearing={clearing}
       showBack={showBack}
+      headerClass={headerClass}
       onBack={showBack ? closeDetail : undefined}
       onOpenKey={openEntry}
       onDeleteKey={(key) => void handleDeleteKey(key)}
@@ -1606,18 +1446,15 @@ export function RegistryApp() {
     const resolved = resolveEditor(entry, path)
     if (resolved === 'invalid-path') {
       return (
-        <>
-          <div class="settings__nav settings__nav--titled">
-            <div class="settings__nav-bar">
-              <IosNavBackButton label="返回" onClick={() => void goBackFromDrill()} />
-              <h1 class="settings__nav-heading">{entry.key}</h1>
-              <span class="settings__nav-trailing" aria-hidden="true" />
-            </div>
-          </div>
+        <Page
+          header={
+            <PageHeader title={entry.key} backLabel="返回" onBack={() => void goBackFromDrill()} />
+          }
+        >
           <div class="settings__content settings__content--compact">
             <div class="settings__box settings__empty">该路径已不存在</div>
           </div>
-        </>
+        </Page>
       )
     }
     const kindLabel =
@@ -1647,7 +1484,7 @@ export function RegistryApp() {
     return renderBrowsePane(selectedEntry, drill.jsonPath.slice(0, depth))
   }
 
-  const renderPage = (target: string) => {
+  const renderNarrowPage = (target: string) => {
     if (target === PAGE_EDIT) {
       if (!selectedEntry) {
         return null
@@ -1664,29 +1501,51 @@ export function RegistryApp() {
       if (!selectedAppId) {
         return null
       }
-      return renderDetailPane(selectedAppId, true)
+      return renderDetailPane(
+        selectedAppId,
+        true,
+        backFadeEpoch > 0 && target === screen
+          ? `registry__back-fade-in-${backFadeEpoch % 2}`
+          : undefined,
+      )
     }
 
     return (
       <RegistryRootPane
         namespaces={namespaces}
         loading={loading}
+        selectedAppId={narrowLayout ? undefined : selectedAppId}
         onSelect={selectNamespace}
-        footnote="点击命名空间可查看字段级键条目；JSON 可逐级展开，叶子可编辑。"
+        footnote={
+          narrowLayout
+            ? '点击命名空间可查看字段级键条目；JSON 可逐级展开，叶子可编辑。'
+            : '点击应用可在右侧查看注册表键；JSON 可逐级展开。'
+        }
       />
     )
   }
 
+  // 分栏帧栈：keys 帧静置不带返回（左栏即它的上级），A 型形变（窄→宽）
+  // 先挂着返回随滑轨淡出；browse/edit 帧两种形态都带返回。
+  const keepKeysBack =
+    nav.morphing && nav.morphKind === 'A' && selectedAppId !== undefined && !drill.selectedKey
+
   const renderWideFrame = (frame: WideFrame) => {
     if (frame.kind === 'keys') {
-      return renderDetailPane(frame.appId, false)
+      return renderDetailPane(
+        frame.appId,
+        false,
+        keepKeysBack ? 'registry__back-fade-out' : undefined,
+      )
     }
     const entry = findEntry(frame.appId, frame.key)
     if (!entry) {
       return (
-        <div class="settings__content settings__content--compact">
-          <div class="settings__box settings__empty">该键已不存在</div>
-        </div>
+        <Page>
+          <div class="settings__content settings__content--compact">
+            <div class="settings__box settings__empty">该键已不存在</div>
+          </div>
+        </Page>
       )
     }
     if (frame.kind === 'browse') {
@@ -1695,43 +1554,8 @@ export function RegistryApp() {
     return renderEditorPane(entry, frame.path)
   }
 
-  const renderWideDetail = () => {
-    if (!displayedAppId) {
-      return (
-        <div class="settings">
-          <RegistryDetailEmpty />
-        </div>
-      )
-    }
-
-    const frames = heldFrames.length > 0 ? heldFrames : liveFrames
-    const active = Math.min(wideIndex, Math.max(0, frames.length - 1))
-    return (
-      <div class="registry__wide-stack">
-        {frames.map((frame, index) => (
-          <div
-            key={frame.id}
-            class={
-              index === active
-                ? 'settings registry__wide-stack__page is-active'
-                : 'settings registry__wide-stack__page'
-            }
-            style={{
-              transform:
-                index === active
-                  ? 'translateX(0)'
-                  : index < active
-                    ? 'translateX(-30%)'
-                    : 'translateX(100%)',
-              zIndex: index,
-            }}
-          >
-            {renderWideFrame(frame)}
-          </div>
-        ))}
-      </div>
-    )
-  }
+  const renderWideFrames = (): AdaptiveFrameSpec[] =>
+    liveFrames.map((frame) => ({ id: frame.id, content: renderWideFrame(frame) }))
 
   const pathCrumbs = buildPathCrumbs(selectedAppId, drill, selectedEntry)
   const pathBar =
@@ -1740,62 +1564,17 @@ export function RegistryApp() {
     ) : undefined
 
   return (
-    <div
-      ref={hostRef}
+    <AdaptiveSplitNav
+      controller={nav}
       class={narrowLayout ? 'registry registry--narrow' : 'registry registry--wide'}
-    >
-      {narrowLayout ? (
-        <>
-          <KeychainNavStack
-            stack={navStack}
-            page={screen}
-            transition={navTransition}
-            queuedTransition={navQueuedTransition}
-            commitQueuedTransition={commitNavQueuedTransition}
-            onMotionEnd={handleStackMotionEnd}
-            renderPage={renderPage}
-          />
-          {pathBar}
-        </>
-      ) : (
-        <div
-          ref={splitRef}
-          class="registry__split"
-          style={
-            caretPos
-              ? ({
-                  ['--registry-caret-x' as string]: `${caretPos.x}px`,
-                  ['--registry-caret-y' as string]: `${caretPos.y}px`,
-                  ['--registry-caret-fill' as string]: caretPos.fill,
-                } as Record<string, string>)
-              : undefined
-          }
-        >
-          <div ref={listPaneRef} class="registry__list-pane settings">
-            <RegistryRootPane
-              namespaces={namespaces}
-              loading={loading}
-              selectedAppId={selectedAppId}
-              selectedRowRef={selectedRowRef}
-              onSelect={selectNamespace}
-              footnote="点击应用可在右侧查看注册表键；JSON 可逐级展开。"
-            />
-          </div>
-          <div ref={detailPanelRef} class="registry__detail-pane">
-            {selectedAppId && displayedAppId ? (
-              renderWideDetail()
-            ) : (
-              <div class="settings">
-                <RegistryDetailEmpty />
-              </div>
-            )}
-            {pathBar}
-          </div>
-          {selectedAppId && caretPos ? (
-            <span class="registry__detail-caret" aria-hidden="true" />
-          ) : undefined}
-        </div>
-      )}
-    </div>
+      renderNarrowPage={renderNarrowPage}
+      renderWideFrames={renderWideFrames}
+      renderDetailEmpty={() => <RegistryDetailEmpty />}
+      framesResetKey={displayedAppId}
+      footer={pathBar}
+      /* 对齐原手写分栏 minmax(220px, 34%) */
+      listMinWidth={220}
+      listRatio={0.34}
+    />
   )
 }
