@@ -351,8 +351,8 @@ export function WelcomeApp() {
       }
       renderNarrowPage={renderNarrowPage}
       renderWideFrames={renderWideFrames}
-      /* 对齐原宽屏固定 280px 侧栏的下限 */
-      listMinWidth={280}
+      /* 左栏纯比例跟随窗口，不设最小宽下限 */
+      listMinWidth={0}
       listRatio={0.36}
     />
   )
