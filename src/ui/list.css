@@ -17,6 +17,8 @@
   --list-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
   --list-footnote-ink: #666;
   --list-footnote-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --list-index-bg: rgba(0, 0, 0, 0.05);
+  --list-index-pressed-bg: rgba(0, 0, 0, 0.11);
 }
 
 /* ── 容器盒 ── */
@@ -382,8 +384,15 @@
   bottom: 6px;
   display: flex;
   flex-direction: column;
+  background: var(--list-index-bg, rgba(0, 0, 0, 0.05));
+  border-radius: 10px;
   z-index: 3;
   touch-action: none;
+}
+
+.list__index-bar:hover,
+.list__index-bar--pressed {
+  background: var(--list-index-pressed-bg, rgba(0, 0, 0, 0.11));
 }
 
 .list__index-letter {
@@ -399,15 +408,22 @@
   color: var(--list-title-ink, #555);
   cursor: pointer;
   user-select: none;
+  transition: color 0.12s ease, transform 0.12s ease;
 }
 
-.list__index-letter:hover,
-.list__index-letter--active {
+.list__index-letter:hover {
   color: var(--list-accent, #007aff);
+  transform: scale(1.3);
 }
 
 .list__index-letter:active {
   color: #2068b8;
+}
+
+.list__index-letter--active {
+  color: var(--list-accent, #007aff);
+  transform: scale(1.5);
+  font-weight: 700;
 }
 
 /* 索引带宽 = right 2px + 字母左右各 5px padding = 22px：行与表头右缘内容让位，不压字母。

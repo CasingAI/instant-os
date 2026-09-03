@@ -94,6 +94,8 @@ export function List({
   const rootRef = useRef<HTMLDivElement>(null)
   const indexStripRef = useRef<HTMLDivElement>(null)
   const [sections, setSections] = useState<ListSectionAnchor[]>([])
+  // 按住/拖动索引条时命中的字母：整条挂 --pressed、当前字母挂 --active（悬停反馈由 CSS :hover 负责）
+  const [activeLetter, setActiveLetter] = useState<string | null>(null)
   const dragRef = useRef<ReorderDrag | null>(null)
 
   useEffect(() => {
@@ -129,6 +131,7 @@ export function List({
     for (const letter of Array.from(strip.querySelectorAll<HTMLElement>('[data-letter]'))) {
       const rect = letter.getBoundingClientRect()
       if (clientY >= rect.top && clientY <= rect.bottom) {
+        setActiveLetter(letter.dataset.letter ?? '')
         jumpTo(letter.dataset.letter ?? '')
         return
       }
@@ -219,7 +222,10 @@ export function List({
         {indexBar && sections.length > 0 && (
           <div
             ref={indexStripRef}
-            class="list__index-bar"
+            class={joinClass(
+              'list__index-bar',
+              activeLetter !== null ? 'list__index-bar--pressed' : '',
+            )}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId)
               jumpFromPointer(event.clientY)
@@ -227,13 +233,17 @@ export function List({
             onPointerMove={(event) => {
               if (event.buttons & 1) jumpFromPointer(event.clientY)
             }}
-            onPointerUp={() => undefined}
+            onPointerUp={() => setActiveLetter(null)}
+            onPointerCancel={() => setActiveLetter(null)}
           >
             {sections.map((section) => (
               <span
                 key={section.key}
                 data-letter={section.key}
-                class="list__index-letter"
+                class={joinClass(
+                  'list__index-letter',
+                  activeLetter === section.key ? 'list__index-letter--active' : '',
+                )}
               >
                 {section.label}
               </span>

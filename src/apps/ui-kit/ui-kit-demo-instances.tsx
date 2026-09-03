@@ -609,14 +609,19 @@ export function ListControlsDemo() {
 
 export function ListIndexDemo() {
   const sections = [
-    { id: 'A', names: ['阿福', '安琪', '艾伦'] },
-    { id: 'B', names: ['白露', '百晓生', '波波'] },
-    { id: 'C', names: ['曹操', '陈皮', '春妮'] },
-    { id: 'D', names: ['大卫', '丁丁', '东东'] },
-    { id: 'E', names: ['恩雅', '耳东', '尔朱'] },
-    { id: 'F', names: ['范闲', '方鸿', '飞白'] },
-    { id: 'G', names: ['高渐', '关雎', '归海'] },
-    { id: 'H', names: ['韩非', '何晏', '胡杨'] },
+    { id: '#', names: ['3M 便利贴', '7-11 便当'] },
+    { id: 'A', names: ['阿福', '安琪'] },
+    { id: 'C', names: ['曹操', '陈皮'] },
+    { id: 'F', names: ['范闲', '飞白'] },
+    { id: 'H', names: ['韩非', '何晏'] },
+    { id: 'K', names: ['快雪'] },
+    { id: 'M', names: ['马良', '木心'] },
+    { id: 'P', names: ['潘安'] },
+    { id: 'S', names: ['苏轼', '石秀'] },
+    { id: 'W', names: ['王维'] },
+    { id: 'Y', names: ['颜回', '虞姬'] },
+    { id: 'Z', names: ['张良', '庄周'] },
+    { id: '汉', names: ['囡囡', '犇犇'] },
   ]
 
   return (
