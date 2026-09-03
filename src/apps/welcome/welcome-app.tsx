@@ -1,5 +1,12 @@
 import type { ComponentType } from 'preact'
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'preact/hooks'
 import { isInstantFreeProvider, isOpencodeZenProvider } from '../../ai/ai-providers.ts'
 import { subscribeOpenAiConfig } from '../../ai/openai-config.ts'
 import { BrowserIcon, ForwardIcon, KeychainIcon, MarketplaceIcon } from '../../icons/app-icons.tsx'
@@ -240,13 +247,39 @@ export function WelcomeApp() {
     nav.navigate('list', 'pop', () => setDetailOpen(false))
   }, [nav])
 
-  // ── 页面渲染：窄屏子页带导航栏；分栏左栏裸列表（老宽屏的无边框样式）──
+  // ── 形变期返回键对齐（disk-utility 同款）：详情页/帧的返回键只在窄形态
+  // 有、分栏静置没有。A 型（窄→宽）先挂着随滑轨淡出；C 型（宽→窄）落定
+  // 交棒给子页栈后才出现，给一次透明度 0→1 的短淡入代替硬蹦。epoch 递增 +
+  // 双类名交替，背靠背再触发也能重播；必须用 layout effect，类要在面板移
+  // 除的同一帧 paint 前挂上。
+  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
+  const backFadeTimerRef = useRef(0)
+  const prevMorphingRef = useRef(false)
+  useLayoutEffect(() => {
+    const was = prevMorphingRef.current
+    prevMorphingRef.current = nav.morphing
+    if (was === nav.morphing) return
+    if (nav.morphing || !nav.narrowLayout) return
+    if (nav.page !== 'detail') return
+    window.clearTimeout(backFadeTimerRef.current)
+    setBackFadeEpoch((epoch) => epoch + 1)
+    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
+  }, [nav.morphing, nav.narrowLayout, nav.page])
+  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
+
+  // ── 页面渲染：两形态同一份 Page + PageHeader 壳（Header 常驻），返回键
+  // 按形态挂/摘 ──
   const renderNarrowPage = (target: string) => {
     if (target === 'detail') {
       return (
         <Page
           header={
             <PageHeader
+              class={
+                backFadeEpoch > 0 && target === nav.page
+                  ? `welcome__back-fade-in-${backFadeEpoch % 2}`
+                  : undefined
+              }
               title={taskLabel(selected.id)}
               backLabel="欢迎中心"
               onBack={handleBack}
@@ -262,27 +295,41 @@ export function WelcomeApp() {
         </Page>
       )
     }
-    if (nav.narrowLayout) {
-      return (
-        <Page header={<PageHeader title="欢迎中心" />}>
-          <WelcomeAppList narrowLayout selectedId={selected.id} onSelect={handleSelect} />
-        </Page>
-      )
-    }
-    return <WelcomeAppList narrowLayout={false} selectedId={selected.id} onSelect={handleSelect} />
+    return (
+      <Page header={<PageHeader title="欢迎中心" />}>
+        <WelcomeAppList
+          narrowLayout={nav.narrowLayout}
+          selectedId={selected.id}
+          onSelect={handleSelect}
+        />
+      </Page>
+    )
   }
 
-  // 分栏帧：宽屏 hero 独占右栏，无导航栏（老宽屏样式）
+  // 分栏帧：hero 帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
+  // 先挂着返回随滑轨淡出。
+  const keepDetailBack = nav.morphing && nav.morphKind === 'A'
   const renderWideFrames = (): AdaptiveFrameSpec[] => [
     {
       id: 'detail',
       content: (
-        <WelcomeHero
-          item={selected}
-          keyAdded={keyAdded}
-          iconSize={HERO_ICON_SIZE_WIDE}
-          onOpen={openSelected}
-        />
+        <Page
+          header={
+            <PageHeader
+              class={keepDetailBack ? 'welcome__back-fade-out' : undefined}
+              title={taskLabel(selected.id)}
+              backLabel={keepDetailBack ? '欢迎中心' : undefined}
+              onBack={keepDetailBack ? handleBack : undefined}
+            />
+          }
+        >
+          <WelcomeHero
+            item={selected}
+            keyAdded={keyAdded}
+            iconSize={HERO_ICON_SIZE_WIDE}
+            onOpen={openSelected}
+          />
+        </Page>
       ),
     },
   ]
