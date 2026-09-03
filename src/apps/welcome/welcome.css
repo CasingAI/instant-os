@@ -57,6 +57,8 @@
   right: 18px;
   bottom: -18px;
   font-size: 92px;
+  /* 宽窄根类只在形变翻转帧变化：字号（92↔140px）随滑轨同拍过渡，不硬跳 */
+  transition: font-size var(--asn-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: rgba(255, 255, 255, 0.08);

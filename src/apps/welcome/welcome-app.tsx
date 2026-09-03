@@ -235,8 +235,10 @@ export function WelcomeApp() {
   const handleSelect = useCallback(
     (id: WelcomeTaskId) => {
       setSelectedId(id)
+      // 宽屏点击同样视为「进入详情」：拖窄按选中态落详情页（C 型形变），
+      // 与磁盘工具/服务/注册表一致；从未点过条目则照旧落列表（D 型）。
+      setDetailOpen(true)
       if (nav.narrowLayout && nav.page === 'list') {
-        setDetailOpen(true)
         nav.navigate('detail', 'push')
       }
     },
