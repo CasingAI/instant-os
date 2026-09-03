@@ -379,6 +379,14 @@
   grid-template-columns: 40px 1fr 40px;
 }
 
+/* 迷你窗标题栏只有左上一颗关闭钮：继承的 dialog 双 40px 固定列改 auto——
+   左列贴按钮实宽、右列随空 trailing 塌缩，标题吃满剩余宽度；
+   与 dialog 规则同优先级，必须保持在其后（源序决定胜负） */
+.window-frame--mini .window-frame__titlebar {
+  grid-template-columns: auto 1fr auto;
+  column-gap: 8px;
+}
+
 .window-frame--dragging .window-frame__titlebar {
   cursor: grabbing;
 }
@@ -534,6 +542,10 @@
 .window-frame--mini .window-frame__content > .window-app-body {
   flex: none;
   width: max-content;
+  /* 窗口被标题下限/更宽的历史状态撑宽时，正文背景横向全出血不留边缝；
+     代价是收窄方向被 min-width 掩盖（sync 量到的是撑满宽），窗口只增不减，
+     而行宽只增不减且每会话一窗，可接受 */
+  min-width: 100%;
   max-width: 60vw;
   height: auto;
   min-height: 0;

@@ -250,12 +250,22 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     if (!container) return
     const body = container.querySelector<HTMLDivElement>(':scope > .window-app-body')
     if (!body) return
+    const title = container.previousElementSibling?.querySelector<HTMLElement>(
+      '.window-frame__title',
+    )
     const sync = () => {
       const win = miniWinRef.current
       const extraW = win.width - container.clientWidth
       const extraH = win.height - container.clientHeight
+      // 标题占位折算整窗需求：截断态 scrollWidth 仍是全文宽，撑到放得下即稳定；
+      // 封顶 60vw（与正文 max-width 同口径），更长的标题交回省略号。
+      // 正文 min-width:100% 全出血时 offsetWidth 量不到收窄方向，宽度只增不减（见 css）
+      const titleNeedW = title ? win.width - title.clientWidth + title.scrollWidth : 0
       const next = clampFloatingSize(
-        body.offsetWidth + extraW,
+        Math.min(
+          Math.max(body.offsetWidth + extraW, titleNeedW),
+          Math.round(globalThis.innerWidth * 0.6),
+        ),
         body.offsetHeight + extraH,
         { minWidth: MIN_MINI_WINDOW_WIDTH, minHeight: MIN_MINI_WINDOW_HEIGHT },
       )
@@ -266,7 +276,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     const observer = new ResizeObserver(sync)
     observer.observe(body)
     return () => observer.disconnect()
-  }, [isMini, resizeWindow, window.id])
+  }, [isMini, resizeWindow, window.id, window.title])
 
   const frameTransform = showMinimizeVisual
     ? minimizeTransform
