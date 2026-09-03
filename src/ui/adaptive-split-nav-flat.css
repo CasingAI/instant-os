@@ -80,12 +80,13 @@
 }
 
 /*
- * 角色 · detail（右栏帧）：left 对齐左栏右缘（含 min 钳制后的实际值），
- * 叠放位移由 tsx 按状态写内联（active 就位、底层 -30% 露边、待入 100%），
- * 过渡只在状态切换时生效（形变期由 morphing 规则关闭）。
+ * 角色 · detail（右栏帧）：left 对齐左栏右缘（纯 ratio，与 tsx 形变数学
+ * 同式——缝隙恒等式两端都不得带钳制），叠放位移由 tsx 按状态写内联
+ * （active 就位、底层 -30% 露边、待入 100%），过渡只在状态切换时生效
+ * （形变期由 morphing 规则关闭）。
  */
 .adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='detail'] {
-  left: max(var(--asn-list-min, 240px), var(--asn-list-ratio, 38%));
+  left: var(--asn-list-ratio, 38%);
   right: 0;
   z-index: 10;
   transition: transform var(--asn-frame-ms, 380ms) ease-in-out;
@@ -336,7 +337,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: max(var(--asn-list-min, 240px), var(--asn-list-ratio, 38%));
+  left: var(--asn-list-ratio, 38%);
   right: 0;
   overflow: hidden;
   z-index: 1;
