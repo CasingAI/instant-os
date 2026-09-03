@@ -1228,7 +1228,10 @@ export function VscodeSettingsPanel({
   }
 
   return (
-    <div class={`settings vscode__settings${dark ? ' settings--dark' : ''}`}>
+    <div
+      class={`settings vscode__settings${dark ? ' settings--dark' : ''}`}
+      data-theme={dark ? 'dark' : undefined}
+    >
       <PageStack
         stack={stack}
         page={screen}

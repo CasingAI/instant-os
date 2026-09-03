@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import './page.css'
+import './theme.css'
 
 export type PageProps = {
   /** 顶部 Header（PageHeader），可为空 */

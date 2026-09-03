@@ -1,0 +1,30 @@
+/*
+ * 系统暗色主题作用域：App 在自己的根节点切 data-theme='dark'，
+ * 作用域内所有系统页面组件（Page / PageHeader / PageBackButton /
+ * PageStack 转场 / AdaptiveSplitNav，均消费同一套 --page-* token）
+ * 原生联动暗色，无需各 App 自行桥接。
+ *
+ * 自定义属性按「最近的定义祖先」继承，天然压过各组件 :root 的
+ * 亮色默认值；亮色不需要对称作用域（:root 默认即亮色）。
+ */
+[data-theme='dark'] {
+  --page-bg: linear-gradient(180deg, #2c2c30 0%, #1e1e22 100%);
+  --page-header-bg: linear-gradient(180deg, #323238 0%, #28282e 100%);
+  --page-header-border: 1px solid rgba(255, 255, 255, 0.08);
+  --page-header-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06),
+    0 5px 14px -8px rgba(0, 0, 0, 0.55);
+  --page-header-title-color: #f0f0f2;
+  --page-header-title-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
+  --page-back-color: #5eb0ff;
+  --page-back-color-active: #8ec8ff;
+  --page-back-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
+  --page-back-bg-hover: linear-gradient(180deg, #52525a 0%, #42424a 55%, #3a3a42 100%);
+  --page-back-bg-active: linear-gradient(180deg, #2e2e34 0%, #3a3a42 100%);
+  --page-back-border: 1px solid rgba(255, 255, 255, 0.16);
+  --page-back-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --page-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 1px 0 rgba(0, 0, 0, 0.35);
+  --page-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}

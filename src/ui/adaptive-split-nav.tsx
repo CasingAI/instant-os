@@ -13,6 +13,7 @@ import {
 } from './use-app-narrow-layout.ts'
 import { PageStack, usePageStack, type PageStackTransition } from './page-stack.tsx'
 import './adaptive-split-nav.css'
+import './theme.css'
 
 /**
  * 自适应分栏导航：布局原语（类 Ant Design 抽屉/分栏）。
