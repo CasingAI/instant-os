@@ -8,7 +8,8 @@ import { Popover } from '../../ui/popover.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { IosRangeSlider, type IosRangeSliderMark } from '../../ui/ios-range-slider.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { List } from '../../ui/list.tsx'
+import { List, ListSection } from '../../ui/list.tsx'
+import { ListItem } from '../../ui/list-item.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
@@ -475,6 +476,7 @@ export function SettingsChoiceFieldDemo() {
 }
 
 export function ListDemo() {
+  const tokens = 'ui-kit-demo__settings-tokens'
   const files = [
     { id: 'f1', name: '季度报告.pdf', size: '2.4 MB' },
     { id: 'f2', name: '设计稿.sketch', size: '18.7 MB' },
@@ -482,19 +484,73 @@ export function ListDemo() {
     { id: 'f4', name: '素材包.zip', size: '148 MB' },
     { id: 'f5', name: '数据备份.dmg', size: '1.2 GB' },
   ]
+  const [editing, setEditing] = useState(false)
+  const [items, setItems] = useState([
+    { id: 'books', label: '图书', size: '412 MB' },
+    { id: 'music', label: '音乐', size: '1.8 GB' },
+    { id: 'photos', label: '照片', size: '23.4 GB' },
+    { id: 'mail', label: '邮件', size: '306 MB' },
+    { id: 'docs', label: '文稿与数据', size: '5.1 GB' },
+  ])
+
+  const reorder = (fromId: string, toId: string) => {
+    setItems((prev) => {
+      const from = prev.findIndex((it) => it.id === fromId)
+      const to = prev.findIndex((it) => it.id === toId)
+      if (from < 0 || to < 0) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
+  const sections = [
+    { id: 'A', names: ['阿福', '安琪', '艾伦'] },
+    { id: 'B', names: ['白露', '百晓生', '波波'] },
+    { id: 'C', names: ['曹操', '陈皮', '春妮'] },
+    { id: 'D', names: ['大卫', '丁丁', '东东'] },
+  ]
 
   return (
     <DemoVariants>
-      <DemoVariant label="纯分组（行组件直接落下）">
-        <List class="ui-kit-demo__settings-tokens">
-          <SettingsNavRow label="账号设置" value="user@example.com" onClick={() => undefined} />
-          <SettingsNavRow label="API 密钥" value="" secretLength={24} onClick={() => undefined} />
-          <SettingsNavRow label="导出数据" value="—" disabled onClick={() => undefined} />
+      <DemoVariant label="节标题 / 脚注" wide>
+        <List class={tokens} title="通用" footnote="重置网络设置将清除已保存的 Wi-Fi 密码。">
+          <ListItem label="关于本机" value="iOS 6.1.4" accessory="disclosure" />
+          <ListItem label="软件更新" value="已是最新" accessory="disclosure" />
+          <ListItem label="用法说明" accessory="disclosure" />
         </List>
+      </DemoVariant>
+      <DemoVariant label="A-Z 索引条（点字母或沿条拖动跳节）" wide>
+        <List class={tokens} indexBar bodyClass="settings__list-body">
+          {sections.map((section) => (
+            <ListSection key={section.id} id={section.id} title={section.id}>
+              {section.names.map((name) => (
+                <ListItem key={name} label={name} value="详情" accessory="disclosure" />
+              ))}
+            </ListSection>
+          ))}
+        </List>
+      </DemoVariant>
+      <DemoVariant label="编辑模式（减号删除 / 把手排序）" wide>
+        <IosButton size="compact" onClick={() => setEditing(!editing)}>
+          {editing ? '完成' : '编辑'}
+        </IosButton>
+        <List
+          class={tokens}
+          editing={editing}
+          onDelete={(id) => setItems((prev) => prev.filter((it) => it.id !== id))}
+          onReorder={reorder}
+        >
+          {items.map((it) => (
+            <ListItem key={it.id} id={it.id} label={it.label} value={it.size} />
+          ))}
+        </List>
+        {items.length === 0 && <div class="settings__box settings__empty">全部已删除</div>}
       </DemoVariant>
       <DemoVariant label="表头 + 限高滚动区" wide>
         <List
-          class="ui-kit-demo__settings-tokens"
+          class={tokens}
           head={<><span>文件</span><span>大小</span></>}
           bodyClass="settings__list-body"
         >
@@ -504,6 +560,95 @@ export function ListDemo() {
               <span class="settings__row-size">{file.size}</span>
             </div>
           ))}
+        </List>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function ListItemDemo() {
+  const tokens = 'ui-kit-demo__settings-tokens'
+  const [selectedId, setSelectedId] = useState('icloud')
+  const [wifi, setWifi] = useState(true)
+  const [autoDownload, setAutoDownload] = useState(false)
+  const [home, setHome] = useState('https://')
+
+  const leading = (emoji: string, color: string) => (
+    <span
+      style={{
+        width: '26px',
+        height: '26px',
+        borderRadius: '6px',
+        background: color,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '14px',
+      }}
+    >
+      {emoji}
+    </span>
+  )
+
+  const accounts = [
+    { id: 'icloud', label: 'iCloud', value: 'john@example.com' },
+    { id: 'exchange', label: 'Exchange', value: 'work@example.com' },
+    { id: 'gmail', label: 'Gmail', value: 'john@gmail.com' },
+  ]
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="槽位：值 / 副标题 / 图标 / 徽章 / extra" wide>
+        <List class={tokens}>
+          <ListItem label="网络" value="Wi-Fi" accessory="disclosure" />
+          <ListItem label="面容解锁" subtitle="抬起唤醒并注视屏幕以解锁" accessory="disclosure" />
+          <ListItem leading={leading('🎵', '#fa5c8f')} label="音乐" value="128 GB" />
+          <ListItem label="测试通道" badge="BETA" value="已加入" />
+          <ListItem label="上次备份" extra={<span class="settings__row-size">2 分钟前</span>} />
+        </List>
+      </DemoVariant>
+      <DemoVariant label="配件：蓝色 ⓘ 详情钮（点击不触发行）">
+        <List class={tokens}>
+          <ListItem label="iCloud 云盘" value="已开启" accessory="detail" />
+          <ListItem label="查找我的 iPhone" value="关闭" accessory="detail" />
+        </List>
+      </DemoVariant>
+      <DemoVariant label="受控单选（List selectedId/onSelect + accessory 勾）" wide>
+        <List class={tokens} selectedId={selectedId} onSelect={setSelectedId}>
+          {accounts.map((account) => (
+            <ListItem
+              key={account.id}
+              id={account.id}
+              label={account.label}
+              value={account.value}
+              accessory="check"
+            />
+          ))}
+        </List>
+      </DemoVariant>
+      <DemoVariant label="控件组合（control 槽 / 整行点按切换）" wide>
+        <List class={tokens}>
+          <ListItem
+            label="Wi-Fi"
+            value={wifi ? '已开启' : '关闭'}
+            control={<IosSwitch checked={wifi} onChange={setWifi} label="Wi-Fi" />}
+          />
+          <ListItem
+            label="主页"
+            control={
+              <IosTextField
+                value={home}
+                onInput={(event) => setHome(event.currentTarget.value)}
+                placeholder="https://"
+              />
+            }
+          />
+          <ListItem
+            label="自动下载"
+            selected={autoDownload}
+            accessory="check"
+            onClick={() => setAutoDownload(!autoDownload)}
+          />
         </List>
       </DemoVariant>
     </DemoVariants>

@@ -257,6 +257,26 @@ export function ForwardIcon({ size = 12 }: ChevronIconProps = {}) {
   )
 }
 
+export function InfoIcon({ size = 12 }: ChevronIconProps = {}) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <circle cx="6" cy="6" r="5.6" fill="#007aff" />
+      <path d="M6 5.4 V8.7" stroke="#fff" stroke-width="1.5" stroke-linecap="round" />
+      <circle cx="6" cy="3.3" r="0.85" fill="#fff" />
+    </svg>
+  )
+}
+
+export function GrabberIcon({ size = 12 }: ChevronIconProps = {}) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M2.5 3.25 H9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      <path d="M2.5 6 H9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      <path d="M2.5 8.75 H9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+    </svg>
+  )
+}
+
 type ReloadIconProps = {
   size?: number
 }

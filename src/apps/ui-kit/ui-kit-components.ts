@@ -334,28 +334,69 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'list',
     name: 'List',
     description:
-      '设置风格分组列表容器；行内容放 SettingsNavRow / SettingsSwitchRow 等行组件，支持表头与限高滚动区，样式沿用 settings.css',
+      '设置风格分组列表容器；行内容放 ListItem / SettingsNavRow 等行组件，支持节标题/脚注、表头滚动区、A-Z 索引条与 iOS 6 编辑模式（减号删除 + 把手排序）',
     category: 'settings',
-    importPath: "import { List } from '../../ui/list.tsx'",
+    importPath: "import { List, ListSection } from '../../ui/list.tsx'",
     props: [
-      { name: 'children', type: 'ComponentChildren', description: '列表行（行组件或裸 settings__row）' },
+      { name: 'children', type: 'ComponentChildren', description: '列表行（ListItem / ListSection / 行组件）' },
       { name: 'class', type: 'string?', description: '追加到容器的修饰类' },
+      { name: 'title', type: 'ComponentChildren?', description: '节标题（盒子外上方）' },
+      { name: 'footnote', type: 'ComponentChildren?', description: '节脚注（盒子外下方）' },
       { name: 'head', type: 'ComponentChildren?', description: '表头单元格（span 序列），有值时渲染表头行' },
       { name: 'headClass', type: 'string?', description: '表头变体类（settings__list-head--tokens 等）' },
       { name: 'bodyClass', type: 'string?', description: '滚动体变体类（settings__list-body--apps 等）；有值时 children 包进滚动区' },
+      { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节' },
+      { name: 'editing', type: 'boolean?', description: '编辑模式：行出现减号删除钮与拖拽排序把手' },
+      { name: 'selectedId', type: 'string?', description: '受控单选：配合 ListItem 的 id' },
+      { name: 'onSelect', type: '(id: string) => void?', description: 'ListItem 点击上报选中' },
+      { name: 'onDelete', type: '(id: string) => void?', description: '编辑模式：确认删除某行' },
+      { name: 'onReorder', type: '(fromId: string, toId: string) => void?', description: '编辑模式：拖拽重排落定' },
     ],
-    codeExample: `<List>
-  <SettingsNavRow label="账号设置" value="user@example.com" onClick={open} />
+    codeExample: `<List
+  title="通用"
+  footnote="重置网络设置将清除已保存的 Wi-Fi 密码。"
+  indexBar
+  editing={editing}
+  onDelete={(id) => remove(id)}
+  onReorder={(from, to) => reorder(from, to)}
+>
+  <ListSection id="A" title="A">
+    <ListItem id="a1" label="阿福" accessory="disclosure" />
+  </ListSection>
+</List>`,
+  },
+  {
+    id: 'list-item',
+    name: 'ListItem',
+    description:
+      'List 的组合行（AntD List.Item 风格）：label/subtitle/leading/value/extra/control 槽位自由拼装；accessory 配件（箭头/选中勾/蓝 ⓘ）；带 id 即与 List 受控单选、编辑模式结合',
+    category: 'settings',
+    importPath: "import { ListItem } from '../../ui/list-item.tsx'",
+    props: [
+      { name: 'id', type: 'string?', description: '稳定 id：参与 List 受控单选与编辑模式' },
+      { name: 'label', type: 'ComponentChildren?', description: '左侧主标题' },
+      { name: 'subtitle', type: 'ComponentChildren?', description: '灰色第二行副标题' },
+      { name: 'leading', type: 'ComponentChildren?', description: '左侧图标/头像位' },
+      { name: 'value', type: 'ComponentChildren?', description: '右侧值文本（与 extra 二选一）' },
+      { name: 'extra', type: 'ComponentChildren?', description: '右侧自定义内容（与 value 二选一）' },
+      { name: 'control', type: 'ComponentChildren?', description: '控件槽（IosSwitch 等）；点击不触发行选中' },
+      { name: 'accessory', type: "'none' | 'disclosure' | 'check' | 'detail'?", description: '右侧配件；check 跟随选中态' },
+      { name: 'badge', type: 'string?', description: '名称旁徽章文本' },
+      { name: 'selected', type: 'boolean?', description: '强制选中态；缺省由 List selectedId + id 推导' },
+      { name: 'disabled', type: 'boolean?', description: '禁用' },
+      { name: 'onClick', type: '() => void?', description: '有则渲染为 button，否则渲染为 div' },
+    ],
+    codeExample: `// 展示行 + 副标题 + ⓘ
+<ListItem label="iCloud 云盘" subtitle="跨设备同步文档" value="已开启" accessory="detail" />
+
+// 与 List 受控单选结合：点击自动上报、勾随选中
+<List selectedId={id} onSelect={setId}>
+  <ListItem id="a" label="iCloud" accessory="check" />
+  <ListItem id="b" label="Exchange" accessory="check" />
 </List>
 
-<List head={<><span>域名</span><span>Tokens</span></>} bodyClass="settings__list-body">
-  {rows.map((row) => (
-    <div key={row.id} class="settings__row">
-      <span class="settings__row-name">{row.name}</span>
-      <span class="settings__row-size">{row.size}</span>
-    </div>
-  ))}
-</List>`,
+// 控件槽：开关行
+<ListItem label="Wi-Fi" control={<IosSwitch checked={on} onChange={setOn} label="Wi-Fi" />} />`,
   },
   {
     id: 'adaptive-split-nav',

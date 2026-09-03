@@ -1,0 +1,194 @@
+/* List 家族新能力配套样式。
+   容器与行的旧样式沿用 settings.css（settings__list / settings__row 系），
+   此处只定义 List/ListItem 新增槽位、索引条与编辑模式的样式。 */
+
+/* ── ListItem 组合行 ──
+   覆盖 settings__row 的 grid，槽位（leading/label/control/extra/配件）用 flex 自由组合 */
+.settings__row.list-item {
+  display: flex;
+  position: relative;
+}
+
+.list-item__leading {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.list-item__label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
+.list-item__subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #888;
+}
+
+.settings__row--button:hover:not(:disabled) .list-item__subtitle,
+.settings__row--button:active:not(:disabled) .list-item__subtitle,
+.settings__row--selected:not(:disabled) .list-item__subtitle {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.list-item__control,
+.list-item__extra {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.list-item__check {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--settings-check, #007aff);
+  font-weight: 600;
+  text-align: center;
+}
+
+.settings__row--selected:not(:disabled) .list-item__check {
+  color: #fff;
+}
+
+.list-item__detail {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* ── 编辑模式 ── */
+
+.list--editing .settings__row.list-item {
+  padding-left: 38px;
+  padding-right: 8px;
+  transition: padding 180ms ease;
+}
+
+/* 减号删除钮：绝对定位挂在行左缘，编辑时淡入 */
+.list-item__minus {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.list-item__minus::before {
+  content: '';
+  width: 9px;
+  height: 1.6px;
+  background: #fff;
+  border-radius: 1px;
+}
+
+/* 红色删除钮：armed 时从右缘滑入覆盖行 */
+.list-item__delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 74px;
+  border: none;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transform: translateX(100%);
+  transition: transform 160ms ease;
+  z-index: 1;
+}
+
+.list-item--armed .list-item__delete {
+  transform: none;
+}
+
+/* 拖拽把手 */
+.list-item__grabber {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--settings-disclosure, #b4b4b4);
+  cursor: grab;
+  touch-action: none;
+}
+
+.list__row--dragging {
+  transition: none !important;
+  position: relative;
+  z-index: 2;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.list-item--shift {
+  transition: transform 150ms ease;
+}
+
+/* ── ListSection 索引分组（盒内小节标题行） ── */
+
+.list-section__title {
+  padding: 3px 10px 2px;
+  border-bottom: 1px solid #c8c8c8;
+  background: linear-gradient(180deg, #f3f3f3 0%, #e4e4e4 100%);
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* ── A-Z 索引条：悬浮在列表盒右缘 ── */
+
+.settings__list.list--anchored {
+  position: relative;
+}
+
+.list__index-bar {
+  position: absolute;
+  top: 6px;
+  right: 2px;
+  bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  z-index: 3;
+  touch-action: none;
+}
+
+.list__index-letter {
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--settings-section-title, #555);
+  cursor: pointer;
+  user-select: none;
+}
+
+.list__index-letter:hover,
+.list__index-letter--active {
+  color: #007aff;
+}
