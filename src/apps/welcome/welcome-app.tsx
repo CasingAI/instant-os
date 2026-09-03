@@ -202,15 +202,25 @@ export function WelcomeApp() {
   const { openApp } = useOs()
   const [keyAdded, setKeyAdded] = useState(() => hasOwnAiProvider())
   const [selectedId, setSelectedId] = useState<WelcomeTaskId>('setup-key')
-  // 窄屏是否停在详情页：selectedId 恒有值推不出落点，用这个状态推导
-  // 分栏切回子页栈时的落页
-  const [detailOpen, setDetailOpen] = useState(false)
 
+  // 落点规则与其他分栏应用一致（磁盘工具/服务/注册表）：由选中态推导。
+  // selectedId 恒有值 → 宽→窄翻转恒落详情页、播 C 型（面板扩张），不再有
+  // 「点过才算进详情」的人工门控（服务/磁盘工具靠载入自动选中达到同效果）。
+  // 窄屏首页例外见下方挂载 effect。
   const nav = useAdaptiveSplitNav({
     split: true,
-    narrowPageForState: () => (detailOpen ? 'detail' : 'list'),
+    narrowPageForState: () => (selectedId ? 'detail' : 'list'),
     listPage: 'list',
   })
+
+  // 窄屏首次打开应停在首页列表，而 initialPage 取 narrowPageForState() 恒为
+  // detail：挂载 paint 前静默换回列表，仅此一次，之后的翻转落点仍按规则落详情。
+  const homeFixedRef = useRef(false)
+  useLayoutEffect(() => {
+    if (homeFixedRef.current) return
+    homeFixedRef.current = true
+    nav.setPageSilent('list')
+  }, [nav])
 
   useAppMenuBar(APP_ID, [])
 
@@ -235,9 +245,6 @@ export function WelcomeApp() {
   const handleSelect = useCallback(
     (id: WelcomeTaskId) => {
       setSelectedId(id)
-      // 宽屏点击同样视为「进入详情」：拖窄按选中态落详情页（C 型形变），
-      // 与磁盘工具/服务/注册表一致；从未点过条目则照旧落列表（D 型）。
-      setDetailOpen(true)
       if (nav.narrowLayout && nav.page === 'list') {
         nav.navigate('detail', 'push')
       }
@@ -246,7 +253,7 @@ export function WelcomeApp() {
   )
 
   const handleBack = useCallback(() => {
-    nav.navigate('list', 'pop', () => setDetailOpen(false))
+    nav.navigate('list', 'pop')
   }, [nav])
 
   // ── 形变期返回键对齐（disk-utility 同款）：详情页/帧的返回键只在窄形态
