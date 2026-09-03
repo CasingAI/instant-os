@@ -27,7 +27,7 @@ import {
   useAdaptiveSplitNav,
   type AdaptiveFrameSpec,
 } from '../../ui/adaptive-split-nav.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { List } from '../../ui/list.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
@@ -268,7 +268,7 @@ export function ServicesApp() {
 
             <div class="services__detail-actions">
               {canStart && (
-                <IosButton
+                <Button
                   size="compact"
                   onClick={() =>
                     selected.id === 'ai-inference'
@@ -277,10 +277,10 @@ export function ServicesApp() {
                   }
                 >
                   开始
-                </IosButton>
+                </Button>
               )}
               {canStop && (
-                <IosButton
+                <Button
                   size="compact"
                   tone="danger"
                   onClick={() =>
@@ -290,10 +290,10 @@ export function ServicesApp() {
                   }
                 >
                   停止
-                </IosButton>
+                </Button>
               )}
               {canRestart && (
-                <IosButton
+                <Button
                   size="compact"
                   onClick={() =>
                     selected.id === 'ai-inference'
@@ -302,7 +302,7 @@ export function ServicesApp() {
                   }
                 >
                   重启
-                </IosButton>
+                </Button>
               )}
             </div>
           </section>

@@ -73,12 +73,12 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
-    id: 'ios-button',
-    name: 'IosButton',
+    id: 'button',
+    name: 'Button',
     description:
       'iOS 6 拟物按钮；secondary / primary / danger，支持 compact 与 icon 方形。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
-    importPath: "import { IosButton } from '../../ui/ios-button.tsx'",
+    importPath: "import { Button } from '../../ui/button.tsx'",
     props: [
       { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary' },
       { name: 'size', type: "'default' | 'compact'", description: '尺寸' },
@@ -88,12 +88,36 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'aria-label', type: 'string?', description: '无障碍标签' },
       { name: 'onClick', type: '() => void', description: '点击回调' },
     ],
-    codeExample: `<IosButton tone="primary" onClick={handleSave}>保存</IosButton>
-<IosButton size="compact">取消</IosButton>
+    codeExample: `<Button tone="primary" onClick={handleSave}>保存</Button>
+<Button size="compact">取消</Button>
 {/* 父级设置 --ios-button-color / --ios-button-bg 等即可换皮 */}
 <div style={{ '--ios-button-color': '#c77400' }}>
-  <IosButton size="compact">书城</IosButton>
+  <Button size="compact">书城</Button>
 </div>`,
+  },
+  {
+    id: 'page-button-group',
+    name: 'Button Group',
+    description:
+      '页头按钮组：PageButtonGroup 内放 PageActionButton 成组使用，空间不足自动三级解压——先收边距、再收间距、最后把文字连续压扁，任何宽度都不折行（解压机制只识别 PageActionButton）',
+    category: 'form',
+    importPath:
+      "import { PageButtonGroup } from '../../ui/page-button-group.tsx'\nimport { PageActionButton } from '../../ui/page-action-button.tsx'",
+    props: [
+      { name: 'children', type: 'ComponentChildren', description: 'PageButtonGroup：组内放置 PageActionButton' },
+      { name: 'tone', type: "'plain' | 'default' | 'danger'", description: 'PageActionButton 色调，默认 plain' },
+      { name: 'activated', type: 'boolean?', description: '持久选中态（如「已收藏」），蓝底白字' },
+      { name: 'icon', type: 'ComponentChildren?', description: '传入则为方形图标按钮（配 aria-label）' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'busy', type: 'boolean?', description: '提交中：文字前显示转圈' },
+      { name: 'aria-label', type: 'string?', description: '无障碍标签' },
+      { name: 'onClick', type: '() => void', description: '点击回调' },
+    ],
+    codeExample: `<PageButtonGroup>
+  <PageActionButton activated={isFav} onClick={toggleFav}>收藏</PageActionButton>
+  <PageActionButton>标记已读</PageActionButton>
+  <PageActionButton tone="danger">删除</PageActionButton>
+</PageButtonGroup>`,
   },
   {
     id: 'ios-text-field',
@@ -466,7 +490,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
     codeExample: `const [editing, setEditing] = useState(false)
 
-<IosButton onClick={() => setEditing(!editing)}>{editing ? '完成' : '编辑'}</IosButton>
+<Button onClick={() => setEditing(!editing)}>{editing ? '完成' : '编辑'}</Button>
 <List class={tokens} editing={editing}
   onDelete={(id) => remove(id)}
   onReorder={(from, to) => reorder(from, to)}
@@ -477,7 +501,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'adaptive-split-nav',
     name: 'AdaptiveSplitNav',
-    description: '自适应分栏导航：宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
+    description: '自适应分栏导航：宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接。分栏宽度 ≤640 时进入紧凑档（左右固定 50/50，listRatio 不参与），≥700 恢复比例。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
     category: 'navigation',
     importPath: "import { AdaptiveSplitNav, useAdaptiveSplitNav } from '../../ui/adaptive-split-nav.tsx'",
     props: [
@@ -823,12 +847,12 @@ const buttonRef = useRef(null)
     ],
     codeExample: `const { openApp } = useOs()
 
-<IosButton
+<Button
   tone="primary"
   onClick={() => openApp('files-op-progress', { chromeKind: 'mini' })}
 >
   打开迷你窗
-</IosButton>`,
+</Button>`,
   },
 ]
 

@@ -25,7 +25,7 @@ import { openKeychainAiProvidersView } from '../../os/keychain-route-open.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId } from '../../os/types.ts'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import './welcome-next.css'
 
 const APP_ID = 'welcome-next' as const
@@ -210,11 +210,11 @@ export function WelcomeNextApp() {
               </p>
             )}
             <div class="welcome-next__actions">
-              <IosButton tone="primary" onClick={openKeychain}>
+              <Button tone="primary" onClick={openKeychain}>
                 去插钥匙
-              </IosButton>
+              </Button>
               {showFullSteps ? (
-                <IosButton onClick={wander}>我先逛逛</IosButton>
+                <Button onClick={wander}>我先逛逛</Button>
               ) : undefined}
             </div>
           </>
@@ -226,9 +226,9 @@ export function WelcomeNextApp() {
               模型供应商，把那条拖到第一位。
             </p>
             <div class="welcome-next__actions">
-              <IosButton tone="primary" onClick={openKeychain}>
+              <Button tone="primary" onClick={openKeychain}>
                 去排一下
-              </IosButton>
+              </Button>
             </div>
           </>
         ) : (
@@ -238,7 +238,7 @@ export function WelcomeNextApp() {
               要换一家，或再加一把钥匙，随时打开钥匙串。
             </p>
             <div class="welcome-next__actions">
-              <IosButton onClick={openKeychain}>打开钥匙串</IosButton>
+              <Button onClick={openKeychain}>打开钥匙串</Button>
             </div>
           </>
         )}

@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { formatLrcTimestamp, isPunctuationOnly } from '../align/align-lrc.ts'
@@ -864,12 +864,12 @@ function rescueReviewNote(
                   </span>
                 )}
                 <span class="stems__analysis-focus-text">{focusLineObj.text}</span>
-                <IosButton size="compact" onClick={playWholeLine} disabled={!focusLineObj}>
+                <Button size="compact" onClick={playWholeLine} disabled={!focusLineObj}>
                   播整行
-                </IosButton>
-                <IosButton size="compact" onClick={copyLineDump} disabled={!focusTrace}>
+                </Button>
+                <Button size="compact" onClick={copyLineDump} disabled={!focusTrace}>
                   {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制这一行'}
-                </IosButton>
+                </Button>
               </div>
               <label class="stems__analysis-vocals-only">
                 <span>试听只播人声（模型听到的）</span>
@@ -995,7 +995,7 @@ function rescueReviewNote(
               </div>
             </div>
             <div class="stems__analysis-actions stems__analysis-actions--wrap">
-              <IosButton
+              <Button
                 tone="primary"
                 disabled={busy || !vocalsAudio || focusLineObj === undefined}
                 onClick={() => void handleAutoRecognize()}
@@ -1005,8 +1005,8 @@ function rescueReviewNote(
                     ? `组合 ${asyncProgress.chunk}/${asyncProgress.total}`
                     : '搜索中…'
                   : '自动放慢并重识别'}
-              </IosButton>
-              <IosButton
+              </Button>
+              <Button
                 disabled={busy || !vocalsAudio || focusLineObj === undefined}
                 onClick={() => void handleSlowRecognize()}
               >
@@ -1015,7 +1015,7 @@ function rescueReviewNote(
                     ? `${Math.round((asyncProgress.chunk / asyncProgress.total) * 100)}%`
                     : '处理中…'
                   : '手动放慢并重识别'}
-              </IosButton>
+              </Button>
             </div>
             <p class="stems__analysis-stretch-hint">
               自动：分析语速与瞬态特征自动选定速度，按 2 算法 × 2 模型最多试 4 个组合，评分最优才应用，全不优则保持原行；手动：用下方参数单次重试。放慢只用于识别，试听仍是原速。
@@ -1027,9 +1027,9 @@ function rescueReviewNote(
             <div class="stems__analysis-recognized">
               <div class="stems__analysis-recognized-head">
                 <span class="stems__analysis-recognized-label">模型识别到：</span>
-                <IosButton size="compact" onClick={copyRecognizedDump}>
+                <Button size="compact" onClick={copyRecognizedDump}>
                   {recognizedCopyState === 'copied' ? '已复制' : recognizedCopyState === 'failed' ? '复制失败' : '复制识别'}
-                </IosButton>
+                </Button>
               </div>
               <div class="stems__analysis-recognized-text">{asyncText}</div>
             </div>
@@ -1049,9 +1049,9 @@ function rescueReviewNote(
                     {preview.line && (
                       <BadgeFromLine line={preview.line} />
                     )}
-                    <IosButton size="compact" onClick={copyPreviewDump} disabled={!preview.trace}>
+                    <Button size="compact" onClick={copyPreviewDump} disabled={!preview.trace}>
                       {previewCopyState === 'copied' ? '已复制' : previewCopyState === 'failed' ? '复制失败' : '复制预览'}
-                    </IosButton>
+                    </Button>
                   </div>
                 </div>
                 {preview.line ? (
@@ -1059,15 +1059,15 @@ function rescueReviewNote(
                     {preview.trace && <LyricsTraceChart chart={preview.trace} onPreview={onPreview} />}
                     <p class="stems__analysis-preview-note">{preview.note}</p>
                     <div class="stems__analysis-actions">
-                      <IosButton
+                      <Button
                         size="compact"
                         tone="primary"
                         disabled={!preview.line.words || preview.line.words.length === 0 || appliedKey === preview.key}
                         onClick={applyPreview}
                       >
                         {appliedKey === preview.key ? '已应用' : '应用到主界面'}
-                      </IosButton>
-                      <IosButton
+                      </Button>
+                      <Button
                         size="compact"
                         tone="danger"
                         disabled={!canUndo}
@@ -1077,7 +1077,7 @@ function rescueReviewNote(
                         }}
                       >
                         撤销
-                      </IosButton>
+                      </Button>
                     </div>
                   </>
                 ) : (
@@ -1091,7 +1091,7 @@ function rescueReviewNote(
           <details class="stems__analysis-alllines">
             <summary class="stems__analysis-alllines-summary">
               <span>全部行诊断（{lineStats.length} 行）</span>
-              <IosButton
+              <Button
                 size="compact"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -1100,7 +1100,7 @@ function rescueReviewNote(
                 }}
               >
                 {allLinesCopyState === 'copied' ? '已复制' : allLinesCopyState === 'failed' ? '复制失败' : '复制诊断'}
-              </IosButton>
+              </Button>
             </summary>
             <div class="stems__analysis-lines">
               {lineStats.map((st) => {
@@ -1164,9 +1164,9 @@ function ActionRow({
               {progress.chunk}/{progress.total}
             </span>
           ) : null}
-          <IosButton size="compact" tone={disabled ? 'secondary' : 'primary'} disabled={disabled} onClick={onClick}>
+          <Button size="compact" tone={disabled ? 'secondary' : 'primary'} disabled={disabled} onClick={onClick}>
             {active ? (progress ? `${Math.round((progress.chunk / progress.total) * 100)}%` : '处理中…') : '修复'}
-          </IosButton>
+          </Button>
         </div>
       </div>
       <p class="stems__analysis-action-desc">{desc}</p>

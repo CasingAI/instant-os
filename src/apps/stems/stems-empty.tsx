@@ -1,4 +1,4 @@
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { STEM_COLORS, STEM_IDS } from './stems-types.ts'
 import { formatRecentTime } from './stems-recents.ts'
 import type { RecentStemsProject } from './stems-recents.ts'
@@ -127,9 +127,9 @@ export function StemsEmpty({
               或把文件拖到窗口任意位置；打开后可分离人声、鼓、贝斯、吉他、钢琴和其他声部。
             </p>
             <div class="stems__hero-actions">
-              <IosButton tone="primary" onClick={onPickFile}>
+              <Button tone="primary" onClick={onPickFile}>
                 打开音乐文件
-              </IosButton>
+              </Button>
             </div>
             <div class="stems__hero-status">
               {gpuAvailable === true && (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { HelpHint } from '../../ui/help-hint.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import {
   IosRangeSlider,
   type IosRangeSliderMark,
@@ -768,14 +768,14 @@ export function VirtualMachineSettingsDialog({
                   </button>
                 ) : null}
                 <div class="virtual-machine-settings__add-device">
-                  <IosButton
+                  <Button
                     size="compact"
                     tone="secondary"
                     disabled={busy || running}
                     onClick={() => setAddModalOpen(true)}
                   >
                     添加设备…
-                  </IosButton>
+                  </Button>
                 </div>
               </div>
               <div class="virtual-machine-settings__source">
@@ -813,9 +813,9 @@ export function VirtualMachineSettingsDialog({
                           patch({ sharedFolderPath: (event.currentTarget as HTMLInputElement).value })
                         }
                       />
-                      <IosButton size="compact" disabled={busy} onClick={() => void pickSharedFolderPath()}>
+                      <Button size="compact" disabled={busy} onClick={() => void pickSharedFolderPath()}>
                         选择…
-                      </IosButton>
+                      </Button>
                     </div>
                     <SettingsChoiceField
                       label="盘符"
@@ -844,25 +844,25 @@ export function VirtualMachineSettingsDialog({
                           Z:；网卡是开机定死的硬件，运行中不可添加。
                         </p>
                         <div class="virtual-machine-settings__path">
-                          <IosButton
+                          <Button
                             size="compact"
                             disabled={busy || running}
                             onClick={() => patch({ network: 'ne2k', networkBackend: 'fetch' })}
                           >
                             启用网卡
-                          </IosButton>
+                          </Button>
                         </div>
                       </>
                     ) : null}
                     <div class="virtual-machine-settings__path">
-                      <IosButton
+                      <Button
                         size="compact"
                         tone="danger"
                         disabled={busy}
                         onClick={removeSharedFolderDevice}
                       >
                         删除设备
-                      </IosButton>
+                      </Button>
                     </div>
                     <p class="virtual-machine-settings__hint">
                       删除后移除客机里的 {draft.sharedFolderDrive}: 映射（运行中立即生效）；
@@ -914,41 +914,41 @@ export function VirtualMachineSettingsDialog({
                           })
                         }
                       />
-                      <IosButton
+                      <Button
                         size="compact"
                         disabled={busy || running}
                         onClick={() => void pickDevicePath(selectedStorage.id)}
                       >
                         选择…
-                      </IosButton>
+                      </Button>
                       {selectedStorage.type === 'hdd' ? (
-                        <IosButton
+                        <Button
                           size="compact"
                           disabled={busy || running}
                           onClick={() => openCreateBlankDisk()}
                         >
                           新建…
-                        </IosButton>
+                        </Button>
                       ) : null}
                       {selectedStorage.path.trim() ? (
-                        <IosButton
+                        <Button
                           size="compact"
                           disabled={busy || running}
                           onClick={() => updateDevice(selectedStorage.id, { path: '' })}
                         >
                           清除
-                        </IosButton>
+                        </Button>
                       ) : null}
                     </div>
                     <div class="virtual-machine-settings__path">
-                      <IosButton
+                      <Button
                         size="compact"
                         tone="danger"
                         disabled={busy || running}
                         onClick={() => removeDevice(selectedStorage.id)}
                       >
                         删除设备
-                      </IosButton>
+                      </Button>
                     </div>
                   </>
                 ) : (
@@ -1089,7 +1089,7 @@ export function VirtualMachineSettingsDialog({
                                 <span class="virtual-machine-settings__keymap-to">
                                   {vmKeySpecLabel(mapping.to)}
                                 </span>
-                                <IosButton
+                                <Button
                                   size="compact"
                                   tone="secondary"
                                   disabled={busy || keyCapture !== undefined}
@@ -1102,7 +1102,7 @@ export function VirtualMachineSettingsDialog({
                                   }
                                 >
                                   移除
-                                </IosButton>
+                                </Button>
                               </li>
                             )
                           })}
@@ -1113,7 +1113,7 @@ export function VirtualMachineSettingsDialog({
                         </p>
                       )}
                       <div class="virtual-machine-settings__keymap-actions">
-                        <IosButton
+                        <Button
                           size="compact"
                           disabled={
                             busy ||
@@ -1126,9 +1126,9 @@ export function VirtualMachineSettingsDialog({
                           }}
                         >
                           添加映射…
-                        </IosButton>
+                        </Button>
                         {VM_KEY_MAPPING_PRESETS.map((preset) => (
-                          <IosButton
+                          <Button
                             key={preset.id}
                             size="compact"
                             tone="secondary"
@@ -1146,7 +1146,7 @@ export function VirtualMachineSettingsDialog({
                             }}
                           >
                             {preset.label}
-                          </IosButton>
+                          </Button>
                         ))}
                       </div>
                       {keyCapture ? (
@@ -1194,7 +1194,7 @@ export function VirtualMachineSettingsDialog({
                           ) : null}
                           <div class="virtual-machine-settings__keymap-capture-actions">
                             {keyCapture.step === 'to' ? (
-                              <IosButton
+                              <Button
                                 size="compact"
                                 tone="secondary"
                                 onClick={() => {
@@ -1203,11 +1203,11 @@ export function VirtualMachineSettingsDialog({
                                 }}
                               >
                                 重选来源键
-                              </IosButton>
+                              </Button>
                             ) : null}
-                            <IosButton size="compact" tone="secondary" onClick={cancelKeyCapture}>
+                            <Button size="compact" tone="secondary" onClick={cancelKeyCapture}>
                               取消
-                            </IosButton>
+                            </Button>
                           </div>
                         </div>
                       ) : null}

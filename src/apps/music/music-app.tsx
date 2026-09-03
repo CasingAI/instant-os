@@ -3,7 +3,7 @@ import { osNowMs } from '../../os/os-clock.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
@@ -622,9 +622,9 @@ export function MusicApp({ windowId }: { windowId?: string }) {
               {currentLibraryTrack?.title ?? '歌词文件'}
             </span>
             {transientLyrics && currentLibraryTrack ? (
-              <IosButton size="compact" onClick={() => void handleBindTransientLyrics()}>
+              <Button size="compact" onClick={() => void handleBindTransientLyrics()}>
                 绑定到当前歌曲
-              </IosButton>
+              </Button>
             ) : (
               <span class="music__toolbar-spacer" />
             )}
@@ -699,16 +699,16 @@ export function MusicApp({ windowId }: { windowId?: string }) {
         <>
           <header class="music__toolbar">
             {tracks.length > 0 ? (
-              <IosButton size="compact" disabled={refreshing} onClick={() => setEditing((value) => !value)}>
+              <Button size="compact" disabled={refreshing} onClick={() => setEditing((value) => !value)}>
                 {editing ? '完成' : '编辑'}
-              </IosButton>
+              </Button>
             ) : (
               <span class="music__toolbar-spacer" />
             )}
             <span class="music__toolbar-title music__toolbar-title--center">我的音乐</span>
             <div class="music__toolbar-actions">
               {currentLibraryTrack ? (
-                <IosButton
+                <Button
                   size="compact"
                   onClick={() => {
                     setVisualizerOpen(false)
@@ -716,9 +716,9 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                   }}
                 >
                   歌词
-                </IosButton>
+                </Button>
               ) : null}
-              <IosButton
+              <Button
                 size="compact"
                 onClick={() => {
                   setLyricsOpen(false)
@@ -726,10 +726,10 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                 }}
               >
                 可视化
-              </IosButton>
-              <IosButton size="compact" onClick={handleOpenMusicsFolder}>
+              </Button>
+              <Button size="compact" onClick={handleOpenMusicsFolder}>
                 音乐文件夹
-              </IosButton>
+              </Button>
             </div>
           </header>
 
@@ -745,9 +745,9 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                   同名 .lrc 自动作为歌词。
                 </p>
                 <div class="music__empty-actions">
-                  <IosButton size="compact" onClick={handleOpenMusicsFolder}>
+                  <Button size="compact" onClick={handleOpenMusicsFolder}>
                     打开音乐文件夹
-                  </IosButton>
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -767,9 +767,9 @@ export function MusicApp({ windowId }: { windowId?: string }) {
               <span class="music__transient-text" title={transient.track.fileName}>
                 正在播放「{transient.track.title}」
               </span>
-              <IosButton size="compact" onClick={() => void handleCopyTransientToMusics()}>
+              <Button size="compact" onClick={() => void handleCopyTransientToMusics()}>
                 复制到音乐文件夹
-              </IosButton>
+              </Button>
             </div>
           ) : null}
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { filesReadBlob, filesStat } from '../files/files-api.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
@@ -236,17 +236,17 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
                     </span>
                   </span>
                   {row.cached ? (
-                    <IosButton
+                    <Button
                       size="compact"
                       tone="danger"
                       disabled={row.busy}
                       onClick={() => setPendingClear(entry)}
                     >
                       {row.busy ? '清除中…' : '清除'}
-                    </IosButton>
+                    </Button>
                   ) : (
                     <span class="settings__row-model-cache-actions">
-                      <IosButton
+                      <Button
                         size="compact"
                         disabled={row.busy}
                         onClick={() => void handleImport(entry)}
@@ -256,8 +256,8 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
                             ? '写入中…'
                             : '校验中…'
                           : '导入'}
-                      </IosButton>
-                      <IosButton
+                      </Button>
+                      <Button
                         size="compact"
                         disabled={row.busy}
                         onClick={() => void handleCache(entry)}
@@ -267,7 +267,7 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
                             ? `${percent}%`
                             : '准备中…'
                           : '缓存'}
-                      </IosButton>
+                      </Button>
                     </span>
                   )}
                   <p
@@ -363,12 +363,12 @@ function ConfirmSheet({
           </div>
         </div>
         <div class="settings__sheet-actions">
-          <IosButton disabled={confirmDisabled} onClick={onCancel}>
+          <Button disabled={confirmDisabled} onClick={onCancel}>
             取消
-          </IosButton>
-          <IosButton tone="danger" disabled={confirmDisabled} onClick={onConfirm}>
+          </Button>
+          <Button tone="danger" disabled={confirmDisabled} onClick={onConfirm}>
             {confirmLabel}
-          </IosButton>
+          </Button>
         </div>
       </div>
     </div>

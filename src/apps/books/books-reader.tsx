@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { SpeechBlock } from '../../ai/speech-read-aloud.ts'
 import { useSpeechReadAloud } from '../../ai/use-speech-read-aloud.ts'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SpeechReadAloudBar } from '../../ui/speech-read-aloud-bar.tsx'
 import { loadChapterBody } from './books-data-storage.ts'
@@ -139,7 +139,7 @@ export function BooksReader({ book, store, onStoreChange, onBack }: BooksReaderP
         {speechOpen ? (
           <span class="books__toolbar-spacer" />
         ) : (
-          <IosButton
+          <Button
             size="compact"
             disabled={!canReadAloud}
             onClick={() => {
@@ -150,7 +150,7 @@ export function BooksReader({ book, store, onStoreChange, onBack }: BooksReaderP
             }}
           >
             朗读
-          </IosButton>
+          </Button>
         )}
       </header>
       <div class="books__main">

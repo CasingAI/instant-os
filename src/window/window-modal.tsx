@@ -3,7 +3,7 @@ import { createContext } from 'preact'
 import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
 import { CloseIcon } from '../icons/app-icons.tsx'
-import { IosButton } from '../ui/ios-button.tsx'
+import { Button } from '../ui/button.tsx'
 import './window-modal.css'
 
 export const WindowModalOverlayContext = createContext<HTMLElement | undefined>(undefined)
@@ -74,7 +74,7 @@ function ActionButton({
   closing: boolean
 }): preact.JSX.Element {
   return (
-    <IosButton
+    <Button
       key={action.key ?? action.label}
       class="window-modal__btn"
       tone={action.tone ?? 'secondary'}
@@ -83,7 +83,7 @@ function ActionButton({
       onClick={() => void action.onClick()}
     >
       {action.label}
-    </IosButton>
+    </Button>
   )
 }
 
@@ -95,9 +95,9 @@ function CloseButton({
   onClick: () => void
 }): preact.JSX.Element {
   return (
-    <IosButton icon class="window-modal__close" aria-label="关闭" disabled={disabled} onClick={onClick}>
+    <Button icon class="window-modal__close" aria-label="关闭" disabled={disabled} onClick={onClick}>
       <CloseIcon />
-    </IosButton>
+    </Button>
   )
 }
 

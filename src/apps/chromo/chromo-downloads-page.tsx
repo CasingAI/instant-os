@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { displayUrl } from '../browser/normalize-browser-url.ts'
 import {
   cancelChromoDownload,
@@ -188,9 +188,9 @@ export function ChromoDownloadsPage(_props: ChromoDownloadsPageProps) {
 
       {items.length > 0 ? (
         <footer class="chromo-internal__footer">
-          <IosButton size="compact" onClick={() => clearFinishedChromoDownloads()}>
+          <Button size="compact" onClick={() => clearFinishedChromoDownloads()}>
             清除记录（保留文件）
-          </IosButton>
+          </Button>
         </footer>
       ) : null}
     </div>

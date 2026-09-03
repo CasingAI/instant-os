@@ -370,6 +370,36 @@
   gap: 8px;
 }
 
+/* ── Button Group 挤压沙盒：滑杆控制容器宽，观察三级解压 ── */
+
+.ui-kit-demo__sandbox {
+  padding: 10px 12px;
+  background: #fafafa;
+  border: 1px dashed #c9c9c9;
+  border-radius: 8px;
+}
+
+.ui-kit-demo__sandbox-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.ui-kit-demo__sandbox-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: #007aff;
+}
+
+.ui-kit-demo__sandbox-width {
+  min-width: 44px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #6e6e73;
+}
+
 /* ── TreeView Demo ── */
 
 .ui-kit-demo__tree {
@@ -433,6 +463,12 @@
   margin: 0;
   font-size: 12px;
   color: #666;
+}
+
+/* A-Z 索引条演示的更高滚动体：28 个字母槽在 .list__body 默认 280px 里会压到 ~9.6px/个
+   而上下相叠，440px 下每槽 ~15px 恰好容下 10px 字形；本文件晚于 list.css 引入，同特异性靠源序生效 */
+.ui-kit-demo__list-body-tall {
+  max-height: 440px;
 }
 
 /* 整应用承载的组件（AdaptiveSplitNav 等）：说明 + 打开演示应用按钮 */

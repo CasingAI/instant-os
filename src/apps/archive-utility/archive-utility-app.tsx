@@ -9,7 +9,7 @@ import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { ArchiveUtilityIcon } from '../../icons/app-icons.tsx'
@@ -915,50 +915,50 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
 
   const renderToolbar = () => (
     <div class="archive-utility-app__toolbar">
-      <IosButton size="compact" onClick={() => void handleOpenArchive()}>
+      <Button size="compact" onClick={() => void handleOpenArchive()}>
         打开
-      </IosButton>
-      <IosButton
+      </Button>
+      <Button
         size="compact"
         onClick={() => void handleExtract(false)}
         disabled={!session || busy !== undefined}
       >
         全部解压
-      </IosButton>
-      <IosButton
+      </Button>
+      <Button
         size="compact"
         onClick={() => void handleExtract(true)}
         disabled={!session || selectedCount === 0 || busy !== undefined}
       >
         解压选中{selectedCount > 0 ? `（${selectedCount}）` : ''}
-      </IosButton>
+      </Button>
       <span class="archive-utility-app__toolbar-sep" aria-hidden="true" />
-      <IosButton
+      <Button
         size="compact"
         onClick={() => void handleAddFiles()}
         disabled={!session || session.format === 'gzip-file' || busy !== undefined}
       >
         添加文件
-      </IosButton>
-      <IosButton
+      </Button>
+      <Button
         size="compact"
         onClick={() => void handleDeleteSelected()}
         disabled={!session || selectedCount === 0 || session.format === 'gzip-file' || busy !== undefined}
       >
         删除选中
-      </IosButton>
+      </Button>
       <span class="archive-utility-app__toolbar-sep" aria-hidden="true" />
-      <IosButton
+      <Button
         size="compact"
         onClick={() => void handleCreateArchive()}
         disabled={busy !== undefined}
       >
         新建归档
-      </IosButton>
+      </Button>
       <span class="archive-utility-app__toolbar-spacer" aria-hidden="true" />
-      <IosButton size="compact" onClick={handleRefresh} disabled={!session || busy !== undefined}>
+      <Button size="compact" onClick={handleRefresh} disabled={!session || busy !== undefined}>
         刷新
-      </IosButton>
+      </Button>
     </div>
   )
 
@@ -1011,9 +1011,9 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
         打开一个 .zip、.tar、.tar.gz、.gz 或 .iso 文件以浏览其内容。
       </p>
       <div class="archive-utility-app__empty-actions">
-        <IosButton tone="primary" onClick={() => void handleOpenArchive()}>
+        <Button tone="primary" onClick={() => void handleOpenArchive()}>
           打开压缩包…
-        </IosButton>
+        </Button>
       </div>
     </div>
   )
@@ -1029,13 +1029,13 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       <p class="archive-utility-app__empty-title">无法打开压缩包</p>
       <p class="archive-utility-app__empty-hint">{loadError}</p>
       <div class="archive-utility-app__empty-actions">
-        <IosButton tone="primary" onClick={() => void handleOpenArchive()}>
+        <Button tone="primary" onClick={() => void handleOpenArchive()}>
           选择其他文件
-        </IosButton>
+        </Button>
         {documentId ? (
-          <IosButton size="compact" onClick={handleRefresh}>
+          <Button size="compact" onClick={handleRefresh}>
             重试
-          </IosButton>
+          </Button>
         ) : undefined}
       </div>
     </div>
@@ -1174,10 +1174,10 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
             <span class="archive-utility-app__create-extension">.{extension}</span>
           </div>
           <div class="archive-utility-app__create-actions">
-            <IosButton size="compact" onClick={() => setCreateDialog(undefined)}>
+            <Button size="compact" onClick={() => setCreateDialog(undefined)}>
               取消
-            </IosButton>
-            <IosButton
+            </Button>
+            <Button
               size="compact"
               tone="primary"
               disabled={!createName.trim()}
@@ -1191,7 +1191,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
               }
             >
               创建
-            </IosButton>
+            </Button>
           </div>
         </div>
       </div>
@@ -1285,9 +1285,9 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
             {currentPath ? <span class="archive-utility-app__busy-path"> · {currentPath}</span> : undefined}
           </p>
           <div class="archive-utility-app__busy-actions">
-            <IosButton size="compact" onClick={cancelBusy}>
+            <Button size="compact" onClick={cancelBusy}>
               取消
-            </IosButton>
+            </Button>
           </div>
         </div>
       </div>

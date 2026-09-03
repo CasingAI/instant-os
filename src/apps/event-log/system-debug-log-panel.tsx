@@ -21,7 +21,7 @@ import {
   type SystemDebugLogSnapshot,
   type SystemDebugLogStats,
 } from '../../os/system-debug-log.ts'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 
 const LAYER_CHIPS: readonly { id: SystemDebugLogLayer; label: string }[] = [
@@ -265,12 +265,12 @@ export function SystemDebugLogPanel({ narrowLayout }: SystemDebugLogPanelProps) 
         </span>
         <span class="event-log__system-status-meta">{statusMeta}</span>
         <div class="event-log__system-status-actions">
-          <IosButton size="compact" onClick={() => void handleCopy()}>
+          <Button size="compact" onClick={() => void handleCopy()}>
             复制
-          </IosButton>
-          <IosButton size="compact" onClick={handleClear}>
+          </Button>
+          <Button size="compact" onClick={handleClear}>
             清空当前
-          </IosButton>
+          </Button>
         </div>
       </div>
 
@@ -320,14 +320,14 @@ export function SystemDebugLogPanel({ narrowLayout }: SystemDebugLogPanelProps) 
             开启后由独立 Worker 记录 npm / QuickJS / 文件系统 / 虚拟机的运行面包屑，主线程卡死也能留下黑匣子。开销极小：计数满
             64 次才与 Worker 通信一次，数据写入独立诊断库，不计入数据空间。
           </p>
-          <IosButton
+          <Button
             tone="primary"
             onClick={() => {
               patchSystemDebugLogSettings({ enabled: true })
             }}
           >
             立即开启
-          </IosButton>
+          </Button>
         </div>
       ) : (
         <>

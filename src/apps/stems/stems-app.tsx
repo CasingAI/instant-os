@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
@@ -3011,9 +3011,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     >
       <header class="stems__toolbar">
         <span class="stems__brand">音乐实验室</span>
-        <IosButton onClick={() => void handlePickFile()}>打开音乐文件…</IosButton>
+        <Button onClick={() => void handlePickFile()}>打开音乐文件…</Button>
         {sourceName && (
-          <IosButton
+          <Button
             tone="primary"
             disabled={mdxBusy || progress?.kind === 'model-loading' || progress?.kind === 'chunk'}
             onClick={() => void handleSeparate()}
@@ -3029,16 +3029,16 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                     : tracks
                       ? '重新分轨'
                       : '开始分轨'}
-          </IosButton>
+          </Button>
         )}
         {sourceName && (
-          <IosButton
+          <Button
             size="compact"
             onClick={openLyricsEditor}
             title="编辑歌词（文件或剪贴板导入）"
           >
             歌词
-          </IosButton>
+          </Button>
         )}
         <div class="stems__toolbar-right">
           {provider && (
@@ -3077,7 +3077,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             <span ref={timeLabelRef} class="stems__time">
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
-            <IosButton
+            <Button
               icon
               size="compact"
               class={`stems__metronome${metronomeOn ? ' stems__metronome--on' : ''}`}
@@ -3093,8 +3093,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               onClick={() => setMetronomeOn((on) => !on)}
             >
               ♪
-            </IosButton>
-            <IosButton
+            </Button>
+            <Button
               icon
               size="compact"
               class={`stems__sound${metronomeSoundOn ? ' stems__sound--on' : ''}`}
@@ -3133,7 +3133,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   strokeLinecap="round"
                 />
               </svg>
-            </IosButton>
+            </Button>
             <input
               type="range"
               class="stems__volume"
@@ -3388,7 +3388,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   ]}
                   className="stems__lyrics-model-picker"
                 />
-                <IosButton
+                <Button
                   size="compact"
                   tone={alignedLrc ? undefined : 'primary'}
                   disabled={!tracks || alignBusy || isSeparating || !lyrics.trim()}
@@ -3402,7 +3402,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   onClick={() => void handleAlignLyrics()}
                 >
                   {alignedLrc ? '重新对齐歌词' : '对齐歌词'}
-                </IosButton>
+                </Button>
                 <span class={`stems__lyrics-status${alignError ? ' stems__lyrics-status--error' : ''}`}>
                   {alignBusy
                     ? alignPhase === 'clean'
@@ -3466,7 +3466,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           {maxZoomLevel > 0 && (
             <footer class="stems__footer">
               <div class="stems__zoom">
-                <IosButton
+                <Button
                   icon
                   size="compact"
                   class="stems__zoom-btn"
@@ -3476,7 +3476,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   aria-label="缩小"
                 >
                   −
-                </IosButton>
+                </Button>
                 <input
                   type="range"
                   class="stems__zoom-slider"
@@ -3487,7 +3487,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   onChange={(event) => zoomTo(Number(event.currentTarget.value), getPlaybackTime())}
                   title="波形缩放：可见窗口时长（以当前播放位置为锚）"
                 />
-                <IosButton
+                <Button
                   icon
                   size="compact"
                   class="stems__zoom-btn"
@@ -3497,16 +3497,16 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   aria-label="放大"
                 >
                   +
-                </IosButton>
+                </Button>
                 <span class="stems__zoom-label">{formatZoomLabel(view.level)}</span>
                 {view.level > 0.01 && (
-                  <IosButton
+                  <Button
                     size="compact"
                     class="stems__zoom-fit"
                     onClick={() => setView({ start: 0, level: 0 })}
                   >
                     全曲
-                  </IosButton>
+                  </Button>
                 )}
               </div>
               {view.level > 0 && (
@@ -3604,14 +3604,14 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       >
         <div class="stems__clipboard-field">
           <div class="stems__lyrics-editor-tools">
-            <IosButton size="compact" onClick={() => void handleLoadLyricsFile()}>
+            <Button size="compact" onClick={() => void handleLoadLyricsFile()}>
               从文件导入…
-            </IosButton>
-            <IosButton size="compact" onClick={() => void importClipboardToDraft()}>
+            </Button>
+            <Button size="compact" onClick={() => void importClipboardToDraft()}>
               从剪贴板导入…
-            </IosButton>
+            </Button>
             {lyricsDraft.trim() && (
-              <IosButton
+              <Button
                 size="compact"
                 onClick={() => {
                   setLyricsDraft('')
@@ -3620,7 +3620,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 }}
               >
                 清空
-              </IosButton>
+              </Button>
             )}
           </div>
           <label for="stems-lyrics-editor-textarea">
@@ -4045,7 +4045,7 @@ function StemTrackRow({
       </div>
       <div class="stems__track-controls">
         <div class="stems__track-chips">
-          <IosButton
+          <Button
             icon
             size="compact"
             class={`stems__chip${track.mute ? ' stems__chip--mute-on' : ''}`}
@@ -4054,8 +4054,8 @@ function StemTrackRow({
             aria-label="静音"
           >
             M
-          </IosButton>
-          <IosButton
+          </Button>
+          <Button
             icon
             size="compact"
             class={`stems__chip${track.solo ? ' stems__chip--solo-on' : ''}`}
@@ -4064,7 +4064,7 @@ function StemTrackRow({
             aria-label="独奏"
           >
             S
-          </IosButton>
+          </Button>
         </div>
         <input
           type="range"

@@ -222,7 +222,7 @@
   flex: 0 0 auto;
 }
 
-/* 关闭叉：覆盖 IosButton icon 档的 26×26，与 actions 动作按钮同高 28px；hover 为 IosButton 缺失项的补偿 */
+/* 关闭叉：覆盖 Button icon 档的 26×26，与 actions 动作按钮同高 28px；hover 为 Button 缺失项的补偿 */
 .window-modal__close {
   width: 28px;
   height: 28px;
@@ -519,7 +519,7 @@
     gap: 6px;
   }
 
-  /* 按钮皮肤归 IosButton 后，窄容器降档走 --ios-button-* 变量（对 headerActions 同样生效） */
+  /* 按钮皮肤归 Button 后，窄容器降档走 --ios-button-* 变量（对 headerActions 同样生效） */
   .window-modal {
     --ios-button-font-size: 11px;
     --ios-button-padding: 0 10px;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { filesListVolumes, type FilesApiVolume } from '../files/files-api.ts'
 import {
@@ -181,9 +181,9 @@ export function SpaceSnifferStartDialog({
                 }
               }}
             />
-            <IosButton size="compact" onClick={handlePickFolder}>
+            <Button size="compact" onClick={handlePickFolder}>
               选择文件夹…
-            </IosButton>
+            </Button>
           </div>
         </div>
 
@@ -191,11 +191,11 @@ export function SpaceSnifferStartDialog({
 
         <div class="space-sniffer__start-actions">
           {onCancel ? (
-            <IosButton onClick={onCancel}>取消</IosButton>
+            <Button onClick={onCancel}>取消</Button>
           ) : undefined}
-          <IosButton tone="primary" onClick={handleStart}>
+          <Button tone="primary" onClick={handleStart}>
             开始扫描
-          </IosButton>
+          </Button>
         </div>
       </div>
       {openDialog}

@@ -16,8 +16,9 @@ export type AppNarrowLayoutOptions = {
   exitWidth?: number
   /**
    * 窄/宽翻转延迟到「宽度稳定 settleMs 后」才提交——每次尺寸事件都会重置
-   * 计时器，事件停了才切换。指针拖拽调宽（.window-frame--resizing 挂着）
-   * 期间不提交，等松手、宽度停变后才提交，形变动画才能拿到稳定的起止点。
+   * 计时器，事件停了才切换，一步跳变（尺寸动画、吸附还原）拿完整形变。
+   * 例外：指针拖拽中（.window-frame--resizing）立即提交、形态跟随指针，
+   * 形变动画由消费方识别拖拽态跳过（AdaptiveSplitNav 的拖拽装甲路径）。
    * 默认 0 = 测量即提交（与旧行为一致）。
    */
   settleMs?: number
@@ -87,14 +88,20 @@ export function useAppNarrowLayout(options?: AppNarrowLayoutOptions): {
         return
       }
 
-      // settle 开启时：指针拖拽中（--resizing 挂着）宽度在流式变化——期间
-      // 不提交翻转（撤销待提交的计时器即可），形态保持不变，滞回死区防来回
-      // 抖动；松手拿掉 --resizing 后宽度停变，才走 settle 提交，消费方的
-      // 形变动画拿得到稳定的起止点。settle=0 的调用方保持逐帧跟随。
+      // settle 开启时：指针拖拽中（--resizing 挂着）宽度在流式变化，翻转
+      // 不再压到松手——立即提交、形态跟着指针走（滞回死区防来回抖动；形变
+      // 动画由消费方识别拖拽态跳过，见 AdaptiveSplitNav 的拖拽装甲）；
+      // 松手拿掉 --resizing 后宽度停变，才走 settle + 完整形变（吸附还原、
+      // 最大化等一步跳变仍拿稳定起止点的滑轨）。settle=0 的调用方保持
+      // 逐帧跟随。
       if (settleRef.current > 0 && node.closest('.window-frame--resizing')) {
         if (pendingRef.current) {
           clearTimeout(pendingRef.current.timer)
           pendingRef.current = undefined
+        }
+        if (target !== narrowRef.current) {
+          narrowRef.current = target
+          setNarrow(target)
         }
         return
       }

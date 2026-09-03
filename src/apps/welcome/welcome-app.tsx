@@ -22,7 +22,7 @@ import {
   useAdaptiveSplitNav,
   type AdaptiveFrameSpec,
 } from '../../ui/adaptive-split-nav.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import '../settings/settings.css'
 import './welcome.css'
 
@@ -139,13 +139,13 @@ function WelcomeHero({
         ) : (
           <p class="welcome-app__hero-body welcome-app__hero-body--full">{taskBody(item.id)}</p>
         )}
-        <IosButton
+        <Button
           size="compact"
           tone={item.id === 'setup-key' && !keyAdded ? 'primary' : 'secondary'}
           onClick={onOpen}
         >
           {taskCta(item.id, keyAdded)}
-        </IosButton>
+        </Button>
       </div>
     </header>
   )

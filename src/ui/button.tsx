@@ -1,13 +1,13 @@
 import type { ComponentChildren, JSX } from 'preact'
-import './ios-button.css'
+import './button.css'
 
-export type IosButtonTone = 'secondary' | 'primary' | 'danger'
-export type IosButtonSize = 'default' | 'compact'
+export type ButtonTone = 'secondary' | 'primary' | 'danger'
+export type ButtonSize = 'default' | 'compact'
 
-export type IosButtonProps = {
+export type ButtonProps = {
   children?: ComponentChildren
-  tone?: IosButtonTone
-  size?: IosButtonSize
+  tone?: ButtonTone
+  size?: ButtonSize
   /** 方形图标按钮（导航箭头等） */
   icon?: boolean
   /** 异步进行中：以转圈替换文案并标记 aria-busy */
@@ -21,7 +21,7 @@ export type IosButtonProps = {
 }
 
 /** iOS 6 拟物按钮：灰底 / 蓝主按钮 / 危险红；可通过 --ios-button-* CSS 变量换皮 */
-export function IosButton({
+export function Button({
   children,
   tone = 'secondary',
   size = 'default',
@@ -33,7 +33,7 @@ export function IosButton({
   class: className,
   'aria-label': ariaLabel,
   onClick,
-}: IosButtonProps) {
+}: ButtonProps) {
   const classes = [
     'ios-button',
     `ios-button--${tone}`,

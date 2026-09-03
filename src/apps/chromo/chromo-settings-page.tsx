@@ -1,4 +1,4 @@
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 
 type ChromoSettingsPageProps = {
@@ -44,9 +44,9 @@ export function ChromoSettingsPage({
                 <div class="chromo-settings__label">浏览数据</div>
                 <div class="chromo-settings__hint">清除访问过的网页记录</div>
               </div>
-              <IosButton size="compact" onClick={onClearHistory}>
+              <Button size="compact" onClick={onClearHistory}>
                 清空历史记录
-              </IosButton>
+              </Button>
             </div>
           </div>
         </section>

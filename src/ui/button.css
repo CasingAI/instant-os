@@ -1,4 +1,8 @@
-/* iOS 6-style button — themed per app via CSS custom properties. */
+/*
+ * iOS 6-style button — themed per app via CSS custom properties.
+ * 类名 `.ios-button*` 与 `--ios-button-*` 变量是十余个应用在用的换皮 API，
+ * 组件改名 Button 后刻意保留原名，不随 TS 导出改名。
+ */
 
 :root {
   --ios-button-color: #333;

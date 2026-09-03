@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { IosButton } from '../ui/ios-button.tsx'
+import { Button } from '../ui/button.tsx'
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { isBuiltinAppId } from '../os/builtin-app-display-names.ts'
 import { isExtAppId, isGeneratedAppId } from '../os/types.ts'
@@ -100,9 +100,9 @@ function WindowAppSplashPanel({
         </div>
         <div class="window-app-body__splash-action" aria-hidden={isError ? undefined : true}>
           {isError ? (
-            <IosButton tone="primary" onClick={onRetry}>
+            <Button tone="primary" onClick={onRetry}>
               重试
-            </IosButton>
+            </Button>
           ) : undefined}
         </div>
       </div>

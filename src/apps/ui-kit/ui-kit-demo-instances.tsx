@@ -3,7 +3,9 @@ import { useOs } from '../../os/os-context.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import { Checkbox } from '../../ui/checkbox.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
+import { PageButtonGroup } from '../../ui/page-button-group.tsx'
+import { PageActionButton } from '../../ui/page-action-button.tsx'
 import { Popover } from '../../ui/popover.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { IosRangeSlider, type IosRangeSliderMark } from '../../ui/ios-range-slider.tsx'
@@ -134,28 +136,28 @@ export function IosCheckToggleDemo() {
   )
 }
 
-export function IosButtonDemo() {
+export function ButtonDemo() {
   return (
     <DemoVariants>
       <DemoVariant label="色调" wide>
         <div class="ui-kit-demo__row">
-          <IosButton>次要</IosButton>
-          <IosButton tone="primary">主要</IosButton>
-          <IosButton tone="danger">危险</IosButton>
+          <Button>次要</Button>
+          <Button tone="primary">主要</Button>
+          <Button tone="danger">危险</Button>
         </div>
       </DemoVariant>
       <DemoVariant label="compact / icon">
         <div class="ui-kit-demo__row">
-          <IosButton size="compact">紧凑</IosButton>
-          <IosButton icon size="compact" title="后退">
+          <Button size="compact">紧凑</Button>
+          <Button icon size="compact" title="后退">
             ←
-          </IosButton>
-          <IosButton icon size="compact" title="前进">
+          </Button>
+          <Button icon size="compact" title="前进">
             →
-          </IosButton>
-          <IosButton size="compact" disabled>
+          </Button>
+          <Button size="compact" disabled>
             禁用
-          </IosButton>
+          </Button>
         </div>
       </DemoVariant>
       <DemoVariant label="主题色（CSS 变量）" wide>
@@ -175,11 +177,61 @@ export function IosButtonDemo() {
             '--ios-button-compact-min-width': '64px',
           }}
         >
-          <IosButton size="compact">编辑</IosButton>
-          <IosButton size="compact">书城</IosButton>
-          <IosButton size="compact" disabled>
+          <Button size="compact">编辑</Button>
+          <Button size="compact">书城</Button>
+          <Button size="compact" disabled>
             刷新
-          </IosButton>
+          </Button>
+        </div>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function PageButtonGroupDemo() {
+  // 挤压沙盒：滑杆控制容器宽，PageButtonGroup 自带 ResizeObserver 实时三级解压
+  const [sandboxWidth, setSandboxWidth] = useState(340)
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="色调 / 选中态" wide>
+        <div class="ui-kit-demo__row">
+          <PageButtonGroup>
+            <PageActionButton activated>收藏</PageActionButton>
+            <PageActionButton>标记已读</PageActionButton>
+            <PageActionButton>分享</PageActionButton>
+            <PageActionButton tone="danger">删除</PageActionButton>
+          </PageButtonGroup>
+        </div>
+      </DemoVariant>
+      <DemoVariant label="状态" wide>
+        <div class="ui-kit-demo__row">
+          <PageButtonGroup>
+            <PageActionButton busy>提交中</PageActionButton>
+            <PageActionButton disabled>不可用</PageActionButton>
+            <PageActionButton icon="＋" aria-label="添加" />
+          </PageButtonGroup>
+        </div>
+      </DemoVariant>
+      <DemoVariant label="挤压沙盒（拖滑杆收窄容器）" wide>
+        <div class="ui-kit-demo__sandbox" style={{ width: `${sandboxWidth}px` }}>
+          <PageButtonGroup>
+            <PageActionButton activated>收藏</PageActionButton>
+            <PageActionButton>标记已读</PageActionButton>
+            <PageActionButton>分享</PageActionButton>
+            <PageActionButton>导出备份</PageActionButton>
+          </PageButtonGroup>
+        </div>
+        <div class="ui-kit-demo__sandbox-controls">
+          <input
+            class="ui-kit-demo__sandbox-slider"
+            type="range"
+            min={90}
+            max={380}
+            value={sandboxWidth}
+            onInput={(e) => setSandboxWidth(Number(e.currentTarget.value))}
+          />
+          <span class="ui-kit-demo__sandbox-width">{sandboxWidth}px</span>
         </div>
       </DemoVariant>
     </DemoVariants>
@@ -611,14 +663,29 @@ export function ListIndexDemo() {
   const sections = [
     { id: '#', names: ['3M 便利贴', '7-11 便当'] },
     { id: 'A', names: ['阿福', '安琪'] },
+    { id: 'B', names: ['白露', '百晓生'] },
     { id: 'C', names: ['曹操', '陈皮'] },
+    { id: 'D', names: ['大卫', '丁丁'] },
+    { id: 'E', names: ['恩雅', '耳东'] },
     { id: 'F', names: ['范闲', '飞白'] },
-    { id: 'H', names: ['韩非', '何晏'] },
-    { id: 'K', names: ['快雪'] },
+    { id: 'G', names: ['关雎', '归海'] },
+    { id: 'H', names: ['韩非', '胡杨'] },
+    { id: 'I', names: ['Ivy'] },
+    { id: 'J', names: ['建安', '九斤'] },
+    { id: 'K', names: ['快雪', '凯风'] },
+    { id: 'L', names: ['李逵', '林徽'] },
     { id: 'M', names: ['马良', '木心'] },
-    { id: 'P', names: ['潘安'] },
+    { id: 'N', names: ['南音', '妞妞'] },
+    { id: 'O', names: ['欧阳', '欧文'] },
+    { id: 'P', names: ['潘安', '萍聚'] },
+    { id: 'Q', names: ['钱塘', '青梅'] },
+    { id: 'R', names: ['任安', '若曦'] },
     { id: 'S', names: ['苏轼', '石秀'] },
-    { id: 'W', names: ['王维'] },
+    { id: 'T', names: ['唐寅', '陶朱'] },
+    { id: 'U', names: ['Una'] },
+    { id: 'V', names: ['Vivian'] },
+    { id: 'W', names: ['王维', '吴刚'] },
+    { id: 'X', names: ['徐霞', '薛涛'] },
     { id: 'Y', names: ['颜回', '虞姬'] },
     { id: 'Z', names: ['张良', '庄周'] },
     { id: '汉', names: ['囡囡', '犇犇'] },
@@ -627,7 +694,7 @@ export function ListIndexDemo() {
   return (
     <DemoVariants>
       <DemoVariant label="点字母或沿条拖动跳节" wide>
-        <List indexBar scrollable>
+        <List indexBar scrollable bodyClass="ui-kit-demo__list-body-tall">
           {sections.map((section) => (
             <ListSection key={section.id} id={section.id} title={section.id}>
               {section.names.map((name) => (
@@ -671,13 +738,13 @@ export function ListEditingDemo() {
     <DemoVariants>
       <DemoVariant label="「编辑」进出：减号删除 / 把手重排" wide>
         <div class="ui-kit-demo__row">
-          <IosButton size="compact" onClick={() => setEditing(!editing)}>
+          <Button size="compact" onClick={() => setEditing(!editing)}>
             {editing ? '完成' : '编辑'}
-          </IosButton>
+          </Button>
           {!editing && shopping.length !== INITIAL_SHOPPING.length && (
-            <IosButton size="compact" onClick={() => setShopping(INITIAL_SHOPPING)}>
+            <Button size="compact" onClick={() => setShopping(INITIAL_SHOPPING)}>
               还原清单
-            </IosButton>
+            </Button>
           )}
         </div>
         <List
@@ -988,11 +1055,11 @@ export function AdaptiveSplitNavDemo() {
   return (
     <div class="ui-kit-demo__app-launch">
       <p class="ui-kit-demo__status">
-        布局原语，需整应用承载：拖窗口边缘跨过宽度阈值形态即时跟随，松手或双击标题栏播完整滑轨形变。
+        布局原语，需整应用承载：拖窗口边缘跨过宽度阈值形态即时跟随，松手或双击标题栏播完整滑轨形变。分栏宽度 ≤640 时左右栏固定 50/50（紧凑档），≥700 恢复 listRatio 比例。
       </p>
-      <IosButton tone="primary" onClick={() => openApp('nav-kit-demo')}>
+      <Button tone="primary" onClick={() => openApp('nav-kit-demo')}>
         打开「导航组件演示」应用
-      </IosButton>
+      </Button>
     </div>
   )
 }
@@ -1128,9 +1195,9 @@ export function MiniWindowDemo() {
         点按后打开一扇真实迷你窗（进度应用空态，只有一行字）：窗口就只有一行正文加标题栏那么大；
         可拖动移动，边缘无缩放手柄，拖到屏幕边不吸附，双击标题栏不最大化。
       </p>
-      <IosButton tone="primary" onClick={() => openApp('files-op-progress', { chromeKind: 'mini' })}>
+      <Button tone="primary" onClick={() => openApp('files-op-progress', { chromeKind: 'mini' })}>
         打开迷你窗
-      </IosButton>
+      </Button>
     </div>
   )
 }
@@ -1213,9 +1280,9 @@ export function PopoverDemo() {
       <DemoVariant label="锚定气泡（箭头跟随触发器）" wide>
         <div class="ui-kit-demo__row">
           <span ref={anchorRef}>
-            <IosButton size="compact" onClick={() => setOpen(!open)}>
+            <Button size="compact" onClick={() => setOpen(!open)}>
               {open ? '关闭气泡' : '打开气泡'}
-            </IosButton>
+            </Button>
           </span>
           <Popover
             open={open}

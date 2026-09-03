@@ -1,4 +1,4 @@
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { BooksCover, listingToCoverProps } from './books-cover.tsx'
 import { canOpenBook, getBookGenerationPercent } from './books-storage.ts'
 import type { BookRecordMeta } from './books-types.ts'
@@ -25,9 +25,9 @@ export function BooksShelf({
       <div class="books-shelf books-shelf--empty">
         <div class="books-shelf__empty">
           <p class="books-shelf__empty-text">当前还没有添加书籍</p>
-          <IosButton size="compact" onClick={onGoStore}>
+          <Button size="compact" onClick={onGoStore}>
             进入书城
-          </IosButton>
+          </Button>
         </div>
       </div>
     )

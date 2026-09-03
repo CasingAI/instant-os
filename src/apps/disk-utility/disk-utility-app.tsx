@@ -3,7 +3,7 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import {
   AdaptiveSplitNav,
   useAdaptiveSplitNav,
@@ -255,9 +255,9 @@ function DetailActionsBar({
     entries.push({
       key: 'erase-image',
       node: (
-        <IosButton tone="danger" size="compact" onClick={() => actions.eraseImage(node)}>
+        <Button tone="danger" size="compact" onClick={() => actions.eraseImage(node)}>
           抹掉
-        </IosButton>
+        </Button>
       ),
     })
     entries.push(
@@ -265,17 +265,17 @@ function DetailActionsBar({
         ? {
             key: 'partition-apply',
             node: (
-              <IosButton tone="secondary" size="compact" onClick={() => actions.partitionImage(node)}>
+              <Button tone="secondary" size="compact" onClick={() => actions.partitionImage(node)}>
                 执行分区
-              </IosButton>
+              </Button>
             ),
           }
         : {
             key: 'partition-view',
             node: (
-              <IosButton tone="secondary" size="compact" onClick={() => actions.enterPartitionView(node)}>
+              <Button tone="secondary" size="compact" onClick={() => actions.enterPartitionView(node)}>
                 分区
-              </IosButton>
+              </Button>
             ),
           },
     )
@@ -283,9 +283,9 @@ function DetailActionsBar({
       entries.push({
         key: 'unmount',
         node: (
-          <IosButton tone="secondary" size="compact" onClick={() => actions.unmountImage(node)}>
+          <Button tone="secondary" size="compact" onClick={() => actions.unmountImage(node)}>
             推出
-          </IosButton>
+          </Button>
         ),
       })
     }
@@ -295,14 +295,14 @@ function DetailActionsBar({
     entries.push({
       key: 'erase-partition',
       node: (
-        <IosButton
+        <Button
           tone="danger"
           size="compact"
           disabled={disableForUnknownFs}
           onClick={() => actions.erasePartition(node)}
         >
           抹掉分区
-        </IosButton>
+        </Button>
       ),
     })
   }
@@ -311,7 +311,7 @@ function DetailActionsBar({
     entries.push({
       key: 'reveal',
       node: (
-        <IosButton
+        <Button
           tone="secondary"
           size="compact"
           disabled={disableForUnknownFs}
@@ -322,7 +322,7 @@ function DetailActionsBar({
           }}
         >
           在文件中显示
-        </IosButton>
+        </Button>
       ),
     })
   }
@@ -331,9 +331,9 @@ function DetailActionsBar({
     entries.push({
       key: 'sniff',
       node: (
-        <IosButton tone="secondary" size="compact" onClick={actions.openSpaceSniffer}>
+        <Button tone="secondary" size="compact" onClick={actions.openSpaceSniffer}>
           空间嗅探
-        </IosButton>
+        </Button>
       ),
     })
   }
@@ -342,14 +342,14 @@ function DetailActionsBar({
     entries.push({
       key: 'scan',
       node: (
-        <IosButton
+        <Button
           tone="secondary"
           size="compact"
           disabled={disableForUnknownFs}
           onClick={() => actions.scanImage(node)}
         >
           错误扫描
-        </IosButton>
+        </Button>
       ),
     })
   }
@@ -358,9 +358,9 @@ function DetailActionsBar({
     entries.push({
       key: 'benchmark',
       node: (
-        <IosButton tone="secondary" size="compact" onClick={() => actions.runBenchmark(node)}>
+        <Button tone="secondary" size="compact" onClick={() => actions.runBenchmark(node)}>
           测速
-        </IosButton>
+        </Button>
       ),
     })
   }
@@ -566,13 +566,13 @@ function BrowserStorageSection({
         {renderUsageBar(storage.dataStorageUsedBytes, storage.systemCapacityBytes)}
       </div>
       <div class="disk-utility__detail-actions">
-        <IosButton tone="secondary" size="compact" onClick={onRefresh}>
+        <Button tone="secondary" size="compact" onClick={onRefresh}>
           刷新
-        </IosButton>
+        </Button>
         {!storage.persisted ? (
-          <IosButton tone="primary" size="compact" onClick={onRequestPersistence}>
+          <Button tone="primary" size="compact" onClick={onRequestPersistence}>
             请求持久化
-          </IosButton>
+          </Button>
         ) : undefined}
       </div>
     </section>

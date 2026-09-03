@@ -9,8 +9,9 @@ import { useOs } from '../../os/os-context.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { PageButtonGroup } from '../../ui/page-button-group.tsx'
+import { PageActionButton } from '../../ui/page-action-button.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import {
   AdaptiveSplitNav,
@@ -243,13 +244,13 @@ export function NavKitDemoApp() {
             backLabel={showBack ? '书架' : undefined}
             onBack={showBack ? backPos : undefined}
             actions={
-              <IosButton
+              <Button
                 size="compact"
                 tone={isFav ? 'primary' : 'secondary'}
                 onClick={() => toggleFavorite(favKey)}
               >
                 收藏
-              </IosButton>
+              </Button>
             }
           />
         }
@@ -337,22 +338,14 @@ export function NavKitDemoApp() {
             onBack={showBack ? backPos : undefined}
             actions={
               <PageButtonGroup>
-                <IosButton
-                  size="compact"
-                  tone={isFav ? 'primary' : 'secondary'}
-                  onClick={() => toggleFavorite(favKey)}
-                >
+                <PageActionButton activated={isFav} onClick={() => toggleFavorite(favKey)}>
                   收藏
-                </IosButton>
-                <IosButton
-                  size="compact"
-                  tone={isRead ? 'primary' : 'secondary'}
-                  onClick={() => toggleRead(readKey)}
-                >
+                </PageActionButton>
+                <PageActionButton activated={isRead} onClick={() => toggleRead(readKey)}>
                   标记已读
-                </IosButton>
-                <IosButton size="compact">分享</IosButton>
-                <IosButton size="compact">导出备份</IosButton>
+                </PageActionButton>
+                <PageActionButton>分享</PageActionButton>
+                <PageActionButton>导出备份</PageActionButton>
               </PageButtonGroup>
             }
           />
@@ -421,22 +414,14 @@ export function NavKitDemoApp() {
             onBack={showBack ? backPos : undefined}
             actions={
               <PageButtonGroup>
-                <IosButton
-                  size="compact"
-                  tone={isFav ? 'primary' : 'secondary'}
-                  onClick={() => toggleFavorite(favKey)}
-                >
+                <PageActionButton activated={isFav} onClick={() => toggleFavorite(favKey)}>
                   收藏
-                </IosButton>
-                <IosButton
-                  size="compact"
-                  tone={isRead ? 'primary' : 'secondary'}
-                  onClick={() => toggleRead(readKey)}
-                >
+                </PageActionButton>
+                <PageActionButton activated={isRead} onClick={() => toggleRead(readKey)}>
                   标记已读
-                </IosButton>
-                <IosButton size="compact">分享</IosButton>
-                <IosButton size="compact">导出备份</IosButton>
+                </PageActionButton>
+                <PageActionButton>分享</PageActionButton>
+                <PageActionButton>导出备份</PageActionButton>
               </PageButtonGroup>
             }
           />

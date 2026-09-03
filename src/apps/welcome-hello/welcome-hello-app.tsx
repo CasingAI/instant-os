@@ -17,7 +17,7 @@ import { openKeychainAiProvidersView } from '../../os/keychain-route-open.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId } from '../../os/types.ts'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import './welcome-hello.css'
 
 const APP_ID = 'welcome-hello' as const
@@ -234,10 +234,10 @@ export function WelcomeHelloApp({ windowId }: { windowId?: string }) {
                   去钥匙串加一家供应商，再拖到列表最上面。大约两分钟。没有 Key 也能先逛。
                 </p>
                 <div class="welcome-hello__actions">
-                  <IosButton tone="primary" onClick={openKeychain}>
+                  <Button tone="primary" onClick={openKeychain}>
                     去钥匙串
-                  </IosButton>
-                  <IosButton onClick={() => scrollToSection(3)}>先逛逛</IosButton>
+                  </Button>
+                  <Button onClick={() => scrollToSection(3)}>先逛逛</Button>
                 </div>
               </>
             ) : keyStatus === 'needs-preferred' ? (
@@ -247,9 +247,9 @@ export function WelcomeHelloApp({ windowId }: { windowId?: string }) {
                   钥匙已经加上了，但当前还在走共享通道。把它拖到钥匙串列表第一位。
                 </p>
                 <div class="welcome-hello__actions">
-                  <IosButton tone="primary" onClick={openKeychain}>
+                  <Button tone="primary" onClick={openKeychain}>
                     去排一下
-                  </IosButton>
+                  </Button>
                 </div>
               </>
             ) : (
@@ -257,7 +257,7 @@ export function WelcomeHelloApp({ windowId }: { windowId?: string }) {
                 <h1 class="welcome-hello__title">已经接上了</h1>
                 <p class="welcome-hello__body">要换模型，随时打开钥匙串。</p>
                 <div class="welcome-hello__actions">
-                  <IosButton onClick={openKeychain}>打开钥匙串</IosButton>
+                  <Button onClick={openKeychain}>打开钥匙串</Button>
                 </div>
               </>
             )}
@@ -309,11 +309,11 @@ export function WelcomeHelloApp({ windowId }: { windowId?: string }) {
         </div>
         <div class="welcome-hello__nav">
           {page > 0 ? (
-            <IosButton onClick={() => scrollToSection(page - 1)}>上一步</IosButton>
+            <Button onClick={() => scrollToSection(page - 1)}>上一步</Button>
           ) : undefined}
-          <IosButton tone="primary" onClick={lastPage ? finish : () => scrollToSection(page + 1)}>
+          <Button tone="primary" onClick={lastPage ? finish : () => scrollToSection(page + 1)}>
             {lastPage ? '开始使用' : '继续'}
-          </IosButton>
+          </Button>
         </div>
       </footer>
     </div>

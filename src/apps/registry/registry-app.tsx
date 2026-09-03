@@ -7,7 +7,7 @@ import {
   type AdaptiveFrameSpec,
 } from '../../ui/adaptive-split-nav.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { ForwardIcon } from '../../icons/app-icons.tsx'
 import {
   createGlobalRegistry,
@@ -556,14 +556,14 @@ function RegistryDetailPane({
           onBack={showBack ? onBack : undefined}
           actions={
             entries.length > 0 ? (
-              <IosButton
+              <Button
                 tone="danger"
                 size="compact"
                 busy={clearing}
                 onClick={onConfirmClear}
               >
                 清空
-              </IosButton>
+              </Button>
             ) : undefined
           }
         />
@@ -648,9 +648,9 @@ function RegistryBrowsePane({
           backLabel={backLabel}
           onBack={onBack}
           actions={
-            <IosButton tone="primary" size="compact" onClick={onEditJson}>
+            <Button tone="primary" size="compact" onClick={onEditJson}>
               编辑 JSON
-            </IosButton>
+            </Button>
           }
         />
       }
@@ -749,7 +749,7 @@ function RegistryValuePane({
           backLabel={backLabel}
           onBack={onBack}
           actions={
-            <IosButton
+            <Button
               tone="primary"
               size="compact"
               disabled={!canSave}
@@ -757,7 +757,7 @@ function RegistryValuePane({
               onClick={() => void onSave(draft)}
             >
               保存
-            </IosButton>
+            </Button>
           }
         />
       }

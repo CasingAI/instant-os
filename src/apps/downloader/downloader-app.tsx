@@ -4,7 +4,7 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { Progress } from '../../ui/progress.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
@@ -376,13 +376,13 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
           </div>
           <div class="downloader-app__dialog-row">
             <span class="downloader-app__dialog-label">或</span>
-            <IosButton
+            <Button
               size="compact"
               onClick={() => void handlePickMetalinkFile()}
               disabled={isAdding}
             >
               选择本地 .metalink 文件
-            </IosButton>
+            </Button>
             {localFilePath ? (
               <span class="downloader-app__dialog-file">{fileBaseName(localFilePath)}</span>
             ) : undefined}
@@ -395,13 +395,13 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
               disabled={isAdding}
               onInput={(event) => setTargetDirectory((event.target as HTMLInputElement).value)}
             />
-            <IosButton
+            <Button
               size="compact"
               onClick={() => void handlePickTargetDirectory()}
               disabled={isAdding}
             >
               选择…
-            </IosButton>
+            </Button>
           </div>
           <div class="downloader-app__dialog-row">
             <span class="downloader-app__dialog-label">并发数</span>
@@ -417,17 +417,17 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
             <span class="downloader-app__dialog-concurrency">{concurrency}</span>
           </div>
           <div class="downloader-app__dialog-actions">
-            <IosButton size="compact" onClick={() => setShowAddDialog(false)} disabled={isAdding}>
+            <Button size="compact" onClick={() => setShowAddDialog(false)} disabled={isAdding}>
               取消
-            </IosButton>
-            <IosButton
+            </Button>
+            <Button
               size="compact"
               tone="primary"
               disabled={!canSubmit}
               onClick={() => void handleAddDownload()}
             >
               {isAdding ? '添加中…' : '添加'}
-            </IosButton>
+            </Button>
           </div>
         </div>
       </div>
@@ -437,9 +437,9 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
   function renderToolbar() {
     return (
       <div class="downloader-app__toolbar">
-        <IosButton tone="primary" icon onClick={() => openAddDialog()} aria-label="新建下载">
+        <Button tone="primary" icon onClick={() => openAddDialog()} aria-label="新建下载">
           +
-        </IosButton>
+        </Button>
         <span class="downloader-app__toolbar-title">下载器</span>
         <span class="downloader-app__toolbar-spacer" aria-hidden="true" />
         {runningCount > 0 ? (
@@ -499,28 +499,28 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
         </span>
         <span class="downloader-app__col downloader-app__col--actions">
           {isPausable ? (
-            <IosButton size="compact" onClick={() => void handlePauseResume(task)}>
+            <Button size="compact" onClick={() => void handlePauseResume(task)}>
               暂停
-            </IosButton>
+            </Button>
           ) : isResumable ? (
-            <IosButton size="compact" onClick={() => void handlePauseResume(task)}>
+            <Button size="compact" onClick={() => void handlePauseResume(task)}>
               继续
-            </IosButton>
+            </Button>
           ) : (
             <span class="downloader-app__action-placeholder" />
           )}
           {canOpenFolder ? (
-            <IosButton size="compact" onClick={() => handleOpenFolder(task)}>
+            <Button size="compact" onClick={() => handleOpenFolder(task)}>
               打开文件夹
-            </IosButton>
+            </Button>
           ) : undefined}
-          <IosButton
+          <Button
             size="compact"
             tone="danger"
             onClick={() => void handleDelete(task)}
           >
             删除
-          </IosButton>
+          </Button>
         </span>
       </div>
     )
@@ -531,9 +531,9 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
       <div class="downloader-app__empty">
         <p class="downloader-app__empty-title">暂无下载任务</p>
         <p class="downloader-app__empty-hint">点击右上角 + 新建下载，或双击 .metalink 文件。</p>
-        <IosButton tone="primary" onClick={() => openAddDialog()}>
+        <Button tone="primary" onClick={() => openAddDialog()}>
           新建下载
-        </IosButton>
+        </Button>
       </div>
     )
   }

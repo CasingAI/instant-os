@@ -4,7 +4,7 @@ import type { MenuDefinition, MenuItemSubItem } from '../../os/menu-bar-types.ts
 import { useOs } from '../../os/os-context.tsx'
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { releaseDiskImagePath } from '../files/files-disk-image-occupancy.ts'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
@@ -2103,27 +2103,27 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     >
       <div class="virtual-machine__toolbar" onPointerDown={releaseGuestKeyboard}>
         <div class="virtual-machine__toolbar-actions">
-          <IosButton size="compact" onClick={handleNew}>
+          <Button size="compact" onClick={handleNew}>
             新建
-          </IosButton>
-          <IosButton size="compact" disabled={!hasSelection} onClick={handleSettings}>
+          </Button>
+          <Button size="compact" disabled={!hasSelection} onClick={handleSettings}>
             设置
-          </IosButton>
-          <IosButton
+          </Button>
+          <Button
             size="compact"
             disabled={!canStart}
             onClick={() => handlePower('start')}
           >
             开机
-          </IosButton>
+          </Button>
           {selectedAgentCapable ? (
-            <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('shutdown')}>
+            <Button size="compact" disabled={!canStop} onClick={() => handlePower('shutdown')}>
               关机
-            </IosButton>
+            </Button>
           ) : (
-            <IosButton size="compact" disabled={!canStop} onClick={() => handlePower('stop')}>
+            <Button size="compact" disabled={!canStop} onClick={() => handlePower('stop')}>
               断电
-            </IosButton>
+            </Button>
           )}
         </div>
         {selected ? (

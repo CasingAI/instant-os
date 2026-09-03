@@ -26,7 +26,7 @@
     0 1px 3px rgba(0, 0, 0, 0.16);
   --stems-toolbar: linear-gradient(180deg, #f2eee6 0%, #ddd7cb 100%);
 
-  /* 系统 IosButton 换皮：冷灰铝 + 蓝主按钮 */
+  /* 系统 Button 换皮：冷灰铝 + 蓝主按钮 */
   --ios-button-color: #2f3338;
   --ios-button-color-active: #1a1d21;
   --ios-button-bg: linear-gradient(180deg, #f7f5f1 0%, #e4e0d8 55%, #d2cdc4 100%);

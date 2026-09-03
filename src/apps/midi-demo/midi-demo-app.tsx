@@ -4,7 +4,7 @@ import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import {
   AbcParseError,
   DEFAULT_SAMPLE_ABC,
@@ -243,29 +243,29 @@ export function MidiDemoApp() {
         />
         <div class="midi-demo__chips">
           {MIDI_DEMO_EXAMPLES.map((example) => (
-            <IosButton
+            <Button
               key={example}
               size="compact"
               disabled={generating}
               onClick={() => setPrompt(example)}
             >
               {example}
-            </IosButton>
+            </Button>
           ))}
         </div>
         <div class="midi-demo__compose-actions">
           {generating ? (
-            <IosButton tone="danger" onClick={handleStopGenerate}>
+            <Button tone="danger" onClick={handleStopGenerate}>
               停止
-            </IosButton>
+            </Button>
           ) : (
-            <IosButton
+            <Button
               tone="primary"
               disabled={!aiReady || !prompt.trim()}
               onClick={() => void handleGenerate()}
             >
               生成乐谱
-            </IosButton>
+            </Button>
           )}
           {!aiReady && <p class="midi-demo__hint">先在钥匙串或「系统设置 → 账户」配置 API Key。</p>}
           {generating && <p class="midi-demo__hint">正在生成 ABC…</p>}
@@ -277,13 +277,13 @@ export function MidiDemoApp() {
         <section class="midi-demo__score">
           <div class="midi-demo__section-head">
             <h2>ABC 乐谱</h2>
-            <IosButton
+            <Button
               size="compact"
               disabled={generating || !abc.trim()}
               onClick={() => applyAbc()}
             >
               应用乐谱
-            </IosButton>
+            </Button>
           </div>
           <textarea
             class="midi-demo__abc"
@@ -315,17 +315,17 @@ export function MidiDemoApp() {
       <footer class="midi-demo__bar">
         <div class="midi-demo__transport">
           {playing ? (
-            <IosButton tone="danger" onClick={stopPlayback}>
+            <Button tone="danger" onClick={stopPlayback}>
               停止
-            </IosButton>
+            </Button>
           ) : (
-            <IosButton tone="primary" disabled={!canPlay} onClick={handlePlay}>
+            <Button tone="primary" disabled={!canPlay} onClick={handlePlay}>
               播放
-            </IosButton>
+            </Button>
           )}
-          <IosButton disabled={!compiled} onClick={handleDownload}>
+          <Button disabled={!compiled} onClick={handleDownload}>
             下载 .mid
-          </IosButton>
+          </Button>
           <span class="midi-demo__clock">
             {playing ? `${formatTime(progress.elapsed)} / ${formatTime(progress.total)}` : formatTime(durationSec)}
           </span>

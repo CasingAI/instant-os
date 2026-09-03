@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
-import { IosButton } from '../../ui/ios-button.tsx'
+import { Button } from '../../ui/button.tsx'
 import { findNodeByPath, scanPath } from './space-sniffer-scan.ts'
 import { SpaceSnifferTreemap } from './space-sniffer-treemap.tsx'
 import {
@@ -247,38 +247,38 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
     <div class="space-sniffer__view">
       <div class="space-sniffer__toolbar" role="toolbar" aria-label="空间嗅探工具栏">
         <div class="space-sniffer__toolbar-group">
-          <IosButton size="compact" title="新建扫描标签 (⌘N)" onClick={onNewScan}>
+          <Button size="compact" title="新建扫描标签 (⌘N)" onClick={onNewScan}>
             新建
-          </IosButton>
+          </Button>
         </div>
         <span class="space-sniffer__toolbar-sep" aria-hidden="true" />
         <div class="space-sniffer__toolbar-group">
-          <IosButton size="compact" title="后退 (⌘[)" disabled={historyIndex <= 0} onClick={goBack}>
+          <Button size="compact" title="后退 (⌘[)" disabled={historyIndex <= 0} onClick={goBack}>
             后退
-          </IosButton>
-          <IosButton
+          </Button>
+          <Button
             size="compact"
             title="前进 (⌘])"
             disabled={historyIndex >= history.length - 1}
             onClick={goForward}
           >
             前进
-          </IosButton>
-          <IosButton
+          </Button>
+          <Button
             size="compact"
             title="上一级"
             disabled={!viewRoot || viewRoot.path === rootPath}
             onClick={goUp}
           >
             上一级
-          </IosButton>
-          <IosButton size="compact" title="回到扫描根" onClick={goHome}>
+          </Button>
+          <Button size="compact" title="回到扫描根" onClick={goHome}>
             根目录
-          </IosButton>
+          </Button>
         </div>
         <span class="space-sniffer__toolbar-sep" aria-hidden="true" />
         <div class="space-sniffer__toolbar-group">
-          <IosButton
+          <Button
             size="compact"
             tone={scanning ? 'danger' : 'secondary'}
             title={scanning ? '停止扫描' : '重新扫描'}
@@ -291,23 +291,23 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
             }}
           >
             {scanning ? '停止' : '扫描'}
-          </IosButton>
-          <IosButton
+          </Button>
+          <Button
             size="compact"
             title="减少细节"
             disabled={detailLevel <= MIN_DETAIL_LEVEL}
             onClick={() => setDetailLevel((value) => Math.max(MIN_DETAIL_LEVEL, value - 1))}
           >
             减少细节
-          </IosButton>
-          <IosButton
+          </Button>
+          <Button
             size="compact"
             title="增加细节"
             disabled={detailLevel >= MAX_DETAIL_LEVEL}
             onClick={() => setDetailLevel((value) => Math.min(MAX_DETAIL_LEVEL, value + 1))}
           >
             增加细节
-          </IosButton>
+          </Button>
         </div>
       </div>
 

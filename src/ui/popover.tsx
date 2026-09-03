@@ -3,7 +3,7 @@ import type { RefObject } from 'preact'
 import { createPortal } from 'preact/compat'
 import { computeFloatingPanelPosition, FLOATING_PANEL_VIEWPORT_PADDING } from './compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
-import { IosButton } from './ios-button.tsx'
+import { Button } from './button.tsx'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './popover.css'
 
@@ -163,9 +163,9 @@ export function Popover({
         >
           <div class="popover-modal__body">{childrenRef.current}</div>
           <div class="popover-modal__actions">
-            <IosButton tone="primary" size="compact" onClick={onClose}>
+            <Button tone="primary" size="compact" onClick={onClose}>
               {dismissLabel}
-            </IosButton>
+            </Button>
           </div>
         </div>
       </div>,
