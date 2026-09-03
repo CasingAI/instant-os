@@ -372,8 +372,6 @@ export function ServicesApp() {
       class="services-host"
       renderNarrowPage={renderNarrowPage}
       renderWideFrames={renderWideFrames}
-      /* 对齐原手写分栏 minmax(220px, 36%) */
-      listMinWidth={220}
       listRatio={0.36}
     />
   )

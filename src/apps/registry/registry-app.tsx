@@ -1574,8 +1574,6 @@ export function RegistryApp() {
       renderDetailEmpty={() => <RegistryDetailEmpty />}
       framesResetKey={displayedAppId}
       footer={pathBar}
-      /* 对齐原手写分栏 minmax(220px, 34%) */
-      listMinWidth={220}
       listRatio={0.34}
     />
   )

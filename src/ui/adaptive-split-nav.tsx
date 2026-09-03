@@ -275,8 +275,6 @@ export type AdaptiveSplitNavProps = {
   footer?: ComponentChildren
   /** 分栏帧序列为空时的占位，应用全权定义；缺省渲染中性空白 */
   renderDetailEmpty?: () => ComponentChildren
-  /** 左栏最小宽（px），默认 240 */
-  listMinWidth?: number
   /** 左栏占分栏总宽比例（0~1），默认 0.38 */
   listRatio?: number
   /** 分栏帧动画时长（ms），默认 380 */
@@ -284,7 +282,6 @@ export type AdaptiveSplitNavProps = {
   class?: string
 }
 
-const DEFAULT_LIST_MIN = 240
 const DEFAULT_LIST_RATIO = 0.38
 const DEFAULT_FRAME_MS = 380
 /** 形态翻转等宽度停变后再提交，避免拖拽中途反复起滑轨 */
@@ -338,7 +335,6 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
     framesResetKey = '',
     footer,
     renderDetailEmpty,
-    listMinWidth = DEFAULT_LIST_MIN,
     listRatio = DEFAULT_LIST_RATIO,
     frameAnimationMs = DEFAULT_FRAME_MS,
     class: className,
@@ -573,10 +569,9 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
       controller.morphingSetRef.current(false)
       return
     }
-    // 面板终宽 D：与 CSS 同式（width: ratio% + min-width 钳制），缝隙恒等
-    // 式的两端才能对上
+    // 面板终宽 D：与 CSS 同式（width: ratio%），缝隙恒等式的两端才能对上
     const ratioPct = Math.round(listRatio * 10000) / 100
-    const detailW = stageW - Math.max(listMinWidth, (stageW * ratioPct) / 100)
+    const detailW = stageW - (stageW * ratioPct) / 100
     const hasFrames = liveFramesRef.current.length > 0
 
     let kind: MorphKind
@@ -706,7 +701,6 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
     layoutReady,
     narrowLayout,
     listRatio,
-    listMinWidth,
     frameAnimationMs,
     controller.switchPlanRef,
     controller.listPage,
@@ -767,7 +761,6 @@ export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
   const active = Math.min(wideIndex, Math.max(0, view.length - 1))
 
   const styleVars = {
-    '--asn-list-min': `${listMinWidth}px`,
     '--asn-list-ratio': `${Math.round(listRatio * 10000) / 100}%`,
     '--asn-frame-ms': `${frameAnimationMs}ms`,
   } as Record<string, string>

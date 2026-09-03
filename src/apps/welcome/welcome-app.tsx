@@ -351,8 +351,7 @@ export function WelcomeApp() {
       }
       renderNarrowPage={renderNarrowPage}
       renderWideFrames={renderWideFrames}
-      /* 左栏纯比例跟随窗口，不设最小宽下限 */
-      listMinWidth={0}
+      /* 左栏宽度 = listRatio 纯比例跟随窗口（组件已不提供最小宽） */
       listRatio={0.36}
     />
   )

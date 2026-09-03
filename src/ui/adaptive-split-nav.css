@@ -31,13 +31,12 @@
 
 /*
  * 左栏：窄形态占满整宽（子页栈整页显示），宽形态收窄为列表列。
- * 内容随宽度逐帧重排；min-width 做下限钳制——右栏由 flex 布局自动从
- * 钳制后的实际右缘排起，两栏在任何窗口宽度都严丝合缝、永不重叠。
+ * 内容随宽度逐帧重排；右栏由 flex 布局自动从左栏实际右缘排起，
+ * 两栏在任何窗口宽度都严丝合缝、永不重叠。
  */
 .adaptive-split-nav__list-pane {
   flex: 0 0 auto;
   width: var(--asn-list-w);
-  min-width: var(--asn-list-min, 240px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
