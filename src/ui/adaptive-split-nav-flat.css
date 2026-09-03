@@ -1,0 +1,365 @@
+/* 自适应分栏导航 · flat 引擎（平铺单实例）：host 角色与滑轨。
+ * 与 classic（adaptive-split-nav.css）互补：每页一个常驻 host（stage 的
+ * 绝对定位子节点），data-pos 表达角色——窄/宽只是同一骨架下 host 盒子的
+ * 两种角色状态，页面内容从不换手。host 盒子的几何归 tsx 形变编排
+ * （WAAPI 动 left/width/transform），这里只定义静置角色、进退转场窗口
+ * （与 PageStack 同款拆盒，keyframes 复用 page-stack.css）与 reduced-motion。 */
+
+.adaptive-split-nav--flat .adaptive-split-nav__stage {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* host 基底：绝对定位盒子，内容由应用渲染（单一根元素撑满，如 .page） */
+.adaptive-split-nav--flat .adaptive-split-nav__host {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+.adaptive-split-nav--flat .adaptive-split-nav__host > * {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+/*
+ * 角色 · current / under（窄屏子页栈）：占满整窗。current 在上；under
+ * 隐藏挂载（keep-alive，转场窗口期由窗口规则接管显示）。
+ */
+.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='current'],
+.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='under'] {
+  left: 0;
+  width: 100%;
+}
+
+.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='current'] {
+  z-index: 2;
+}
+
+.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='under'] {
+  display: none;
+  transform: translateX(-30%);
+  z-index: 1;
+}
+
+/*
+ * 角色 · parked：不在当前视图的挂载页（宽形态下的窄屏残留栈层等）。
+ * 排到右缘外待命，stage 的 overflow: hidden 裁掉。
+ */
+.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='parked'] {
+  left: var(--asn-list-ratio, 38%);
+  right: 0;
+  transform: translateX(100%);
+  z-index: 9;
+}
+
+/*
+ * 角色 · list（左栏列表页）：宽度随形态变量（stack→100%、split→ratio），
+ * width 过渡与 tsx 面板滑轨同源同拍（缝隙恒等式）。A 型形变例外——列表
+ * 由 tsx 内联钉宽整体滑入（刚性面板免逐帧重排），届时 morphing 规则关掉
+ * 这条过渡（见文件尾）。
+ */
+.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='list'] {
+  left: 0;
+  width: var(--asn-list-w, var(--asn-list-ratio, 38%));
+  z-index: 2;
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
+  transition: width var(--asn-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 子页栈形态贴边显示，不画分栏分隔线 */
+.adaptive-split-nav--flat
+  .adaptive-split-nav__stage[data-form='stack']
+  .adaptive-split-nav__host[data-pos='list'] {
+  border-right: 0;
+  box-shadow: none;
+}
+
+/*
+ * 角色 · detail（右栏帧）：left 对齐左栏右缘（含 min 钳制后的实际值），
+ * 叠放位移由 tsx 按状态写内联（active 就位、底层 -30% 露边、待入 100%），
+ * 过渡只在状态切换时生效（形变期由 morphing 规则关闭）。
+ */
+.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='detail'] {
+  left: max(var(--asn-list-min, 240px), var(--asn-list-ratio, 38%));
+  right: 0;
+  z-index: 10;
+  transition: transform var(--asn-frame-ms, 380ms) ease-in-out;
+}
+
+/*
+ * 帧转场窗口（进/退子页）：与 PageStack、classic 帧栈同款拆盒——host 变
+ * 网格，页根 display: contents 拆出标题栏与正文，持续底色画在 host 伪元素
+ * 上（两页标题栏窗口期都透明），交叉淡移只动栏内一排元素，正文整页滑。
+ * 窗口期 host 盒子（含内联叠放位移）钉住不动，位移全交给正文动画。
+ */
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-under,
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-over,
+.adaptive-split-nav--flat[data-frame-nav] .adaptive-split-nav__host.is-under,
+.adaptive-split-nav--flat[data-frame-nav] .adaptive-split-nav__host.is-over {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  transform: none;
+  transition: none;
+  pointer-events: none;
+}
+
+/* 窗口期不拆非参与帧：宽屏 pop 底层帧、待入帧一律让位（classic 同款） */
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host[data-pos='detail']:not(.is-under):not(.is-over) {
+  display: none !important;
+}
+
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-under
+  > .page,
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-over
+  > .page,
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-under
+  > .page,
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-over
+  > .page {
+  display: contents;
+  height: auto;
+}
+
+/* 持续底色：窗口期两页标题栏透明，底色由参与 host 的伪元素一力承担 */
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-under::before,
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-over::before,
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-under::before,
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-over::before {
+  content: '';
+  grid-row: 1;
+  grid-column: 1;
+  z-index: 2;
+  background: var(--page-header-bg, linear-gradient(180deg, #ececec 0%, #e0e0e0 100%));
+  border-bottom: var(--page-header-border, 1px solid rgba(0, 0, 0, 0.14));
+}
+
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-under
+  .page-header,
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-over
+  .page-header,
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-under
+  .page-header,
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-over
+  .page-header {
+  grid-row: 1;
+  grid-column: 1;
+  position: relative;
+  z-index: 3;
+  box-shadow: none !important;
+  background: transparent;
+}
+
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-over
+  .page-header,
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-over
+  .page-header {
+  z-index: 4;
+}
+
+/* 窄屏子页栈转场：0.35s 与 PageStack 同拍 */
+.adaptive-split-nav--flat[data-stack-transition='push']
+  .adaptive-split-nav__host.is-under
+  .page-header__bar {
+  animation: page-nav-leave-push 0.35s ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-stack-transition='push']
+  .adaptive-split-nav__host.is-over
+  .page-header__bar {
+  animation: page-nav-enter-push 0.35s ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-stack-transition='pop']
+  .adaptive-split-nav__host.is-over
+  .page-header__bar {
+  animation: page-nav-leave-pop 0.35s ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-stack-transition='pop']
+  .adaptive-split-nav__host.is-under
+  .page-header__bar {
+  animation: page-nav-enter-pop 0.35s ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-under
+  .page__body,
+.adaptive-split-nav--flat[data-stack-transition]
+  .adaptive-split-nav__host.is-over
+  .page__body {
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+  background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
+}
+
+.adaptive-split-nav--flat[data-stack-transition='push']
+  .adaptive-split-nav__host.is-under
+  .page__body {
+  animation: page-body-under-push 0.35s ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-stack-transition='push']
+  .adaptive-split-nav__host.is-over
+  .page__body {
+  animation: page-body-over-push 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+.adaptive-split-nav--flat[data-stack-transition='pop']
+  .adaptive-split-nav__host.is-under
+  .page__body {
+  animation: page-body-under-pop 0.35s ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-stack-transition='pop']
+  .adaptive-split-nav__host.is-over
+  .page__body {
+  animation: page-body-over-pop 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+/* 宽屏帧转场窗口：时长取 --asn-frame-ms 与帧位移同拍 */
+.adaptive-split-nav--flat[data-frame-nav='push']
+  .adaptive-split-nav__host.is-under
+  .page-header__bar {
+  animation: page-nav-leave-push var(--asn-frame-ms, 380ms) ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-frame-nav='push']
+  .adaptive-split-nav__host.is-over
+  .page-header__bar {
+  animation: page-nav-enter-push var(--asn-frame-ms, 380ms) ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-frame-nav='pop']
+  .adaptive-split-nav__host.is-over
+  .page-header__bar {
+  animation: page-nav-leave-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-frame-nav='pop']
+  .adaptive-split-nav__host.is-under
+  .page-header__bar {
+  animation: page-nav-enter-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-under
+  .page__body,
+.adaptive-split-nav--flat[data-frame-nav]
+  .adaptive-split-nav__host.is-over
+  .page__body {
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+  background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
+}
+
+.adaptive-split-nav--flat[data-frame-nav='push']
+  .adaptive-split-nav__host.is-under
+  .page__body {
+  animation: page-body-under-push var(--asn-frame-ms, 380ms) ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-frame-nav='push']
+  .adaptive-split-nav__host.is-over
+  .page__body {
+  animation: page-body-over-push var(--asn-frame-ms, 380ms) ease-in-out both;
+  z-index: 2;
+}
+
+.adaptive-split-nav--flat[data-frame-nav='pop']
+  .adaptive-split-nav__host.is-under
+  .page__body {
+  animation: page-body-under-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+}
+
+.adaptive-split-nav--flat[data-frame-nav='pop']
+  .adaptive-split-nav__host.is-over
+  .page__body {
+  animation: page-body-over-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+  z-index: 2;
+}
+
+/*
+ * 宽窄形变（滑轨 A~D）：host 盒子的几何全部由 tsx 内联钉住 + WAAPI 驱动，
+ * 这里只负责把常态过渡关干净——detail 的叠放位移过渡、A 型列表的宽度过渡
+ * （B/C/D 的列表宽度过渡是滑轨的一半，保留与面板同拍联动）。
+ */
+.adaptive-split-nav--morphing .adaptive-split-nav__host[data-pos='detail'] {
+  transition: none;
+}
+
+.adaptive-split-nav--morphing[data-morph-kind='A']
+  .adaptive-split-nav__host[data-pos='list'] {
+  transition: none;
+}
+
+/* 页脚（可选）：随左栏列宽，与列表 host 的宽度过渡同拍 */
+.adaptive-split-nav--flat .adaptive-split-nav__flat-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--asn-list-w, var(--asn-list-ratio, 38%));
+  z-index: 3;
+  transition: width var(--asn-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 分栏空态：中性占位（右栏无帧时），应用可经 renderDetailEmpty 自定内容 */
+.adaptive-split-nav--flat .adaptive-split-nav__flat-empty {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: max(var(--asn-list-min, 240px), var(--asn-list-ratio, 38%));
+  right: 0;
+  overflow: hidden;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='list'],
+  .adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='detail'],
+  .adaptive-split-nav--flat .adaptive-split-nav__flat-footer {
+    transition: none;
+  }
+
+  .adaptive-split-nav--flat[data-stack-transition] .page-header__bar,
+  .adaptive-split-nav--flat[data-stack-transition] .page__body,
+  .adaptive-split-nav--flat[data-frame-nav] .page-header__bar,
+  .adaptive-split-nav--flat[data-frame-nav] .page__body {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  .adaptive-split-nav--flat[data-stack-transition] .adaptive-split-nav__host::before,
+  .adaptive-split-nav--flat[data-frame-nav] .adaptive-split-nav__host::before {
+    content: none;
+  }
+}

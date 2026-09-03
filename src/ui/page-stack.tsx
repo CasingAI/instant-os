@@ -83,10 +83,13 @@ export function usePageStack<T extends string>(initial: T) {
     (event: AnimationEvent) => {
       const stackEl = event.currentTarget
       if (!(stackEl instanceof HTMLElement)) return
-      if (
-        !stackEl.classList.contains('page-stack--push') &&
-        !stackEl.classList.contains('page-stack--pop')
-      ) {
+      // 转场根可以用类名（PageStack 组件）或 data-stack-transition 属性
+      // （AdaptiveSplitNav flat 引擎等自管渲染层的消费方）标记
+      const isTransitionRoot =
+        stackEl.classList.contains('page-stack--push') ||
+        stackEl.classList.contains('page-stack--pop') ||
+        stackEl.hasAttribute('data-stack-transition')
+      if (!isTransitionRoot) {
         return
       }
       const name = event.animationName
@@ -98,7 +101,9 @@ export function usePageStack<T extends string>(initial: T) {
       }
       const target = event.target
       if (!(target instanceof Element) || !stackEl.contains(target)) return
-      const owner = target.closest('.page-stack--push, .page-stack--pop')
+      const owner = target.closest(
+        '.page-stack--push, .page-stack--pop, [data-stack-transition]',
+      )
       if (owner !== stackEl) return
 
       const current = transitionRef.current
