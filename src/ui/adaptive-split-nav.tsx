@@ -12,6 +12,7 @@ import {
   useAppNarrowLayout,
 } from './use-app-narrow-layout.ts'
 import { PageStack, usePageStack, type PageStackTransition } from './page-stack.tsx'
+import { hitsNavFrameIndex, wideNavFrameIndices } from './adaptive-split-nav-model.ts'
 import './adaptive-split-nav.css'
 import './adaptive-split-nav-flat.css'
 import './theme.css'
@@ -890,10 +891,12 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
 
 // ── flat 引擎：平铺单实例渲染 ──
 // 每页一个常驻 host（stage 的绝对定位子节点），data-pos 表达角色——窄/宽
-// 只是同一骨架下 host 盒子的两种角色状态。进退动画作用在 host 内的
-// header/正文（host 盒本身不动）；宽窄形变由 tsx 用 WAAPI 直接动 host 盒
-// 子的几何（编排与缝隙数学照 classic 移植）。页面内容从不换手：没有副本、
-// 没有交接，形态切换零重挂载，跨形态滚动位置天然保留。
+// 只是同一骨架下 host 盒子的两种角色状态。详情 host 恒钉右栏矩形，叠放
+// 位移（露边/待入）写在盒内 slider 层上，host 只负责裁切；进退动画作用
+// 在 host 内的 header/正文（host 盒本身不动）；宽窄形变是另一套编排，由
+// tsx 用 WAAPI 直接动 host 盒子的几何（编排与缝隙数学照 classic 移植）。
+// 页面内容从不换手：没有副本、没有交接，形态切换零重挂载，跨形态滚动
+// 位置天然保留。
 
 type FlatHostPos = 'current' | 'under' | 'parked' | 'list' | 'detail'
 
@@ -952,9 +955,14 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
   const openFrameNav = (direction: 'push' | 'pop') => {
     window.clearTimeout(frameNavTimerRef.current)
     setFrameNav(direction)
+    // 计时器只是兜底（reduced-motion 下动画为 none、animationend 永不来），
+    // 正常收口在根 onAnimationEnd：计时器发起于 effect、动画在下一渲染帧
+    // 才起跑，按帧长定的 deadline 必然早于动画终点——关窗帧上动画还差
+    // 尾段 1~2px 没走完，fill 撤除会把 body 从缓动尾段硬拽到位，接缝处
+    // 闪出底下的画面。放宽余量让它只可能晚到；晚到关窗幂等（终态＝自然态）。
     frameNavTimerRef.current = window.setTimeout(() => {
       setFrameNav(undefined)
-    }, frameAnimationMs)
+    }, frameAnimationMs + 60)
   }
   const closeFrameNav = () => {
     window.clearTimeout(frameNavTimerRef.current)
@@ -971,7 +979,11 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
     const prevLen = prevLiveLenRef.current
     if (resetChanged || Math.abs(nextLen - prevLen) > 1) {
       prevLiveLenRef.current = nextLen
+      // 整体替换可能撞上未关的帧窗口（书→架自动展开撞上 pop 收尾等）：
+      // 滞留的窗口方向会按新 active 误标 is-under/over，拆盒动画重放到
+      // 替换后的帧上，顺手关窗。
       setExitingIds([])
+      closeFrameNav()
       setWideIndex(Math.max(0, nextLen - 1))
       return
     }
@@ -981,9 +993,13 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
       setExitingIds(popped)
       setWideIndex(Math.max(0, nextLen - 1))
       if (!morphRef.current) openFrameNav('pop')
+      // 退场帧正常路径与关窗同拍卸载（根 onAnimationEnd，见彼处注释）；
+      // 此计时器只兜底 reduced-motion / 动画被内容打断的场景——届时
+      // transition 一并被 reduced-motion 关闭，slider 瞬移 100% 后摘除
+      // 不可见。
       const timer = window.setTimeout(() => {
         setExitingIds([])
-      }, frameAnimationMs)
+      }, frameAnimationMs + 60)
       return () => window.clearTimeout(timer)
     }
     if (nextLen > prevLen) return
@@ -1328,8 +1344,10 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
         ? transition.to
         : transition.from
       : undefined
-  const navUnder = frameNav === 'push' ? active - 1 : frameNav === 'pop' ? active : -1
-  const navOver = frameNav === 'push' ? active : frameNav === 'pop' ? active + 1 : -1
+  // -1 表示「这一侧没有帧」；host 不在帧序列里时 indexOf 也是 -1。匹配
+  // 走 hitsNavFrameIndex（要求 fi >= 0），否则从列表点进首个子页
+  // （active=0、push）时左栏会被误标成 under，拆盒后变成并排卡片。
+  const { navUnder, navOver } = wideNavFrameIndices(frameNav, active)
 
   // host 角色。形变期（窄形态）按起始（分栏）几何画：帧保持 detail、列表
   // 保持 list，等收尾才整体换成窄屏角色——面板盖满的瞬间无缝换装。
@@ -1370,8 +1388,27 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
       data-stack-transition={transition ? transition.direction : undefined}
       data-frame-nav={frameNav}
       onAnimationEnd={(event) => {
-        // 宽屏帧窗口的动画由定时器收尾，不交给子页栈状态机
-        if (frameNavRef.current) return
+        // 宽屏帧窗口由动画自身收口（与 PageStack 的 motion-end 契约同构）：
+        // 四个 body 滑动动画同拍起跑、同拍到终点，任一到位即关窗，fill 终态
+        // 与关窗后的自然态逐像素一致；计时器只兜底（reduced-motion 下动画为
+        // none、animationend 永不来）。pop 的退场帧必须与关窗同一拍卸载：
+        // 关窗即失参与态，slider 的 transform 过渡会从原位重新滑向 100%、
+        // 整页回显一瞬才被兜底计时器摘除（闪现）；此刻退场页停在 fill 终点
+        // （body 100% 离屏、header 栏 opacity 0），同拍卸载不可见。其余动画
+        // 名（应用内容里的动画会冒泡上来）不收口、也不交给子页栈状态机。
+        if (frameNavRef.current) {
+          const name = event.animationName
+          if (
+            name === 'page-body-under-push' ||
+            name === 'page-body-over-push' ||
+            name === 'page-body-under-pop' ||
+            name === 'page-body-over-pop'
+          ) {
+            setExitingIds([])
+            closeFrameNav()
+          }
+          return
+        }
         controller.stackView.handleMotionEnd(event)
       }}
     >
@@ -1382,10 +1419,10 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
           const fi = viewIds.indexOf(id)
           const isUnder =
             (transition !== undefined && id === underId) ||
-            (frameNav !== undefined && fi === navUnder)
+            (frameNav !== undefined && hitsNavFrameIndex(fi, navUnder))
           const isOver =
             (transition !== undefined && id === overId) ||
-            (frameNav !== undefined && fi === navOver)
+            (frameNav !== undefined && hitsNavFrameIndex(fi, navOver))
           const cls = [
             'adaptive-split-nav__host',
             isUnder ? 'is-under' : '',
@@ -1393,25 +1430,24 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
           ]
             .filter(Boolean)
             .join(' ')
-          // detail 叠放位移：active 就位、底层 -30% 露边、待入 100%。转场
-          // 窗口的参与帧不写——窗口规则要钉 transform:none，内联会压过 CSS；
-          // 形变期 WAAPI 动 left/width，盖过内联无冲突。只有 active 接交互。
-          const style: {
-            transform?: string
-            zIndex?: string
-            pointerEvents?: string
-          } = {}
+          // detail 叠放位移写在 slider 上（host 盒恒钉右栏、只负责裁切）：
+          // active 就位、底层 -30% 露边、待入 100%。转场窗口的参与帧不写
+          // ——窗口规则把 slider 打平进 host 内网格，内联会压过 CSS；形变
+          // 期 WAAPI 动 host 的 left/width，与 slider 无冲突。只有 active
+          // 接交互。slider 对所有角色常驻：角色切换只改属性，内容零重挂。
+          const hostStyle: { zIndex?: string } = {}
+          const slideStyle: { transform?: string; pointerEvents?: string } = {}
           if (pos === 'detail') {
             if (!isUnder && !isOver) {
-              style.transform =
+              slideStyle.transform =
                 fi === active
                   ? 'translateX(0)'
                   : fi < active
                     ? 'translateX(-30%)'
                     : 'translateX(100%)'
-              style.pointerEvents = fi === active ? 'auto' : 'none'
+              slideStyle.pointerEvents = fi === active ? 'auto' : 'none'
             }
-            style.zIndex = `${10 + Math.max(fi, 0)}`
+            hostStyle.zIndex = `${10 + Math.max(fi, 0)}`
           }
           return (
             <div
@@ -1422,14 +1458,16 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
               }}
               class={cls}
               data-pos={pos}
-              style={style}
+              style={hostStyle}
               aria-hidden={
                 narrowLayout && (pos === 'detail' || pos === 'parked')
                   ? true
                   : undefined
               }
             >
-              {renderPage(id, pageCtx)}
+              <div class="adaptive-split-nav__host-slider" style={slideStyle}>
+                {renderPage(id, pageCtx)}
+              </div>
             </div>
           )
         })}

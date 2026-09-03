@@ -208,6 +208,8 @@
   z-index: 3;
   box-shadow: none !important;
   background: transparent;
+  /* 边框与底色同理让位 ::before 持续条带，否则三线叠加变深 */
+  border-bottom-color: transparent;
 }
 
 .adaptive-split-nav__frames--push .is-over .page-header,

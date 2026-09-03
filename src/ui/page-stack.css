@@ -193,12 +193,15 @@
   border-bottom: var(--page-header-border);
 }
 
-/* 转场期两页 Header 都不铺底色：持续底色由上面的伪元素提供 */
+/* 转场期两页 Header 都不铺底色：持续底色由上面的伪元素提供。
+ * 边框同理让位——两页各自的 border-bottom 叠上伪元素那条，
+ * 1px 线上半透明色逐层 alpha 叠加，动画期间会明显变深。 */
 .page-stack--push .page-stack__layer--under .page-header,
 .page-stack--push .page-stack__layer--over .page-header,
 .page-stack--pop .page-stack__layer--under .page-header,
 .page-stack--pop .page-stack__layer--over .page-header {
   background: transparent;
+  border-bottom-color: transparent;
 }
 
 /* 进场 Header 抬到离场之上，两排元素才有先后遮蔽关系 */
