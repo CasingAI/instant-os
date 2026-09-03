@@ -476,89 +476,25 @@ export function SettingsChoiceFieldDemo() {
 }
 
 export function ListDemo() {
-  const tokens = 'ui-kit-demo__settings-tokens'
   const files = [
     { id: 'f1', name: '季度报告.pdf', size: '2.4 MB' },
     { id: 'f2', name: '设计稿.sketch', size: '18.7 MB' },
     { id: 'f3', name: '会议记录.md', size: '12 KB' },
     { id: 'f4', name: '素材包.zip', size: '148 MB' },
-    { id: 'f5', name: '数据备份.dmg', size: '1.2 GB' },
-  ]
-  const [editing, setEditing] = useState(false)
-  const [items, setItems] = useState([
-    { id: 'books', label: '图书', size: '412 MB' },
-    { id: 'music', label: '音乐', size: '1.8 GB' },
-    { id: 'photos', label: '照片', size: '23.4 GB' },
-    { id: 'mail', label: '邮件', size: '306 MB' },
-    { id: 'docs', label: '文稿与数据', size: '5.1 GB' },
-  ])
-
-  const reorder = (fromId: string, toId: string) => {
-    setItems((prev) => {
-      const from = prev.findIndex((it) => it.id === fromId)
-      const to = prev.findIndex((it) => it.id === toId)
-      if (from < 0 || to < 0) return prev
-      const next = [...prev]
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-      return next
-    })
-  }
-
-  const sections = [
-    { id: 'A', names: ['阿福', '安琪', '艾伦'] },
-    { id: 'B', names: ['白露', '百晓生', '波波'] },
-    { id: 'C', names: ['曹操', '陈皮', '春妮'] },
-    { id: 'D', names: ['大卫', '丁丁', '东东'] },
   ]
 
   return (
     <DemoVariants>
       <DemoVariant label="节标题 / 脚注" wide>
-        <List class={tokens} title="通用" footnote="重置网络设置将清除已保存的 Wi-Fi 密码。">
+        <List title="通用" footnote="重置网络设置将清除已保存的 Wi-Fi 密码。">
           <ListItem label="关于本机" value="iOS 6.1.4" accessory="disclosure" />
           <ListItem label="软件更新" value="已是最新" accessory="disclosure" />
-          <ListItem label="用法说明" accessory="disclosure" />
         </List>
-      </DemoVariant>
-      <DemoVariant label="A-Z 索引条（点字母或沿条拖动跳节）" wide>
-        <List class={tokens} indexBar bodyClass="settings__list-body">
-          {sections.map((section) => (
-            <ListSection key={section.id} id={section.id} title={section.id}>
-              {section.names.map((name) => (
-                <ListItem key={name} label={name} value="详情" accessory="disclosure" />
-              ))}
-            </ListSection>
-          ))}
-        </List>
-      </DemoVariant>
-      <DemoVariant label="编辑模式（减号删除 / 把手排序）" wide>
-        <IosButton size="compact" onClick={() => setEditing(!editing)}>
-          {editing ? '完成' : '编辑'}
-        </IosButton>
-        <List
-          class={tokens}
-          editing={editing}
-          onDelete={(id) => setItems((prev) => prev.filter((it) => it.id !== id))}
-          onReorder={reorder}
-        >
-          {items.map((it) => (
-            <ListItem key={it.id} id={it.id} label={it.label} value={it.size} />
-          ))}
-        </List>
-        {items.length === 0 && <div class="settings__box settings__empty">全部已删除</div>}
       </DemoVariant>
       <DemoVariant label="表头 + 限高滚动区" wide>
-        <List
-          class={tokens}
-          head={<><span>文件</span><span>大小</span></>}
-          bodyClass="settings__list-body"
-        >
+        <List head={<><span>文件</span><span>大小</span></>} scrollable>
           {files.map((file) => (
-            <div key={file.id} class="settings__row">
-              <span class="settings__row-name">{file.name}</span>
-              <span class="settings__row-size">{file.size}</span>
-            </div>
+            <ListItem key={file.id} label={file.name} value={file.size} />
           ))}
         </List>
       </DemoVariant>
@@ -567,12 +503,6 @@ export function ListDemo() {
 }
 
 export function ListItemDemo() {
-  const tokens = 'ui-kit-demo__settings-tokens'
-  const [selectedId, setSelectedId] = useState('icloud')
-  const [wifi, setWifi] = useState(true)
-  const [autoDownload, setAutoDownload] = useState(false)
-  const [home, setHome] = useState('https://')
-
   const leading = (emoji: string, color: string) => (
     <span
       style={{
@@ -590,31 +520,41 @@ export function ListItemDemo() {
     </span>
   )
 
-  const accounts = [
-    { id: 'icloud', label: 'iCloud', value: 'john@example.com' },
-    { id: 'exchange', label: 'Exchange', value: 'work@example.com' },
-    { id: 'gmail', label: 'Gmail', value: 'john@gmail.com' },
-  ]
-
   return (
     <DemoVariants>
       <DemoVariant label="槽位：值 / 副标题 / 图标 / 徽章 / extra" wide>
-        <List class={tokens}>
+        <List>
           <ListItem label="网络" value="Wi-Fi" accessory="disclosure" />
           <ListItem label="面容解锁" subtitle="抬起唤醒并注视屏幕以解锁" accessory="disclosure" />
           <ListItem leading={leading('🎵', '#fa5c8f')} label="音乐" value="128 GB" />
           <ListItem label="测试通道" badge="BETA" value="已加入" />
-          <ListItem label="上次备份" extra={<span class="settings__row-size">2 分钟前</span>} />
+          <ListItem label="上次备份" extra={<span class="list-item__value">2 分钟前</span>} />
         </List>
       </DemoVariant>
       <DemoVariant label="配件：蓝色 ⓘ 详情钮（点击不触发行）">
-        <List class={tokens}>
+        <List>
           <ListItem label="iCloud 云盘" value="已开启" accessory="detail" />
           <ListItem label="查找我的 iPhone" value="关闭" accessory="detail" />
         </List>
       </DemoVariant>
-      <DemoVariant label="受控单选（List selectedId/onSelect + accessory 勾）" wide>
-        <List class={tokens} selectedId={selectedId} onSelect={setSelectedId}>
+    </DemoVariants>
+  )
+}
+
+export function ListSelectionDemo() {
+  const [selectedId, setSelectedId] = useState('icloud')
+
+  const accounts = [
+    { id: 'icloud', label: 'iCloud', value: 'john@example.com' },
+    { id: 'exchange', label: 'Exchange', value: 'work@example.com' },
+    { id: 'gmail', label: 'Gmail', value: 'john@gmail.com' },
+    { id: 'qq', label: 'QQ 邮箱', value: 'john@qq.com' },
+  ]
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="selectedId/onSelect + accessory 勾随选中" wide>
+        <List selectedId={selectedId} onSelect={setSelectedId}>
           {accounts.map((account) => (
             <ListItem
               key={account.id}
@@ -625,9 +565,21 @@ export function ListItemDemo() {
             />
           ))}
         </List>
+        <p class="ui-kit-demo__status">当前选中：{selectedId}</p>
       </DemoVariant>
-      <DemoVariant label="控件组合（control 槽 / 整行点按切换）" wide>
-        <List class={tokens}>
+    </DemoVariants>
+  )
+}
+
+export function ListControlsDemo() {
+  const [wifi, setWifi] = useState(true)
+  const [autoDownload, setAutoDownload] = useState(false)
+  const [home, setHome] = useState('https://')
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="control 槽（点控件不触发行）/ 整行点按勾选" wide>
+        <List>
           <ListItem
             label="Wi-Fi"
             value={wifi ? '已开启' : '关闭'}
@@ -650,6 +602,89 @@ export function ListItemDemo() {
             onClick={() => setAutoDownload(!autoDownload)}
           />
         </List>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function ListIndexDemo() {
+  const sections = [
+    { id: 'A', names: ['阿福', '安琪', '艾伦'] },
+    { id: 'B', names: ['白露', '百晓生', '波波'] },
+    { id: 'C', names: ['曹操', '陈皮', '春妮'] },
+    { id: 'D', names: ['大卫', '丁丁', '东东'] },
+    { id: 'E', names: ['恩雅', '耳东', '尔朱'] },
+    { id: 'F', names: ['范闲', '方鸿', '飞白'] },
+    { id: 'G', names: ['高渐', '关雎', '归海'] },
+    { id: 'H', names: ['韩非', '何晏', '胡杨'] },
+  ]
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="点字母或沿条拖动跳节" wide>
+        <List indexBar scrollable>
+          {sections.map((section) => (
+            <ListSection key={section.id} id={section.id} title={section.id}>
+              {section.names.map((name) => (
+                <ListItem key={name} label={name} value="详情" accessory="disclosure" />
+              ))}
+            </ListSection>
+          ))}
+        </List>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function ListEditingDemo() {
+  const INITIAL_SHOPPING = [
+    { id: 'milk', label: '牛奶', qty: '×2' },
+    { id: 'eggs', label: '鸡蛋', qty: '×12' },
+    { id: 'bread', label: '吐司', qty: '×1' },
+    { id: 'coffee', label: '咖啡豆', qty: '×1' },
+    { id: 'apple', label: '苹果', qty: '×6' },
+    { id: 'yogurt', label: '酸奶', qty: '×4' },
+    { id: 'tissue', label: '纸巾', qty: '×1' },
+    { id: 'detergent', label: '洗衣液', qty: '×1' },
+  ]
+  const [editing, setEditing] = useState(false)
+  const [shopping, setShopping] = useState(INITIAL_SHOPPING)
+
+  const reorder = (fromId: string, toId: string) => {
+    setShopping((prev) => {
+      const from = prev.findIndex((it) => it.id === fromId)
+      const to = prev.findIndex((it) => it.id === toId)
+      if (from < 0 || to < 0) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="「编辑」进出：减号删除 / 把手重排" wide>
+        <div class="ui-kit-demo__row">
+          <IosButton size="compact" onClick={() => setEditing(!editing)}>
+            {editing ? '完成' : '编辑'}
+          </IosButton>
+          {!editing && shopping.length !== INITIAL_SHOPPING.length && (
+            <IosButton size="compact" onClick={() => setShopping(INITIAL_SHOPPING)}>
+              还原清单
+            </IosButton>
+          )}
+        </div>
+        <List
+          editing={editing}
+          onDelete={(id) => setShopping((prev) => prev.filter((it) => it.id !== id))}
+          onReorder={reorder}
+        >
+          {shopping.map((item) => (
+            <ListItem key={item.id} id={item.id} label={item.label} value={item.qty} />
+          ))}
+        </List>
+        {shopping.length === 0 && <p class="list__footnote">清单已清空</p>}
       </DemoVariant>
     </DemoVariants>
   )

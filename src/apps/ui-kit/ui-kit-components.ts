@@ -8,7 +8,7 @@ export type ComponentDemo = {
   id: string
   name: string
   description: string
-  category: 'form' | 'settings' | 'navigation' | 'tree' | 'picker' | 'other' | 'window'
+  category: 'list-showcase' | 'form' | 'settings' | 'navigation' | 'tree' | 'picker' | 'other' | 'window'
   importPath: string
   props: ComponentProp[]
   codeExample: string
@@ -334,8 +334,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'list',
     name: 'List',
     description:
-      '设置风格分组列表容器；行内容放 ListItem / SettingsNavRow 等行组件，支持节标题/脚注、表头滚动区、A-Z 索引条与 iOS 6 编辑模式（减号删除 + 把手排序）',
-    category: 'settings',
+      '设置风格分组列表容器；行内容放 ListItem，支持节标题/脚注、表头滚动区、A-Z 索引条与 iOS 6 编辑模式（减号删除 + 把手排序）；样式完全自有（--list-* token），行 hover 蓝渐变反白（编辑模式暂停）',
+    category: 'list-showcase',
     importPath: "import { List, ListSection } from '../../ui/list.tsx'",
     props: [
       { name: 'children', type: 'ComponentChildren', description: '列表行（ListItem / ListSection / 行组件）' },
@@ -343,8 +343,9 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'title', type: 'ComponentChildren?', description: '节标题（盒子外上方）' },
       { name: 'footnote', type: 'ComponentChildren?', description: '节脚注（盒子外下方）' },
       { name: 'head', type: 'ComponentChildren?', description: '表头单元格（span 序列），有值时渲染表头行' },
-      { name: 'headClass', type: 'string?', description: '表头变体类（settings__list-head--tokens 等）' },
-      { name: 'bodyClass', type: 'string?', description: '滚动体变体类（settings__list-body--apps 等）；有值时 children 包进滚动区' },
+      { name: 'headClass', type: 'string?', description: '追加到表头的附加类' },
+      { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区（max-height 280 + overflow auto）' },
+      { name: 'bodyClass', type: 'string?', description: '追加到滚动体的附加类；配合 scrollable 使用' },
       { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节' },
       { name: 'editing', type: 'boolean?', description: '编辑模式：行出现减号删除钮与拖拽排序把手' },
       { name: 'selectedId', type: 'string?', description: '受控单选：配合 ListItem 的 id' },
@@ -370,7 +371,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     name: 'ListItem',
     description:
       'List 的组合行（AntD List.Item 风格）：label/subtitle/leading/value/extra/control 槽位自由拼装；accessory 配件（箭头/选中勾/蓝 ⓘ）；带 id 即与 List 受控单选、编辑模式结合',
-    category: 'settings',
+    category: 'list-showcase',
     importPath: "import { ListItem } from '../../ui/list-item.tsx'",
     props: [
       { name: 'id', type: 'string?', description: '稳定 id：参与 List 受控单选与编辑模式' },
@@ -397,6 +398,81 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 
 // 控件槽：开关行
 <ListItem label="Wi-Fi" control={<IosSwitch checked={on} onChange={setOn} label="Wi-Fi" />} />`,
+  },
+  {
+    id: 'list-selection',
+    name: 'List 受控单选',
+    description: 'List 给 selectedId/onSelect，ListItem 带 id 即结合：点击自动上报、蓝底高亮、accessory 勾随选中',
+    category: 'list-showcase',
+    importPath: "import { List } from '../../ui/list.tsx'\nimport { ListItem } from '../../ui/list-item.tsx'",
+    props: [
+      { name: 'selectedId', type: 'string?', description: 'List 受控选中的行 id' },
+      { name: 'onSelect', type: '(id: string) => void?', description: '行点击上报' },
+      { name: 'id', type: 'string?', description: 'ListItem 的稳定 id' },
+      { name: 'accessory', type: "'check'?", description: '勾随选中态出现' },
+    ],
+    codeExample: `const [id, setId] = useState('icloud')
+
+<List selectedId={id} onSelect={setId}>
+  <ListItem id="icloud" label="iCloud" value="john@example.com" accessory="check" />
+  <ListItem id="gmail" label="Gmail" value="john@gmail.com" accessory="check" />
+</List>`,
+  },
+  {
+    id: 'list-controls',
+    name: 'List 控件行',
+    description: 'ListItem 的 control 槽放 IosSwitch / IosTextField（点控件不触发行）；纯勾选行用整行点按切换',
+    category: 'list-showcase',
+    importPath: "import { ListItem } from '../../ui/list-item.tsx'",
+    props: [
+      { name: 'control', type: 'ComponentChildren?', description: '控件槽；点击不冒泡到行' },
+      { name: 'value', type: 'ComponentChildren?', description: '右侧值文本' },
+      { name: 'selected', type: 'boolean?', description: '强制选中态（配合 accessory="check"）' },
+      { name: 'onClick', type: '() => void?', description: '整行点按（如勾选切换）' },
+    ],
+    codeExample: `<ListItem label="Wi-Fi" control={<IosSwitch checked={on} onChange={setOn} label="Wi-Fi" />} />
+<ListItem label="自动下载" selected={auto} accessory="check" onClick={() => setAuto(!auto)} />`,
+  },
+  {
+    id: 'list-index',
+    name: 'List A-Z 索引条',
+    description: 'ListSection 出分组与锚点，List 的 indexBar 出右缘字母条——点字母或沿条拖动跳节',
+    category: 'list-showcase',
+    importPath: "import { List, ListSection } from '../../ui/list.tsx'",
+    props: [
+      { name: 'indexBar', type: 'boolean?', description: '渲染右缘字母条；自动收集子级 ListSection' },
+      { name: 'id', type: 'string', description: 'ListSection 的分组锚点（同时是节标题）' },
+      { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区，索引跳转需要滚动容器' },
+    ],
+    codeExample: `<List indexBar scrollable>
+  <ListSection id="A" title="A">
+    <ListItem label="阿福" accessory="disclosure" />
+  </ListSection>
+  <ListSection id="B" title="B">
+    <ListItem label="白露" accessory="disclosure" />
+  </ListSection>
+</List>`,
+  },
+  {
+    id: 'list-editing',
+    name: 'List 编辑模式',
+    description: 'editing 进编辑态：点减号行内滑出红删除钮，拖右缘把手重排（拖动行浮起、其余让位），onDelete/onReorder 落数据',
+    category: 'list-showcase',
+    importPath: "import { List } from '../../ui/list.tsx'",
+    props: [
+      { name: 'editing', type: 'boolean?', description: '是否处于编辑态' },
+      { name: 'onDelete', type: '(id: string) => void?', description: '确认删除某行' },
+      { name: 'onReorder', type: '(fromId: string, toId: string) => void?', description: '拖拽重排落定' },
+    ],
+    codeExample: `const [editing, setEditing] = useState(false)
+
+<IosButton onClick={() => setEditing(!editing)}>{editing ? '完成' : '编辑'}</IosButton>
+<List class={tokens} editing={editing}
+  onDelete={(id) => remove(id)}
+  onReorder={(from, to) => reorder(from, to)}
+>
+  {items.map((it) => <ListItem key={it.id} id={it.id} label={it.label} value={it.qty} />)}
+</List>`,
   },
   {
     id: 'adaptive-split-nav',
@@ -757,6 +833,7 @@ const buttonRef = useRef(null)
 ]
 
 export const COMPONENT_CATEGORIES = [
+  { id: 'list-showcase', name: 'List 实战' },
   { id: 'form', name: '表单控件' },
   { id: 'settings', name: '设置组件' },
   { id: 'navigation', name: '导航交互' },

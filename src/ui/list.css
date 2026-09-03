@@ -1,13 +1,169 @@
-/* List 家族新能力配套样式。
-   容器与行的旧样式沿用 settings.css（settings__list / settings__row 系），
-   此处只定义 List/ListItem 新增槽位、索引条与编辑模式的样式。 */
+/* List / ListItem 自有样式表。
+   组件不依赖 settings 系老类：容器、行、槽位、状态观感全部在此定义。
+   token 以 var(--list-*, 字面值) 形式烘焙默认值，零外部作用域即可正确渲染；
+   换肤/暗色只需在宿主上覆盖 --list-* 变量。 */
 
-/* ── ListItem 组合行 ──
-   覆盖 settings__row 的 grid，槽位（leading/label/control/extra/配件）用 flex 自由组合 */
-.settings__row.list-item {
+/* ── token 默认值（换肤入口） ── */
+
+.list {
+  --list-bg: #fff;
+  --list-border: #a8a8a8;
+  --list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  --list-row-border: #ececec;
+  --list-value-ink: #666;
+  --list-disclosure: #b4b4b4;
+  --list-accent: #007aff;
+  --list-title-ink: #555;
+  --list-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --list-footnote-ink: #666;
+  --list-footnote-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+/* ── 容器盒 ── */
+
+.list {
+  overflow: hidden;
+  border: 1px solid var(--list-border, #a8a8a8);
+  border-radius: 4px;
+  background: var(--list-bg, #fff);
+  box-shadow: var(--list-shadow, inset 0 1px 2px rgba(0, 0, 0, 0.08));
+}
+
+.list + .list {
+  margin-top: 10px;
+}
+
+/* 节标题 / 节脚注在盒子外（.list 的兄弟节点），token 取宿主覆盖或内置默认 */
+.list__title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--list-title-ink, #555);
+  text-shadow: var(--list-title-shadow, 0 1px 0 rgba(255, 255, 255, 0.75));
+}
+
+.list__footnote {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--list-footnote-ink, #666);
+  text-align: start;
+  text-align-last: start;
+  text-justify: none;
+  text-shadow: var(--list-footnote-shadow, 0 1px 0 rgba(255, 255, 255, 0.75));
+}
+
+.list__head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 5px 12px;
+  border-bottom: 1px solid #c8c8c8;
+  background: linear-gradient(180deg, #f3f3f3 0%, #e4e4e4 100%);
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.list__head span:last-child {
+  text-align: right;
+}
+
+.list__body {
+  max-height: 280px;
+  overflow: auto;
+}
+
+/* ── 行 ── */
+
+.list-item {
   display: flex;
   position: relative;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 10px;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--list-row-border, #ececec);
+  font-size: 13px;
 }
+
+.list > .list-item:last-child {
+  border-bottom: none;
+}
+
+/* 包装在 ListSection 等容器内的行仍是 :last-child，需保留底部分隔线 */
+.list > :not(:last-child) > .list-item:last-child {
+  border-bottom: 1px solid var(--list-row-border, #ececec);
+}
+
+.list-item--static {
+  padding: 8px 12px;
+  cursor: default;
+}
+
+/* ── 行状态：hover / 按下 / 选中 / 禁用 ──
+   指针环境下行默认 hover 反白（系统设置同款触达反馈），编辑模式整行
+   点按暂停时 hover 一并收起；按下加深只属于真正可点的行（button）。 */
+
+.list-item--button {
+  cursor: default;
+  color: inherit;
+}
+
+.list:not(.list--editing) .list-item:hover:not(:disabled) {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
+}
+
+.list-item--button:active:not(:disabled) {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.list-item--selected:not(:disabled) {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
+}
+
+.list-item--selected:not(:disabled):active {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.list-item--button:disabled,
+.list-item--button:disabled:hover,
+.list-item--button:disabled:active {
+  cursor: default;
+  color: #8e8e93;
+  background: #d8d8d8;
+}
+
+/* hover / 按下 / 选中时次级墨水随行反白 */
+.list:not(.list--editing) .list-item:hover:not(:disabled) .list-item__value,
+.list-item--button:active:not(:disabled) .list-item__value,
+.list-item--selected:not(:disabled) .list-item__value {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.list:not(.list--editing) .list-item:hover:not(:disabled) .list-item__subtitle,
+.list-item--button:active:not(:disabled) .list-item__subtitle,
+.list-item--selected:not(:disabled) .list-item__subtitle {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.list:not(.list--editing) .list-item:hover:not(:disabled) .list-item__disclosure,
+.list-item--button:active:not(:disabled) .list-item__disclosure,
+.list-item--selected:not(:disabled) .list-item__disclosure {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.list-item--selected:not(:disabled) .list-item__check {
+  color: #fff;
+}
+
+/* ── 槽位 ── */
 
 .list-item__leading {
   flex-shrink: 0;
@@ -27,6 +183,16 @@
   gap: 1px;
 }
 
+.list-item__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .list-item__subtitle {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -35,10 +201,21 @@
   color: #888;
 }
 
-.settings__row--button:hover:not(:disabled) .list-item__subtitle,
-.settings__row--button:active:not(:disabled) .list-item__subtitle,
-.settings__row--selected:not(:disabled) .list-item__subtitle {
-  color: rgba(255, 255, 255, 0.75);
+.list-item__badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #5856d6;
+  background: rgba(88, 86, 214, 0.12);
+}
+
+.list-item__value {
+  font-size: 12px;
+  color: var(--list-value-ink, #666);
+  font-variant-numeric: tabular-nums;
 }
 
 .list-item__control,
@@ -51,13 +228,22 @@
 .list-item__check {
   flex-shrink: 0;
   width: 16px;
-  color: var(--settings-check, #007aff);
+  color: var(--list-accent, #007aff);
   font-weight: 600;
   text-align: center;
 }
 
-.settings__row--selected:not(:disabled) .list-item__check {
-  color: #fff;
+.list-item__disclosure {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--list-disclosure, #b4b4b4);
+  transition:
+    transform 0.15s ease,
+    color 0.1s ease;
 }
 
 .list-item__detail {
@@ -65,11 +251,20 @@
   display: inline-flex;
   align-items: center;
   cursor: pointer;
+  transition: filter 0.1s ease;
+}
+
+.list-item__detail:hover {
+  filter: brightness(1.15);
+}
+
+.list-item__detail:active {
+  filter: brightness(0.92);
 }
 
 /* ── 编辑模式 ── */
 
-.list--editing .settings__row.list-item {
+.list--editing .list-item {
   padding-left: 38px;
   padding-right: 8px;
   transition: padding 180ms ease;
@@ -103,6 +298,14 @@
   border-radius: 1px;
 }
 
+.list-item__minus:hover {
+  background: #e0342b;
+}
+
+.list-item__minus:active {
+  background: #c92f27;
+}
+
 /* 红色删除钮：armed 时从右缘滑入覆盖行 */
 .list-item__delete {
   position: absolute;
@@ -124,12 +327,20 @@
   transform: none;
 }
 
+.list-item__delete:hover {
+  background: #e0342b;
+}
+
+.list-item__delete:active {
+  background: #c92f27;
+}
+
 /* 拖拽把手 */
 .list-item__grabber {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  color: var(--settings-disclosure, #b4b4b4);
+  color: var(--list-disclosure, #b4b4b4);
   cursor: grab;
   touch-action: none;
 }
@@ -160,7 +371,7 @@
 
 /* ── A-Z 索引条：悬浮在列表盒右缘 ── */
 
-.settings__list.list--anchored {
+.list--anchored {
   position: relative;
 }
 
@@ -183,12 +394,16 @@
   font-weight: 600;
   line-height: 1.5;
   text-align: center;
-  color: var(--settings-section-title, #555);
+  color: var(--list-title-ink, #555);
   cursor: pointer;
   user-select: none;
 }
 
 .list__index-letter:hover,
 .list__index-letter--active {
-  color: #007aff;
+  color: var(--list-accent, #007aff);
+}
+
+.list__index-letter:active {
+  color: #2068b8;
 }

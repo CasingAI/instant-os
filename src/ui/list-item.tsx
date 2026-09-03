@@ -22,7 +22,7 @@ type ListItemProps = {
   control?: ComponentChildren
   /** 右侧配件：chevron 箭头 / 选中勾（跟随选中态）/ 蓝色 ⓘ 详情钮。 */
   accessory?: ListItemAccessory
-  /** 名称旁的徽章文本（settings__row-badge）。 */
+  /** 名称旁的徽章文本。 */
   badge?: string
   /** 强制选中态；缺省时由 List 的 selectedId 结合 id 推导。 */
   selected?: boolean
@@ -76,10 +76,9 @@ export function ListItem({
   }
 
   const className = [
-    'settings__row',
     'list-item',
-    interactive ? 'settings__row--button' : 'settings__row--static',
-    active ? 'settings__row--selected' : '',
+    interactive ? 'list-item--button' : 'list-item--static',
+    active ? 'list-item--selected' : '',
     armed ? 'list-item--armed' : '',
     itemClass,
   ]
@@ -103,9 +102,9 @@ export function ListItem({
       {leading !== undefined && <span class="list-item__leading">{leading}</span>}
       {label !== undefined && (
         <span class="list-item__label">
-          <span class="settings__row-name">
+          <span class="list-item__name">
             {label}
-            {badge !== undefined && <span class="settings__row-badge">{badge}</span>}
+            {badge !== undefined && <span class="list-item__badge">{badge}</span>}
           </span>
           {subtitle !== undefined && <span class="list-item__subtitle">{subtitle}</span>}
         </span>
@@ -120,7 +119,7 @@ export function ListItem({
       ) : extra !== undefined ? (
         <span class="list-item__extra">{extra}</span>
       ) : value !== undefined ? (
-        <span class="settings__row-size">{value}</span>
+        <span class="list-item__value">{value}</span>
       ) : undefined}
       {accessory === 'check' && active && (
         <span class="list-item__check" aria-hidden="true">
@@ -128,7 +127,7 @@ export function ListItem({
         </span>
       )}
       {accessory === 'disclosure' && (
-        <span class="settings__disclosure" aria-hidden="true">
+        <span class="list-item__disclosure" aria-hidden="true">
           <ForwardIcon size={13} />
         </span>
       )}

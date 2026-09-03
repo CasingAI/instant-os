@@ -4,17 +4,19 @@ import { useContext, useEffect, useRef, useState } from 'preact/hooks'
 import './list.css'
 
 type ListProps = {
-  /** 追加到容器的 app 局部修饰类（如 registry__key-list）。 */
+  /** 追加到容器的局部修饰类。 */
   class?: string
-  /** 表头内容（span 序列）；有值时渲染 settings__list-head 容器。 */
+  /** 表头内容（span 序列）；有值时渲染 list__head 容器。 */
   head?: ComponentChildren
-  /** 追加到表头的变体类（settings__list-head--tokens 等）。 */
+  /** 追加到表头的附加类。 */
   headClass?: string
-  /** 滚动体变体类（settings__list-body--apps 等）；有值时 children 包进 settings__list-body。 */
+  /** 追加到滚动体的附加类；配合 scrollable 使用。 */
   bodyClass?: string
-  /** 节标题（盒子外上方，settings__section-title）。 */
+  /** 滚动体：children 包进 list__body（max-height 280 + overflow auto）。 */
+  scrollable?: boolean
+  /** 节标题（盒子外上方）。 */
   title?: ComponentChildren
-  /** 节脚注（盒子外下方，settings__section-footnote）。 */
+  /** 节脚注（盒子外下方）。 */
   footnote?: ComponentChildren
   /** 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节。 */
   indexBar?: boolean
@@ -68,14 +70,16 @@ type ReorderDrag = {
 }
 
 /**
- * iOS 设置风格的分组列表容器（settings__list）。行内容放 ListItem 或
- * SettingsNavRow 等行组件；样式沿用 settings.css，新能力样式在 list.css。
+ * iOS 设置风格的分组列表容器。行内容放 ListItem（或过渡期旧家族行组件，
+ * 它们自带样式）；容器、行、状态观感全部自有于 list.css，不依赖任何外部
+ * 作用域——换肤/暗色只需覆盖 --list-* token。
  */
 export function List({
   class: listClass,
   head,
   headClass,
   bodyClass,
+  scrollable,
   title,
   footnote,
   indexBar,
@@ -194,7 +198,7 @@ export function List({
   }
 
   const rootClass = joinClass(
-    'settings__list',
+    'list',
     [listClass, indexBar ? 'list--anchored' : '', editing ? 'list--editing' : '']
       .filter(Boolean)
       .join(' '),
@@ -202,13 +206,13 @@ export function List({
 
   return (
     <ListContext.Provider value={contextValue}>
-      {title !== undefined && <div class="settings__section-title">{title}</div>}
+      {title !== undefined && <div class="list__title">{title}</div>}
       <div ref={rootRef} class={rootClass} {...rest}>
         {head !== undefined && (
-          <div class={joinClass('settings__list-head', headClass)}>{head}</div>
+          <div class={joinClass('list__head', headClass)}>{head}</div>
         )}
-        {bodyClass !== undefined ? (
-          <div class={joinClass('settings__list-body', bodyClass)}>{children}</div>
+        {scrollable ? (
+          <div class={joinClass('list__body', bodyClass)}>{children}</div>
         ) : (
           children
         )}
@@ -237,7 +241,7 @@ export function List({
           </div>
         )}
       </div>
-      {footnote !== undefined && <p class="settings__section-footnote">{footnote}</p>}
+      {footnote !== undefined && <p class="list__footnote">{footnote}</p>}
     </ListContext.Provider>
   )
 }
