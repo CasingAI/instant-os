@@ -198,6 +198,9 @@ export async function closeImageMountsByPath(imagePath: string): Promise<void> {
     try {
       if (session.volume && !closedVolumes.has(session.volume)) {
         closedVolumes.add(session.volume)
+        // 先上门控再 close：close 内部会排空已入队任务；门控保证排空期间
+        // 不会有新写入插进来（新来的拷贝直接报「正在推出」，绝不静默丢数据）
+        session.volume.beginClose()
         await session.volume.close()
       }
     } finally { sessions.delete(session.id) }
@@ -205,6 +208,29 @@ export async function closeImageMountsByPath(imagePath: string): Promise<void> {
   const anchor = targets.find((s) => !isImagePartitionLocationId(s.id))
   if (anchor) releaseDiskImagePath(normalized, { kind: 'files-mount', id: anchor.id })
   if (targets.length > 0) notifyImageMountsChanged()
+}
+
+/** 该路径镜像卷上已入队尚未完成的任务数；多分区共享同一卷时不重复计 */
+export function imageMountPendingWork(imagePath: string): number {
+  const normalized = normalizeDiskImagePath(imagePath)
+  const seen = new Set<ImageVolume>()
+  let total = 0
+  for (const session of sessions.values()) {
+    if (session.imagePath !== normalized || !session.volume || seen.has(session.volume)) continue
+    seen.add(session.volume)
+    total += session.volume.pendingWorkCount
+  }
+  return total
+}
+
+/**
+ * 等该路径镜像卷上的在途写入全部完成（拷贝仍在推进时会持续等待）。
+ * 推出前的拦截用：等待期间新到的写入也会被纳入，直到归零才返回。
+ */
+export async function drainImageMountWrites(imagePath: string): Promise<void> {
+  while (imageMountPendingWork(imagePath) > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  }
 }
 
 export async function closeImageMount(id: ImageFilesLocationId): Promise<void> {

@@ -22,6 +22,7 @@ const EXCLUDED_BUILTIN_IDS = new Set<BuiltinAppId>([
   'simulated-terminal',
   'page-devtools',
   'webview',
+  'files-op-progress',
 ])
 
 export function isBuiltinAppSearchable(

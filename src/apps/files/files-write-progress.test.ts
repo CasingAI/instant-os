@@ -7,10 +7,12 @@ import assert from 'node:assert/strict'
 import { filesOpenStreamWrite, filesCreateText } from './files-api.ts'
 import { invalidateFilesVfsPathCaches, resolveNodeByAbsolutePath } from './files-vfs.ts'
 import { resetFilesDbForTests } from './files-storage.ts'
+import { materializeArchiveEntries } from '../../archive/archive-materialize.ts'
 import {
   getFilesWriteProgressSnapshot,
   resetFilesWriteProgressForTests,
   subscribeFilesWriteProgress,
+  type FilesWriteProgressEntry,
 } from './files-write-progress.ts'
 
 function utf8(text: string): Uint8Array {
@@ -92,10 +94,41 @@ async function testOverwriteRegisters(): Promise<void> {
   console.log('ok: overwrite registers and removes on close')
 }
 
+/** 解压批量落盘：顶层目标文件夹登记圆饼（总量=该子树字节），整批结束撤掉 */
+async function testMaterializeRegistersTopLevelFolders(): Promise<void> {
+  await resetState()
+  resetFilesWriteProgressForTests()
+  let sawEntry: FilesWriteProgressEntry | undefined
+  const unsubscribe = subscribeFilesWriteProgress(() => {
+    if (sawEntry) return
+    for (const entry of getFilesWriteProgressSnapshot().values()) sawEntry = entry
+  })
+  try {
+    const result = await materializeArchiveEntries({
+      destRoot: '/user',
+      entries: [
+        { relativePath: 'extracted-top/a.txt', bytes: utf8('a'.repeat(3000)) },
+        { relativePath: 'extracted-top/b.txt', bytes: utf8('b'.repeat(2000)) },
+      ],
+    })
+    assert.equal(result.fileCount, 2)
+    assert.equal(result.bytesWritten, 5000)
+  } finally {
+    unsubscribe()
+  }
+  assert.ok(sawEntry, '落盘期间应登记顶层目标文件夹的写入进度')
+  assert.equal(sawEntry!.total, 5000, '圆饼总量应为该顶层子树的字节')
+  assert.equal(getFilesWriteProgressSnapshot().size, 0, '整批结束后登记应撤掉')
+  const top = await resolveNodeByAbsolutePath('/user/extracted-top', { follow: false })
+  assert.ok(top?.kind === 'folder', '顶层目标文件夹应已落盘')
+  console.log('ok: materialize registers top-level folder pie')
+}
+
 async function run(): Promise<void> {
   await testRegisterUpdateRemove()
   await testAbortRemovesEntry()
   await testOverwriteRegisters()
+  await testMaterializeRegistersTopLevelFolders()
   console.log('files-write-progress: all passed')
 }
 

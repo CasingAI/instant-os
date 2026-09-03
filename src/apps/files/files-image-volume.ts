@@ -34,9 +34,16 @@ export type ImageVolumeFsInfo = {
   clusterBytes: number
 }
 
+/** beginClose 之后新任务入队一律拒绝：进行中的拷贝会响亮失败，而不是静默丢数据 */
+export const IMAGE_VOLUME_CLOSING_ERROR = '磁盘镜像正在推出，无法继续写入'
+
 export type ImageVolume = {
   prepare(): Promise<void>
   flush(): Promise<void>
+  /** 门控关闭：之后 enqueue 直接拒绝；已入队任务继续跑完，由 close 排空并刷盘 */
+  beginClose(): void
+  /** 已入队尚未完成的任务数（含正在执行的）；推出拦截据此判断「还有写入在进行」 */
+  readonly pendingWorkCount: number
   close(): Promise<void>
   hasUnflushedSectors(): boolean
   readonly unflushedBytes: number

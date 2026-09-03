@@ -1651,13 +1651,37 @@ button.files__path-bar-segment:active {
   height: 52px;
 }
 
-.files-write-progress__spin {
-  transform-box: view-box;
-  transform-origin: 50% 50%;
-  animation: files-write-progress-spin 0.9s linear infinite;
+/* 写入中文件夹：图标保留，右下角叠小圆饼（已占位、未就绪） */
+.files-write-progress--folder {
+  position: relative;
 }
 
-@keyframes files-write-progress-spin {
+.files-write-progress__badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.files-write-progress--grid .files-write-progress__badge {
+  right: 1px;
+  bottom: 1px;
+  width: 18px;
+  height: 18px;
+}
+
+.files-progress-pie__spin {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: files-progress-pie-spin 0.9s linear infinite;
+}
+
+@keyframes files-progress-pie-spin {
   to {
     transform: rotate(360deg);
   }

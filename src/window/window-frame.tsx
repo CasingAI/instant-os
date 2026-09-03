@@ -22,7 +22,12 @@ import type { WindowBounds } from './window-metrics.ts'
 import { SnapPreview } from './window-snap-preview.tsx'
 import { useWindowDrag } from './use-window-drag.ts'
 import { useWindowResize } from './use-window-resize.ts'
-import { type ResizeDirection } from './window-resize.ts'
+import {
+  clampFloatingSize,
+  MIN_MINI_WINDOW_HEIGHT,
+  MIN_MINI_WINDOW_WIDTH,
+  type ResizeDirection,
+} from './window-resize.ts'
 import { WindowModalProvider } from './window-modal-context.tsx'
 import { WindowAppBody } from './window-app-body.tsx'
 
@@ -121,226 +126,6 @@ function useFlip3dFrame(windowId: string, bounds: WindowBounds) {
   }
 }
 
-/**
- * 无窗口应用宿主：默认不可见；展开为 panel 时使用与普通窗口相同的系统标题栏，
- * 且保持 App 挂载路径稳定，避免解压过程中组件卸载。
- */
-function WindowlessAppHost({ window }: WindowFrameProps) {
-  const {
-    activeWindowId,
-    focusWindow,
-    moveWindow,
-    releaseAnchoredWindow,
-    applyWindowSnap,
-    closeWindow,
-    finalizeWindowClose,
-    minimizeWindow,
-    toggleFullscreen,
-  } = useOs()
-  const revealed = !!window.windowlessPanel && !window.minimized
-  const isActive = activeWindowId === window.id
-  const isClosing = window.closing
-  const [isEntering, setIsEntering] = useState(false)
-  const wasRevealedRef = useRef(false)
-  const windowBounds = useMemo(
-    () => ({
-      x: window.x,
-      y: window.y,
-      width: window.width,
-      height: window.height,
-    }),
-    [window.x, window.y, window.width, window.height],
-  )
-  const {
-    frameRef: flip3dFrameRef,
-    inFlip3d,
-    transform: flip3dTransform,
-    zIndex: flip3dZIndex,
-    opacity: flip3dOpacity,
-    skipTransition: flip3dInstant,
-    selectWindow: selectFlip3dWindow,
-  } = useFlip3dFrame(window.id, windowBounds)
-  const [minimizeTransform, setMinimizeTransform] = useState<string | undefined>(undefined)
-  const prevMinimizedRef = useRef(window.minimized)
-  const [isMinimizing, setIsMinimizing] = useState(false)
-  const [minimizeVisualSettled, setMinimizeVisualSettled] = useState(window.minimized)
-  const showMinimizeVisual = isMinimizing || minimizeVisualSettled
-  const showAsWindowFrame = revealed || isMinimizing
-
-  useLayoutEffect(() => {
-    const wasMinimized = prevMinimizedRef.current
-    prevMinimizedRef.current = window.minimized
-
-    if (window.minimized && !wasMinimized) {
-      setMinimizeTransform(buildMinimizeTransform(windowBounds, window.appId))
-      setMinimizeVisualSettled(false)
-      setIsMinimizing(true)
-      const timer = globalThis.setTimeout(() => {
-        setIsMinimizing(false)
-        setMinimizeVisualSettled(true)
-      }, 420)
-      return () => globalThis.clearTimeout(timer)
-    }
-
-    if (!window.minimized) {
-      setMinimizeTransform(undefined)
-      setIsMinimizing(false)
-      setMinimizeVisualSettled(false)
-    }
-  }, [window.minimized, windowBounds, window.appId])
-
-  useLayoutEffect(() => {
-    const wasRevealed = wasRevealedRef.current
-    wasRevealedRef.current = revealed
-    if (revealed && !wasRevealed && window.enterAnimation === 'scale-in') {
-      setIsEntering(true)
-    }
-    if (!revealed && !isMinimizing) {
-      setIsEntering(false)
-    }
-  }, [isMinimizing, revealed, window.enterAnimation])
-
-  const getDragBounds = useCallback(
-    () => ({
-      x: window.x,
-      y: window.y,
-      width: window.width,
-      height: window.height,
-    }),
-    [window.x, window.y, window.width, window.height],
-  )
-
-  const { dragging, snapPreview, onTitlebarPointerDown } = useWindowDrag(
-    window.id,
-    false,
-    getDragBounds,
-    moveWindow,
-    focusWindow,
-    releaseAnchoredWindow,
-    applyWindowSnap,
-    undefined,
-    revealed && !isEntering && !isMinimizing && !inFlip3d,
-  )
-
-  useEffect(() => {
-    if (!window.closing) return
-    finalizeWindowClose(window.id)
-  }, [finalizeWindowClose, window.closing, window.id])
-
-  if (isClosing) {
-    return undefined
-  }
-
-  const closeDisabled = !!window.chromeCloseDisabled
-  const minimizeDisabled = !!window.chromeMinimizeDisabled
-  const zoomDisabled = !!window.chromeZoomDisabled
-  const isDialogChrome = window.chromeKind === 'dialog'
-
-  return (
-    <>
-      {dragging && <SnapPreview target={snapPreview} />}
-      <section
-        ref={flip3dFrameRef}
-        data-flip3d-window={window.id}
-        class={
-          showAsWindowFrame
-            ? `window-frame${isDialogChrome ? ' window-frame--dialog' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}`
-            : 'windowless-app-host'
-        }
-        aria-hidden={showMinimizeVisual ? true : undefined}
-        style={{
-          zIndex: flip3dZIndex ?? window.zIndex,
-          left: `${window.x}px`,
-          top: `${window.y}px`,
-          width: `${window.width}px`,
-          height: `${window.height}px`,
-          transform: isEntering
-            ? undefined
-            : showMinimizeVisual
-              ? minimizeTransform
-              : inFlip3d
-                ? flip3dTransform
-                : undefined,
-          opacity: showMinimizeVisual ? 0 : inFlip3d ? flip3dOpacity : undefined,
-        }}
-        onAnimationEnd={(event) => {
-          if (event.animationName === 'window-frame-open') {
-            setIsEntering(false)
-          }
-        }}
-        onPointerDownCapture={
-          revealed && !isMinimizing
-            ? (event) => {
-                if (event.button !== 0) return
-                if (inFlip3d) {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  selectFlip3dWindow()
-                  return
-                }
-                focusWindow(window.id)
-              }
-            : undefined
-        }
-      >
-        {showAsWindowFrame ? <Flip3dCastShadow hidden={inFlip3d || showMinimizeVisual} /> : undefined}
-        <div class={showAsWindowFrame ? 'window-frame__chrome' : 'windowless-app-host__chrome'}>
-          {showAsWindowFrame ? (
-            <header class="window-frame__titlebar" onPointerDown={onTitlebarPointerDown}>
-              <div class="window-frame__controls">
-                <button
-                  type="button"
-                  class="window-frame__control window-frame__control--close"
-                  aria-label="关闭"
-                  disabled={closeDisabled}
-                  aria-disabled={closeDisabled || undefined}
-                  onClick={() => {
-                    if (closeDisabled) return
-                    closeWindow(window.id)
-                  }}
-                />
-                {isDialogChrome ? undefined : (
-                  <>
-                    <button
-                      type="button"
-                      class="window-frame__control window-frame__control--minimize"
-                      aria-label="最小化"
-                      disabled={minimizeDisabled}
-                      aria-disabled={minimizeDisabled || undefined}
-                      onClick={() => {
-                        if (minimizeDisabled) return
-                        minimizeWindow(window.id)
-                      }}
-                    />
-                    <button
-                      type="button"
-                      class="window-frame__control window-frame__control--fullscreen"
-                      aria-label="全屏"
-                      disabled={zoomDisabled}
-                      aria-disabled={zoomDisabled || undefined}
-                      onClick={() => {
-                        if (zoomDisabled) return
-                        toggleFullscreen(window.id)
-                      }}
-                    />
-                  </>
-                )}
-              </div>
-              <span class="window-frame__title">{window.title}</span>
-              <span class="window-frame__title-trailing" aria-live="polite" />
-            </header>
-          ) : undefined}
-          <div class={showAsWindowFrame ? 'window-frame__content' : 'windowless-app-host__content'}>
-            <WindowModalProvider>
-              <WindowAppBody window={window} />
-            </WindowModalProvider>
-          </div>
-        </div>
-      </section>
-    </>
-  )
-}
-
 function ChromeWindowFrame({ window }: WindowFrameProps) {
   const {
     activeWindowId,
@@ -358,6 +143,8 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
   } = useOs()
   const { hasImmersiveFullscreen, chromeRevealed } = useFullscreenChromeReveal()
   const isActive = activeWindowId === window.id
+  const isMini = window.chromeKind === 'mini'
+  const isCompactChrome = isMini || window.chromeKind === 'dialog'
   const isAnchored = !window.fullscreen && (window.maximized || !!window.snap)
   const isDesktopRevealed = desktopRevealed && !window.minimized
   const windowBounds = useMemo(
@@ -380,7 +167,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
   } = useFlip3dFrame(window.id, windowBounds)
   const layoutLocked = isDesktopRevealed || inFlip3d
   const canResize =
-    !window.fullscreen && !window.minimized && !layoutLocked
+    !isMini && !window.fullscreen && !window.minimized && !layoutLocked
   const getDragBounds = useCallback(
     () => ({
       x: window.x,
@@ -397,8 +184,9 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     moveWindow,
     focusWindow,
     releaseAnchoredWindow,
-    applyWindowSnap,
-    () => toggleMaximize(window.id),
+    // 迷你窗不吸边：吸附语义（半屏/满高）是为可缩放窗口设计的
+    isMini ? undefined : applyWindowSnap,
+    isMini ? undefined : () => toggleMaximize(window.id),
     !window.fullscreen && !window.minimized && !layoutLocked,
   )
   const { resizing, onResizeHandlePointerDown, onResizeHandleDoubleClick } = useWindowResize(
@@ -449,6 +237,37 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
     }
   }, [window.minimized, windowBounds, window.appId])
 
+  // 迷你窗尺寸由内容撑起：窗管是数字 bounds 驱动（拖拽/flip3d/最小化都吃 x/y/w/h），
+  // 宽高数字必须存在，但由窗框量测正文自然大小后 resizeWindow 回写，而不是手调常数。
+  // 首帧在布局 effect 里同步 fit（避免以下限尺寸闪一帧），之后 ResizeObserver 跟随内容；
+  // chrome 开销（标题栏/边框）按当前窗宽高与内容区实差折算，不写死。
+  const miniContentRef = useRef<HTMLDivElement>(null)
+  const miniWinRef = useRef(window)
+  miniWinRef.current = window
+  useLayoutEffect(() => {
+    if (!isMini) return
+    const container = miniContentRef.current
+    if (!container) return
+    const body = container.querySelector<HTMLDivElement>(':scope > .window-app-body')
+    if (!body) return
+    const sync = () => {
+      const win = miniWinRef.current
+      const extraW = win.width - container.clientWidth
+      const extraH = win.height - container.clientHeight
+      const next = clampFloatingSize(
+        body.offsetWidth + extraW,
+        body.offsetHeight + extraH,
+        { minWidth: MIN_MINI_WINDOW_WIDTH, minHeight: MIN_MINI_WINDOW_HEIGHT },
+      )
+      if (Math.abs(next.width - win.width) < 1 && Math.abs(next.height - win.height) < 1) return
+      resizeWindow(win.id, { x: win.x, y: win.y, width: next.width, height: next.height })
+    }
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [isMini, resizeWindow, window.id])
+
   const frameTransform = showMinimizeVisual
     ? minimizeTransform
     : isClosing || isEntering
@@ -465,7 +284,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
       <section
         ref={flip3dFrameRef}
         data-flip3d-window={window.id}
-        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
+        class={`window-frame${isCompactChrome ? ' window-frame--dialog' : ''}${isMini ? ' window-frame--mini' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${inFlip3d ? ' window-frame--flip3d' : ''}${flip3dInstant ? ' window-frame--flip3d-instant' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
         aria-hidden={showMinimizeVisual || isClosing ? true : undefined}
         style={{
           zIndex: flip3dZIndex ?? window.zIndex,
@@ -518,6 +337,8 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
                   closeWindow(window.id)
                 }}
               />
+              {isCompactChrome ? undefined : (
+                <>
               <button
                 type="button"
                 class="window-frame__control window-frame__control--minimize"
@@ -540,6 +361,8 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
                   toggleFullscreen(window.id)
                 }}
               />
+                </>
+              )}
             </div>
             <span class="window-frame__title">
               {window.documentReadOnly ? (
@@ -551,7 +374,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
               {window.documentEdited ? '已编辑' : ''}
             </span>
           </header>
-          <div class="window-frame__content">
+          <div class="window-frame__content" ref={miniContentRef}>
             {!isActive && !isDesktopRevealed && !inFlip3d && (
               <div class="window-frame__focus-catcher" aria-hidden="true" />
             )}
@@ -586,9 +409,6 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
 }
 
 export function WindowFrame({ window }: WindowFrameProps) {
-  if (window.windowless) {
-    return <WindowlessAppHost window={window} />
-  }
   return <ChromeWindowFrame window={window} />
 }
 

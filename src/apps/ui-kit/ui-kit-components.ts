@@ -331,6 +331,33 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'list',
+    name: 'List',
+    description:
+      '设置风格分组列表容器；行内容放 SettingsNavRow / SettingsSwitchRow 等行组件，支持表头与限高滚动区，样式沿用 settings.css',
+    category: 'settings',
+    importPath: "import { List } from '../../ui/list.tsx'",
+    props: [
+      { name: 'children', type: 'ComponentChildren', description: '列表行（行组件或裸 settings__row）' },
+      { name: 'class', type: 'string?', description: '追加到容器的修饰类' },
+      { name: 'head', type: 'ComponentChildren?', description: '表头单元格（span 序列），有值时渲染表头行' },
+      { name: 'headClass', type: 'string?', description: '表头变体类（settings__list-head--tokens 等）' },
+      { name: 'bodyClass', type: 'string?', description: '滚动体变体类（settings__list-body--apps 等）；有值时 children 包进滚动区' },
+    ],
+    codeExample: `<List>
+  <SettingsNavRow label="账号设置" value="user@example.com" onClick={open} />
+</List>
+
+<List head={<><span>域名</span><span>Tokens</span></>} bodyClass="settings__list-body">
+  {rows.map((row) => (
+    <div key={row.id} class="settings__row">
+      <span class="settings__row-name">{row.name}</span>
+      <span class="settings__row-size">{row.size}</span>
+    </div>
+  ))}
+</List>`,
+  },
+  {
     id: 'adaptive-split-nav',
     name: 'AdaptiveSplitNav',
     description: '自适应分栏导航：宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
@@ -665,6 +692,26 @@ const buttonRef = useRef(null)
 >
   <p>内容区域</p>
 </WindowModal>`,
+  },
+  {
+    id: 'mini-window',
+    name: '迷你窗',
+    description:
+      "系统迷你窗（chromeKind='mini'）：尺寸完全由内容撑起，仅关闭键；不可缩放、拖到屏幕边不吸附、双击标题栏不最大化，最小尺寸只保标题栏可显示。文件复制/解压的进度窗即此窗型",
+    category: 'window',
+    importPath: "openApp('files-op-progress', { documentId, chromeKind: 'mini' })",
+    props: [
+      { name: 'chromeKind', type: "'mini'", description: '迷你窗形态：内容撑起尺寸，仅关闭键' },
+      { name: 'documentId', type: 'string?', description: '会话标识；同 documentId 重复打开会聚焦既有窗' },
+    ],
+    codeExample: `const { openApp } = useOs()
+
+<IosButton
+  tone="primary"
+  onClick={() => openApp('files-op-progress', { chromeKind: 'mini' })}
+>
+  打开迷你窗
+</IosButton>`,
   },
 ]
 

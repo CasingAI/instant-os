@@ -32,6 +32,7 @@ import {
   type FilesLocationId,
 } from './files-types.ts'
 import {
+  emitNodeCreatedImmediately,
   findSiblingNode,
   getNodeOrThrow,
   mkdir,
@@ -39,6 +40,11 @@ import {
   runWithFilesVfsChangeBatch,
   uniqueNodeName,
 } from './files-vfs.ts'
+import {
+  registerFilesWriteProgress,
+  removeFilesWriteProgress,
+  updateFilesWriteProgress,
+} from './files-write-progress.ts'
 
 export type ExternalImportNode = {
   name: string
@@ -167,6 +173,12 @@ export type ExternalImportResult = {
   byteCount: number
 }
 
+/** 子树字节总量（folder 递归、file 取 File.size），给顶层目标文件夹的圆饼定标 */
+function subtreeByteSize(node: ExternalImportNode): number {
+  if (node.kind === 'file') return node.file?.size ?? 0
+  return (node.children ?? []).reduce((sum, child) => sum + subtreeByteSize(child), 0)
+}
+
 /**
  * 把外部导入树写入 VFS 指定位置：深度优先建目录 + 流式写入，带进度。
  * 供文件 APP 与「打开文件」对话框共用；错误向上抛，由调用方提示。
@@ -174,7 +186,7 @@ export type ExternalImportResult = {
 export async function importExternalNodes(params: {
   nodes: readonly ExternalImportNode[]
   dest: { destLocationId: FilesLocationId; destParentId: string | undefined }
-  onUiChange: (state: FilesOpProgressUiState | undefined) => void
+  onUiChange?: (state: FilesOpProgressUiState | undefined) => void
   /** 取消信号：切片写入循环在检查点检查并抛 FilesOpCancelledError */
   signal?: AbortSignal
   /** ✕ 取消回调（通常 abort 调用方自己的 AbortController） */
@@ -222,6 +234,18 @@ export async function importExternalNodes(params: {
         let written = 0
         let stepsDone = 0
         const stepTotal = steps.length
+        // 顶层目标文件夹（当前目录下新建的那层）先出现并叠饼：created 绕过批量
+        // 立即广播，饼按该子树字节定标随写入推进；子树走完（DFS 不回头）撤掉
+        const topFolderTotals: number[] = []
+        for (const node of nodes) {
+          if (node.kind === 'folder') topFolderTotals.push(subtreeByteSize(node))
+        }
+        let activeFill: { id: string; written: number; total: number } | undefined
+        const finalizeActiveFill = () => {
+          if (!activeFill) return
+          if (activeFill.total > 0) removeFilesWriteProgress(activeFill.id)
+          activeFill = undefined
+        }
         // 目标目录绝对路径（文件夹 id → 路径；卷根 → 卷前缀）
         let dirPath = filesLocationPathRoot(dest.destLocationId)
         if (dest.destParentId !== undefined) {
@@ -234,87 +258,107 @@ export async function importExternalNodes(params: {
           { path: dirPath, id: dest.destParentId },
         ]
         let fileCount = 0
-        for (const step of steps) {
-          const current = dirStack[dirStack.length - 1]!
-          if (step.op === 'mkdir') {
-            aborted()
-            const created = await mkdir({
-              locationId: dest.destLocationId,
-              parentId: current.id,
-              name: step.name,
-            })
-            const actualPath = await resolveFilesAbsolutePath(created)
-            dirStack.push({ path: actualPath, id: created.id })
-            stepsDone += 1
-            continue
-          }
-          // 冲突预检：提供询问回调时，撞名先问「替换 / 保留两者 / 跳过」，
-          // 关闭对话框视为取消整个导入。文件夹步骤不询问（无合并语义）。
-          let overwrite = false
-          if (params.resolveFileConflict) {
-            const existing = await findSiblingNode(dest.destLocationId, current.id, step.name)
-            if (existing) {
-              const conflict: FilesConflictInfo = {
-                name: step.name,
-                kind: 'file',
-                existingKind: existing.kind,
-                existingWritable: isFilesNodeWritable(existing),
-              }
-              const choice = await params.resolveFileConflict(conflict)
-              if (!choice) throw new FilesOpCancelledError()
-              if (choice === 'skip') {
-                stepsDone += 1
-                continue
-              }
-              // 双重校验：即使回调误答「替换」（目标不可替换/类型不符），也退回自动改名
-              if (choice === 'replace' && filesConflictAllowsReplace(conflict)) overwrite = true
-            }
-          }
-          // 内部卷：直接按计划名打开，写入事务内查重加后缀（不依赖会过期的目录缓存）；
-          // 挂载卷无唯一索引与事务内取名，仍预先算不冲突名（FSA 自身保证无同名）。
-          // 「替换」按原名精确打开：已存在即覆盖写，未存在则新建。
-          let filePath: string
-          if (overwrite || !isMountLocationId(dest.destLocationId)) {
-            filePath = joinFilesAbsolutePath(current.path, step.name)
-          } else {
-            const name = await uniqueNodeName(dest.destLocationId, current.id, step.name)
-            filePath = joinFilesAbsolutePath(current.path, name)
-          }
-          const writer = await filesOpenStreamWrite(
-            filePath,
-            overwrite
-              ? { expectedSize: step.file.size }
-              : isMountLocationId(dest.destLocationId)
-                ? undefined
-                : { nameMode: 'unique-suffix', expectedSize: step.file.size },
-          )
-          // 拖入的大 File 用 slice 按块读并立刻落库：默认要攒到 5MB 才写盘，
-          // 前几兆只在内存里，下一次落库若卡住文件就一直是空的。
-          const sliceSize = 1024 * 1024
-          try {
-            for (let offset = 0; offset < step.file.size; ) {
+        try {
+          for (const step of steps) {
+            // activeFill 只属于 dirStack[1] 那层顶层子树；离开子树（顶层 write 或
+            // 开下一个顶层 mkdir）即视为该文件夹就绪，撤掉圆饼
+            const topId = dirStack.length >= 2 ? dirStack[1]!.id : undefined
+            if (activeFill && activeFill.id !== topId) finalizeActiveFill()
+            const current = dirStack[dirStack.length - 1]!
+            if (step.op === 'mkdir') {
               aborted()
-              const end = Math.min(offset + sliceSize, step.file.size)
-              const buf = await step.file.slice(offset, end).arrayBuffer()
-              const bytes = new Uint8Array(buf)
-              await writer.write(bytes)
-              written += bytes.byteLength
-              report({
-                done: written,
-                total: Math.max(1, totalBytes),
-                detailLabel: `${stepsDone + 1} / ${stepTotal} 项`,
+              const isTopLevel = dirStack.length === 1
+              const created = await mkdir({
+                locationId: dest.destLocationId,
+                parentId: current.id,
+                name: step.name,
               })
-              offset = end
+              const actualPath = await resolveFilesAbsolutePath(created)
+              dirStack.push({ path: actualPath, id: created.id })
+              if (isTopLevel) {
+                const total = topFolderTotals.shift() ?? 0
+                if (total > 0) registerFilesWriteProgress(created.id, total)
+                activeFill = { id: created.id, written: 0, total }
+                await emitNodeCreatedImmediately(created)
+              }
+              stepsDone += 1
+              continue
             }
-            await writer.close()
-            fileCount += 1
-          } catch (error) {
-            await writer.abort().catch(() => undefined)
-            throw error
+            // 冲突预检：提供询问回调时，撞名先问「替换 / 保留两者 / 跳过」，
+            // 关闭对话框视为取消整个导入。文件夹步骤不询问（无合并语义）。
+            let overwrite = false
+            if (params.resolveFileConflict) {
+              const existing = await findSiblingNode(dest.destLocationId, current.id, step.name)
+              if (existing) {
+                const conflict: FilesConflictInfo = {
+                  name: step.name,
+                  kind: 'file',
+                  existingKind: existing.kind,
+                  existingWritable: isFilesNodeWritable(existing),
+                }
+                const choice = await params.resolveFileConflict(conflict)
+                if (!choice) throw new FilesOpCancelledError()
+                if (choice === 'skip') {
+                  stepsDone += 1
+                  continue
+                }
+                // 双重校验：即使回调误答「替换」（目标不可替换/类型不符），也退回自动改名
+                if (choice === 'replace' && filesConflictAllowsReplace(conflict)) overwrite = true
+              }
+            }
+            // 内部卷：直接按计划名打开，写入事务内查重加后缀（不依赖会过期的目录缓存）；
+            // 挂载卷无唯一索引与事务内取名，仍预先算不冲突名（FSA 自身保证无同名）。
+            // 「替换」按原名精确打开：已存在即覆盖写，未存在则新建。
+            let filePath: string
+            if (overwrite || !isMountLocationId(dest.destLocationId)) {
+              filePath = joinFilesAbsolutePath(current.path, step.name)
+            } else {
+              const name = await uniqueNodeName(dest.destLocationId, current.id, step.name)
+              filePath = joinFilesAbsolutePath(current.path, name)
+            }
+            const writer = await filesOpenStreamWrite(
+              filePath,
+              overwrite
+                ? { expectedSize: step.file.size }
+                : isMountLocationId(dest.destLocationId)
+                  ? undefined
+                  : { nameMode: 'unique-suffix', expectedSize: step.file.size },
+            )
+            // 拖入的大 File 用 slice 按块读并立刻落库：默认要攒到 5MB 才写盘，
+            // 前几兆只在内存里，下一次落库若卡住文件就一直是空的。
+            const sliceSize = 1024 * 1024
+            try {
+              for (let offset = 0; offset < step.file.size; ) {
+                aborted()
+                const end = Math.min(offset + sliceSize, step.file.size)
+                const buf = await step.file.slice(offset, end).arrayBuffer()
+                const bytes = new Uint8Array(buf)
+                await writer.write(bytes)
+                written += bytes.byteLength
+                if (activeFill && activeFill.total > 0) {
+                  activeFill.written += bytes.byteLength
+                  updateFilesWriteProgress(activeFill.id, activeFill.written)
+                }
+                report({
+                  done: written,
+                  total: Math.max(1, totalBytes),
+                  items: { done: stepsDone, total: stepTotal },
+                  bytes: { done: written, total: totalBytes },
+                })
+                offset = end
+              }
+              await writer.close()
+              fileCount += 1
+            } catch (error) {
+              await writer.abort().catch(() => undefined)
+              throw error
+            }
+            stepsDone += 1
           }
-          stepsDone += 1
+          return { fileCount, byteCount: written }
+        } finally {
+          finalizeActiveFill()
         }
-        return { fileCount, byteCount: written }
       })
     },
   })

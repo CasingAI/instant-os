@@ -4,10 +4,7 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, u
 import { persistWindowSize, resolveWindowDimensions } from '../window/window-bounds-storage.ts'
 import { prefetchWindowApp } from '../window/window-app-load.ts'
 import { getFullscreenBounds, getMaximizedBounds } from '../window/window-metrics.ts'
-import {
-  MIN_DIALOG_WINDOW_HEIGHT,
-  MIN_DIALOG_WINDOW_WIDTH,
-} from '../window/window-resize.ts'
+import { MIN_MINI_WINDOW_HEIGHT, MIN_MINI_WINDOW_WIDTH } from '../window/window-resize.ts'
 import { DOCK_SETTINGS_CHANGED_EVENT } from '../dock/dock-settings-storage.ts'
 import { DOCK_VIEWPORT_FIT_CHANGED_EVENT } from '../dock/use-dock-viewport-fit.ts'
 import {
@@ -50,9 +47,12 @@ import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.t
 import { startBackgroundRefreshService } from './background-refresh-service.ts'
 import { startSystemServices } from './system-services.ts'
 import { isMultiWindowApp } from './app-multi-window.ts'
-import { isWindowlessApp } from './app-windowless.ts'
 import { resolveSingleWindowForApp } from './single-window.ts'
 import { registerOsOpenApp } from './os-open-app-bridge.ts'
+import {
+  FILES_OP_PROGRESS_APP_ID,
+  registerFilesOpProgressHost,
+} from '../apps/files/files-op-progress-session.ts'
 import { enqueueTerminalPendingAction } from '../terminal/terminal-pending-actions.ts'
 import { WEBVIEW_OFFSCREEN_VIEWPORT } from '../apps/webview/webview-constants.ts'
 import { isBuiltinAppId } from './builtin-app-display-names.ts'
@@ -103,22 +103,6 @@ type OsContextValue = {
   setWindowDocumentId: (windowId: string, documentId: string | undefined) => void
   setWindowDocumentEdited: (windowId: string, edited: boolean) => void
   setWindowDocumentReadOnly: (windowId: string, readOnly: boolean) => void
-  /**
-   * 将无窗口会话展开为可拖动的系统面板窗口（统一标题栏）。
-   * 用于解压进度等；默认按小型对话框样式（只提供关闭键）。
-   */
-  revealWindowlessPanel: (
-    windowId: string,
-    options?: {
-      title?: string
-      width?: number
-      height?: number
-      chromeKind?: 'window' | 'dialog'
-      chromeCloseDisabled?: boolean
-      chromeMinimizeDisabled?: boolean
-      chromeZoomDisabled?: boolean
-    },
-  ) => void
   closeProcessIsolatedApps: () => void
 }
 
@@ -136,6 +120,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   settings: { title: '系统设置', width: 780, height: 540 },
   files: { title: '文件', width: 900, height: 620 },
   'file-info': { title: '文件信息', width: 340, height: 520 },
+  'files-op-progress': { title: '文件操作', width: 360, height: 150 },
   textedit: { title: '文本编辑', width: 720, height: 560 },
   pages: { title: '文稿', width: 840, height: 720 },
   preview: { title: '预览', width: 780, height: 640 },
@@ -221,10 +206,6 @@ function pickTopVisibleWindowId(
     if (excludeIds?.has(window.id) || window.closing || window.minimized) {
       continue
     }
-    // 未展开的无窗口会话不算「可见窗」
-    if (window.windowless && !window.windowlessPanel) {
-      continue
-    }
     if (window.zIndex > topZ) {
       topZ = window.zIndex
       topId = window.id
@@ -241,11 +222,11 @@ function createWindow(
     documentId?: string
     url?: string
     helpQuery?: string
+    chromeKind?: WindowState['chromeKind']
   },
 ): WindowState {
   windowCounter += 1
   const nextZ = bumpZIndex()
-  const windowless = isWindowlessApp(appId)
   const defaults = isGeneratedAppId(appId) || isExtAppId(appId)
     ? { title: titleOverride ?? '微应用', ...GENERATED_APP_DEFAULTS }
     : { ...DEFAULT_WINDOWS[appId], title: titleOverride ?? DEFAULT_WINDOWS[appId]?.title ?? '应用' }
@@ -257,19 +238,17 @@ function createWindow(
   const cascadeX = 80 + offset
   const cascadeY = 48 + offset
 
-  // 无窗口应用：不占可视窗框，也不走窄屏最大化；尺寸先按默认面板居中，
-  // 避免之后展开时 left/top 过渡从 (0,0) 飘到屏幕中央。
-  // 对话框高度不受普通窗口 MIN_WINDOW_HEIGHT(160) 约束。
-  if (windowless) {
-    const panelWidth = Math.max(MIN_DIALOG_WINDOW_WIDTH, defaults.width ?? width)
-    const panelHeight = Math.max(MIN_DIALOG_WINDOW_HEIGHT, defaults.height ?? height)
+  // 迷你窗：尺寸由内容撑起，创建时只给下限尺寸定住落点（水平居中、上 1/3），
+  // 挂载后窗框量测正文自然大小经 resizeWindow 回写，不读尺寸存档
+  if (options?.chromeKind === 'mini') {
     const work = getMaximizedBounds()
-    const x = Math.round(work.x + Math.max(0, (work.width - panelWidth) / 2))
-    const y = Math.round(work.y + Math.max(24, (work.height - panelHeight) / 3))
-    const bounds = fitFloatingWindowBounds(x, y, panelWidth, panelHeight, {
-      minWidth: MIN_DIALOG_WINDOW_WIDTH,
-      minHeight: MIN_DIALOG_WINDOW_HEIGHT,
-    })
+    const bounds = fitFloatingWindowBounds(
+      Math.round(work.x + Math.max(0, (work.width - MIN_MINI_WINDOW_WIDTH) / 2)),
+      Math.round(work.y + Math.max(24, (work.height - MIN_MINI_WINDOW_HEIGHT) / 3)),
+      MIN_MINI_WINDOW_WIDTH,
+      MIN_MINI_WINDOW_HEIGHT,
+      { minWidth: MIN_MINI_WINDOW_WIDTH, minHeight: MIN_MINI_WINDOW_HEIGHT },
+    )
     return {
       id: `${appId}-${windowCounter}`,
       appId,
@@ -280,7 +259,8 @@ function createWindow(
       minimized: false,
       maximized: false,
       fullscreen: false,
-      windowless: true,
+      chromeKind: 'mini',
+      enterAnimation: 'scale-in',
       zIndex: nextZ,
       ...bounds,
     }
@@ -775,10 +755,11 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         }
 
         const nextWindow = createWindow(appId, undefined, {
-          enterAnimation: isWindowlessApp(appId) ? undefined : 'scale-in',
+          enterAnimation: 'scale-in',
           documentId,
           url,
           helpQuery,
+          chromeKind: options?.chromeKind,
         })
         resolvedActiveId = nextWindow.id
         const next = [...current, nextWindow]
@@ -829,6 +810,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         documentId,
         url,
         helpQuery,
+        chromeKind: options?.chromeKind,
       })
       resolvedActiveId = nextWindow.id
       const next = [...current, nextWindow]
@@ -931,70 +913,6 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       )
     })
   }, [])
-
-  const revealWindowlessPanel = useCallback(
-    (
-      windowId: string,
-      options?: {
-        title?: string
-        width?: number
-        height?: number
-        chromeKind?: 'window' | 'dialog'
-        chromeCloseDisabled?: boolean
-        chromeMinimizeDisabled?: boolean
-        chromeZoomDisabled?: boolean
-      },
-    ) => {
-      startDesktopRestore()
-      const nextZ = bumpZIndex()
-      setWindows((current) => {
-        const target = current.find((window) => window.id === windowId && !window.closing)
-        if (!target?.windowless) return current
-
-        const chromeKind = options?.chromeKind ?? 'dialog'
-        const width = Math.max(
-          MIN_DIALOG_WINDOW_WIDTH,
-          options?.width ?? target.width ?? 420,
-        )
-        const height = Math.max(
-          MIN_DIALOG_WINDOW_HEIGHT,
-          options?.height ?? target.height ?? 220,
-        )
-        const work = getMaximizedBounds()
-        const x = Math.round(work.x + Math.max(0, (work.width - width) / 2))
-        const y = Math.round(work.y + Math.max(24, (work.height - height) / 3))
-        const bounds = fitFloatingWindowBounds(x, y, width, height, {
-          minWidth: MIN_DIALOG_WINDOW_WIDTH,
-          minHeight: MIN_DIALOG_WINDOW_HEIGHT,
-        })
-
-        return current.map((window) =>
-          window.id === windowId
-            ? {
-                ...window,
-                ...bounds,
-                title: options?.title ?? window.title,
-                windowlessPanel: true,
-                enterAnimation: 'scale-in',
-                chromeKind,
-                chromeCloseDisabled: options?.chromeCloseDisabled ?? false,
-                chromeMinimizeDisabled:
-                  chromeKind === 'dialog' ? true : (options?.chromeMinimizeDisabled ?? false),
-                chromeZoomDisabled:
-                  chromeKind === 'dialog' ? true : (options?.chromeZoomDisabled ?? false),
-                minimized: false,
-                maximized: false,
-                fullscreen: false,
-                snap: undefined,
-                zIndex: nextZ,
-              }
-            : window,
-        )
-      })
-      setActiveWindowId(windowId)
-    },
-    [startDesktopRestore],
-  )
 
   const openGeneratedApp = useCallback((appId: GeneratedAppId, title: string) => {
     prefetchWindowApp(appId)
@@ -1258,7 +1176,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
             : { ...window, ...bounds }
         return resized
       })
-      if (resized) persistWindowSize(resized)
+      if (resized) {
+        // 迷你窗的尺寸由内容回写，不代表用户偏好，不进尺寸存档
+        if (resized.chromeKind !== 'mini') persistWindowSize(resized)
+      }
       return next
     })
   }, [])
@@ -1580,13 +1501,27 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       setWindowDocumentId,
       setWindowDocumentEdited,
       setWindowDocumentReadOnly,
-      revealWindowlessPanel,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowHelpQuery, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowHelpQuery, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])
+  useEffect(
+    () => {
+      prefetchWindowApp(FILES_OP_PROGRESS_APP_ID)
+      return registerFilesOpProgressHost({
+        open: (documentId) =>
+          openApp(FILES_OP_PROGRESS_APP_ID, { documentId, chromeKind: 'mini' }),
+        setTitle: setWindowTitle,
+        close: (windowId) => {
+          bypassWindowCloseGuard(windowId)
+          closeWindow(windowId)
+        },
+      })
+    },
+    [bypassWindowCloseGuard, closeWindow, openApp, setWindowTitle],
+  )
 
   const flip3dScene = useMemo(
     () => ({

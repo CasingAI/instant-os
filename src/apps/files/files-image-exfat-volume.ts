@@ -20,6 +20,7 @@ import {
   type ImageDiskIo,
 } from './files-image-fat-volume.ts'
 import type { ImageVolume, ImageVolumeEntry, ImageVolumeFsInfo } from './files-image-volume.ts'
+import { IMAGE_VOLUME_CLOSING_ERROR } from './files-image-volume.ts'
 
 const SECTOR = 512
 const WRITE_BEHIND_IDLE_MS = 100
@@ -552,6 +553,8 @@ export class ExfatImageVolume implements ImageVolume {
   private allocHint = CLUSTER_FIRST
   private chain: Promise<void> = Promise.resolve()
   private flushing: Promise<void> = Promise.resolve()
+  private pendingWork = 0
+  private closing = false
   private dirty = false
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private lastHeldYieldAt = 0
@@ -590,7 +593,18 @@ export class ExfatImageVolume implements ImageVolume {
   /* ── 操作串行化与扇区桥接（与 FatImageVolume 同构）── */
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(work, work)
+    if (this.closing) {
+      return Promise.reject(new Error(IMAGE_VOLUME_CLOSING_ERROR))
+    }
+    this.pendingWork += 1
+    const run = this.chain.then(
+      () => work().finally(() => {
+        this.pendingWork -= 1
+      }),
+      () => work().finally(() => {
+        this.pendingWork -= 1
+      }),
+    )
     this.chain = run.then(
       () => undefined,
       () => undefined,
@@ -636,6 +650,10 @@ export class ExfatImageVolume implements ImageVolume {
       () => this.flushIfNeeded(),
       () => this.flushIfNeeded(),
     )
+    // 回刷失败不能无声吞掉：否则推出后的写入静默丢失时毫无线索
+    this.flushing.catch((error) => {
+      console.error('[files] 镜像卷后台回刷失败', error)
+    })
   }
 
   private scheduleFlush(): void {
@@ -646,7 +664,22 @@ export class ExfatImageVolume implements ImageVolume {
     }, WRITE_BEHIND_IDLE_MS)
   }
 
+  beginClose(): void {
+    if (this.closing) return
+    this.closing = true
+    if (this.flushTimer !== undefined) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = undefined
+    }
+  }
+
+  get pendingWorkCount(): number {
+    return this.pendingWork
+  }
+
   private markDirty(): void {
+    // 推出中不再调度后台回刷：close 排空后会统一把剩余脏扇区刷净
+    if (this.closing) return
     this.dirty = true
     if (this.cache.dirtyBytes() >= this.writeBehindDirtyBytes) {
       this.kickFlush()
@@ -696,6 +729,8 @@ export class ExfatImageVolume implements ImageVolume {
   }
 
   private async flushIfNeeded(): Promise<void> {
+    // 推出中的回刷由 close 排空后统一执行，后台链路不再插手
+    if (this.closing) return
     if (!this.dirty && this.cache.dirtyBytes() === 0 && !this.bitmapDirty) return
     if (this.flushTimer !== undefined) {
       clearTimeout(this.flushTimer)
@@ -1145,7 +1180,14 @@ export class ExfatImageVolume implements ImageVolume {
   }
 
   async close(): Promise<void> {
-    await this.flush()
+    this.beginClose()
+    // 门控已挡住新任务；等已入队任务跑完，再把剩余脏扇区（含位图）一次刷净。
+    // 不能走 kickFlush/flushNow——它们要重新 enqueue，会被自己的门控拒绝。
+    await this.chain
+    if (this.cache.dirtyBytes() > 0 || this.bitmapDirty || this.dirty) {
+      await this.flushHeld()
+    }
+    await this.io.flush?.()
     await this.io.close?.()
   }
 

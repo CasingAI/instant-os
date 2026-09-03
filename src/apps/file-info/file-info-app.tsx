@@ -8,10 +8,8 @@ import { Checkbox } from '../../ui/checkbox.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesNodeIcon } from '../files/files-node-icon.tsx'
 import { filesSetSparse } from '../files/files-api.ts'
-import { FilesOpProgressWindow } from '../files/files-op-progress-window.tsx'
 import {
   runFilesOpWithProgress,
-  type FilesOpProgressUiState,
 } from '../files/files-run-with-op-progress.ts'
 import { getFileBlobStorageInfo, getNode, type FilesBlobStorageInfo } from '../files/files-storage.ts'
 import {
@@ -389,7 +387,6 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
   const [blobStorageState, setBlobStorageState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
     'idle',
   )
-  const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
   const [sparseBusy, setSparseBusy] = useState(false)
   const [sparseEnabled, setSparseEnabled] = useState(node.sparse === true)
   const [writeProgress, setWriteProgress] = useState(() => getFilesWriteProgressSnapshot())
@@ -633,7 +630,6 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
           kind: 'sparse',
           titleOverride: checked ? undefined : '正在物化…',
           totalWork: Math.max(1, node.byteSize),
-          onUiChange: setOpProgressUi,
           task: async (report) => {
             const updated = await filesSetSparse(path, checked, {
               onProgress: (done, total) => report({ done, total }),
@@ -846,7 +842,6 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
         />
       ))}
       </div>
-      <FilesOpProgressWindow state={opProgressUi} />
     </>
   )
 }

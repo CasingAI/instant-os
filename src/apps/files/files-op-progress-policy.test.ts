@@ -1,4 +1,6 @@
 /**
+ * 进度策略单测：工作量折算、剩余时间估算与文案、进度折算。
+ * 观察窗/ETA 门槛已移除——进度窗现在立即展示，只保留最短显示时长。
  * 运行：node --experimental-strip-types src/apps/files/files-op-progress-policy.test.ts
  */
 import assert from 'node:assert/strict'
@@ -8,37 +10,14 @@ import {
   filesOpProgressFraction,
   filesWorkloadUnits,
   formatFilesOpRemainingLabel,
-  FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS,
-  shouldShowFilesOpProgressAtObserve,
+  FILES_OP_PROGRESS_MIN_VISIBLE_MS,
 } from './files-op-progress-policy.ts'
 
 {
-  assert.equal(shouldShowFilesOpProgressAtObserve({ done: 100, total: 100, elapsedMs: 350 }), false)
-}
-
-{
-  const snapshot = { done: 10, total: 100, elapsedMs: 350, estimatedTotalMs: 4000 }
-  const remaining = estimateRemainingMs(snapshot)
-  assert.ok(remaining >= FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS)
-  assert.equal(shouldShowFilesOpProgressAtObserve(snapshot), true)
-}
-
-{
-  const snapshot = { done: 90, total: 100, elapsedMs: 350, estimatedTotalMs: 1100 }
-  const remaining = estimateRemainingMs(snapshot)
-  assert.ok(remaining < FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS)
-  assert.equal(shouldShowFilesOpProgressAtObserve(snapshot), false)
-}
-
-{
-  const snapshot = { done: 0, total: 100, elapsedMs: 350, estimatedTotalMs: 12_000 }
-  assert.equal(shouldShowFilesOpProgressAtObserve(snapshot), true)
-}
-
-{
-  // 新阈值下：预估剩余 < 2 秒的操作不应弹进度窗
-  const snapshot = { done: 50, total: 100, elapsedMs: 350, estimatedTotalMs: 9000 }
-  assert.equal(shouldShowFilesOpProgressAtObserve(snapshot), false)
+  // 剩余估算仍有实测吞吐与总时长预估两条路径（用于「大约还要 X 秒」文案）
+  const byRate = estimateRemainingMs({ done: 10, total: 100, elapsedMs: 500 })
+  assert.ok(byRate > 0 && Number.isFinite(byRate), `byRate=${byRate}`)
+  assert.equal(estimateRemainingMs({ done: 100, total: 100, elapsedMs: 350 }), 0)
 }
 
 {
@@ -63,8 +42,8 @@ import {
 }
 
 {
-  const totalUnits = 2000
-  assert.ok(estimateFilesOpDurationMs(totalUnits) >= FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS + 1000)
+  // 最短显示时长保留防闪烁垫底：极快操作不至于一闪而过，但不再长时间压窗
+  assert.ok(FILES_OP_PROGRESS_MIN_VISIBLE_MS >= 800)
 }
 
 console.log('files-op-progress-policy.test.ts: ok')

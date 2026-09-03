@@ -22,7 +22,6 @@
     "test:quickjs-cowsay": "node --experimental-strip-types src/quickjs/quickjs-cowsay.smoke-test.ts",
     "test:files-cow": "node --experimental-strip-types src/apps/files/files-storage-cow.test.ts",
     "test:files-extract": "node --experimental-strip-types src/apps/files/files-extract-layout.test.ts",
-    "test:files-op-window": "node --experimental-strip-types src/apps/files/files-op-window-position.test.ts",
     "test:files-empty-trash": "node --experimental-strip-types src/apps/files/files-empty-trash-progress.test.ts",
     "test:files-revision": "node --experimental-strip-types src/apps/files/files-write-revision-check.test.ts",
     "test:files-image": "node --experimental-strip-types src/apps/files/files-image-mount.test.ts && node --experimental-strip-types src/apps/files/files-image-exfat.test.ts && node --experimental-strip-types src/apps/files/files-image-fat32.test.ts && node --experimental-strip-types src/apps/files/files-image-partition-mount.test.ts",

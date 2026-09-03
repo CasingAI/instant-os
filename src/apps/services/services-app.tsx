@@ -28,6 +28,7 @@ import {
   type AdaptiveFrameSpec,
 } from '../../ui/adaptive-split-nav.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
+import { List } from '../../ui/list.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
@@ -169,7 +170,7 @@ export function ServicesApp() {
           {services.length === 0 ? (
             <div class="settings__box settings__empty">暂无已注册的系统服务</div>
           ) : (
-            <div class="settings__list">
+            <List>
               {services.map((service) => {
                 const isSelected = service.id === selectedId
                 if (stacked) {
@@ -196,7 +197,7 @@ export function ServicesApp() {
                   </button>
                 )
               })}
-            </div>
+            </List>
           )}
           <p class="settings__section-footnote">
             共 {services.length} 个服务 · {runningCount} 个运行中
@@ -227,7 +228,7 @@ export function ServicesApp() {
             <p class="settings__section-footnote services__detail-lead">
               {selected.description || '暂无描述'}
             </p>
-            <div class="settings__list">
+            <List>
               <div class="settings__row">
                 <span class="settings__row-name">服务 ID</span>
                 <span class="settings__row-size settings__row-size--mono">{selected.id}</span>
@@ -263,7 +264,7 @@ export function ServicesApp() {
                   }
                 />
               )}
-            </div>
+            </List>
 
             <div class="services__detail-actions">
               {canStart && (

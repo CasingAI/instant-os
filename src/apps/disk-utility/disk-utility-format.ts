@@ -10,7 +10,11 @@ import {
   normalizeDiskImagePath,
 } from '../files/files-disk-image-occupancy.ts'
 import { mountDiskImage } from '../files/files-image-actions.ts'
-import { closeImageMountsByPath, getImageMountByPath } from '../files/files-image-mount-store.ts'
+import {
+  closeImageMountsByPath,
+  drainImageMountWrites,
+  getImageMountByPath,
+} from '../files/files-image-mount-store.ts'
 
 export type FatVariant = 'FAT12' | 'FAT16' | 'FAT32'
 export type DiskScheme = 'mbr' | 'superfloppy'
@@ -406,6 +410,8 @@ export async function withExclusiveImageAccess<T>(
   }
   const mounted = occupant?.kind === 'files-mount' ? getImageMountByPath(path) : undefined
   if (mounted) {
+    // 拷贝等在途写入先排空再推出，避免 close 门控把进行中的操作拦腰打断
+    await drainImageMountWrites(path)
     await closeImageMountsByPath(path)
   }
   let workError: unknown

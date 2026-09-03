@@ -259,6 +259,16 @@ async function emitNodeCreated(node: FilesNode): Promise<void> {
   emitFilesVfsChanged({ kind: 'created', path })
 }
 
+/**
+ * 立刻广播 created（绕过批量合并）。
+ * 粘贴 / 导入把整个操作包在一次变更合并里，目标根文件夹的 created 若跟着排队，
+ * 列表要等整次操作结束才出现它；这里立即 flush，让「正在填充的目标文件夹」马上可见。
+ */
+export async function emitNodeCreatedImmediately(node: FilesNode): Promise<void> {
+  const path = await resolveFilesAbsolutePath(node)
+  flushFilesVfsChanged({ kind: 'created', path })
+}
+
 async function emitNodeModified(node: FilesNode): Promise<void> {
   const path = await resolveFilesAbsolutePath(node)
   emitFilesVfsChanged({ kind: 'modified', path })
@@ -1638,6 +1648,12 @@ export type FilesRemoveBatchOptions = {
 export type FilesVfsOpProgress = {
   done: number
   total: number
+  /** 当前正在处理的名字（路径末段），进度窗展示用 */
+  currentName?: string
+  /** 树内真实进度：已处理 / 总节点数（不是顶层选中项数） */
+  items?: { done: number; total: number }
+  /** 树内真实进度：已处理 / 总字节数 */
+  bytes?: { done: number; total: number }
 }
 
 export type FilesCopyWorkload = {
@@ -1686,36 +1702,70 @@ async function estimateCopyWorkloadForNode(
 }
 
 export async function estimateDeleteWorkload(nodeId: string): Promise<FilesDeleteWorkload> {
-  if (isMountNodeId(nodeId) || isImageNodeId(nodeId)) {
-    return { nodeCount: 1, byteSize: 0, totalUnits: 1 }
-  }
+  const node = await getNodeOrThrow(nodeId)
   const estimateStartAt = performance.now()
-  const subtree = await collectSubtreeIds(nodeId)
+  const stats = await estimateDeleteWorkloadForNode(node)
   recordSystemDebugTimeline({
     layer: 'files',
     op: 'estimate-delete-workload',
-    detail: `${subtree.nodeIds.length} nodes ${subtree.reclaimBytes}B`,
+    detail: `${stats.nodeCount} nodes ${stats.byteSize}B`,
     durationMs: Math.round(performance.now() - estimateStartAt),
   })
   return {
-    nodeCount: subtree.nodeIds.length,
-    byteSize: subtree.reclaimBytes,
-    totalUnits: filesWorkloadUnits(subtree.nodeIds.length, subtree.reclaimBytes),
+    nodeCount: stats.nodeCount,
+    byteSize: stats.byteSize,
+    totalUnits: filesWorkloadUnits(stats.nodeCount, stats.byteSize),
   }
+}
+
+/**
+ * 删除工作量遍历：所有卷（含镜像 / 挂载）都按真实子树统计，不再把整棵目录
+ * 当成 1 单位——否则进度窗只能显示「1 / 1 项」且条不动。
+ * 镜像 / 挂载卷的目录遍历会排在卷任务队列后，调用方需先把统计放进
+ * estimate 钩子（「正在统计…」期间执行），不要同步阻塞在操作入口。
+ */
+async function estimateDeleteWorkloadForNode(
+  node: FilesNode,
+): Promise<{ nodeCount: number; byteSize: number }> {
+  if (node.kind === 'file' || node.kind === 'symlink') {
+    return { nodeCount: 1, byteSize: node.byteSize }
+  }
+  let nodeCount = 1
+  let byteSize = node.byteSize
+  const children = await listDirectory(node.locationId, node.id)
+  for (const child of children) {
+    countSystemDebugHot('files', 'estimate-walk')
+    const sub = await estimateDeleteWorkloadForNode(child)
+    nodeCount += sub.nodeCount
+    byteSize += sub.byteSize
+  }
+  return { nodeCount, byteSize }
 }
 
 async function deleteLocalSubtreeWithProgress(
   subtree: Awaited<ReturnType<typeof collectSubtreeIds>>,
   onProgress?: (progress: FilesVfsOpProgress) => void,
   signal?: AbortSignal,
+  currentName?: string,
 ): Promise<void> {
   const deleteStartAt = performance.now()
   const total = filesWorkloadUnits(subtree.nodeIds.length, subtree.reclaimBytes)
-  onProgress?.({ done: 0, total })
+  const meta = {
+    ...(currentName !== undefined ? { currentName } : {}),
+    items: { done: 0, total: subtree.nodeIds.length },
+    bytes: { done: 0, total: subtree.reclaimBytes },
+  }
+  onProgress?.({ done: 0, total, ...meta })
 
   if (subtree.nodeIds.length <= LARGE_SUBTREE_DELETE_THRESHOLD) {
     await deleteSubtree(subtree)
-    onProgress?.({ done: total, total })
+    onProgress?.({
+      done: total,
+      total,
+      ...meta,
+      items: { done: subtree.nodeIds.length, total: subtree.nodeIds.length },
+      bytes: { done: subtree.reclaimBytes, total: subtree.reclaimBytes },
+    })
     recordSystemDebugTimeline({
       layer: 'files',
       op: 'delete-subtree-done',
@@ -1749,9 +1799,21 @@ async function deleteLocalSubtreeWithProgress(
       fileIds: fileChunk,
       reclaimBytes: reclaimChunk,
     })
-    onProgress?.({ done, total })
+    onProgress?.({
+      done,
+      total,
+      ...meta,
+      items: { done: deletedNodes, total: subtree.nodeIds.length },
+      bytes: { done: reclaimAssigned, total: subtree.reclaimBytes },
+    })
   }
-  onProgress?.({ done: total, total })
+  onProgress?.({
+    done: total,
+    total,
+    ...meta,
+    items: { done: subtree.nodeIds.length, total: subtree.nodeIds.length },
+    bytes: { done: subtree.reclaimBytes, total: subtree.reclaimBytes },
+  })
   recordSystemDebugTimeline({
     layer: 'files',
     op: 'delete-subtree-batched-done',
@@ -1762,7 +1824,7 @@ async function deleteLocalSubtreeWithProgress(
 
 export async function removeNode(
   id: string,
-  options?: { onProgress?: (progress: FilesVfsOpProgress) => void; signal?: AbortSignal },
+  options?: FilesRemoveSubtreeOptions,
 ): Promise<void> {
   const node = await getNodeOrThrow(id)
   if (isUserSpecialFolderNode(node)) {
@@ -1775,7 +1837,7 @@ export async function removeNode(
 /** 系统层删除（绕过节点 writable 检查），供 PackageService 清理只读 store 等。 */
 export async function removeNodeForced(
   id: string,
-  options?: { onProgress?: (progress: FilesVfsOpProgress) => void; signal?: AbortSignal },
+  options?: FilesRemoveSubtreeOptions,
 ): Promise<void> {
   const node = await getNodeOrThrow(id)
   await removeNodeInner(node, options)
@@ -1958,17 +2020,13 @@ type TrashRootWorkload = {
   units: number
 }
 
-/** 统计废纸篓各根节点删除工作量：挂载/镜像按 1 单位，本地子树按节点数+字节折算 */
+/** 统计废纸篓各根节点删除工作量：所有卷统一按整棵子树（节点数 + 字节）折算 */
 async function collectTrashRootWorkloads(): Promise<TrashRootWorkload[]> {
   const roots = await listDirectory('trash', undefined)
   return Promise.all(
     roots.map(async (node) => {
-      if (isMountNodeId(node.id) || isImageNodeId(node.id)) {
-        return { node, nodeCount: 1, byteSize: 0, units: 1 }
-      }
-      const subtree = await collectSubtreeIds(node.id)
-      const units = filesWorkloadUnits(subtree.nodeIds.length, subtree.reclaimBytes)
-      return { node, nodeCount: subtree.nodeIds.length, byteSize: subtree.reclaimBytes, units }
+      const workload = await estimateDeleteWorkload(node.id)
+      return { node, nodeCount: workload.nodeCount, byteSize: workload.byteSize, units: workload.totalUnits }
     }),
   )
 }
@@ -1990,18 +2048,48 @@ export async function emptyTrash(
   const trashStartAt = performance.now()
   const workloads = await collectTrashRootWorkloads()
   const total = Math.max(1, workloads.reduce((sum, w) => sum + w.units, 0))
+  const totalItems = workloads.reduce((sum, w) => sum + w.nodeCount, 0)
+  const totalBytes = workloads.reduce((sum, w) => sum + w.byteSize, 0)
   let done = 0
-  options?.onProgress?.({ done: 0, total })
-  for (const { node, units } of workloads) {
+  let itemsDone = 0
+  let bytesDone = 0
+  options?.onProgress?.({
+    done: 0,
+    total,
+    items: { done: 0, total: totalItems },
+    bytes: { done: 0, total: totalBytes },
+  })
+  for (const { node, units, nodeCount, byteSize } of workloads) {
     options?.signal?.throwIfAborted?.()
     await removeNodeForced(node.id, {
       signal: options?.signal,
-      onProgress: (progress) => options?.onProgress?.({ done: done + progress.done, total }),
+      workload: { nodeCount, byteSize, totalUnits: units },
+      onProgress: (progress) =>
+        options?.onProgress?.({
+          done: done + progress.done,
+          total,
+          ...(progress.currentName !== undefined ? { currentName: progress.currentName } : {}),
+          items: { done: itemsDone + (progress.items?.done ?? 0), total: totalItems },
+          bytes: { done: bytesDone + (progress.bytes?.done ?? 0), total: totalBytes },
+        }),
     })
     done += units
-    options?.onProgress?.({ done, total })
+    itemsDone += nodeCount
+    bytesDone += byteSize
+    options?.onProgress?.({
+      done,
+      total,
+      currentName: node.name,
+      items: { done: itemsDone, total: totalItems },
+      bytes: { done: bytesDone, total: totalBytes },
+    })
   }
-  options?.onProgress?.({ done: total, total })
+  options?.onProgress?.({
+    done: total,
+    total,
+    items: { done: totalItems, total: totalItems },
+    bytes: { done: totalBytes, total: totalBytes },
+  })
   recordSystemDebugTimeline({
     layer: 'files',
     op: 'empty-trash-done',
@@ -2010,30 +2098,109 @@ export async function emptyTrash(
   })
 }
 
+/** 逐子项删除的共享选项：onProgress 上报 + 协作取消 + 调用方预算好的工作量 */
+export type FilesRemoveSubtreeOptions = {
+  onProgress?: (progress: FilesVfsOpProgress) => void
+  signal?: AbortSignal
+  /** 调用方已算好的删除工作量（estimate 钩子结果），避免整树二次遍历 */
+  workload?: FilesDeleteWorkload
+}
+
 async function removeNodeInner(
   node: FilesNode,
-  options?: { onProgress?: (progress: FilesVfsOpProgress) => void; signal?: AbortSignal },
+  options?: FilesRemoveSubtreeOptions,
 ): Promise<void> {
   const id = node.id
   const path = await resolveFilesAbsolutePath(node)
   assertDiskImagesNotOccupied([path], '删除')
   if (isMountNodeId(id)) {
-    options?.onProgress?.({ done: 0, total: 1 })
-    await removeMountNode(id)
-    options?.onProgress?.({ done: 1, total: 1 })
+    // 逐子项删除并上报：整树一次性 remove 不回调，进度窗整段停在 0
+    await removeMountSubtreeWithProgress(node, options)
     emitFilesVfsChanged({ kind: 'deleted', path })
     return
   }
   if (isImageNodeId(id)) {
-    options?.onProgress?.({ done: 0, total: 1 })
-    await removeImageNode(id)
-    options?.onProgress?.({ done: 1, total: 1 })
+    await removeImageSubtreeWithProgress(node, options)
     emitFilesVfsChanged({ kind: 'deleted', path })
     return
   }
   const subtree = await collectSubtreeIds(id)
-  await deleteLocalSubtreeWithProgress(subtree, options?.onProgress, options?.signal)
+  await deleteLocalSubtreeWithProgress(subtree, options?.onProgress, options?.signal, node.name)
   emitFilesVfsChanged({ kind: 'deleted', path })
+}
+
+/**
+ * 挂载卷逐子项删除：文件逐个 removeEntry，文件夹自底向上删空的，逐步上报。
+ * 不依赖底层 removeEntry(recursive) 的内部实现，进度与取消粒度都在子项上。
+ */
+async function removeMountSubtreeWithProgress(
+  node: FilesNode,
+  options?: FilesRemoveSubtreeOptions,
+): Promise<void> {
+  const workload = options?.workload ?? (await estimateDeleteWorkload(node.id))
+  const total = workload.totalUnits
+  const state = { done: 0, items: 0, bytes: 0, currentName: node.name }
+  const report = (): void => {
+    options?.onProgress?.({
+      done: Math.min(total, state.done),
+      total,
+      currentName: state.currentName,
+      items: { done: Math.min(workload.nodeCount, state.items), total: workload.nodeCount },
+      bytes: { done: Math.min(workload.byteSize, state.bytes), total: workload.byteSize },
+    })
+  }
+  const visit = async (current: FilesNode): Promise<void> => {
+    options?.signal?.throwIfAborted?.()
+    state.currentName = current.name
+    report()
+    if (current.kind === 'folder') {
+      const children = await listDirectory(current.locationId, current.id)
+      for (const child of children) await visit(child)
+    }
+    await removeMountNode(current.id)
+    state.done += filesWorkloadUnits(1, current.byteSize)
+    state.items += 1
+    state.bytes += current.byteSize
+    report()
+  }
+  await visit(node)
+}
+
+/**
+ * 镜像卷逐子项删除：文件逐个删，目录自底向上删空的（exFAT 空目录才能删），
+ * 逐步上报。替换原先整树一次的 volume.remove：那样既不回调进度，也无法取消。
+ */
+async function removeImageSubtreeWithProgress(
+  node: FilesNode,
+  options?: FilesRemoveSubtreeOptions,
+): Promise<void> {
+  const workload = options?.workload ?? (await estimateDeleteWorkload(node.id))
+  const total = workload.totalUnits
+  const state = { done: 0, items: 0, bytes: 0, currentName: node.name }
+  const report = (): void => {
+    options?.onProgress?.({
+      done: Math.min(total, state.done),
+      total,
+      currentName: state.currentName,
+      items: { done: Math.min(workload.nodeCount, state.items), total: workload.nodeCount },
+      bytes: { done: Math.min(workload.byteSize, state.bytes), total: workload.byteSize },
+    })
+  }
+  const visit = async (current: FilesNode): Promise<void> => {
+    options?.signal?.throwIfAborted?.()
+    state.currentName = current.name
+    report()
+    if (current.kind === 'folder') {
+      const children = await listDirectory(current.locationId, current.id)
+      for (const child of children) await visit(child)
+    }
+    await removeImageNode(current.id)
+    state.done += filesWorkloadUnits(1, current.byteSize)
+    state.items += 1
+    state.bytes += current.byteSize
+    report()
+  }
+  await visit(node)
 }
 
 /**
@@ -2255,16 +2422,75 @@ export async function copyNodeTo(params: {
 
   const workload = await estimateCopyWorkloadForNode(source)
   const total = filesWorkloadUnits(workload.nodeCount, workload.byteSize)
-  const progressState = { done: 0 }
-  params.onProgress?.({ done: 0, total })
+  const progressState = { done: 0, items: 0, bytes: 0 }
+  params.onProgress?.({
+    done: 0,
+    total,
+    currentName: source.name,
+    items: { done: 0, total: workload.nodeCount },
+    bytes: { done: 0, total: workload.byteSize },
+  })
 
   const reportNodeDone = (node: FilesNode) => {
     progressState.done = Math.min(total, progressState.done + nodeWorkloadUnits(node))
-    params.onProgress?.({ done: progressState.done, total })
+    progressState.items += 1
+    progressState.bytes += node.byteSize
+    params.onProgress?.({
+      done: progressState.done,
+      total,
+      currentName: node.name,
+      items: { done: progressState.items, total: workload.nodeCount },
+      bytes: { done: progressState.bytes, total: workload.byteSize },
+    })
+  }
+
+  // 文件夹源：目标根文件夹先建出来并登记写入进度（列表里图标叠圆饼），
+  // 再逐个往里拷子项；子项的变更仍按调用方的批量合并排队，但根文件夹
+  // 的 created 立即广播，当前目录列表马上出现「正在填充」的它。
+  if (source.kind === 'folder') {
+    const root = await mkdir({
+      locationId: params.destLocationId,
+      parentId: params.destParentId,
+      name: source.name,
+    })
+    reportNodeDone(source)
+    // 空树没有可填充的字节，登记只会闪一帧旋转弧；直接不登记
+    if (workload.byteSize > 0) registerFilesWriteProgress(root.id, workload.byteSize)
+    try {
+      await emitNodeCreatedImmediately(root)
+      const children = await listDirectory(source.locationId, source.id)
+      for (const child of children) {
+        params.signal?.throwIfAborted?.()
+        await copyNodeTree(child, params.destLocationId, root.id, reportNodeDone, params.signal)
+        if (workload.byteSize > 0) updateFilesWriteProgress(root.id, progressState.bytes)
+      }
+    } catch (err) {
+      if (workload.byteSize > 0) removeFilesWriteProgress(root.id)
+      if (params.signal?.aborted) {
+        // 取消：内层 copyNodeTree 已逐层清掉各自建的目录，这里清根
+        await removeNodeForced(root.id).catch(() => undefined)
+      }
+      throw err
+    }
+    if (workload.byteSize > 0) removeFilesWriteProgress(root.id)
+    params.onProgress?.({
+      done: total,
+      total,
+      currentName: source.name,
+      items: { done: workload.nodeCount, total: workload.nodeCount },
+      bytes: { done: workload.byteSize, total: workload.byteSize },
+    })
+    return root
   }
 
   const result = await copyNodeTree(source, params.destLocationId, params.destParentId, reportNodeDone, params.signal)
-  params.onProgress?.({ done: total, total })
+  params.onProgress?.({
+    done: total,
+    total,
+    currentName: source.name,
+    items: { done: workload.nodeCount, total: workload.nodeCount },
+    bytes: { done: workload.byteSize, total: workload.byteSize },
+  })
   return result
 }
 

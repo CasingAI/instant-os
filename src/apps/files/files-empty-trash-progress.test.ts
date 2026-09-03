@@ -94,10 +94,11 @@ async function testEmptyTrashQuickSeries(): Promise<void> {
   const reports: Array<{ done: number; total: number }> = []
   await emptyTrash({ onProgress: (p) => reports.push(p) })
   // 空废纸篓：total 兜底为 1，立即完成（策略上不弹窗）
-  assert.deepEqual(reports, [
-    { done: 0, total: 1 },
-    { done: 1, total: 1 },
-  ])
+  assert.equal(reports.length, 2)
+  assert.equal(reports[0]!.done, 0)
+  assert.equal(reports[0]!.total, 1)
+  assert.equal(reports[1]!.done, 1)
+  assert.equal(reports[1]!.total, 1)
   console.log('empty trash quick series ok')
 }
 

@@ -25,6 +25,8 @@ const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = {
   speech: () => import('../apps/speech/speech-app.tsx').then((m) => m.SpeechApp),
   files: () => import('../apps/files/files-app.tsx').then((m) => m.FilesApp),
   'file-info': () => import('../apps/file-info/file-info-app.tsx').then((m) => m.FileInfoApp),
+  'files-op-progress': () =>
+    import('../apps/files/files-op-progress-app.tsx').then((m) => m.FilesOpProgressApp),
   textedit: () => import('../apps/textedit/textedit-app.tsx').then((m) => m.TextEditApp),
   pages: () => import('../apps/pages/pages-app.tsx').then((m) => m.PagesApp),
   preview: () => import('../apps/preview/preview-app.tsx').then((m) => m.PreviewApp),

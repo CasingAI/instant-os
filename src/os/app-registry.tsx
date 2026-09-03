@@ -184,6 +184,14 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: false,
   }),
   withAbout({
+    id: 'files-op-progress',
+    name: BUILTIN_APP_DISPLAY_NAMES['files-op-progress'],
+    icon: FilesIcon,
+    dock: false,
+    desktop: false,
+    multiWindow: true,
+  }),
+  withAbout({
     id: 'textedit',
     name: BUILTIN_APP_DISPLAY_NAMES['textedit'],
     icon: TextEditIcon,

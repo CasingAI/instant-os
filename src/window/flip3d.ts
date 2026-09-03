@@ -48,15 +48,9 @@ export type Flip3dVisual = {
   opacity: number
 }
 
-/** 与显示桌面 peek 相同的可见窗：未关闭、未最小化；无窗口会话仅展开面板时计入。 */
+/** 与显示桌面 peek 相同的可见窗：未关闭、未最小化。 */
 export function isFlip3dEligibleWindow(window: WindowState): boolean {
-  if (window.closing || window.minimized) {
-    return false
-  }
-  if (window.windowless && !window.windowlessPanel) {
-    return false
-  }
-  return true
+  return !window.closing && !window.minimized
 }
 
 /** 按 zIndex 从高到低；队头为最前窗。 */

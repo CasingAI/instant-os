@@ -1,8 +1,5 @@
-/** 开始操作后观察此时长，再决定是否展示进度对话框 */
-export const FILES_OP_PROGRESS_OBSERVE_MS = 350
-
-/** 观察结束时剩余 ETA 不低于此值才展示对话框 */
-export const FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS = 2000
+/** 进度窗最短停留时长：极快操作补足到 1 秒防一闪而过；已超过的任务完成即刻关窗 */
+export const FILES_OP_PROGRESS_MIN_VISIBLE_MS = 1000
 
 export type FilesOpProgressSnapshot = {
   done: number
@@ -46,12 +43,7 @@ export function estimateRemainingMs(snapshot: FilesOpProgressSnapshot): number {
   return Number.POSITIVE_INFINITY
 }
 
-/** 在观察窗结束时是否应展示进度对话框 */
-export function shouldShowFilesOpProgressAtObserve(snapshot: FilesOpProgressSnapshot): boolean {
-  if (snapshot.done >= snapshot.total) return false
-  return estimateRemainingMs(snapshot) >= FILES_OP_PROGRESS_SHOW_IF_REMAINING_MS
-}
-
+/** 进度折算到 0~1 */
 export function filesOpProgressFraction(done: number, total: number): number {
   if (total <= 0) return 0
   return Math.min(1, Math.max(0, done / total))

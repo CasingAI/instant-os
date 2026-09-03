@@ -48,7 +48,7 @@ export function DesktopRevealPeekLayer() {
   }
 
   const strips = windows
-    .filter((window) => !window.minimized && (!window.windowless || !!window.windowlessPanel))
+    .filter((window) => !window.minimized)
     .map((window) => renderPeekStrip(window, hideDesktopReveal))
     .filter((strip): strip is NonNullable<typeof strip> => strip !== undefined)
 

@@ -48,7 +48,8 @@ export function useWindowDrag(
   onMove: (windowId: string, x: number, y: number) => void,
   onFocus: (windowId: string) => void,
   onReleaseAnchored: (windowId: string, clientX: number, clientY: number) => WindowBounds,
-  onSnap: (windowId: string, target: SnapTarget) => void,
+  /** 缺省表示该窗不参与边缘吸附（如迷你窗）：拖拽仍可用，但不算吸附目标、不出预览 */
+  onSnap?: (windowId: string, target: SnapTarget) => void,
   onDoubleActivate?: () => void,
   enabled = true,
 ) {
@@ -149,8 +150,8 @@ export function useWindowDrag(
         document.removeEventListener('pointercancel', onPointerCancel)
 
         if (session.phase === 'dragging' && session.moved) {
-          const snapTarget = detectSnapTarget(upEvent.clientX, upEvent.clientY)
-          if (snapTarget) {
+          const snapTarget = onSnap ? detectSnapTarget(upEvent.clientX, upEvent.clientY) : undefined
+          if (snapTarget && onSnap) {
             // Drag writes left/top directly on the frame. If the snap target
             // keeps the same y as React state (e.g. already under the menu bar),
             // reconciliation skips updating `top` and the window stays shifted
@@ -218,7 +219,7 @@ export function useWindowDrag(
         session.lastX = clamped.x
         session.lastY = clamped.y
         applyPositionToFrame(session.frameEl, clamped.x, clamped.y)
-        setSnapPreview(detectSnapTarget(moveEvent.clientX, moveEvent.clientY))
+        setSnapPreview(onSnap ? detectSnapTarget(moveEvent.clientX, moveEvent.clientY) : undefined)
       }
 
       const onPointerUp = (upEvent: PointerEvent) => {

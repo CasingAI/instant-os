@@ -15,7 +15,11 @@ import { requestFilesReveal } from '../files/files-reveal-request.ts'
 import { FILES_MOUNTS_CHANGED_EVENT } from '../files/files-mount-store.ts'
 import { FILES_IMAGE_MOUNTS_CHANGED_EVENT } from '../files/files-image-mount-store.ts'
 import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
-import { unmountDiskImage } from '../files/files-image-actions.ts'
+import {
+  drainImageMountWritesForLocation,
+  imageMountPendingWorkForLocation,
+  unmountDiskImage,
+} from '../files/files-image-actions.ts'
 import { normalizeDiskImagePath } from '../files/files-disk-image-occupancy.ts'
 import { isImageLocationId } from '../files/files-types.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
@@ -960,6 +964,17 @@ export function DiskUtilityApp() {
             themeColor: DISK_UTILITY_THEME,
           })
           if (!ok) return
+          if (imageMountPendingWorkForLocation(node.id) > 0) {
+            const waitOk = await modal.confirm({
+              title: '正在向镜像写入数据',
+              message: `「${node.label}」还有写入未完成，推出会等写入完成后自动进行。`,
+              confirmLabel: '等待并推出',
+              cancelLabel: '取消',
+              themeColor: DISK_UTILITY_THEME,
+            })
+            if (!waitOk) return
+            await drainImageMountWritesForLocation(node.id)
+          }
           try {
             await unmountDiskImage(node.id)
             await refresh()

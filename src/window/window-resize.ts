@@ -3,9 +3,9 @@ import type { WindowSnap } from '../os/types.ts'
 
 export const MIN_WINDOW_WIDTH = 280
 export const MIN_WINDOW_HEIGHT = 160
-/** 小型对话框窗口（进度面板等）允许更矮 */
-export const MIN_DIALOG_WINDOW_WIDTH = 280
-export const MIN_DIALOG_WINDOW_HEIGHT = 96
+/** 迷你窗（chromeKind='mini'，内容撑起尺寸）的下限：只保 34px 标题栏可显示、关闭键可点 */
+export const MIN_MINI_WINDOW_WIDTH = 120
+export const MIN_MINI_WINDOW_HEIGHT = 40
 export const RESIZE_HANDLE_SIZE = 6
 
 export type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'

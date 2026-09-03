@@ -111,7 +111,8 @@ function WindowAppSplashPanel({
 }
 
 export function WindowAppBody({ window }: { window: WindowState }) {
-  const skipSplash = Boolean(window.windowless)
+  // 迷你窗直接呈现正文，不播应用启动 splash
+  const skipSplash = window.chromeKind === 'mini'
   const [retryNonce, setRetryNonce] = useState(0)
   const [state, setState] = useState<LoadState>(() => {
     const cached = peekWindowApp(window.appId)

@@ -4,24 +4,6 @@
   pointer-events: none;
 }
 
-/* 无窗口应用宿主：预先落在最终面板坐标，不可见；展开时位置不变，只播进入动画 */
-.windowless-app-host {
-  position: absolute;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  overflow: hidden;
-}
-
-.windowless-app-host__chrome,
-.windowless-app-host__content {
-  display: contents;
-}
-
-.windowless-app-host .window-modal-overlay-root {
-  pointer-events: none;
-}
-
 .window-frame__control:disabled {
   opacity: 0.35;
   cursor: default;
@@ -540,6 +522,33 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
+}
+
+/* 迷你窗（chromeKind='mini'）：正文不被拉伸，窗框量测其自然大小回写 bounds；
+   正文自然宽最大放到 60vw（更长的行由面板自身省略号兜底），内容小于窗口下限时居中 */
+.window-frame--mini .window-frame__content {
+  align-items: center;
+  justify-content: center;
+}
+
+.window-frame--mini .window-frame__content > .window-app-body {
+  flex: none;
+  width: max-content;
+  max-width: 60vw;
+  height: auto;
+  min-height: 0;
+}
+
+.window-frame--mini .window-app-body__content {
+  flex: none;
+  height: auto;
+  min-height: 0;
+}
+
+.window-frame--mini .window-app-body__content > * {
+  flex: none;
+  height: auto;
+  min-height: 0;
 }
 
 .window-frame__focus-catcher {

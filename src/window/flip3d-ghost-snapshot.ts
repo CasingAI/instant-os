@@ -12,10 +12,7 @@ export function captureFlip3dWindowSnapshot(windowId: string): HTMLElement | und
   if (!(frame instanceof HTMLElement)) {
     return undefined
   }
-  const source =
-    frame.querySelector('.window-frame__chrome') ??
-    frame.querySelector('.windowless-app-host__chrome') ??
-    frame
+  const source = frame.querySelector('.window-frame__chrome') ?? frame
   const clone = source.cloneNode(true) as HTMLElement
   clone.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'))
   for (const iframe of clone.querySelectorAll('iframe')) {

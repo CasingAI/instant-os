@@ -9,6 +9,7 @@ import {
   extractArchiveToDirectory,
   isArchiveFileName,
   type FilesArchiveFormat,
+  type FilesCompressPlanEntry,
 } from './files-archive.ts'
 import {
   estimateFilesOpDurationMs,
@@ -17,7 +18,6 @@ import {
 import {
   isFilesOpCancelledError,
   runFilesOpWithProgress,
-  type FilesOpProgressUiState,
 } from './files-run-with-op-progress.ts'
 import { createBinaryFile } from './files-vfs.ts'
 import type { FilesLocationId, FilesNode } from './files-types.ts'
@@ -28,7 +28,6 @@ export type FilesArchiveOpsContext = {
   /** 解压目标目录（当前目录）绝对路径 */
   destRoot: string
   canCreateHere: boolean
-  setOpProgressUi: (state: FilesOpProgressUiState | undefined) => void
   refresh: (options?: { quiet?: boolean }) => Promise<void>
   showToast: (message: string) => void
   alertError: (title: string, error: unknown) => Promise<void>
@@ -42,15 +41,22 @@ export async function compressNodesToArchiveOp(
 ): Promise<void> {
   if (nodes.length === 0 || !context.canCreateHere) return
   try {
-    const { entries, fileCount, byteCount } = await planCompressNodesToArchive(nodes)
-    const totalWork = filesWorkloadUnits(fileCount, byteCount)
+    let entries: FilesCompressPlanEntry[] = []
+    let fileCount = 0
+    let byteCount = 0
+    let totalWork = 1
     const controller = new AbortController()
 
     const result = await runFilesOpWithProgress({
       kind: 'compress',
-      totalWork,
-      estimatedTotalMs: estimateFilesOpDurationMs(totalWork),
-      onUiChange: context.setOpProgressUi,
+      estimate: async () => {
+        const planned = await planCompressNodesToArchive(nodes)
+        entries = planned.entries
+        fileCount = planned.fileCount
+        byteCount = planned.byteCount
+        totalWork = filesWorkloadUnits(fileCount, byteCount)
+        return totalWork
+      },
       signal: controller.signal,
       cancel: () => controller.abort(),
       task: async (report, signal) =>
@@ -110,7 +116,6 @@ export async function extractArchiveToDirectoryOp(
       kind: 'extract',
       totalWork: 1,
       estimatedTotalMs: estimateFilesOpDurationMs(1),
-      onUiChange: context.setOpProgressUi,
       signal: controller.signal,
       cancel: () => controller.abort(),
       task: async (report, signal) =>

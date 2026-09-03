@@ -15,7 +15,8 @@ export function Flip3dGhostFrame({ ghost, count, onDone }: Flip3dGhostFrameProps
   const doneRef = useRef(false)
   const onDoneRef = useRef(onDone)
   onDoneRef.current = onDone
-  const isDialog = ghost.chromeKind === 'dialog'
+  // mini 迷你窗与 dialog 同样只挂关闭键，幽灵形态按紧凑处理
+  const isDialog = ghost.chromeKind !== 'window'
   const viewport = { width: window.innerWidth, height: window.innerHeight }
   const motion = resolveFlip3dGhostMotion(ghost.bounds, ghost.direction, viewport, count)
 

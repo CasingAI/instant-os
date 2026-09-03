@@ -58,8 +58,10 @@ import {
   getImageMountReadError,
 } from './files-image-mount-store.ts'
 import {
+  drainImageMountWritesForLocation,
   isDiskImageFileName,
   mountDiskImage,
+  imageMountPendingWorkForLocation,
   unmountDiskImage,
 } from './files-image-actions.ts'
 import {
@@ -81,12 +83,10 @@ import {
 } from './files-types.ts'
 import { isUserSpecialFolderNode } from './files-user-special.ts'
 import { marqueeSelection, rangeSelection, toggleInSet } from './files-selection.ts'
-import { FilesOpProgressWindow } from './files-op-progress-window.tsx'
 import { estimateFilesOpDurationMs } from './files-op-progress-policy.ts'
 import {
   isFilesOpCancelledError,
   runFilesOpWithProgress,
-  type FilesOpProgressUiState,
 } from './files-run-with-op-progress.ts'
 import {
   isArchiveFileName,
@@ -139,6 +139,8 @@ import {
   overwriteNodeWithSource,
   runWithFilesVfsChangeBatch,
   trashNode,
+  type FilesCopyWorkload,
+  type FilesDeleteWorkload,
 } from './files-vfs.ts'
 import {
   filesLocationPathRoot,
@@ -261,7 +263,11 @@ function applyLocalItemsChange(
     return items.filter((item) => !change.ids.has(item.id))
   }
   if (change.kind === 'add') {
-    return sortNodeList([...items, ...change.nodes], sort)
+    // 按 id 去重：目标根文件夹在长操作中已通过 VFS 事件刷新进列表，
+    // 操作收尾的本地 add 不能再插一份重复行
+    const incomingIds = new Set(change.nodes.map((node) => node.id))
+    const kept = items.filter((item) => !incomingIds.has(item.id))
+    return sortNodeList([...kept, ...change.nodes], sort)
   }
   return sortNodeList(
     items.map((item) => (item.id === change.node.id ? change.node : item)),
@@ -749,7 +755,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const marqueeStartRef = useRef<{ x: number; y: number; pointerId?: number } | undefined>(undefined)
   /** 拖放落点高亮：文件夹节点 id / 侧栏卷 id / 路径栏段 key */
   const [dropTarget, setDropTarget] = useState<{ kind: 'node'; id: string } | { kind: 'location'; id: FilesLocationId } | { kind: 'pathbar'; key: string } | undefined>(undefined)
-  const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
   const browserRef = useRef<HTMLDivElement>(null)
   /** 按「卷 + 文件夹」记忆的滚动位置（仅本次打开期间） */
@@ -1701,6 +1706,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         themeColor: THEME,
       })
       if (!ok) return
+      if (isImage && imageMountPendingWorkForLocation(locationToRemove) > 0) {
+        const waitOk = await modal.confirm({
+          title: '正在向镜像写入数据',
+          message: `「${label}」还有写入未完成，推出会等写入完成后自动进行。`,
+          confirmLabel: '等待并推出',
+          cancelLabel: '取消',
+          themeColor: THEME,
+        })
+        if (!waitOk) return
+        showToast(`等「${label}」写入完成后会自动推出`)
+        await drainImageMountWritesForLocation(locationToRemove)
+      }
       try {
         if (isImage) {
           await unmountDiskImage(locationToRemove)
@@ -1720,7 +1737,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         })
       }
     },
-    [locationId, modal, refreshLocations],
+    [locationId, modal, refreshLocations, showToast],
   )
 
   const handleMountDiskImage = useCallback(
@@ -2118,7 +2135,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           kind: 'paste',
           totalWork: plans.length,
           estimatedTotalMs: estimateFilesOpDurationMs(plans.length),
-          onUiChange: setOpProgressUi,
           signal: pasteController.signal,
           cancel: () => pasteController.abort(),
           task: async (report, signal) => {
@@ -2236,6 +2252,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         // （各后端 close 才提交，中途失败旧内容原样）；文件夹替换仍先删后拷。
         // 覆盖项仍留在粘贴清单里（剪切语义要删源、进度要计数），只是不删目标、不复制
         const overwriteTargets = new Map<string, string>()
+        const folderReplaceTargets: Array<{ name: string; targetId: string }> = []
         for (const item of replaceEntries) {
           const target = await findSiblingNode(locationId, folderId, item.name)
           if (!target) {
@@ -2244,31 +2261,46 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           }
           if (item.kind === 'file' && target.kind === 'file') {
             overwriteTargets.set(item.name, target.id)
+            keptEntries.push(item)
             continue
           }
-          try {
-            // 文件夹替换 = 永久删除旧目录腾出原名再按原名拷入（各卷型统一，不进废纸篓）；
-            // 失败则退回保留两者（靠自动改名兜底）
-            await removeNode(target.id)
-          } catch (err) {
-            showToast(`无法替换「${item.name}」：${formatError(err)}`)
-          }
+          // 递归删旧目录放到进度窗打开之后（task 开头），避免统计/删除把窗口挡住
+          folderReplaceTargets.push({ name: item.name, targetId: target.id })
           keptEntries.push(item)
         }
-        const workloads = await Promise.all(
-          pasteEntries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
-        )
-        const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+        const workloads: Array<FilesCopyWorkload | undefined> = []
+        let totalUnits = 0
+        let totalItems = 0
+        let totalBytes = 0
         const pasteController = new AbortController()
         await runFilesOpWithProgress({
           kind: 'paste',
-          totalWork: totalUnits,
-          estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
-          onUiChange: setOpProgressUi,
+          estimate: async () => {
+            const estimated = await Promise.all(
+              pasteEntries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
+            )
+            workloads.push(...estimated)
+            totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+            totalItems = workloads.reduce((sum, item) => sum + (item?.nodeCount ?? 1), 0)
+            totalBytes = workloads.reduce((sum, item) => sum + (item?.byteSize ?? 0), 0)
+            return totalUnits
+          },
           signal: pasteController.signal,
           cancel: () => pasteController.abort(),
           task: async (report, signal) => {
+            for (const replace of folderReplaceTargets) {
+              signal?.throwIfAborted?.()
+              try {
+                // 文件夹替换 = 永久删除旧目录腾出原名再按原名拷入（各卷型统一，不进废纸篓）；
+                // 失败则退回保留两者（靠自动改名兜底）
+                await removeNode(replace.targetId)
+              } catch (err) {
+                showToast(`无法替换「${replace.name}」：${formatError(err)}`)
+              }
+            }
             let done = 0
+            let itemsDone = 0
+            let bytesDone = 0
             for (let index = 0; index < pasteEntries.length; index += 1) {
               signal?.throwIfAborted?.()
               const item = pasteEntries[index]!
@@ -2285,11 +2317,16 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                     report({
                       done:
                         done +
-                        Math.round(
-                          (written / Math.max(1, total)) * (itemWorkload / totalUnits),
-                        ),
+                        Math.round((written / Math.max(1, total)) * itemWorkload),
                       total: totalUnits,
-                      detailLabel: `${index + 1} / ${pasteEntries.length} 项`,
+                      currentName: item.name,
+                      items: { done: itemsDone + 1, total: totalItems },
+                      bytes: {
+                        done:
+                          bytesDone +
+                          Math.round((written / Math.max(1, total)) * (workloads[index]?.byteSize ?? 0)),
+                        total: totalBytes,
+                      },
                     })
                   },
                 })
@@ -2301,15 +2338,26 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                   signal,
                   onProgress: (progress) => {
                     report({
-                      done: done + Math.round(progress.done * (itemWorkload / totalUnits)),
+                      done: done + progress.done,
                       total: totalUnits,
-                      detailLabel: `${index + 1} / ${pasteEntries.length} 项`,
+                      ...(progress.currentName !== undefined ? { currentName: progress.currentName } : {}),
+                      items: { done: itemsDone + (progress.items?.done ?? 0), total: totalItems },
+                      bytes: { done: bytesDone + (progress.bytes?.done ?? 0), total: totalBytes },
                     })
                   },
                 })
                 createdNodes.push(copied)
               }
               done += itemWorkload
+              itemsDone += workloads[index]?.nodeCount ?? 1
+              bytesDone += workloads[index]?.byteSize ?? 0
+              report({
+                done,
+                total: totalUnits,
+                currentName: item.name,
+                items: { done: itemsDone, total: totalItems },
+                bytes: { done: bytesDone, total: totalBytes },
+              })
               if (entry.mode === 'cut') {
                 // 剪切语义：粘贴成功后删除源；源已不存在（重复粘贴）时跳过
                 await removeNode(item.nodeId).catch(() => undefined)
@@ -2347,9 +2395,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const handleTrash = useCallback(
     async (nodes: readonly FilesNode[], permanent: boolean) => {
       if (nodes.length === 0) return
-      // 写入中的文件禁止删除：close 会回写 node 行，删了也会被复活
+      // 写入中的项（含正在填充的目标文件夹）禁止删除：close 会回写 node 行，删了也会被复活
       if (nodes.some((node) => getFilesWriteProgressSnapshot().has(node.id))) {
-        showToast('文件正在写入中，无法删除')
+        showToast('项目正在写入中，无法删除')
         return
       }
       closeTransientMenus()
@@ -2379,41 +2427,67 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
 
       try {
-        // 移入废纸篓（仅内部卷）与永久删除均为元数据级/原地操作，按删除同口径估算
-        const workloads = await Promise.all(
-          nodes.map((node) => estimateDeleteWorkload(node.id).catch(() => undefined)),
-        )
-        const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+        // 移入废纸篓（仅内部卷）与永久删除均为元数据级/原地操作，按删除同口径估算。
+        // 估算挪进 estimate 钩子：镜像卷上遍历目录会排队，必须先弹出「正在统计…」
+        const workloads: Array<FilesDeleteWorkload | undefined> = []
+        let totalUnits = 0
+        let totalItems = 0
+        let totalBytes = 0
         const deleteController = new AbortController()
         await runFilesOpWithProgress({
           kind: 'delete',
-          totalWork: totalUnits,
-          estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
-          onUiChange: setOpProgressUi,
+          estimate: async () => {
+            const estimated = await Promise.all(
+              nodes.map((node) => estimateDeleteWorkload(node.id).catch(() => undefined)),
+            )
+            workloads.push(...estimated)
+            totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+            totalItems = workloads.reduce((sum, item) => sum + (item?.nodeCount ?? 1), 0)
+            totalBytes = workloads.reduce((sum, item) => sum + (item?.byteSize ?? 0), 0)
+            return totalUnits
+          },
           signal: deleteController.signal,
           cancel: () => deleteController.abort(),
           task: async (report, signal) => {
             let done = 0
+            let itemsDone = 0
+            let bytesDone = 0
             for (let index = 0; index < nodes.length; index += 1) {
               signal?.throwIfAborted?.()
               const node = nodes[index]!
-              const units = workloads[index]?.totalUnits ?? 1
+              const workload = workloads[index]
+              const units = workload?.totalUnits ?? 1
               if (!permanent && locationSupportsTrash(node.locationId)) {
-                // 内部卷软删为元数据级移动，瞬时完成，无需进度回报
+                // 内部卷软删为元数据级移动，瞬时完成，按整棵子树一步上报
                 await trashNode(node.id)
+                done += units
+                itemsDone += workload?.nodeCount ?? 1
+                bytesDone += workload?.byteSize ?? 0
+                report({
+                  done,
+                  total: totalUnits,
+                  currentName: node.name,
+                  items: { done: itemsDone, total: totalItems },
+                  bytes: { done: bytesDone, total: totalBytes },
+                })
               } else {
                 await removeNode(node.id, {
                   signal,
+                  workload,
                   onProgress: (progress) => {
                     report({
                       done: done + progress.done,
                       total: totalUnits,
-                      detailLabel: `${index + 1} / ${nodes.length} 项`,
+                      ...(progress.currentName !== undefined ? { currentName: progress.currentName } : {}),
+                      items: { done: itemsDone + (progress.items?.done ?? 0), total: totalItems },
+                      bytes: { done: bytesDone + (progress.bytes?.done ?? 0), total: totalBytes },
                     })
                   },
                 })
+                done += units
+                itemsDone += workload?.nodeCount ?? 1
+                bytesDone += workload?.byteSize ?? 0
               }
-              done += units
             }
           },
         })
@@ -2475,7 +2549,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         folderId,
         destRoot: pathBarAbsolutePath,
         canCreateHere,
-        setOpProgressUi,
         refresh,
         showToast,
         alertError: async (title, error) => {
@@ -2495,7 +2568,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         folderId,
         destRoot: pathBarAbsolutePath,
         canCreateHere,
-        setOpProgressUi,
         refresh,
         showToast,
         alertError: async (title, error) => {
@@ -2533,13 +2605,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     })
     if (!ok) return
     try {
-      const workload = await estimateEmptyTrashWorkload()
       const emptyController = new AbortController()
       await runFilesOpWithProgress({
         kind: 'delete',
-        totalWork: workload.totalUnits,
-        estimatedTotalMs: estimateFilesOpDurationMs(workload.totalUnits),
-        onUiChange: setOpProgressUi,
+        estimate: async () => (await estimateEmptyTrashWorkload()).totalUnits,
         signal: emptyController.signal,
         cancel: () => emptyController.abort(),
         task: async (report, signal) => {
@@ -2638,9 +2707,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const handleRename = useCallback(
     async (node: FilesNode) => {
       if (!canRenameOrDeleteFilesNode(node)) return
-      // 写入中的流（close 会回写 node 行，中途改名/删除会复活或错位）
+      // 写入中的流（close 会回写 node 行，中途改名/删除会复活或错位；文件夹同理）
       if (getFilesWriteProgressSnapshot().has(node.id)) {
-        showToast('文件正在写入中，稍后再试')
+        showToast('项目正在写入中，稍后再试')
         return
       }
       closeTransientMenus()
@@ -2898,38 +2967,90 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       const copyMode = event.altKey
       try {
         const dropController = new AbortController()
+        // 拖放按顶层 id 数定标会重蹈「1 / 1 项」：先估算整棵树，再按树内进度上报
+        const dropWorkloads: Array<FilesCopyWorkload | undefined> = []
+        let totalUnits = 0
+        let totalItems = 0
+        let totalBytes = 0
         await runFilesOpWithProgress({
           kind: 'paste',
-          totalWork: ids.length,
-          estimatedTotalMs: estimateFilesOpDurationMs(ids.length),
-          onUiChange: setOpProgressUi,
+          estimate: async () => {
+            const estimated = await Promise.all(
+              ids.map((id) => estimateCopyWorkload(id).catch(() => undefined)),
+            )
+            dropWorkloads.push(...estimated)
+            totalUnits = dropWorkloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+            totalItems = dropWorkloads.reduce((sum, item) => sum + (item?.nodeCount ?? 1), 0)
+            totalBytes = dropWorkloads.reduce((sum, item) => sum + (item?.byteSize ?? 0), 0)
+            return Math.max(1, totalUnits)
+          },
           signal: dropController.signal,
           cancel: () => dropController.abort(),
           task: async (report, signal) => {
             // 一次拖放 = 一次 VFS 批量：变更合并到结束才广播，列表不逐项抖动
             await runWithFilesVfsChangeBatch(async () => {
               let done = 0
-              for (const id of ids) {
+              let itemsDone = 0
+              let bytesDone = 0
+              for (let index = 0; index < ids.length; index += 1) {
                 signal?.throwIfAborted?.()
+                const id = ids[index]!
+                const itemWorkload = dropWorkloads[index]?.totalUnits ?? 1
                 const node = await getNodeOrThrow(id).catch(() => undefined)
                 if (!node) {
-                  done += 1
-                  report({ done, total: ids.length, detailLabel: `${done} / ${ids.length} 项` })
+                  done += itemWorkload
+                  itemsDone += dropWorkloads[index]?.nodeCount ?? 1
+                  bytesDone += dropWorkloads[index]?.byteSize ?? 0
+                  report({
+                    done,
+                    total: Math.max(1, totalUnits),
+                    items: { done: itemsDone, total: totalItems },
+                    bytes: { done: bytesDone, total: totalBytes },
+                  })
                   continue
                 }
                 const shouldMove = !copyMode && node.locationId === dest.destLocationId
                 if (shouldMove) {
-                  await moveNodeTo(id, dest.destLocationId, dest.destParentId, { signal })
+                  // 同卷移动为元数据级操作，瞬时完成；跨卷移动内部走复制+删除并透传进度
+                  await moveNodeTo(id, dest.destLocationId, dest.destParentId, {
+                    signal,
+                    onProgress: (progress) => {
+                      report({
+                        done: done + progress.done,
+                        total: Math.max(1, totalUnits),
+                        currentName: node.name,
+                        items: { done: itemsDone + (progress.items?.done ?? 0), total: totalItems },
+                        bytes: { done: bytesDone + (progress.bytes?.done ?? 0), total: totalBytes },
+                      })
+                    },
+                  })
                 } else {
                   await copyNodeTo({
                     sourceId: id,
                     destLocationId: dest.destLocationId,
                     destParentId: dest.destParentId,
                     signal,
+                    onProgress: (progress) => {
+                      report({
+                        done: done + progress.done,
+                        total: Math.max(1, totalUnits),
+                        ...(progress.currentName !== undefined ? { currentName: progress.currentName } : {}),
+                        items: { done: itemsDone + (progress.items?.done ?? 0), total: totalItems },
+                        bytes: { done: bytesDone + (progress.bytes?.done ?? 0), total: totalBytes },
+                      })
+                    },
                   })
                 }
-                done += 1
-                report({ done, total: ids.length, detailLabel: `${done} / ${ids.length} 项` })
+                done += itemWorkload
+                itemsDone += dropWorkloads[index]?.nodeCount ?? 1
+                bytesDone += dropWorkloads[index]?.byteSize ?? 0
+                report({
+                  done,
+                  total: Math.max(1, totalUnits),
+                  currentName: node.name,
+                  items: { done: itemsDone, total: totalItems },
+                  bytes: { done: bytesDone, total: totalBytes },
+                })
               }
             })
           },
@@ -2966,7 +3087,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         const { fileCount } = await importExternalNodes({
           nodes,
           dest,
-          onUiChange: setOpProgressUi,
           signal: importController.signal,
           cancel: () => importController.abort(),
           resolveFileConflict: createFilesConflictResolver(askFilesConflict),
@@ -4130,7 +4250,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                         <>
                           <span class="files__list-icon">
                             {writingEntry ? (
-                              <FilesWriteProgressGlyph entry={writingEntry} size="list" />
+                              <FilesWriteProgressGlyph node={node} entry={writingEntry} size="list" />
                             ) : (
                               <FilesNodeIcon node={node} size="list" />
                             )}
@@ -4160,7 +4280,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                         <>
                           <span class="files__item-icon">
                             {writingEntry ? (
-                              <FilesWriteProgressGlyph entry={writingEntry} size="grid" />
+                              <FilesWriteProgressGlyph node={node} entry={writingEntry} size="grid" />
                             ) : (
                               <FilesNodeIcon node={node} size="grid" />
                             )}
@@ -4392,7 +4512,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         ) : undefined}
       </WindowModal>
 
-      <FilesOpProgressWindow state={opProgressUi} themeColor={THEME} />
     </div>
   )
 }

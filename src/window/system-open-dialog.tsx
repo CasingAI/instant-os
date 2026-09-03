@@ -29,10 +29,8 @@ import {
   importExternalNodes,
   type ExternalImportNode,
 } from '../apps/files/files-import-external.ts'
-import { FilesOpProgressWindow } from '../apps/files/files-op-progress-window.tsx'
 import {
   isFilesOpCancelledError,
-  type FilesOpProgressUiState,
 } from '../apps/files/files-run-with-op-progress.ts'
 import {
   createBinaryFile,
@@ -269,7 +267,6 @@ function SystemOpenDialogBrowser({
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [optionsDraft, setOptionsDraft] = useState<FormatFilterMode>('accepted')
   const [dragActive, setDragActive] = useState(false)
-  const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
   const [saveFileName, setSaveFileName] = useState(
     () => options.defaultFileName?.trim() || fallbackSaveFileName(saveDefaultExtension),
   )
@@ -662,7 +659,6 @@ function SystemOpenDialogBrowser({
             await importExternalNodes({
               nodes,
               dest: { destLocationId: locationId, destParentId: folderId },
-              onUiChange: setOpProgressUi,
               signal: importController.signal,
               cancel: () => importController.abort(),
             })
@@ -1041,7 +1037,6 @@ function SystemOpenDialogBrowser({
         </div>
       ) : undefined}
 
-      <FilesOpProgressWindow state={opProgressUi} themeColor={THEME} />
     </div>
   )
 }

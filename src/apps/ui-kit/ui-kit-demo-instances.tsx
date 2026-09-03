@@ -8,6 +8,7 @@ import { Popover } from '../../ui/popover.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { IosRangeSlider, type IosRangeSliderMark } from '../../ui/ios-range-slider.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { List } from '../../ui/list.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
@@ -48,7 +49,7 @@ function DemoVariant({
 }
 
 function SettingsGroup({ children }: { children: preact.ComponentChildren }) {
-  return <div class="settings__list ui-kit-demo__settings-group">{children}</div>
+  return <List class="ui-kit-demo__settings-group">{children}</List>
 }
 
 export function IosSwitchDemo() {
@@ -468,6 +469,42 @@ export function SettingsChoiceFieldDemo() {
             </button>
           )}
         </SettingsChoiceField>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function ListDemo() {
+  const files = [
+    { id: 'f1', name: '季度报告.pdf', size: '2.4 MB' },
+    { id: 'f2', name: '设计稿.sketch', size: '18.7 MB' },
+    { id: 'f3', name: '会议记录.md', size: '12 KB' },
+    { id: 'f4', name: '素材包.zip', size: '148 MB' },
+    { id: 'f5', name: '数据备份.dmg', size: '1.2 GB' },
+  ]
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="纯分组（行组件直接落下）">
+        <List class="ui-kit-demo__settings-tokens">
+          <SettingsNavRow label="账号设置" value="user@example.com" onClick={() => undefined} />
+          <SettingsNavRow label="API 密钥" value="" secretLength={24} onClick={() => undefined} />
+          <SettingsNavRow label="导出数据" value="—" disabled onClick={() => undefined} />
+        </List>
+      </DemoVariant>
+      <DemoVariant label="表头 + 限高滚动区" wide>
+        <List
+          class="ui-kit-demo__settings-tokens"
+          head={<><span>文件</span><span>大小</span></>}
+          bodyClass="settings__list-body"
+        >
+          {files.map((file) => (
+            <div key={file.id} class="settings__row">
+              <span class="settings__row-name">{file.name}</span>
+              <span class="settings__row-size">{file.size}</span>
+            </div>
+          ))}
+        </List>
       </DemoVariant>
     </DemoVariants>
   )
@@ -894,6 +931,22 @@ export function WindowModalDemo() {
         </DemoVariant>
       )}
     </DemoVariants>
+  )
+}
+
+/** 迷你窗：打开一扇真实窗（files-op-progress 空态只有一行字），看内容撑起尺寸 */
+export function MiniWindowDemo() {
+  const { openApp } = useOs()
+  return (
+    <div class="ui-kit-demo__app-launch">
+      <p class="ui-kit-demo__status">
+        点按后打开一扇真实迷你窗（进度应用空态，只有一行字）：窗口就只有一行正文加标题栏那么大；
+        可拖动移动，边缘无缩放手柄，拖到屏幕边不吸附，双击标题栏不最大化。
+      </p>
+      <IosButton tone="primary" onClick={() => openApp('files-op-progress', { chromeKind: 'mini' })}>
+        打开迷你窗
+      </IosButton>
+    </div>
   )
 }
 

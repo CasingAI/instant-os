@@ -1,13 +1,29 @@
 /**
- * 外部文件导入纯逻辑单测：文件名净化、导入树拍平。
+ * 外部文件导入单测：文件名净化、导入树拍平（纯逻辑）；
+ * 以及顶层目标文件夹圆饼集成（created 立即广播、登记/撤掉、子树字节定标）。
  * 运行：node --experimental-strip-types src/apps/files/files-import-external.test.ts
  */
+import 'fake-indexeddb/auto'
+import './files-mount-test-window.ts'
 import assert from 'node:assert/strict'
 import {
+  importExternalNodes,
   planExternalImport,
   sanitizeSystemFileName,
   type ExternalImportNode,
 } from './files-import-external.ts'
+import {
+  FILES_VFS_CHANGED_EVENT,
+  invalidateFilesVfsPathCaches,
+  resolveNodeByAbsolutePath,
+} from './files-vfs.ts'
+import { resetFilesDbForTests } from './files-storage.ts'
+import {
+  getFilesWriteProgressSnapshot,
+  resetFilesWriteProgressForTests,
+  subscribeFilesWriteProgress,
+  type FilesWriteProgressEntry,
+} from './files-write-progress.ts'
 
 function file(name: string, size = 3): File {
   return new File([new Uint8Array(size)], name)
@@ -78,8 +94,67 @@ function testPlanSkipsEmptyNodes(): void {
   console.log('ok: plan skips empty nodes')
 }
 
+/** 顶层目标文件夹：created 绕过批量立即广播；登记圆饼（总量=子树字节），子树走完撤掉 */
+async function testImportTopLevelFolderPie(): Promise<void> {
+  await resetFilesDbForTests()
+  invalidateFilesVfsPathCaches()
+  // 触发用户特殊文件夹自动创建，保持与其它套件一致的基线
+  await resolveNodeByAbsolutePath('/user/.warmup-probe')
+  invalidateFilesVfsPathCaches()
+  resetFilesWriteProgressForTests()
+
+  const nodes: ExternalImportNode[] = [
+    {
+      name: 'imported-top',
+      kind: 'folder',
+      children: [
+        { name: 'a.txt', kind: 'file', file: file('a.txt', 3000) },
+        {
+          name: 'nested',
+          kind: 'folder',
+          children: [{ name: 'b.txt', kind: 'file', file: file('b.txt', 2000) }],
+        },
+      ],
+    },
+    { name: 'loose.txt', kind: 'file', file: file('loose.txt', 100) },
+  ]
+
+  let sawTopFill: FilesWriteProgressEntry | undefined
+  const unsubscribe = subscribeFilesWriteProgress(() => {
+    if (sawTopFill) return
+    for (const entry of getFilesWriteProgressSnapshot().values()) {
+      if (entry.total === 5000) sawTopFill = entry
+    }
+  })
+  let batchEvents = 0
+  const onVfsChanged = () => {
+    batchEvents += 1
+  }
+  window.addEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+  let result: { fileCount: number; byteCount: number }
+  try {
+    result = await importExternalNodes({
+      nodes,
+      dest: { destLocationId: 'local', destParentId: undefined },
+    })
+  } finally {
+    unsubscribe()
+    window.removeEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+  }
+  assert.ok(result.fileCount >= 3, `应导入 3 个文件，实际 ${result.fileCount}`)
+  assert.ok(sawTopFill, '导入期间应登记顶层目标文件夹的圆饼（总量=子树字节 5000）')
+  assert.equal(getFilesWriteProgressSnapshot().size, 0, '导入结束后登记应全部撤掉')
+  assert.ok(batchEvents > 0, '顶层文件夹的 created 应绕过批量合并立即广播')
+  const top = await resolveNodeByAbsolutePath('/user/imported-top', { follow: false })
+  assert.ok(top?.kind === 'folder', '顶层目标文件夹应已落盘')
+  const nested = await resolveNodeByAbsolutePath('/user/imported-top/nested/b.txt', { follow: false })
+  assert.ok(nested?.kind === 'file', '嵌套子文件应已写入')
+  console.log('ok: import top-level folder registers pie and broadcasts immediately')
+}
+
 testSanitize()
 testPlanFlatFiles()
 testPlanFolderTree()
 testPlanSkipsEmptyNodes()
+await testImportTopLevelFolderPie()
 console.log('files-import-external tests passed')

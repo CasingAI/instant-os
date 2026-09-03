@@ -309,12 +309,10 @@ function testEligibleWindows(): void {
     makeWindow('front', { zIndex: 5 }),
     makeWindow('min', { zIndex: 9, minimized: true }),
     makeWindow('closing', { zIndex: 8, closing: true }),
-    makeWindow('hidden-windowless', { zIndex: 7, windowless: true }),
-    makeWindow('panel', { zIndex: 4, windowless: true, windowlessPanel: true }),
     makeWindow('back', { zIndex: 2 }),
   ]
   assert.equal(isFlip3dEligibleWindow(windows[1]!), false)
-  assert.deepEqual(listFlip3dWindowIds(windows), ['front', 'panel', 'back'])
+  assert.deepEqual(listFlip3dWindowIds(windows), ['front', 'back'])
   console.log('ok: flip3d eligible windows')
 }
 

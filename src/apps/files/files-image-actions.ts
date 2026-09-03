@@ -13,8 +13,10 @@ import {
 import {
   closeImageMount,
   closeImageMountsByPath,
+  drainImageMountWrites,
   getCachedImageMount,
   getImageMountByPath,
+  imageMountPendingWork,
   openImageMount,
   type ImageMountRecord,
 } from './files-image-mount-store.ts'
@@ -148,4 +150,20 @@ export async function unmountDiskImage(locationId: ImageFilesLocationId): Promis
   if (mounted) await closeImageMountsByPath(mounted.imagePath)
   else await closeImageMount(locationId)
   forgetImageMount(locationId)
+}
+
+/** 该镜像卷位置上还有多少在途写入任务；推出前的拦截判断用 */
+export function imageMountPendingWorkForLocation(locationId: ImageFilesLocationId): number {
+  if (!isImageLocationId(locationId)) return 0
+  const mounted = getCachedImageMount(locationId) ?? getImageMountByPath(locationId)
+  if (!mounted) return 0
+  return imageMountPendingWork(mounted.imagePath)
+}
+
+/** 等该镜像卷位置的在途写入全部完成（拷贝仍在推进时会持续等待） */
+export async function drainImageMountWritesForLocation(locationId: ImageFilesLocationId): Promise<void> {
+  if (!isImageLocationId(locationId)) return
+  const mounted = getCachedImageMount(locationId) ?? getImageMountByPath(locationId)
+  if (!mounted) return
+  await drainImageMountWrites(mounted.imagePath)
 }

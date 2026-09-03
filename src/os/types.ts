@@ -2,7 +2,7 @@ import type { ComponentType } from 'preact'
 import type { BuiltinAppAbout } from './builtin-app-about-data.ts'
 import type { TerminalPrivilegeRequest } from '../terminal/terminal-privilege-types.ts'
 
-export type BuiltinAppId = 'browser' | 'chromo' | 'page-devtools' | 'webview' | 'settings' | 'files' | 'file-info' | 'textedit' | 'pages' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'registry' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'produde' | 'gomoku' | 'books' | 'music' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'services' | 'event-log' | 'keychain' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'virtual-machine' | 'packages' | 'archive-utility' | 'downloader' | 'space-sniffer' | 'disk-utility' | 'ui-kit' | 'stems' | 'srml-demo' | 'nav-kit-demo' | 'midi-demo' | 'llm-playground' | 'attunebench' | 'welcome' | 'welcome-next' | 'welcome-hello'
+export type BuiltinAppId = 'browser' | 'chromo' | 'page-devtools' | 'webview' | 'settings' | 'files' | 'file-info' | 'files-op-progress' | 'textedit' | 'pages' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'registry' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'produde' | 'gomoku' | 'books' | 'music' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'services' | 'event-log' | 'keychain' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'virtual-machine' | 'packages' | 'archive-utility' | 'downloader' | 'space-sniffer' | 'disk-utility' | 'ui-kit' | 'stems' | 'srml-demo' | 'nav-kit-demo' | 'midi-demo' | 'llm-playground' | 'attunebench' | 'welcome' | 'welcome-next' | 'welcome-hello'
 
 export type OpenAppOptions = {
   /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
@@ -21,6 +21,8 @@ export type OpenAppOptions = {
    * @deprecated 此字段仅服务于已弃用的模拟终端（simulated-terminal）。
    * 模拟终端移除后此字段应一并移除或迁移到真终端的特权路径。 */
   terminalAction?: TerminalPrivilegeRequest
+  /** 窗口 chrome 形态；'mini' 即内容撑起尺寸的迷你窗（语义见 WindowState.chromeKind） */
+  chromeKind?: WindowState['chromeKind']
 }
 export type GeneratedAppId = `gen:${string}`
 export type ExtAppId = `ext:${string}`
@@ -67,11 +69,6 @@ export type AppDefinition = {
   desktop?: boolean
   /** 允许同一应用同时打开多扇窗口（文档类应用） */
   multiWindow?: boolean
-  /**
-   * 无窗口应用：仍有内部 WindowState 以挂载逻辑 / 菜单，
-   * 默认不渲染可见窗框；耗时长时可展开为系统进度窗口。
-   */
-  windowless?: boolean
   /** 图标装饰（右上角丝带 / 底部套子）；注册表构建时自动包一层，所有渲染点生效。 */
   iconDecoration?: AppIconDecorationConfig
 }
@@ -112,19 +109,14 @@ export type WindowState = {
    */
   restoredSnap?: WindowSnap
   enterAnimation?: WindowEnterAnimation
-  /** 无窗口应用会话：默认不渲染可见窗框 */
-  windowless?: boolean
-  /**
-   * 无窗口应用临时展开为系统进度/面板窗口（统一标题栏、可拖动）。
-   * 切换时保持同一宿主树，避免应用组件卸载。
-   */
-  windowlessPanel?: boolean
   /**
    * 标题栏控件样式：
    * - window：普通三键（关闭 / 最小化 / 缩放）
    * - dialog：小型对话框，只提供关闭键
+   * - mini：迷你窗——尺寸完全由内容撑起（挂载后窗框量测回写数字 bounds），
+   *   仅关闭键，不可缩放/吸附/最小化/最大化，最小尺寸只保标题栏可显示
    */
-  chromeKind?: 'window' | 'dialog'
+  chromeKind?: 'window' | 'dialog' | 'mini'
   /** 禁用红色关闭按钮 */
   chromeCloseDisabled?: boolean
   /** 禁用黄色最小化（仅 chromeKind=window） */
