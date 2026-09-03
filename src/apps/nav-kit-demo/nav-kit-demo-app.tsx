@@ -15,7 +15,7 @@ import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import {
   AdaptiveSplitNav,
   useAdaptiveSplitNav,
-  type AdaptiveFrameSpec,
+  type AdaptiveSplitNavPageContext,
 } from '../../ui/adaptive-split-nav.tsx'
 import { NAV_KIT_DEMO_BOOKS, totalChapters, totalSections } from './nav-kit-demo-content.ts'
 import './nav-kit-demo.css'
@@ -451,17 +451,40 @@ export function NavKitDemoApp() {
     )
   }
 
-  // 子页栈：按页 id 分发（层保活，各页按自身实体渲染）
-  const renderNarrowPage = (target: DemoPageId) => {
+  // flat 引擎：每页 id 只有一个常驻 host，窄屏子页与分栏帧是同一实例的
+  // 两种角色——渲染分发只有一份，chrome 按 ctx（形态 + 形变分型）现场决定。
+  const framePath = framePositions(pos)
+  const frames = framePath.map(posPageId)
+  const topFrameId = frames.length > 0 ? frames[frames.length - 1] : ''
+
+  const renderPage = (target: DemoPageId, ctx: AdaptiveSplitNavPageContext) => {
     const bookIdx = parseBook(target)
-    if (bookIdx !== null)
+    if (bookIdx !== null) {
+      // 「书架」返回只有书页处在子页栈角色（窄屏）里才有：分栏静置的书帧
+      // 没有——它的上级书架是左栏。形变盖住画面的是这一份实例，chrome 按
+      // 起始形态画：A 型（窄→宽）滑轨的顶帧挂着返回随滑轨淡出（滑轨的退出
+      // 方向就是这颗键的消失方向）；C 型（宽→窄）面板不带返回——书架由
+      // 滑轨盖过去，返回键等形变落定、交棒给子页栈后才由 backFadeEpoch
+      // 淡入。其余层级两种形态都有返回，恒挂。
+      const showBack = !ctx.narrowLayout
+        ? ctx.morphing &&
+          ctx.morphKind === 'A' &&
+          target === topFrameId &&
+          pos.kind === 'book'
+        : !(ctx.morphing && ctx.morphKind === 'C')
+      const fadingOut = !ctx.narrowLayout && showBack
+      const fadingIn =
+        ctx.narrowLayout && backFadeEpoch > 0 && target === nav.page
       return renderBook(
         bookIdx,
-        true,
-        backFadeEpoch > 0 && target === nav.page
-          ? `nav-kit-demo__back-fade-in-${backFadeEpoch % 2}`
-          : undefined,
+        showBack,
+        fadingOut
+          ? 'nav-kit-demo__back-fade-out'
+          : fadingIn
+            ? `nav-kit-demo__back-fade-in-${backFadeEpoch % 2}`
+            : undefined,
       )
+    }
     const vol = parseVolume(target)
     if (vol) return renderVolume(vol[0], vol[1], true)
     const chap = parseChapter(target)
@@ -473,44 +496,12 @@ export function NavKitDemoApp() {
     return renderShelf()
   }
 
-  // 分栏帧：静置时首帧（书帧）不带返回——它的上级书架是左栏。
-  // 形变盖住画面的是这份帧，不是子页栈：窄屏书页有「书架」返回、分栏没有，
-  // 形变期面板按起始（分栏）形态画。
-  const renderFrameContent = (p: Pos) => {
-    switch (p.kind) {
-      case 'shelf':
-        return renderShelf()
-      case 'book': {
-        // 「书架」返回只挂在 A 型（窄→宽）滑轨的顶帧上随滑轨淡出——滑轨
-        // 的退出方向就是这颗键的消失方向。C 型（宽→窄）顶帧不带返回：
-        // 书架由滑轨盖过去，返回键等形变落定、交棒给子页栈后才出现
-        const keepBack =
-          nav.morphing && nav.morphKind === 'A' && pos.kind === 'book'
-        return renderBook(
-          p.b,
-          keepBack,
-          keepBack ? 'nav-kit-demo__back-fade-out' : undefined,
-        )
-      }
-      case 'volume':
-        return renderVolume(p.b, p.v, true)
-      case 'chapter':
-        return renderChapter(p.b, p.v, p.c, true)
-      case 'section':
-        return renderSection(p.b, p.v, p.c, p.s, true)
-      case 'about':
-        return renderAbout(p.b, true)
-    }
-  }
-
-  const renderWideFrames = (): AdaptiveFrameSpec[] =>
-    framePositions(pos).map((p) => ({ id: posPageId(p), content: renderFrameContent(p) }))
-
   return (
     <AdaptiveSplitNav
       controller={nav}
-      renderNarrowPage={renderNarrowPage}
-      renderWideFrames={renderWideFrames}
+      engine="flat"
+      frames={frames}
+      renderPage={renderPage}
       framesResetKey={pos.kind === 'shelf' ? 'shelf' : `b:${pos.b}`}
     />
   )
