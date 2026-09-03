@@ -302,6 +302,20 @@
   border-bottom: var(--settings-search-bar-border);
 }
 
+/* 系统 Page 壳上下文（.page__body 滚动、页头在滚动容器外）：吸顶偏移为 0 */
+.page__body > .settings__search-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 6px var(--settings-content-pad-x, 18px);
+  box-sizing: border-box;
+  background: var(--settings-search-bar-bg);
+  border-bottom: var(--settings-search-bar-border);
+}
+
 .settings__body > .settings__content--compact {
   padding: 8px var(--settings-content-pad-x, 18px) 18px;
 }

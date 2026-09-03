@@ -1,14 +1,25 @@
 import type { ComponentChildren } from 'preact'
-import { useCallback, useMemo, useState } from 'preact/hooks'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'preact/hooks'
 import { PlusIcon } from '../../icons/app-icons.tsx'
+import {
+  AdaptiveSplitNav,
+  useAdaptiveSplitNav,
+  type AdaptiveFrameSpec,
+} from '../../ui/adaptive-split-nav.tsx'
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
-import { PageStack, usePageStack } from '../../ui/page-stack.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
+import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
-import { SettingsChoicePickerView } from '../settings/settings-choice-picker-view.tsx'
 import { labelForVscodeModelPickerDisplay } from './vscode-ai-model-picker-data.ts'
 import {
   decodeVscodeModelPickerValue,
@@ -39,7 +50,6 @@ import type {
   VscodeSubAgentModelSource,
 } from './vscode-prefs.ts'
 import '../settings/settings.css'
-import '../keychain/keychain.css'
 
 export const VSCODE_THEME_OPTIONS = [
   { id: 'vs-dark', label: '深色' },
@@ -105,12 +115,14 @@ function SettingsPageShell({
   backLabel,
   onBack,
   trailing,
+  headerClass,
   children,
 }: {
   title: string
   backLabel?: string
   onBack?: () => void
   trailing?: ComponentChildren
+  headerClass?: string
   children: ComponentChildren
 }) {
   return (
@@ -121,6 +133,7 @@ function SettingsPageShell({
           backLabel={onBack ? (backLabel ?? '设置') : undefined}
           onBack={onBack}
           actions={trailing}
+          class={headerClass}
         />
       }
     >
@@ -221,13 +234,59 @@ export function VscodeSettingsPanel({
 }: VscodeSettingsPanelProps) {
   const textModels = useVscodeAiTextModels()
   const visionModels = useMemo(() => listVscodeAiVisionModels(), [textModels])
-  const {
-    page: screen,
-    stack,
-    transition,
-    navigate,
-    handleMotionEnd,
-  } = usePageStack<VscodeSettingsScreen>('root')
+
+  // 打开链（root 之上的层序）是单一真源：窄屏子页栈与分栏右栏帧都从它派生。
+  // 宽形态下 controller.navigate 是 no-op，帧的推入/滑出完全由 chain 驱动。
+  const [chain, setChain] = useState<VscodeSettingsScreen[]>([])
+  const chainRef = useRef(chain)
+  chainRef.current = chain
+
+  const nav = useAdaptiveSplitNav({
+    split: true,
+    narrowPageForState: () =>
+      chainRef.current[chainRef.current.length - 1] ?? 'root',
+    listPage: 'root',
+  })
+
+  const pushScreen = useCallback(
+    (next: VscodeSettingsScreen) => {
+      setChain((prev) =>
+        prev[prev.length - 1] === next ? prev : [...prev, next],
+      )
+      nav.navigate(next, 'push')
+    },
+    [nav],
+  )
+
+  // 跨级回退（如配置页直达所属设置页）：目标必须是 chain 里的祖先，
+  // chain 截到目标为止，窄屏栈由 navigate(…, 'pop') 同语义截断。
+  const popToScreen = useCallback(
+    (target: VscodeSettingsScreen, onSettled?: () => void) => {
+      setChain((prev) => {
+        const idx = prev.lastIndexOf(target)
+        return idx >= 0 ? prev.slice(0, idx + 1) : []
+      })
+      nav.navigate(target, 'pop', onSettled)
+    },
+    [nav],
+  )
+
+  // 分栏 pane 的返回键只在窄形态有：A 型形变（窄→宽）随滑轨淡出，C 型
+  // （宽→窄）落定交棒后才出现——短淡入代替硬蹦（services 同款）。
+  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
+  const backFadeTimerRef = useRef(0)
+  const prevMorphingRef = useRef(false)
+  useLayoutEffect(() => {
+    const was = prevMorphingRef.current
+    prevMorphingRef.current = nav.morphing
+    if (was === nav.morphing) return
+    // 只有落点是「列表直推页」（chain 深度 1，宽形态无返回键）才需要淡入
+    if (nav.morphing || !nav.narrowLayout || chainRef.current.length !== 1) return
+    window.clearTimeout(backFadeTimerRef.current)
+    setBackFadeEpoch((epoch) => epoch + 1)
+    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
+  }, [nav.morphing, nav.narrowLayout])
+  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
 
   const [draftId, setDraftId] = useState('')
   const [draftDescription, setDraftDescription] = useState('')
@@ -253,17 +312,17 @@ export function VscodeSettingsPanel({
   const openModelPicker = useCallback(
     (session: ModelPickerSession) => {
       setModelPickerSession(session)
-      navigate('model-picker', 'push')
+      pushScreen('model-picker')
     },
-    [navigate],
+    [pushScreen],
   )
 
   const openModelConfig = useCallback(
     (session: ModelPickerSession & { editModelKey: string }) => {
       setModelPickerSession(session)
-      navigate('model-options', 'push')
+      pushScreen('model-options')
     },
-    [navigate],
+    [pushScreen],
   )
 
   const modelPickerValue = useMemo(() => {
@@ -367,14 +426,14 @@ export function VscodeSettingsPanel({
       } else {
         resetDraft()
       }
-      navigate('subagent-custom', 'push')
+      pushScreen('subagent-custom')
     },
-    [navigate, resetDraft],
+    [pushScreen, resetDraft],
   )
 
   const popToSubagent = useCallback(() => {
-    navigate('subagent', 'pop', resetDraft)
-  }, [navigate, resetDraft])
+    popToScreen('subagent', resetDraft)
+  }, [popToScreen, resetDraft])
 
   const saveCustom = useCallback(() => {
     const id = slugifySubAgentId(draftId)
@@ -453,7 +512,17 @@ export function VscodeSettingsPanel({
     ? `已开启 · 并发 ${prefs.subAgentsMaxConcurrent}`
     : '已关闭'
 
-  const renderPage = (target: VscodeSettingsScreen) => {
+  // frame 上下文：分栏右栏帧里「列表直推页」（深度 1）不挂返回键——左栏
+  // 列表即父级；形变 A 型期随滑轨淡出挂回。窄形态一律有返回键。
+  const renderScreen = (
+    target: VscodeSettingsScreen,
+    opts?: { showBack?: boolean; headerClass?: string },
+  ) => {
+    const showBack = opts?.showBack !== false
+    const headerClass = opts?.headerClass
+    const back = (to: VscodeSettingsScreen, onSettled?: () => void) =>
+      showBack ? () => popToScreen(to, onSettled) : undefined
+
     if (target === 'root') {
       return (
         <SettingsPageShell title="设置">
@@ -463,7 +532,7 @@ export function VscodeSettingsPanel({
               <SettingsNavRow
                 label="主题"
                 value={themeLabel(prefs.theme)}
-                onClick={() => navigate('theme', 'push')}
+                onClick={() => pushScreen('theme')}
               />
               <SettingsStepperRow
                 label="字号"
@@ -481,17 +550,17 @@ export function VscodeSettingsPanel({
               <SettingsNavRow
                 label="代码补全"
                 value={completionSummary}
-                onClick={() => navigate('completion', 'push')}
+                onClick={() => pushScreen('completion')}
               />
               <SettingsNavRow
                 label="Agent"
                 value={agentSummary}
-                onClick={() => navigate('agent', 'push')}
+                onClick={() => pushScreen('agent')}
               />
               <SettingsNavRow
                 label="Sub Agent"
                 value={subAgentSummary}
-                onClick={() => navigate('subagent', 'push')}
+                onClick={() => pushScreen('subagent')}
               />
             </div>
           </section>
@@ -517,19 +586,26 @@ export function VscodeSettingsPanel({
 
     if (target === 'theme') {
       return (
-        <div class="page keychain__picker-page">
-          <SettingsChoicePickerView
-            title="主题"
-            backLabel="设置"
-            titleInNav
-            options={VSCODE_THEME_OPTIONS}
-            value={prefs.theme}
-            onChange={(value) =>
-              onChange({ theme: value as VscodePrefs['theme'] })
-            }
-            onBack={() => navigate('root', 'pop')}
-          />
-        </div>
+        <SettingsPageShell
+          title="主题"
+          backLabel="设置"
+          onBack={back('root')}
+          headerClass={headerClass}
+        >
+          <section class="settings__section">
+            <SettingsChoiceOptionList
+              options={VSCODE_THEME_OPTIONS}
+              value={prefs.theme}
+              ariaLabel="主题"
+              onChange={(value) => {
+                onChange({ theme: value as VscodePrefs['theme'] })
+                // 窄形态选完即返回（原 SettingsChoicePickerView 的
+                // closeOnSelect 语义）；分栏下帧保留在右栏，勾选即时生效
+                if (nav.narrowLayout) popToScreen('root')
+              }}
+            />
+          </section>
+        </SettingsPageShell>
       )
     }
 
@@ -537,7 +613,8 @@ export function VscodeSettingsPanel({
       return (
         <SettingsPageShell
           title="代码补全"
-          onBack={() => navigate('root', 'pop')}
+          onBack={back('root')}
+          headerClass={headerClass}
         >
           <section class="settings__section">
             <div class="settings__list">
@@ -612,7 +689,8 @@ export function VscodeSettingsPanel({
       return (
         <SettingsPageShell
           title="Agent"
-          onBack={() => navigate('root', 'pop')}
+          onBack={back('root')}
+          headerClass={headerClass}
         >
           <section class="settings__section">
             <div class="settings__list">
@@ -650,7 +728,8 @@ export function VscodeSettingsPanel({
       return (
         <SettingsPageShell
           title="Sub Agent"
-          onBack={() => navigate('root', 'pop')}
+          onBack={back('root')}
+          headerClass={headerClass}
           trailing={
             prefs.subAgentsEnabled ? (
               <div class="settings__nav-trailing">
@@ -696,7 +775,7 @@ export function VscodeSettingsPanel({
                   <SettingsNavRow
                     label="Explore"
                     value={builtinSummary(prefs.subAgentBuiltinOverrides.explore)}
-                    onClick={() => navigate('subagent-explore', 'push')}
+                    onClick={() => pushScreen('subagent-explore')}
                   />
                   <SettingsNavRow
                     label="General"
@@ -704,7 +783,7 @@ export function VscodeSettingsPanel({
                       prefs.subAgentBuiltinOverrides.general,
                       true,
                     )}
-                    onClick={() => navigate('subagent-general', 'push')}
+                    onClick={() => pushScreen('subagent-general')}
                   />
                   <SettingsNavRow
                     label="Vision"
@@ -717,7 +796,7 @@ export function VscodeSettingsPanel({
                             'vision',
                           )
                     }
-                    onClick={() => navigate('subagent-vision', 'push')}
+                    onClick={() => pushScreen('subagent-vision')}
                   />
                 </div>
               </section>
@@ -764,7 +843,7 @@ export function VscodeSettingsPanel({
         <SettingsPageShell
           title="Explore"
           backLabel="Sub Agent"
-          onBack={() => navigate('subagent', 'pop')}
+          onBack={back('subagent')}
         >
           <section class="settings__section">
             <BuiltinSubAgentPage
@@ -820,7 +899,7 @@ export function VscodeSettingsPanel({
         <SettingsPageShell
           title="General"
           backLabel="Sub Agent"
-          onBack={() => navigate('subagent', 'pop')}
+          onBack={back('subagent')}
         >
           <section class="settings__section">
             <BuiltinSubAgentPage
@@ -877,7 +956,7 @@ export function VscodeSettingsPanel({
         <SettingsPageShell
           title="Vision"
           backLabel="Sub Agent"
-          onBack={() => navigate('subagent', 'pop')}
+          onBack={back('subagent')}
         >
           <section class="settings__section">
             <p class="settings__section-footnote" style={{ marginTop: 0 }}>
@@ -930,7 +1009,7 @@ export function VscodeSettingsPanel({
         <SettingsPageShell
           title={editingId ? `编辑「${editingId}」` : '添加 Sub Agent'}
           backLabel="Sub Agent"
-          onBack={popToSubagent}
+          onBack={showBack ? popToSubagent : undefined}
           trailing={
             <div class="settings__nav-trailing">
               <button
@@ -1112,7 +1191,7 @@ export function VscodeSettingsPanel({
           models={pickerModels}
           selectionMode={modelPickerSession.selectionMode}
           onChange={applyModelPickerValue}
-          onBack={() => navigate(modelPickerSession.back, 'pop')}
+          onBack={back(modelPickerSession.back)}
         />
       )
     }
@@ -1149,9 +1228,9 @@ export function VscodeSettingsPanel({
                 editModelKey: nextKey,
               })
             }}
-            onOpenContext={() => navigate('model-context', 'push')}
-            onOpenThinking={() => navigate('model-thinking', 'push')}
-            onBack={() => navigate(modelPickerSession.back, 'pop')}
+            onOpenContext={() => pushScreen('model-context')}
+            onOpenThinking={() => pushScreen('model-thinking')}
+            onBack={back(modelPickerSession.back)}
           />
         )
       }
@@ -1169,7 +1248,7 @@ export function VscodeSettingsPanel({
             onSelectModelKey={() => undefined}
             onOpenContext={() => undefined}
             onOpenThinking={() => undefined}
-            onBack={() => navigate(modelPickerSession.back, 'pop')}
+            onBack={back(modelPickerSession.back)}
           />
         )
       }
@@ -1196,7 +1275,7 @@ export function VscodeSettingsPanel({
                 ),
               })
             }}
-            onBack={() => navigate('model-options', 'pop')}
+            onBack={back('model-options')}
           />
         )
       }
@@ -1219,7 +1298,7 @@ export function VscodeSettingsPanel({
               ),
             })
           }}
-          onBack={() => navigate('model-options', 'pop')}
+          onBack={back('model-options')}
         />
       )
     }
@@ -1227,17 +1306,43 @@ export function VscodeSettingsPanel({
     return null
   }
 
+  // 分栏右栏帧：深度 1 帧（列表直推页）静置无返回键，A 型形变期挂回并
+  // 随滑轨淡出；深度 ≥2 保留返回（pop 上一级或跨级祖先）。
+  const keepDepth1FrameBack =
+    nav.morphing && nav.morphKind === 'A' && chain.length === 1
+  const renderWideFrames = (): AdaptiveFrameSpec[] =>
+    chain.map((id, index) => {
+      const depth1 = index === 0
+      const keepBack = depth1 && keepDepth1FrameBack
+      return {
+        id,
+        content: renderScreen(id, {
+          showBack: !depth1 || keepBack,
+          headerClass: keepBack ? 'vscode__back-fade-out' : undefined,
+        }),
+      }
+    })
+
+  const renderNarrowPage = (page: string) => {
+    // C 型形变落定的「列表直推页」：返回键在交棒后短淡入，代替硬蹦
+    const landingFade =
+      backFadeEpoch > 0 && page === nav.page && chain.length === 1
+        ? `vscode__back-fade-in-${backFadeEpoch % 2}`
+        : undefined
+    return renderScreen(page as VscodeSettingsScreen, {
+      headerClass: landingFade,
+    })
+  }
+
   return (
     <div
       class={`settings vscode__settings${dark ? ' settings--dark' : ''}`}
       data-theme={dark ? 'dark' : undefined}
     >
-      <PageStack
-        stack={stack}
-        page={screen}
-        transition={transition}
-        onMotionEnd={handleMotionEnd}
-        renderPage={renderPage}
+      <AdaptiveSplitNav
+        controller={nav}
+        renderNarrowPage={renderNarrowPage}
+        renderWideFrames={renderWideFrames}
       />
     </div>
   )

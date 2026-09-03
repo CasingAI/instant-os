@@ -2,7 +2,8 @@ import { useMemo, useState } from 'preact/hooks'
 import { supportsThinkingParam } from '../../ai/ai-thinking.ts'
 import type { FlatEnabledModel } from '../../ai/ai-providers.ts'
 import { SearchIcon } from '../../icons/app-icons.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { Page } from '../../ui/page.tsx'
+import { PageHeader } from '../../ui/page-header.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
@@ -40,7 +41,6 @@ import type {
   VscodeAiModelOptionPrefs,
   VscodeAiThinkingEffortPref,
 } from './vscode-prefs.ts'
-import '../../ui/ios-nav-back.css'
 import '../settings/settings.css'
 
 type VscodeSettingsModelPickerViewProps = {
@@ -50,7 +50,8 @@ type VscodeSettingsModelPickerViewProps = {
   models: readonly FlatEnabledModel[]
   selectionMode?: VscodeAiModelPickerSelectionMode
   onChange: (encoded: string) => void
-  onBack: () => void
+  /** 缺省时不渲染返回键（分栏右栏的列表直推帧没有返回） */
+  onBack?: () => void
   searchPlaceholder?: string
   closeOnSelect?: boolean
 }
@@ -131,92 +132,87 @@ export function VscodeSettingsModelPickerView({
 
   const handleSelect = (next: string) => {
     onChange(next)
-    if (closeOnSelect) onBack()
+    if (closeOnSelect) onBack?.()
   }
 
   const empty = visiblePins.length === 0 && filteredModels.length === 0
 
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <IosNavBackButton label={backLabel} onClick={onBack} />
-          <h1 class="settings__nav-heading">{title}</h1>
-          <span class="settings__nav-trailing" aria-hidden="true" />
+    <Page
+      header={
+        <PageHeader title={title} backLabel={backLabel} onBack={onBack} />
+      }
+    >
+      <div class="settings__search-bar">
+        <div class="settings__search">
+          <span class="settings__search-icon" aria-hidden="true">
+            <SearchIcon />
+          </span>
+          <input
+            type="search"
+            class="settings__search-input"
+            value={query}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            spellcheck={false}
+            enterkeyhint="search"
+            onInput={(event) =>
+              setQuery((event.currentTarget as HTMLInputElement).value)
+            }
+          />
         </div>
       </div>
-      <div class="settings__body">
-        <div class="settings__search-bar">
-          <div class="settings__search">
-            <span class="settings__search-icon" aria-hidden="true">
-              <SearchIcon />
-            </span>
-            <input
-              type="search"
-              class="settings__search-input"
-              value={query}
-              placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
-              spellcheck={false}
-              enterkeyhint="search"
-              onInput={(event) =>
-                setQuery((event.currentTarget as HTMLInputElement).value)
-              }
-            />
-          </div>
-        </div>
-        <div class="settings__content settings__content--compact">
+      <div class="settings__content settings__content--compact">
+        {visiblePins.length > 0 ? (
+          <section class="settings__section">
+            <h2 class="settings__section-title">快捷</h2>
+            <div class="settings__list" role="radiogroup" aria-label="快捷模型">
+              {visiblePins.map((pin) => (
+                <ModelOptionRow
+                  key={pin.key}
+                  optionKey={pin.key}
+                  primary={pin.primary}
+                  tag={pin.tag}
+                  secondary={pin.secondary}
+                  selected={value === pin.key}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </div>
+          </section>
+        ) : undefined}
+
+        <section class="settings__section">
           {visiblePins.length > 0 ? (
-            <section class="settings__section">
-              <h2 class="settings__section-title">快捷</h2>
-              <div class="settings__list" role="radiogroup" aria-label="快捷模型">
-                {visiblePins.map((pin) => (
+            <h2 class="settings__section-title">全部模型</h2>
+          ) : undefined}
+          {empty ? (
+            <div class="settings__box settings__empty">
+              {query.trim() ? '无匹配结果' : '暂无文本模型'}
+            </div>
+          ) : filteredModels.length > 0 ? (
+            <div class="settings__list" role="radiogroup" aria-label={title}>
+              {filteredModels.map((model) => {
+                const key = formatVscodeAiModelRefKey({
+                  providerEntryId: model.providerEntryId,
+                  modelId: model.modelId,
+                })
+                return (
                   <ModelOptionRow
-                    key={pin.key}
-                    optionKey={pin.key}
-                    primary={pin.primary}
-                    tag={pin.tag}
-                    secondary={pin.secondary}
-                    selected={value === pin.key}
+                    key={key}
+                    optionKey={key}
+                    primary={labelForVscodeAiModel(model)}
+                    secondary={labelForVscodeAiModelProvider(model)}
+                    selected={value === key}
                     onSelect={handleSelect}
                   />
-                ))}
-              </div>
-            </section>
+                )
+              })}
+            </div>
           ) : undefined}
-
-          <section class="settings__section">
-            {visiblePins.length > 0 ? (
-              <h2 class="settings__section-title">全部模型</h2>
-            ) : undefined}
-            {empty ? (
-              <div class="settings__box settings__empty">
-                {query.trim() ? '无匹配结果' : '暂无文本模型'}
-              </div>
-            ) : filteredModels.length > 0 ? (
-              <div class="settings__list" role="radiogroup" aria-label={title}>
-                {filteredModels.map((model) => {
-                  const key = formatVscodeAiModelRefKey({
-                    providerEntryId: model.providerEntryId,
-                    modelId: model.modelId,
-                  })
-                  return (
-                    <ModelOptionRow
-                      key={key}
-                      optionKey={key}
-                      primary={labelForVscodeAiModel(model)}
-                      secondary={labelForVscodeAiModelProvider(model)}
-                      selected={value === key}
-                      onSelect={handleSelect}
-                    />
-                  )
-                })}
-              </div>
-            ) : undefined}
-          </section>
-        </div>
+        </section>
       </div>
-    </>
+    </Page>
   )
 }
 
@@ -251,7 +247,8 @@ type ModelOptionsPageProps = {
   onSelectModelKey: (modelKey: string) => void
   onOpenContext: () => void
   onOpenThinking: () => void
-  onBack: () => void
+  /** 缺省时不渲染返回键（分栏右栏的列表直推帧没有返回） */
+  onBack?: () => void
 }
 
 export function VscodeSettingsModelOptionsView({
@@ -275,18 +272,15 @@ export function VscodeSettingsModelOptionsView({
 
   if (!editModel) {
     return (
-      <>
-        <div class="settings__nav settings__nav--titled">
-          <div class="settings__nav-bar">
-            <IosNavBackButton label={backLabel} onClick={onBack} />
-            <h1 class="settings__nav-heading">选项</h1>
-            <span class="settings__nav-trailing" aria-hidden="true" />
-          </div>
-        </div>
+      <Page
+        header={
+          <PageHeader title="选项" backLabel={backLabel} onBack={onBack} />
+        }
+      >
         <div class="settings__content settings__content--compact">
           <div class="settings__box settings__empty">模型不可用</div>
         </div>
-      </>
+      </Page>
     )
   }
 
@@ -309,14 +303,11 @@ export function VscodeSettingsModelOptionsView({
   const title = labelForVscodeAiModel(editModel)
 
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <IosNavBackButton label={backLabel} onClick={onBack} />
-          <h1 class="settings__nav-heading">{title}</h1>
-          <span class="settings__nav-trailing" aria-hidden="true" />
-        </div>
-      </div>
+    <Page
+      header={
+        <PageHeader title={title} backLabel={backLabel} onBack={onBack} />
+      }
+    >
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <div class="settings__list">
@@ -372,7 +363,7 @@ export function VscodeSettingsModelOptionsView({
           </div>
         </section>
       </div>
-    </>
+    </Page>
   )
 }
 
@@ -382,7 +373,8 @@ type ModelChoicePageProps = {
   options: readonly { id: string; label: string }[]
   value: string
   onChange: (value: string) => void
-  onBack: () => void
+  /** 缺省时不渲染返回键（分栏右栏的列表直推帧没有返回） */
+  onBack?: () => void
 }
 
 export function VscodeSettingsModelChoiceView({
@@ -394,14 +386,11 @@ export function VscodeSettingsModelChoiceView({
   onBack,
 }: ModelChoicePageProps) {
   return (
-    <>
-      <div class="settings__nav settings__nav--titled">
-        <div class="settings__nav-bar">
-          <IosNavBackButton label={backLabel} onClick={onBack} />
-          <h1 class="settings__nav-heading">{title}</h1>
-          <span class="settings__nav-trailing" aria-hidden="true" />
-        </div>
-      </div>
+    <Page
+      header={
+        <PageHeader title={title} backLabel={backLabel} onBack={onBack} />
+      }
+    >
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <SettingsChoiceOptionList
@@ -409,13 +398,13 @@ export function VscodeSettingsModelChoiceView({
             value={value}
             onChange={(next) => {
               onChange(next)
-              onBack()
+              onBack?.()
             }}
             ariaLabel={title}
           />
         </section>
       </div>
-    </>
+    </Page>
   )
 }
 
