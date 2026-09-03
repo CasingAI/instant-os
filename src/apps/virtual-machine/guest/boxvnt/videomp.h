@@ -37,11 +37,20 @@ THE SOFTWARE.
  * The host (Instant-virtual-machine runtime) registers read handlers on
  * these ports only while the resolution auto-align switch is on; an
  * unregistered read returns 0xFFFF, so the magic port doubles as presence
- * detection. Values: 0xE001 = width, 0xE002 = height, 0xE003 = magic. */
+ * detection. Values: 0xE001 = width, 0xE002 = height, 0xE003 = magic.
+ * All reads are 16-bit; contract details in guest/boxvnt/ARCHITECTURE.md. */
 #define VMP_PORT_MODE_W     0xE001
 #define VMP_PORT_MODE_H     0xE002
 #define VMP_PORT_MODE_MAGIC 0xE003
 #define VMP_MODE_MAGIC      0x5AB0
+
+/* Instant VM changes: accepted dynamic target window; equals the dispi
+ * limits (boxv.c VBE_DISPI_MAX_*) and the host-side clamp in
+ * resolution-channel.ts, so all three layers reject the same targets. */
+#define VMP_MODE_MIN_W      640
+#define VMP_MODE_MAX_W      2560
+#define VMP_MODE_MIN_H      480
+#define VMP_MODE_MAX_H      1600
 
 /* Video mode description structure */
 typedef struct {
@@ -74,6 +83,17 @@ typedef struct {
     VIDEOMP_MODE        DynamicModes[2];
     ULONG               NumDynamicModes;
     ULONG               DynamicModeSlot;
+    /* Instant VM changes: last dynamic target ever accepted, kept even
+     * after the live slot is torn down (RESET_DEVICE or host switch-off).
+     * A tail-slot mode index that win32k still holds from an older
+     * enumeration then resolves to these dimensions instead of failing
+     * with ERROR_INVALID_PARAMETER - "the mode it names is already on the
+     * wire" semantics. Both tail indices are accepted for as long as any
+     * dynamic state exists. */
+    USHORT              LastDynW;
+    USHORT              LastDynH;
+    UCHAR               LastDynBpp;
+    UCHAR               HaveLastDyn;
 } HW_DEV_EXT, *PHW_DEV_EXT;
 
 /* Variables defined in vidmpdat.c */

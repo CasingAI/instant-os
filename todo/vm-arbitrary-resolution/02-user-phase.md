@@ -62,6 +62,7 @@ install.reg   （从 res-agent-install.reg.source 展开，路径默认 C:\Tools
 
 | 现象 | 含义 | 处置 |
 |---|---|---|
+| **任何崩溃/异常（含蓝屏）** | COM1 串口黑匣子已常驻驱动 | 抓宿主串口日志里**最后一条 `[IVM]V…` 行**，对照 [guest/boxvnt/ARCHITECTURE.md](../../src/apps/virtual-machine/guest/boxvnt/ARCHITECTURE.md) §7 判读表定位崩溃点（一条 V 都没有 = 镜像没被加载，换 `boxvideo-min2.sys` 对照） |
 | 设备管理器里显卡还是旧驱动 | INF 没认到设备 | 确认 `vidmini.inf` 里 `VEN_1234&DEV_1111` 段；重做第 2 步 |
 | 装了驱动后黑屏 | 驱动与 v86 不兼容（如 dispi 写时序） | 重启进安全模式卸掉；回报 AI，第一期代码加兼容性修正 |
 | 窗口变化但分辨率不跟随 | 开关没开 / res-agent 没跑 | 查任务管理器；开关确认；页面硬刷新 |

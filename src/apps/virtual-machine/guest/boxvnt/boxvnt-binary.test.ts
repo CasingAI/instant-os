@@ -247,6 +247,10 @@ function buildAndAssert(directory: string): PeInfo {
   const inf = readFileSync(join(directory, 'vidmini.inf'), 'utf8')
   assert.ok(inf.includes('PCI\\VEN_1234&DEV_1111'), 'INF 必须含 v86 的 PCI 设备 ID')
   assert.ok(inf.includes('boxvideo.sys'), 'INF SourceDisksFiles 必须引用真实产物文件名')
+  // 串口黑匣子（vmplog.c）：行头与引导首条 tag 必须编进产物——崩在加载早期时，
+  // 宿主 serial0 输出里最后一条 [IVM] 行就是崩溃点（ARCHITECTURE.md triage）。
+  assert.ok(image.includes(Buffer.from('[IVM]', 'ascii')), '串口日志行头 [IVM] 必须编进产物')
+  assert.ok(image.includes(Buffer.from('VLD1', 'ascii')), '引导首条日志 tag VLD1 必须编进产物')
   return pe
 }
 

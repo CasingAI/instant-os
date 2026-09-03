@@ -13,7 +13,7 @@ LIBS = $(%WATCOM)/lib386/nt/ddk
 
 CFLAGS += -d1 -hc
 
-OBJS = videomp.obj vidmpdat.obj boxv.obj
+OBJS = videomp.obj vidmpdat.obj boxv.obj vmplog.obj
 
 # Instant VM changes: -fo=$@ - on POSIX hosts wcc386 names objects *.o by
 # default and the .obj rule below would never find its target.

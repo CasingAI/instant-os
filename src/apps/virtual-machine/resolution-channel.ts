@@ -5,9 +5,12 @@
  * todo/vm-arbitrary-resolution/00-overview.md §2）：
  *   ResizeObserver → debounce → 阈值 → clamp → 8px 网格
  *     → postMessage `instant-vm:set-resolution`
- *     → 运行时把 (w<<16)|h 写进闭包：
+ *     → 运行时发布同一目标：
  *       a. COM1 串口帧 → res-agent（ring3，枚举→精确匹配→切换）；
- *       b. io 读端口 0xE001/0xE002/0xE003 → boxvnt 驱动动态模式（ring0）。
+ *       b. io 读端口 0xE001=宽 / 0xE002=高 / 0xE003=魔数 0x5AB0，各 16 位
+ *          → boxvnt 驱动动态模式（ring0）；开关关时不注册（驱动读 0xFFFF
+ *          视为无宿主）。注册端在 runtime 仓库，契约全表见
+ *          guest/boxvnt/ARCHITECTURE.md §5。
  *
  * 目标分辨率 = 视口 CSS 像素任意直推（2026-08-27 vm-arbitrary-resolution
  * 定案，取代同日早间的「标准档位选档」）。历史包袱说明：CSS 直发在无驱动
