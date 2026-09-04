@@ -18,7 +18,7 @@ type ListProps = {
   title?: ComponentChildren
   /** 节脚注（盒子外下方）。 */
   footnote?: ComponentChildren
-  /** 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节；槽位放不下完整字母时按 iOS 方式等分压缩、隔位 • 占位（触点仍覆盖全节）。 */
+  /** 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节；槽位放不下完整字母时按 iOS 方式等分压缩、隔位 • 占位，槽位连圆点都放不下时只渲染采样字母（触点始终按全节等比映射，显示与触点不同步）。 */
   indexBar?: boolean
   /** 编辑模式：ListItem 行出现减号删除钮与拖拽排序把手。 */
   editing?: boolean
@@ -102,6 +102,7 @@ export function List({
   ...rest
 }: ListProps) {
   const rootRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const indexStripRef = useRef<HTMLDivElement>(null)
   const [sections, setSections] = useState<ListSectionAnchor[]>([])
   // 按住/拖动索引条时命中的字母：整条挂 --pressed、当前字母挂 --active（悬停反馈由 CSS :hover 负责）
@@ -147,23 +148,30 @@ export function List({
     return () => observer.disconnect()
   }, [indexBar, stripMounted])
 
-  const jumpTo = (key: string) => {
-    rootRef.current
-      ?.querySelector<HTMLElement>(`[data-list-section="${key}"]`)
-      ?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  // 只滚 .list__body：scrollIntoView 会沿祖先链把 ui-kit 内容区/窗口一起带走。
+  // 没有滚动体时不跳（indexBar 本就要求 scrollable），不回退到会泄漏的整页滚动。
+  const jumpTo = (key: string, behavior: ScrollBehavior) => {
+    const body = bodyRef.current
+    if (!body) return
+    const section = body.querySelector<HTMLElement>(`[data-list-section="${key}"]`)
+    if (!section) return
+    const top =
+      section.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop
+    body.scrollTo({ top, behavior })
   }
 
-  const jumpFromPointer = (clientY: number) => {
+  // 全节等比映射：Y 占比 → 节序号。显示层在极端档只渲染采样字母，
+  // 触点分辨率仍是全节——显示与触点不同步（iOS 同样如此）
+  const jumpFromPointer = (clientY: number, behavior: ScrollBehavior) => {
     const strip = indexStripRef.current
-    if (!strip) return
-    for (const letter of Array.from(strip.querySelectorAll<HTMLElement>('[data-letter]'))) {
-      const rect = letter.getBoundingClientRect()
-      if (clientY >= rect.top && clientY <= rect.bottom) {
-        setActiveLetter(letter.dataset.letter ?? '')
-        jumpTo(letter.dataset.letter ?? '')
-        return
-      }
-    }
+    if (!strip || sections.length === 0) return
+    const rect = strip.getBoundingClientRect()
+    if (rect.height <= 0) return
+    const ratio = (clientY - rect.top) / rect.height
+    const index = Math.max(0, Math.min(sections.length - 1, Math.floor(ratio * sections.length)))
+    const section = sections[index]
+    setActiveLetter(section.key)
+    jumpTo(section.key, behavior)
   }
 
   const beginReorder = (event: ListPointerEvent, id: string) => {
@@ -230,6 +238,13 @@ export function List({
 
   const indexStride = indexStrideFor(indexStripHeight, sections.length)
 
+  // 极端压缩档：槽位不足 8px 时连 6px 圆点都装不下——非采样位不再渲染，采样字母 flex:1 等分
+  // 全条（indexStrideFor 保证采样数 ≤ ⌊条高/13⌋，每槽 ≥13px 装得下字形）；触点由
+  // jumpFromPointer 按全节等比映射，显示与触点不同步。slot < 8 蕴含 stride > 1
+  // （stride=1 必有 slot ≥ 13px），极端档恒是压缩档的子集
+  const indexSlotPx = sections.length > 0 ? indexStripHeight / sections.length : 0
+  const indexExtreme = indexSlotPx > 0 && indexSlotPx < 8
+
   const rootClass = joinClass(
     'list',
     [listClass, indexBar ? 'list--anchored' : '', editing ? 'list--editing' : '']
@@ -245,7 +260,9 @@ export function List({
           <div class={joinClass('list__head', headClass)}>{head}</div>
         )}
         {scrollable ? (
-          <div class={joinClass('list__body', bodyClass)}>{children}</div>
+          <div ref={bodyRef} class={joinClass('list__body', bodyClass)}>
+            {children}
+          </div>
         ) : (
           children
         )}
@@ -254,22 +271,32 @@ export function List({
             ref={indexStripRef}
             class={joinClass(
               'list__index-bar',
-              `${indexStride > 1 ? 'list__index-bar--compressed ' : ''}${
-                activeLetter !== null ? 'list__index-bar--pressed' : ''
+              `${indexStride > 1 ? 'list__index-bar--compressed' : ''}${
+                activeLetter !== null ? ' list__index-bar--pressed' : ''
               }`,
             )}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId)
-              jumpFromPointer(event.clientY)
+              jumpFromPointer(event.clientY, 'smooth')
             }}
             onPointerMove={(event) => {
-              if (event.buttons & 1) jumpFromPointer(event.clientY)
+              if (event.buttons & 1) jumpFromPointer(event.clientY, 'auto')
             }}
             onPointerUp={() => setActiveLetter(null)}
             onPointerCancel={() => setActiveLetter(null)}
           >
             {sections.map((section, i) => {
-              // 压缩档：非采样槽位显示 •，槽位照旧等分、data-letter 触点不缺位；被按住的位揭示真实字母
+              // 压缩档：非采样槽位显示 •，槽位照旧等分（触点全节等比映射，不依赖 span 命中）。
+              // 极端压缩档（槽位 < 8px、连圆点都装不下）时非采样位不渲染，采样字母等分全条。
+              if (
+                indexExtreme &&
+                indexStride > 1 &&
+                i % indexStride !== 0 &&
+                i !== sections.length - 1
+              ) {
+                return null
+              }
+              // 压缩档：非采样槽位显示 •，槽位照旧等分；被按住的位揭示真实字母
               const elided =
                 indexStride > 1 &&
                 i % indexStride !== 0 &&
@@ -278,7 +305,6 @@ export function List({
               return (
                 <span
                   key={section.key}
-                  data-letter={section.key}
                   class={joinClass(
                     'list__index-letter',
                     `${elided ? 'list__index-letter--elided ' : ''}${

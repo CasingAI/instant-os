@@ -400,6 +400,9 @@
 
 .list__index-letter {
   flex: 1;
+  /* flex 列子项默认 min-height:auto（≥字形高）：极矮条里 27 槽的内容底线合计超出条盒，
+     槽位拒绝收缩、整条从列表盒底部溢出——必须归零，槽位才真正等分 */
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
