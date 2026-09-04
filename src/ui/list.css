@@ -185,7 +185,7 @@
 
 /* 按下 / 点闪 / 选中时次级墨水随行反白 */
 
-/* 点闪行本体反白：主标题（__name）继承行 color，随行双向硬切 */
+/* 点闪行本体反白：主标题（__name）继承行 color，进向硬切、退场随 --flash-out 淡出 */
 .list-item--flashed {
   color: #fff;
   transition: none;
@@ -209,6 +209,7 @@
 .list-item--flashed .list-item__disclosure,
 .list-item--selected:not(:disabled) .list-item__disclosure {
   color: rgba(255, 255, 255, 0.88);
+  transition: none;
 }
 
 .list-item--flashed .list-item__check,
@@ -218,13 +219,14 @@
 }
 
 /* ── 点闪（iOS deselectRow 式）──
-   click 落定的行硬切蓝底保持 ~0.5s（ListItem 计时），再淡出回位色。蓝底画在
-   ::after 覆盖层而不是行背景：渐变（background-image）无法参与 transition，
-   opacity 才能淡出。进入硬切（transition:none，触摸即高亮不渐入），退场走
-   覆盖层自身的 400ms opacity 过渡。墨水反白双向硬切——淡出的只有高亮本身，
-   文字在退场瞬间先回常态色，蓝底再在四周褪去（选中切换因此也是瞬切：渐变
-   底与墨水都不带过渡）。点闪只发生在纯动作行：选中行不点闪（tsx 里跳过），
-   覆盖层不会滞留在换选后的旧行上。 */
+   click 落定的行硬切蓝底保持 ~0.5s（ListItem hold 相计时），再整行一起淡出。
+   蓝底画在 ::after 覆盖层而不是行背景：渐变（background-image）无法参与
+   transition，opacity 才能淡出。进入硬切（transition:none，触摸即高亮不渐入）；
+   退场走 --flash-out 相：墨水与覆盖层同速 400ms 一起淡出——iOS 原版 cell 退场
+   是整层快照淡出，文字不先于背景弹回常态（弹回会因各墨水深浅不同显得快慢不一）。
+   transition 声明在目的地状态上才驱动得了退出。选中切换不经过点闪相，渐变底与
+   墨水保持双向硬切。点闪只发生在纯动作行：选中行不点闪（tsx 里跳过），覆盖层
+   不会滞留在换选后的旧行上。 */
 .list-item::after {
   content: '';
   position: absolute;
@@ -243,6 +245,19 @@
 .list-item--flashed::after {
   opacity: 1;
   transition: none;
+}
+
+/* 退场相（hold 计时结束后由 tsx 挂上）：transition 写在目的地状态上，墨水与
+   覆盖层（回落到基态的 opacity 400ms）同速淡出；400ms 后 tsx 摘掉本类，
+   颜色已到位，无视觉变化 */
+.list-item--flash-out {
+  transition: color 400ms ease-out;
+}
+
+.list-item--flash-out .list-item__value,
+.list-item--flash-out .list-item__subtitle,
+.list-item--flash-out .list-item__disclosure {
+  transition: color 400ms ease-out;
 }
 
 /* ── 槽位 ── */
@@ -323,9 +338,9 @@
   height: 14px;
   flex-shrink: 0;
   color: var(--list-disclosure, #b4b4b4);
-  transition:
-    transform 0.15s ease,
-    color 0.1s ease;
+  /* 只保留 transform 通道：颜色不设过渡——墨水进向由状态规则的 transition:none
+     硬切，退向由 --flash-out 相统一驱动；留 0.1s 会让箭头比其他文字慢半拍 */
+  transition: transform 0.15s ease;
 }
 
 .list-item__detail {

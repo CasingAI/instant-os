@@ -70,9 +70,10 @@ export function ListItem({
 }: ListItemProps) {
   const list = useContext(ListContext)
   const [armed, setArmed] = useState(false)
-  // 点闪（iOS deselectRow 式）：click 落定后蓝底硬切保持 0.5s 再淡出；只服务于
-  // 纯动作行——选中行的反馈由选中状态自身承载，不做点闪
-  const [flashed, setFlashed] = useState(false)
+  // 点闪（iOS deselectRow 式）两相：hold = 蓝底反白硬切保持 0.5s；out = 墨水与
+  // 蓝底覆盖层同速 400ms 一起淡出（iOS 原版 cell 退场是整层一起淡，文字不先于
+  // 背景弹回常态）。只服务于纯动作行——选中行的反馈由选中状态自身承载，不做点闪
+  const [flashPhase, setFlashPhase] = useState<'hold' | 'out' | 'idle'>('idle')
   const flashTimer = useRef<number | undefined>(undefined)
 
   useEffect(() => {
@@ -83,7 +84,7 @@ export function ListItem({
   useEffect(() => {
     if (list.editing) {
       window.clearTimeout(flashTimer.current)
-      setFlashed(false)
+      setFlashPhase('idle')
     }
     return () => window.clearTimeout(flashTimer.current)
   }, [list.editing])
@@ -111,9 +112,13 @@ export function ListItem({
     // 肉眼即「旧蓝底慢慢消失」。重复点击顺延保持期（≥0.5s 从最后一次 click 起算）
     const selectionDriven = (id !== undefined && list.onSelect !== undefined) || selected !== undefined
     if (actionable && !selectionDriven) {
-      setFlashed(true)
       window.clearTimeout(flashTimer.current)
-      flashTimer.current = window.setTimeout(() => setFlashed(false), 500)
+      setFlashPhase('hold')
+      flashTimer.current = window.setTimeout(() => {
+        setFlashPhase('out')
+        // 400ms 与覆盖层 opacity 过渡同速；结束后回 idle 只是摘掉过渡通道，无视觉变化
+        flashTimer.current = window.setTimeout(() => setFlashPhase('idle'), 400)
+      }, 500)
     }
   }
 
@@ -122,7 +127,7 @@ export function ListItem({
     actionable ? `${cp}--button` : `${cp}--static`,
     active ? `${cp}--selected` : '',
     armed ? `${cp}--armed` : '',
-    flashed ? `${cp}--flashed` : '',
+    flashPhase === 'hold' ? `${cp}--flashed` : flashPhase === 'out' ? `${cp}--flash-out` : '',
     plain && unread ? `${cp}--unread` : '',
     itemClass,
   ]
