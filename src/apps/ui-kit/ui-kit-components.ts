@@ -8,7 +8,9 @@ export type ComponentDemo = {
   id: string
   name: string
   description: string
-  category: 'list-showcase' | 'form' | 'settings' | 'navigation' | 'tree' | 'picker' | 'other' | 'window'
+  category: 'list-showcase' | 'form' | 'icons' | 'settings' | 'navigation' | 'tree' | 'picker' | 'other' | 'window'
+  /** 卡片占满整行（grid-column: 1 / -1），给 Icon 图标库这种宽内容用 */
+  wide?: boolean
   importPath: string
   props: ComponentProp[]
   codeExample: string
@@ -76,13 +78,13 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'button',
     name: 'Button',
     description:
-      'iOS 6 拟物按钮；secondary / primary / danger，支持 compact 与 icon 方形。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+      'iOS 6 拟物按钮；secondary / primary / danger，支持 compact；icon 属性接收前导图标内容（元素或字符），仅图标无文字时自动渲染为方形图标按钮。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     props: [
       { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary' },
       { name: 'size', type: "'default' | 'compact'", description: '尺寸' },
-      { name: 'icon', type: 'boolean?', description: '方形图标按钮' },
+      { name: 'icon', type: 'ComponentChildren?', description: '前导图标内容；仅图标无文字时自动渲染为方形图标按钮' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
       { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type' },
       { name: 'aria-label', type: 'string?', description: '无障碍标签' },
@@ -185,7 +187,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'segmented-control',
     name: 'SegmentedControl',
-    description: '分段选择器；支持徽章数量与脏状态小橙点',
+    description: '分段选择器；支持徽章数量与脏状态小橙点。分段最小宽度随自身文字，富余空间才均分，容器放不下时整条让位换行，不出省略号',
     category: 'form',
     importPath: "import { SegmentedControl } from '../../ui/segmented-control.tsx'",
     props: [
@@ -370,7 +372,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'headClass', type: 'string?', description: '追加到表头的附加类' },
       { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区（max-height 280 + overflow auto）' },
       { name: 'bodyClass', type: 'string?', description: '追加到滚动体的附加类；配合 scrollable 使用' },
-      { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节；放不下时等分压缩、隔位 • 占位' },
+      { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节；放不下时等分压缩、显示层隔位采样' },
       { name: 'editing', type: 'boolean?', description: '编辑模式：行出现减号删除钮与拖拽排序把手' },
       { name: 'selectedId', type: 'string?', description: '受控单选：配合 ListItem 的 id' },
       { name: 'onSelect', type: '(id: string) => void?', description: 'ListItem 点击上报选中' },
@@ -460,11 +462,11 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'list-index',
     name: 'List A-Z 索引条',
-    description: 'ListSection 出分组与锚点，List 的 indexBar 出右缘字母条——点字母或沿条拖动跳节；槽位放不下完整字母时槽位照旧等分、隔位 • 占位（触点仍覆盖全节）',
+    description: 'ListSection 出分组与锚点，List 的 indexBar 出右缘字母条——点字母或沿条拖动跳节；槽位放不下完整字母时只渲染采样字母（触点按全节等比映射，显示与触点不同步）',
     category: 'list-showcase',
     importPath: "import { List, ListSection } from '../../ui/list.tsx'",
     props: [
-      { name: 'indexBar', type: 'boolean?', description: '渲染右缘字母条；自动收集子级 ListSection；槽位放不下完整字母时隔位 • 压缩显示' },
+      { name: 'indexBar', type: 'boolean?', description: '渲染右缘字母条；自动收集子级 ListSection；槽位放不下完整字母时隔位采样稀疏显示' },
       { name: 'id', type: 'string', description: 'ListSection 的分组锚点（同时是节标题）' },
       { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区，索引跳转需要滚动容器' },
     ],
@@ -854,11 +856,50 @@ const buttonRef = useRef(null)
   打开迷你窗
 </Button>`,
   },
+  {
+    id: 'icon',
+    name: 'Icon 图标库',
+    description:
+      'Material Symbols 图标浏览器：搜索、字体族、填充开关和字重与左侧类目、右侧网格同卡；侧栏只列出当前字体族下有图标的类目。目录按题材分类（安卓是其中一类，不是整库限定平台），网格虚拟滚动，点击格复制名字',
+    category: 'icons',
+    wide: true,
+    importPath: "import { Icon } from '../../ui/icon.tsx'",
+    props: [
+      { name: 'name', type: 'string', description: 'ligature 名，如 "delete"；全目录见 fonts.google.com/icons' },
+      { name: 'family', type: "'outlined' | 'rounded' | 'sharp'", description: '字体族轮廓风格，默认 rounded' },
+      { name: 'fill', type: 'boolean?', description: 'FILL 轴：描边（默认）/ 填充实心' },
+      { name: 'weight', type: 'number?', description: 'wght 轴 100–700，默认 400' },
+      { name: 'grade', type: 'number?', description: 'GRAD 轴 -25–200，默认 0' },
+      { name: 'size', type: 'number?', description: 'font-size 像素值，默认 24' },
+      { name: 'label', type: 'string?', description: '语义化标签；缺省时 aria-hidden 仅作装饰' },
+    ],
+    codeExample: `<Icon name="delete" />
+<Icon name="add" family="sharp" fill weight={600} size={18} />
+{/* 前导图标；仅图标无文字时 Button 自动渲染为方形图标按钮 */}
+<Button icon={<Icon name="add" size={13} />}>新建</Button>
+<Button icon={<Icon name="close" size={13} />} aria-label="关闭" />`,
+  },
+  {
+    id: 'icon-combo',
+    name: 'Icon × 组件组合',
+    description:
+      'Icon 与 kit 组件的组合示范：Button 的 icon 属性传前导图标（仅图标无文字自动成方钮）、List 的 leading 槽放图标；图标颜色随容器文字色（currentColor）',
+    category: 'icons',
+    importPath: "import { Icon } from '../../ui/icon.tsx'",
+    props: [
+      { name: 'Button · icon', type: 'ComponentChildren', description: '前导图标内容；无文字时自动渲染为 26×26 方钮' },
+      { name: 'ListItem · leading', type: 'ComponentChildren', description: '行首图标/头像位' },
+    ],
+    codeExample: `<Button icon={<Icon name="add" size={13} />}>新建</Button>
+<Button icon={<Icon name="close" size={13} />} aria-label="关闭" />
+<ListItem leading={<Icon name="cloud" size={17} />} label="iCloud 云盘" value="已开启" />`,
+  },
 ]
 
 export const COMPONENT_CATEGORIES = [
   { id: 'list-showcase', name: 'List 实战' },
   { id: 'form', name: '表单控件' },
+  { id: 'icons', name: '图标' },
   { id: 'settings', name: '设置组件' },
   { id: 'navigation', name: '导航交互' },
   { id: 'tree', name: '树动效' },

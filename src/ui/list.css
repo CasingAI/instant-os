@@ -432,13 +432,8 @@
   font-weight: 700;
 }
 
-/* 压缩档占位：槽位放不下全字母时非采样位显示的小圆点；真实字母仍挂在 data-letter 上，按住即揭示 */
-.list__index-letter--elided {
-  font-size: 7px;
-}
-
-/* 压缩档：槽位不足 13px 时字形缩到 9px，并放弃 hover/按住的放大——scale 会让字形撞进相邻槽
-   （9.9px 槽里 1.5 倍 = 15px），反馈剩变色加粗 + 圆点揭示字母本身 */
+/* 压缩档：槽位不足 13px 时字形缩到 9px，并放弃 hover/按住的放大——scale 会让字形撞进相邻槽，
+   反馈剩变色加粗；显示层只渲染采样字母（非采样位不渲染），每槽 ≥13px 字形不贴边 */
 .list__index-bar--compressed .list__index-letter {
   font-size: 9px;
 }
@@ -447,10 +442,6 @@
 .list__index-bar--compressed .list__index-letter:active,
 .list__index-bar--compressed .list__index-letter--active {
   transform: none;
-}
-
-.list__index-bar--compressed .list__index-letter--elided {
-  font-size: 6px;
 }
 
 /* 索引带宽 = right 2px + 字母左右各 5px padding = 22px：行与表头右缘内容让位，不压字母。

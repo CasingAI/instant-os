@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useOs } from '../../os/os-context.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import { Checkbox } from '../../ui/checkbox.tsx'
 import { Button } from '../../ui/button.tsx'
+import { Icon, type IconFamily } from '../../ui/icon.tsx'
 import { PageButtonGroup } from '../../ui/page-button-group.tsx'
 import { PageActionButton } from '../../ui/page-action-button.tsx'
 import { Popover } from '../../ui/popover.tsx'
@@ -22,6 +23,7 @@ import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 import { DocumentTabBar, type DocumentTabItem } from '../../ui/document-tab-bar.tsx'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
 import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
+import { FixedRowVirtualList } from '../../ui/fixed-row-virtual-list.tsx'
 import { AiModelCapabilityTags } from '../../ui/ai-model-capability-tags.tsx'
 import { HelpHint } from '../../ui/help-hint.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
@@ -149,12 +151,8 @@ export function ButtonDemo() {
       <DemoVariant label="compact / icon">
         <div class="ui-kit-demo__row">
           <Button size="compact">紧凑</Button>
-          <Button icon size="compact" title="后退">
-            ←
-          </Button>
-          <Button icon size="compact" title="前进">
-            →
-          </Button>
+          <Button icon="←" size="compact" title="后退" />
+          <Button icon="→" size="compact" title="前进" />
           <Button size="compact" disabled>
             禁用
           </Button>
@@ -720,7 +718,7 @@ export function ListIndexDemo() {
 
   return (
     <DemoVariants>
-      <DemoVariant label="拖滑杆调高度：索引条实时在 全字母 / 隔位 • 之间切换" wide>
+      <DemoVariant label="拖滑杆调高度：索引条实时在 全字母 / 隔位采样 之间切换" wide>
         <div
           class="ui-kit-demo__index-height-host"
           style={{ ['--ui-kit-demo-index-height' as string]: `${bodyHeight}px` }}
@@ -748,7 +746,7 @@ export function ListIndexDemo() {
           {renderSections()}
         </List>
       </DemoVariant>
-      <DemoVariant label="空间不足：槽位等分、隔位 • 占位（触点仍覆盖全节）">
+      <DemoVariant label="空间不足：只渲染采样字母（触点按全节等比映射）">
         <List indexBar scrollable>{renderSections()}</List>
       </DemoVariant>
     </DemoVariants>
@@ -1755,3 +1753,305 @@ function removeNodeById(nodes: DemoTreeNode[], targetId: string): DemoTreeNode[]
     item.children ? { ...item, children: removeNodeById(item.children, targetId) } : item,
   )
 }
+
+type MaterialIconCatalogModule = typeof import('./material-icon-catalog.generated.ts')
+type MaterialIconRow = MaterialIconCatalogModule['MATERIAL_ICONS'][number]
+
+const ICON_FAMILY_ITEMS = [
+  { id: 'outlined', label: 'Outlined' },
+  { id: 'rounded', label: 'Rounded' },
+  { id: 'sharp', label: 'Sharp' },
+] as const
+
+/** 生成脚本已把 Google 原始类目归并为规范类目，这里只做显示层中文名；未命中的显示原文。Android 是题材类目（设备/系统相关图标），不是整库平台限定。 */
+const ICON_CATEGORY_CN: Record<string, string> = {
+  'Action': '操作',
+  'Alert': '提醒',
+  'Android': '安卓',
+  'Audio & Video': '音视频',
+  'Business': '商务',
+  'Communication': '通讯',
+  'Content': '内容',
+  'Device': '设备',
+  'Editor': '文本编辑',
+  'Files': '文件',
+  'Hardware': '硬件',
+  'Home': '家居',
+  'Images': '图像',
+  'Maps': '地图',
+  'Navigation': '导航',
+  'Notification': '通知',
+  'Places': '地点',
+  'Privacy': '隐私',
+  'Search': '搜索',
+  'Social': '社交',
+  'Text': '文本',
+  'Toggle': '开关',
+  'Transit': '交通',
+  'Travel': '旅行',
+}
+
+const ICON_GRID_ROW_HEIGHT = 70
+const ICON_GRID_CELL_WIDTH = 86
+/** 与 `.ui-kit-demo__icon-row` 左右 padding 同值 */
+const ICON_GRID_ROW_INSET = 6
+const ICON_GRID_OVERSCAN = 3
+
+/** 目录数据 ~1.9MB，随本卡片动态 import 单独成 chunk，其余 demo 不为其买单。 */
+export function IconDemo() {
+  const [catalog, setCatalog] = useState<MaterialIconCatalogModule | null>(null)
+  const [family, setFamily] = useState<IconFamily>('rounded')
+  const [fill, setFill] = useState(false)
+  const [weight, setWeight] = useState(400)
+  const [query, setQuery] = useState('')
+  /** null=全部；''=未分类；其余为规范类目名 */
+  const [category, setCategory] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+  const [gridWidth, setGridWidth] = useState(0)
+  const gridAreaRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let alive = true
+    import('./material-icon-catalog.generated.ts').then((mod) => {
+      if (alive) setCatalog(mod)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // gridarea 随 catalog 加载才挂载，跟随 catalog 重挂测量
+  useLayoutEffect(() => {
+    const el = gridAreaRef.current
+    if (!catalog || !el) return
+    const measure = () => setGridWidth(el.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [catalog])
+
+  const rows = catalog?.MATERIAL_ICONS ?? null
+  const normalizedQuery = query.trim().toLowerCase()
+  const searching = normalizedQuery.length > 0
+
+  // 当前字体族缺字形的图标直接不进目录，避免渲染出 ligature 原文
+  const supportedRows = useMemo(() => {
+    if (!rows) return null
+    return rows.filter((row) => !row[3] || !row[3].split(',').includes(family))
+  }, [rows, family])
+
+  const categoryStats = useMemo(() => {
+    const counts = new Map<string, number>()
+    let uncategorized = 0
+    if (!catalog || !supportedRows) return { counts, uncategorized, total: 0 }
+    for (const cat of catalog.MATERIAL_ICON_CATEGORIES) counts.set(cat, 0)
+    for (const row of supportedRows) {
+      const cats = row[1] ? row[1].split(',') : []
+      if (cats.length === 0) uncategorized++
+      for (const cat of cats) counts.set(cat, (counts.get(cat) ?? 0) + 1)
+    }
+    return { counts, uncategorized, total: supportedRows.length }
+  }, [catalog, supportedRows])
+
+  const visibleCategories = useMemo(() => {
+    if (!catalog) return []
+    return catalog.MATERIAL_ICON_CATEGORIES.filter((cat) => (categoryStats.counts.get(cat) ?? 0) > 0)
+  }, [catalog, categoryStats])
+
+  useEffect(() => {
+    if (category === null) return
+    if (category === '') {
+      if (categoryStats.uncategorized === 0) setCategory(null)
+      return
+    }
+    if ((categoryStats.counts.get(category) ?? 0) === 0) setCategory(null)
+  }, [category, categoryStats])
+
+  const filtered = useMemo(() => {
+    if (!supportedRows) return null
+    if (searching) {
+      return supportedRows.filter((row) => `${row[0]} ${row[2]}`.includes(normalizedQuery))
+    }
+    if (category === null) return supportedRows
+    if (category === '') return supportedRows.filter((row) => !row[1])
+    return supportedRows.filter((row) => row[1].split(',').includes(category))
+  }, [supportedRows, searching, normalizedQuery, category])
+
+  // 虚拟滚动按行喂：列数随容器宽度变化时整表重切；格宽固定，余数不进格子
+  const columns = Math.max(1, Math.floor((gridWidth - ICON_GRID_ROW_INSET * 2) / ICON_GRID_CELL_WIDTH))
+  const iconRows = useMemo(() => {
+    if (!filtered || columns < 1) return []
+    const result: MaterialIconRow[][] = []
+    for (let i = 0; i < filtered.length; i += columns) {
+      result.push(filtered.slice(i, i + columns))
+    }
+    return result
+  }, [filtered, columns])
+
+  const copyName = (name: string) => {
+    navigator.clipboard.writeText(name).then(() => {
+      setCopied(name)
+      setTimeout(() => setCopied((current) => (current === name ? null : current)), 1200)
+    }, () => {})
+  }
+
+  if (!catalog || !filtered) {
+    return (
+      <DemoVariants>
+        <DemoVariant label="Icon 图标库" wide>
+          <span class="ui-kit-demo__hint">加载图标目录…</span>
+        </DemoVariant>
+      </DemoVariants>
+    )
+  }
+
+  const fmt = (n: number) => n.toLocaleString()
+  const catClass = (value: string | null) =>
+    `ui-kit-demo__icon-cat${!searching && category === value ? ' ui-kit-demo__icon-cat--active' : ''}`
+  const renderCell = (row: MaterialIconRow) => (
+    <button
+      key={row[0]}
+      type="button"
+      class="ui-kit-demo__icon-cell"
+      title={row[0]}
+      onClick={() => copyName(row[0])}
+    >
+      <Icon name={row[0]} family={family} fill={fill} weight={weight} size={22} />
+      <span class="ui-kit-demo__icon-name">{row[0]}</span>
+    </button>
+  )
+  const renderRow = (row: MaterialIconRow[]) => (
+    <div class="ui-kit-demo__icon-row" style={{ gridTemplateColumns: `repeat(${columns}, ${ICON_GRID_CELL_WIDTH}px)` }}>
+      {row.map(renderCell)}
+    </div>
+  )
+  const viewLabel = searching
+    ? `搜索结果 · ${fmt(filtered.length)}`
+    : category === null
+      ? `全部 · ${fmt(categoryStats.total)}`
+      : category === ''
+        ? '未分类'
+        : `${ICON_CATEGORY_CN[category] ?? category}（${category}）`
+
+  return (
+    <DemoVariants>
+      <DemoVariant label={viewLabel} wide>
+        <div class="ui-kit-demo__icon-panel">
+          <div class="ui-kit-demo__icon-toolbar">
+            <div class="ui-kit-demo__icon-search">
+              <IosTextField
+                type="search"
+                placeholder="搜索图标名或标签，如 trash…"
+                value={query}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+              />
+            </div>
+            <SegmentedControl
+              value={family}
+              items={ICON_FAMILY_ITEMS}
+              onChange={setFamily}
+              ariaLabel="Material Symbols 字体族"
+            />
+            <div class="ui-kit-demo__icon-fill">
+              <span class="ui-kit-demo__label">填充</span>
+              <IosSwitch checked={fill} onChange={setFill} label="填充" />
+            </div>
+            <div class="ui-kit-demo__icon-slider">
+              <span class="ui-kit-demo__label">字重</span>
+              <IosRangeSlider
+                value={weight}
+                min={100}
+                max={700}
+                step={100}
+                onChange={setWeight}
+              />
+            </div>
+            {copied ? <span class="ui-kit-demo__icon-copied">已复制 {copied}</span> : undefined}
+          </div>
+          <div class="ui-kit-demo__icon-browser">
+            <nav class="ui-kit-demo__icon-cats" aria-label="图标分类">
+              <button type="button" class={catClass(null)} onClick={() => setCategory(null)}>
+                <span class="ui-kit-demo__icon-cat-name">全部</span>
+                <span class="ui-kit-demo__icon-cat-count">{fmt(categoryStats.total)}</span>
+              </button>
+              {visibleCategories.map((cat) => (
+                <button key={cat} type="button" class={catClass(cat)} onClick={() => setCategory(cat)}>
+                  <span class="ui-kit-demo__icon-cat-name">{ICON_CATEGORY_CN[cat] ?? cat}</span>
+                  <span class="ui-kit-demo__icon-cat-count">{fmt(categoryStats.counts.get(cat) ?? 0)}</span>
+                </button>
+              ))}
+              {categoryStats.uncategorized > 0 ? (
+                <button type="button" class={catClass('')} onClick={() => setCategory('')}>
+                  <span class="ui-kit-demo__icon-cat-name">未分类</span>
+                  <span class="ui-kit-demo__icon-cat-count">{fmt(categoryStats.uncategorized)}</span>
+                </button>
+              ) : undefined}
+            </nav>
+            <div class="ui-kit-demo__icon-gridarea" ref={gridAreaRef}>
+              {iconRows.length > 0 ? (
+                <FixedRowVirtualList
+                  className="fixed-row-virtual-list ui-kit-demo__icon-scroller"
+                  items={iconRows}
+                  rowHeight={ICON_GRID_ROW_HEIGHT}
+                  overscan={ICON_GRID_OVERSCAN}
+                  itemKey={(row) => row[0][0]}
+                  renderItem={renderRow}
+                />
+              ) : (
+                <div class="ui-kit-demo__icon-empty">无匹配图标</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+/** 图标与 kit 组件的组合示范：Button 前导图标（无文字自动方钮）与 List 行首图标。 */
+export function IconComboDemo() {
+  return (
+    <DemoVariants>
+      <DemoVariant label="Button · 图标 + 文字" wide>
+        <div class="ui-kit-demo__row">
+          <Button icon={<Icon name="add" size={13} />}>新建</Button>
+          <Button tone="primary" icon={<Icon name="cloud_download" size={13} />}>
+            下载
+          </Button>
+          <Button tone="danger" icon={<Icon name="delete" size={13} />}>删除</Button>
+          <Button size="compact" icon={<Icon name="search" size={12} />}>
+            搜索
+          </Button>
+        </div>
+      </DemoVariant>
+      <DemoVariant label="Button · 仅图标（无文字自动方钮）">
+        <div class="ui-kit-demo__row">
+          <Button icon={<Icon name="chevron_left" size={14} />} title="后退" aria-label="后退" />
+          <Button icon={<Icon name="chevron_right" size={14} />} title="前进" aria-label="前进" />
+          <Button tone="primary" icon={<Icon name="add" size={14} />} title="新建" aria-label="新建" />
+          <Button tone="danger" icon={<Icon name="delete" size={13} />} title="删除" aria-label="删除" />
+        </div>
+      </DemoVariant>
+      <DemoVariant label="List · leading 槽" wide>
+        <List class="ui-kit-demo__settings-group">
+          <ListItem
+            id="icon-combo-icloud"
+            leading={<Icon name="cloud" size={17} />}
+            label="iCloud 云盘"
+            value="已开启"
+            accessory="disclosure"
+          />
+          <ListItem
+            id="icon-combo-trash"
+            leading={<Icon name="delete" size={17} />}
+            label="最近删除"
+            value="3 项"
+            accessory="disclosure"
+          />
+        </List>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+

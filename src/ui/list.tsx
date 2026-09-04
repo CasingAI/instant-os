@@ -18,7 +18,7 @@ type ListProps = {
   title?: ComponentChildren
   /** 节脚注（盒子外下方）。 */
   footnote?: ComponentChildren
-  /** 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节；槽位放不下完整字母时按 iOS 方式等分压缩、隔位 • 占位，槽位连圆点都放不下时只渲染采样字母（触点始终按全节等比映射，显示与触点不同步）。 */
+  /** 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节；槽位放不下完整字母时按 iOS 方式等分压缩，显示层隔位采样、只渲染采样字母（触点始终按全节等比映射，显示与触点不同步）。 */
   indexBar?: boolean
   /** 编辑模式：ListItem 行出现减号删除钮与拖拽排序把手。 */
   editing?: boolean
@@ -38,7 +38,7 @@ function joinClass(base: string, extra?: string): string {
 /** iOS 式索引压缩阈值：每槽低于该高度（10px 字形 + ~3px 呼吸）视为放不下完整字母，进入压缩档。 */
 const MIN_INDEX_SLOT_PX = 13
 
-/** 压缩档步距：1 = 全字母；n = 每 n 槽显示 1 个真实字母，其余槽显示 •（触点不分家）。 */
+/** 压缩档步距：1 = 全字母；n = 每 n 槽显示 1 个真实字母，其余槽不渲染（显示稀疏化，触点全节等比）。 */
 function indexStrideFor(height: number, count: number): number {
   if (height <= 0 || count <= 0) return 1
   const maxShown = Math.max(1, Math.floor(height / MIN_INDEX_SLOT_PX))
@@ -238,13 +238,6 @@ export function List({
 
   const indexStride = indexStrideFor(indexStripHeight, sections.length)
 
-  // 极端压缩档：槽位不足 8px 时连 6px 圆点都装不下——非采样位不再渲染，采样字母 flex:1 等分
-  // 全条（indexStrideFor 保证采样数 ≤ ⌊条高/13⌋，每槽 ≥13px 装得下字形）；触点由
-  // jumpFromPointer 按全节等比映射，显示与触点不同步。slot < 8 蕴含 stride > 1
-  // （stride=1 必有 slot ≥ 13px），极端档恒是压缩档的子集
-  const indexSlotPx = sections.length > 0 ? indexStripHeight / sections.length : 0
-  const indexExtreme = indexSlotPx > 0 && indexSlotPx < 8
-
   const rootClass = joinClass(
     'list',
     [listClass, indexBar ? 'list--anchored' : '', editing ? 'list--editing' : '']
@@ -286,33 +279,25 @@ export function List({
             onPointerCancel={() => setActiveLetter(null)}
           >
             {sections.map((section, i) => {
-              // 压缩档：非采样槽位显示 •，槽位照旧等分（触点全节等比映射，不依赖 span 命中）。
-              // 极端压缩档（槽位 < 8px、连圆点都装不下）时非采样位不渲染，采样字母等分全条。
+              // 压缩档：显示层隔位采样，非采样位不渲染——采样字母 flex:1 等分全条，
+              // indexStrideFor 保证每槽 ≥13px，字形不贴槽位边缘；触点走全节等比映射，
+              // 显示与触点不同步（按住两个采样字母之间仍命中中间节）
               if (
-                indexExtreme &&
                 indexStride > 1 &&
                 i % indexStride !== 0 &&
                 i !== sections.length - 1
               ) {
                 return null
               }
-              // 压缩档：非采样槽位显示 •，槽位照旧等分；被按住的位揭示真实字母
-              const elided =
-                indexStride > 1 &&
-                i % indexStride !== 0 &&
-                i !== sections.length - 1 &&
-                activeLetter !== section.key
               return (
                 <span
                   key={section.key}
                   class={joinClass(
                     'list__index-letter',
-                    `${elided ? 'list__index-letter--elided ' : ''}${
-                      activeLetter === section.key ? 'list__index-letter--active' : ''
-                    }`,
+                    activeLetter === section.key ? 'list__index-letter--active' : '',
                   )}
                 >
-                  {elided ? '•' : section.label}
+                  {section.label}
                 </span>
               )
             })}
