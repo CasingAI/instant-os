@@ -283,12 +283,12 @@
    * border-right 恒被面板盖住（面板左缘从 0 滑到 L，栏右缘从 W 滑到 L，
    * 始终在面板下方），滑轨中的缝隙线只能由面板补；B/D 面板整体平移、C
    * 面板向左扩张，左缘扫过列表内容，同理需要边缘。收尾时面板线与列表栏
-   * border-right 同像素换手，均为 1px 不叠线。
+   * border-right 同像素换手，均为 1px 不叠线。滑轨期只有这条 1px 界线、
+   * 不画软投影：投影随 morphing 类瞬现瞬失太突兀，淡入也救不回来，按设计
+   * 决定整个去掉。reduced-motion 下整条不画。
    */
   .adaptive-split-nav--morphing .adaptive-split-nav__frames {
-    box-shadow:
-      -1px 0 0 rgba(0, 0, 0, 0.18),
-      -12px 0 28px rgba(0, 0, 0, 0.18);
+    box-shadow: -1px 0 0 rgba(0, 0, 0, 0.18);
   }
 }
 

@@ -456,17 +456,20 @@
 }
 
 /*
- * 滑动页左缘：进退窗口期 over 页正文整页平移、形变滑轨期 detail 面板整体
- * 平移/扩张，滑动层左缘悬在底层内容之上却无描边——两页同为 --page-bg 底
- * 色时界限消失。补 1px 界线 + 软投影（与左栏分隔线同色系），窗口类/
- * morphing 类移除即消失、静止态零影响。与 page-stack.css、classic 同款。
- * A 型例外不加：列表 host 的 border-right 随刚性滑入平移，恰好贴住 detail
- * host 左缘提供缝隙线，再叠即成 2px（classic 的线画在列表栏上、恒被面板
- * 盖住而须由面板补，两引擎不对称是有意的）。投影模糊向上会溢进标题行——
- * flat 宽屏帧窗口的持续条带在 under host 内部、over host 整体在上层，z 抬
- * 不出去，故统一用 clip-path 把投影裁到只向左伸出 40px，上下右溢出一律
- * 不留（形变 host 全高钉在舞台内，裁剪对它无视觉影响）。reduced-motion
- * 下动画被禁，不加线避免缝隙处常驻叠线。
+ * 滑动页左缘：进退窗口期 over 页正文整页平移，滑动层左缘悬在底层内容之上
+ * 却无描边——两页同为 --page-bg 底色时界限消失。补 1px 界线 + 软投影（与
+ * 左栏分隔线同色系），窗口类移除即消失、静止态零影响。与 page-stack.css、
+ * classic 同款。投影模糊向上会溢进标题行——flat 宽屏帧窗口的持续条带在
+ * under host 内部、over host 整体在上层，z 抬不出去，故统一用 clip-path
+ * 把投影裁到只向左伸出 40px，上下右溢出一律不留。reduced-motion 下动画
+ * 被禁，不加线避免缝隙处常驻叠线。
+ *
+ * 形变滑轨期（A~D）另起一条：只画 1px 界线兜底、不画软投影——投影随
+ * morphing 类瞬现瞬失太突兀，淡入也救不回来，按设计决定整个去掉；界线
+ * 与列表栏 border-right 同像素换手，恒定无闪断。A 型例外不加：列表 host
+ * 的 border-right 随刚性滑入平移，恰好贴住 detail host 左缘提供缝隙线，
+ * 再叠即成 2px（classic 的线画在列表栏上、恒被面板盖住而须由面板补，
+ * 两引擎不对称是有意的）。
  */
 @media (prefers-reduced-motion: no-preference) {
   .adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
@@ -474,13 +477,16 @@
     .page__body,
   .adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
     .adaptive-split-nav__host[data-pos='detail'].is-over
-    .page__body,
-  .adaptive-split-nav--flat.adaptive-split-nav--morphing:not([data-morph-kind='A'])
-    .adaptive-split-nav__host[data-pos='detail'] {
+    .page__body {
     box-shadow:
       -1px 0 0 rgba(0, 0, 0, 0.18),
       -12px 0 28px rgba(0, 0, 0, 0.18);
     clip-path: inset(0 0 0 -40px);
+  }
+
+  .adaptive-split-nav--flat.adaptive-split-nav--morphing:not([data-morph-kind='A'])
+    .adaptive-split-nav__host[data-pos='detail'] {
+    box-shadow: -1px 0 0 rgba(0, 0, 0, 0.18);
   }
 }
 

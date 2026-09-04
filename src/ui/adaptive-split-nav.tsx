@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -76,6 +77,8 @@ export type AdaptiveSplitNavController = {
   narrowLayout: boolean
   /** 完成首次宽度测量（仅 split 开启时有意义） */
   layoutReady: boolean
+  /** 紧凑分栏档生效中：分栏宽度 ≤640，左右栏固定 50/50（listRatio 不参与） */
+  compactSplit: boolean
   /**
    * 子页栈当前页。分栏形态下可能是最后一次导航的残留值——分栏左栏的
    * 显示内容由组件钉死为 listPage，残留值只在栈里保活、不会上屏。
@@ -131,7 +134,7 @@ export function useAdaptiveSplitNav(options: {
 }): AdaptiveSplitNavController {
   const enterWidth = options.narrowEnterWidth ?? APP_NARROW_LAYOUT_MAX_WIDTH
   const exitWidth = options.narrowExitWidth ?? APP_NARROW_LAYOUT_EXIT_WIDTH
-  const { hostRef, narrowLayout: measuredNarrow, layoutReady } = useAppNarrowLayout({
+  const { hostRef: formHostRef, narrowLayout: measuredNarrow, layoutReady } = useAppNarrowLayout({
     enterWidth,
     exitWidth,
     // 左右半屏吸附视为窄形态（不受宽度滞回死区影响）
@@ -140,6 +143,21 @@ export function useAdaptiveSplitNav(options: {
     // 才播完整滑轨形变——拖拽中提交会让滑轨没有可演的起止点。
     settleMs: SPLIT_FLIP_SETTLE_MS,
   })
+  // 紧凑档测量实例：分栏宽度 ≤640 进入、≥700 退出。缺省 settleMs=0 逐帧
+  // 即时跟随——档位只改写 --asn-list-ratio 的取值，不触发形态翻转，无需
+  // settle 保护；与上面的形态实例各持一个 ResizeObserver，挂同一宿主节点。
+  const { hostRef: compactHostRef, narrowLayout: compactSplit } = useAppNarrowLayout({
+    enterWidth: COMPACT_SPLIT_ENTER_WIDTH,
+    exitWidth: COMPACT_SPLIT_EXIT_WIDTH,
+  })
+  // 两个测量实例的挂载回调合成一个：宿主节点只有一处，各自 RO 互不干扰
+  const hostRef = useCallback(
+    (node: HTMLElement | null) => {
+      formHostRef(node)
+      compactHostRef(node)
+    },
+    [formHostRef, compactHostRef],
+  )
   // 渲染形态：未开启 split 时恒为子页栈
   const narrowLayout = !options.split || measuredNarrow
 
@@ -220,6 +238,7 @@ export function useAdaptiveSplitNav(options: {
     () => ({
       narrowLayout,
       layoutReady,
+      compactSplit,
       page: stack.page,
       listPage,
       hostRef,
@@ -245,6 +264,7 @@ export function useAdaptiveSplitNav(options: {
       hostRef,
       narrowLayout,
       layoutReady,
+      compactSplit,
       stack.page,
       listPage,
       stack.navigate,
@@ -316,6 +336,17 @@ const DEFAULT_LIST_RATIO = 0.38
 const DEFAULT_FRAME_MS = 380
 /** 形态翻转等宽度停变后再提交，避免拖拽中途反复起滑轨 */
 const SPLIT_FLIP_SETTLE_MS = 150
+
+/**
+ * 紧凑分栏档：分栏宽度 ≤640（含）时左右栏固定 50/50，≥700 恢复 listRatio
+ * 纯比例。纯比例没有绝对宽度下限——530px×0.38 仅 201px，扣掉行固定开销后
+ * 文字区不足百 px；640 ≈ 38% 达 243px 的量级，退出阈值拉 60px 滞回对齐
+ * 520/580 的防抖先例。档内 listRatio 不参与；档位只改写 --asn-list-ratio
+ * 的值，CSS 与形变数学消费同一份有效比例，缝隙恒等式两端天然同式。
+ */
+const COMPACT_SPLIT_ENTER_WIDTH = 640
+const COMPACT_SPLIT_EXIT_WIDTH = 700
+const COMPACT_SPLIT_LIST_RATIO = 0.5
 
 /** 形变滑轨曲线：与左栏 width 过渡（css）严格同曲线，缝隙恒等式才成立 */
 const MORPH_EASING = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
@@ -393,6 +424,8 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
     class: className,
   } = props
   const { narrowLayout, layoutReady, hostRef } = controller
+  // 紧凑档生效时左右各半：styleVars 与形变数学必须消费同一份有效比例
+  const ratio = controller.compactSplit ? COMPACT_SPLIT_LIST_RATIO : listRatio
   // 形变编排要直接操作的骨架节点：根（量宽/装甲 RO）、帧容器（面板本体）、
   // 详情栏（形变期抬 z 用）
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -608,7 +641,7 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
       return
     }
     // 面板终宽 D：与 CSS 同式（width: ratio%），缝隙恒等式的两端才能对上
-    const ratioPct = Math.round(listRatio * 10000) / 100
+    const ratioPct = Math.round(ratio * 10000) / 100
     const detailW = stageW - (stageW * ratioPct) / 100
     const hasFrames = liveFramesRef.current.length > 0
 
@@ -739,6 +772,7 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
     layoutReady,
     narrowLayout,
     listRatio,
+    controller.compactSplit,
     frameAnimationMs,
     controller.switchPlanRef,
     controller.listPage,
@@ -799,7 +833,7 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
   const active = Math.min(wideIndex, Math.max(0, view.length - 1))
 
   const styleVars = {
-    '--asn-list-ratio': `${Math.round(listRatio * 10000) / 100}%`,
+    '--asn-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
     '--asn-frame-ms': `${frameAnimationMs}ms`,
   } as Record<string, string>
 
@@ -927,6 +961,8 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
     class: className,
   } = props
   const { narrowLayout, layoutReady, hostRef } = controller
+  // 紧凑档生效时左右各半：styleVars 与形变数学必须消费同一份有效比例
+  const ratio = controller.compactSplit ? COMPACT_SPLIT_LIST_RATIO : listRatio
   const rootRef = useRef<HTMLDivElement | null>(null)
   // 形变编排直接操作 host 盒子：id → 元素
   const hostElsRef = useRef(new Map<string, HTMLDivElement>())
@@ -1117,7 +1153,7 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
       return
     }
     // 面板终宽 D：与 CSS 同式（width: ratio%），缝隙恒等式的两端才能对上
-    const ratioPct = Math.round(listRatio * 10000) / 100
+    const ratioPct = Math.round(ratio * 10000) / 100
     const detailW = stageW - (stageW * ratioPct) / 100
     const listW = stageW - detailW
     const frameIds = framesRef.current
@@ -1267,6 +1303,7 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
     layoutReady,
     narrowLayout,
     listRatio,
+    controller.compactSplit,
     frameAnimationMs,
     controller.switchPlanRef,
     controller.listPage,
@@ -1373,7 +1410,7 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
     morphKind: controller.morphKind,
   }
   const styleVars = {
-    '--asn-list-ratio': `${Math.round(listRatio * 10000) / 100}%`,
+    '--asn-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
     '--asn-frame-ms': `${frameAnimationMs}ms`,
   } as Record<string, string>
 
