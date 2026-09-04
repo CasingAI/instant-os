@@ -57,7 +57,8 @@
   display: none;
 }
 
-/* 方形图标按钮（+ / ⋯ 等），与文字按钮同高 */
+/* 方形图标按钮（+ / ⋯ 等），与文字按钮同高；组内由 PageButtonGroup
+ * 按 28→20 收缩（见 page-button-group.css），组外固定 28px */
 .page-action-button--icon {
   min-width: 28px;
   width: 28px;

@@ -8,7 +8,7 @@ export type ComponentDemo = {
   id: string
   name: string
   description: string
-  category: 'list-showcase' | 'form' | 'icons' | 'settings' | 'navigation' | 'tree' | 'picker' | 'other' | 'window'
+  category: 'list-showcase' | 'form' | 'icons' | 'settings' | 'navigation' | 'tree' | 'picker' | 'other' | 'window' | 'page-curl'
   /** 卡片占满整行（grid-column: 1 / -1），给 Icon 图标库这种宽内容用 */
   wide?: boolean
   importPath: string
@@ -104,7 +104,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'page-button-group',
     name: 'Button Group',
     description:
-      '页头按钮组：PageButtonGroup 内放 PageActionButton 成组使用，空间不足自动多级解压——先收边距、再收间距，接着图标方钮 28→20 连续收缩，然后带 icon 的双态按钮（icon+文字）整钮退化为图标方钮把文字空间让出来，最后纯文字按钮连续压扁，任何宽度都不折行（解压机制只识别 PageActionButton）',
+      '页头按钮组：PageButtonGroup 内放 PageActionButton 成组使用，空间不足自动多级解压——先收边距、再收间距，接着图标方钮 28→20 连续收缩（图标随盒等比缩放），然后带 icon 的双态按钮（icon+文字）整钮退化为图标方钮把文字空间让出来，最后纯文字按钮连续压扁，任何宽度都不折行（解压机制只识别 PageActionButton）',
     category: 'form',
     importPath:
       "import { PageButtonGroup } from '../../ui/page-button-group.tsx'\nimport { PageActionButton } from '../../ui/page-action-button.tsx'",
@@ -993,6 +993,23 @@ const buttonRef = useRef(null)
   }}
 />`,
   },
+  {
+    id: 'page-curl',
+    name: '地图卷页 Page Curl',
+    description:
+      'iOS 6 地图右下角卷页（page curl）的网页复刻对比：同一场景——假地图页从右下角卷起、露出底下设置页——三种实现各跑一遍，纯 CSS 3D 折叠（每帧只写 transform/clip-path，全走合成器）、纯 2D 裁剪镜像（clip-path + matrix 反射 + 假光源，零 3D 零 WebGL）、WebGL 连续卷曲（柱面卷曲网格，每帧只更新一个 uniform，最接近原版观感）。支持拖住右下角跟手卷页、松手弹簧回弹、点击折角开合与自动演示；每档说明写明每帧成本与保真度',
+    category: 'page-curl',
+    wide: true,
+    importPath: "import { PageCurlDemo } from './page-curl-demo.tsx'",
+    props: [
+      {
+        name: 'initialVariant',
+        type: "'css3d' | 'clip2d' | 'webgl'",
+        description: '初始展示的实现方案；默认 css3d，运行中用顶部分段器切换',
+      },
+    ],
+    codeExample: `<PageCurlDemo initialVariant="webgl" />`,
+  },
 ]
 
 export const COMPONENT_CATEGORIES = [
@@ -1002,6 +1019,7 @@ export const COMPONENT_CATEGORIES = [
   { id: 'settings', name: '设置组件' },
   { id: 'navigation', name: '导航交互' },
   { id: 'tree', name: '树动效' },
+  { id: 'page-curl', name: '卷页动画' },
   { id: 'picker', name: '选择器' },
   { id: 'other', name: '其他' },
   { id: 'window', name: '窗口系统' },

@@ -1,6 +1,7 @@
 /* 按钮组（自包含）：压缩程度按「内容自然宽 / 可用宽」的压缩率决定。
- * 边距（--pg-pad）、压扁比例（--pg-label-scale）与退位档开关（pg-icon-mode）
- * 由 tsx 侧 ResizeObserver 计算并写入（见 page-button-group.tsx）；
+ * 边距（--pg-pad）、压扁比例（--pg-label-scale）、退位档开关（pg-icon-mode）
+ * 与方钮/退化钮的宽度由 tsx 侧 ResizeObserver 按四级级联计算并写入
+ * （见 page-button-group.tsx / page-button-group-layout.ts）；
  * 这里只负责把变量翻译成样式。 */
 
 .page-button-group {
@@ -39,6 +40,29 @@
 }
 
 /*
+ * 组内方钮参与收缩：--icon 类自带的 min/width/max-width:28px 在组内放开，
+ * 宽度由 tsx 按级联的 side（28 → 20）写死 inline；overflow: hidden 兜底
+ * 超大图标的对称裁切（glyph 随 --pg-icon-scale 等比缩放后常规不会触发）。
+ */
+.page-button-group .page-action-button--icon {
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  transition: width 0.12s ease;
+}
+
+/*
+ * 方钮内的 glyph 随收缩档等比缩放（scale = side / 28，tsx 写
+ * --pg-icon-scale）：盒子收窄时图标视觉上一同变小，而不是在紧盒里
+ * 保持原大。transform 不改布局，中心为原点居中收缩。
+ */
+.page-button-group .page-action-button__icon {
+  transform: scale(var(--pg-icon-scale, 1));
+  transform-origin: center center;
+  transition: transform 0.12s ease;
+}
+
+/*
  * label 保持自然文字宽的布局（flex-shrink: 0），压扁由 transform 完成：
  * 绘制宽 = 布局宽 × --pg-label-scale，恰好画满按钮分配到的内容宽。
  * 永不出现系统省略号，也永不隐藏按钮。
@@ -61,16 +85,14 @@
 }
 
 /*
- * 退位档：双态按钮（icon + 文字）在文字放不下时整钮退化为 28px 图标
- * 方钮——label 退出渲染树、图标恢复显示、边距归零，几何与 --icon 方钮
- * 一致（宽度 28px 由 tsx 写死，数值同 page-button-group-layout.ts 的
- * ICON_SIDE）。放在 pg-shrink-label 块之后，靠源序覆盖上面同权重的
- * :not(--icon) 组内规则。文字随 display:none 即时消失、宽度走 0.12s
+ * 退位档：双态按钮（icon + 文字）在方钮收到底仍放不下时整钮退化为图标
+ * 方钮——label 退出渲染树、图标恢复显示、边距归零，宽度由 tsx 按级联的
+ * side 写死 inline，与 --icon 方钮同步收缩（min-width:0 / max-width:100%
+ * 沿用上面 :not(--icon) 组内规则）。放在 pg-shrink-label 块之后，靠源序
+ * 覆盖同权重的 padding 规则。文字随 display:none 即时消失、宽度走 0.12s
  * 过渡收进方钮——离散切换是有意语义。
  */
 .page-button-group.pg-icon-mode .page-action-button--dual {
-  min-width: 28px;
-  max-width: 28px;
   padding-inline: 0;
 }
 
