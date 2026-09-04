@@ -465,10 +465,23 @@
   color: #666;
 }
 
-/* A-Z 索引条演示的更高滚动体：28 个字母槽在 .list__body 默认 280px 里会压到 ~9.6px/个
-   而上下相叠，440px 下每槽 ~15px 恰好容下 10px 字形；本文件晚于 list.css 引入，同特异性靠源序生效 */
+/* A-Z 索引条演示「空间充足」变体的滚动体：单列 # + A–Z 共 27 节，全字母下限为每槽 13px（10px 字形 + 呼吸）——
+   280px 默认体每槽 ~9.9px 进压缩档（隔位 • 占位、字形 9px 不放大），440px 下每槽 ~15.9px 全字母完整显示；
+   本文件晚于 list.css 引入，同特异性靠源序生效 */
 .ui-kit-demo__list-body-tall {
   max-height: 440px;
+}
+
+/* A-Z 索引条「可调高度」变体：滑杆把高度写进 CSS 变量，滚动体 max-height 读变量，
+   List 内部的 ResizeObserver 跟随索引条高度实时重算压缩档 */
+.ui-kit-demo__index-height-host {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ui-kit-demo__list-body-variable {
+  max-height: var(--ui-kit-demo-index-height, 280px);
 }
 
 /* 整应用承载的组件（AdaptiveSplitNav 等）：说明 + 打开演示应用按钮 */

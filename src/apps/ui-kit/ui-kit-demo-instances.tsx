@@ -660,49 +660,96 @@ export function ListControlsDemo() {
 }
 
 export function ListIndexDemo() {
+  // 归节手工标注，等价于 iOS 通讯录的 phonetic 拼音字段：字典推断解决不了多音姓氏，
+  // 曾小贤→Z（zēng）、单雄信→S（shàn）、仇英→Q（qiú）都按姓氏读音归节
   const sections = [
-    { id: '#', names: ['3M 便利贴', '7-11 便当'] },
-    { id: 'A', names: ['阿福', '安琪'] },
-    { id: 'B', names: ['白露', '百晓生'] },
-    { id: 'C', names: ['曹操', '陈皮'] },
-    { id: 'D', names: ['大卫', '丁丁'] },
+    {
+      id: '#',
+      names: [
+        '0 元秒杀',
+        '12306 客服',
+        '24 便利店',
+        '3M 便利贴',
+        '4S 店小哥',
+        '58 同城',
+        '618 大促',
+        '7-11 便当',
+        '8 折优惠券',
+        '9 键输入法',
+      ],
+    },
+    { id: 'A', names: ['阿福', '安琪', '敖丙', '艾克'] },
+    { id: 'B', names: ['白露', '包拯', '百晓生', '北岛', '毕加索'] },
+    { id: 'C', names: ['曹操', '陈皮', '蔡文姬', '晁盖', '车晓'] },
+    { id: 'D', names: ['丁丁', '大卫', '貂蝉', '杜甫', '董卓'] },
     { id: 'E', names: ['恩雅', '耳东'] },
-    { id: 'F', names: ['范闲', '飞白'] },
-    { id: 'G', names: ['关雎', '归海'] },
-    { id: 'H', names: ['韩非', '胡杨'] },
+    { id: 'F', names: ['范闲', '飞白', '方鸿', '冯程程', '傅雷'] },
+    { id: 'G', names: ['关雎', '归海', '高渐离', '郭靖', '顾城'] },
+    { id: 'H', names: ['韩非', '何晏', '胡杨', '华佗', '黄盖', '花木兰'] },
     { id: 'I', names: ['Ivy'] },
-    { id: 'J', names: ['建安', '九斤'] },
-    { id: 'K', names: ['快雪', '凯风'] },
-    { id: 'L', names: ['李逵', '林徽'] },
-    { id: 'M', names: ['马良', '木心'] },
-    { id: 'N', names: ['南音', '妞妞'] },
-    { id: 'O', names: ['欧阳', '欧文'] },
-    { id: 'P', names: ['潘安', '萍聚'] },
-    { id: 'Q', names: ['钱塘', '青梅'] },
-    { id: 'R', names: ['任安', '若曦'] },
-    { id: 'S', names: ['苏轼', '石秀'] },
-    { id: 'T', names: ['唐寅', '陶朱'] },
+    { id: 'J', names: ['建安', '九斤', '姜子牙', '金铃儿', '贾宝玉', '纪晓岚'] },
+    { id: 'K', names: ['快雪', '凯风', '孔明', '柯南'] },
+    { id: 'L', names: ['李白', '林徽', '柳如是', '刘备', '陆游', '鲁智深'] },
+    { id: 'M', names: ['马良', '木心', '毛遂', '孟姜女', '米芾'] },
+    { id: 'N', names: ['南音', '妞妞', '倪妮', '聂小倩', '牛皋'] },
+    { id: 'O', names: ['欧阳', 'Olivia'] },
+    { id: 'P', names: ['潘安', '彭小满', '萍聚', '皮皮'] },
+    { id: 'Q', names: ['仇英', '钱塘', '青梅', '秦筝', '乔峰', '屈原'] },
+    { id: 'R', names: ['任盈盈', '若曦', '阮小二'] },
+    { id: 'S', names: ['单雄信', '苏轼', '石秀', '史湘云', '孙悟空', '宋江', '沈眉庄', '施小雅'] },
+    { id: 'T', names: ['唐寅', '陶朱', '汤唯', '铁拐李'] },
     { id: 'U', names: ['Una'] },
     { id: 'V', names: ['Vivian'] },
-    { id: 'W', names: ['王维', '吴刚'] },
-    { id: 'X', names: ['徐霞', '薛涛'] },
-    { id: 'Y', names: ['颜回', '虞姬'] },
-    { id: 'Z', names: ['张良', '庄周'] },
-    { id: '汉', names: ['囡囡', '犇犇'] },
+    { id: 'W', names: ['王维', '吴刚', '魏征', '温宁'] },
+    { id: 'X', names: ['徐霞', '薛涛', '夏侯惇', '谢小楼', '项少龙'] },
+    { id: 'Y', names: ['颜回', '虞姬', '严守一', '余则成', '杨过', '叶问'] },
+    { id: 'Z', names: ['张良', '庄周', '赵子龙', '郑和', '周瑜', '朱迪', '曾小贤'] },
   ]
+
+  // 可调高度变体：滑杆经 CSS 变量驱动滚动体 max-height，List 内部的 ResizeObserver 会实时重算压缩档
+  const [bodyHeight, setBodyHeight] = useState(280)
+
+  const renderSections = () =>
+    sections.map((section) => (
+      <ListSection key={section.id} id={section.id} title={section.id}>
+        {section.names.map((name) => (
+          <ListItem key={name} label={name} value="详情" accessory="disclosure" />
+        ))}
+      </ListSection>
+    ))
 
   return (
     <DemoVariants>
-      <DemoVariant label="点字母或沿条拖动跳节" wide>
+      <DemoVariant label="拖滑杆调高度：索引条实时在 全字母 / 隔位 • 之间切换" wide>
+        <div
+          class="ui-kit-demo__index-height-host"
+          style={{ ['--ui-kit-demo-index-height' as string]: `${bodyHeight}px` }}
+        >
+          <IosRangeSlider
+            value={bodyHeight}
+            min={120}
+            max={600}
+            step={10}
+            suffix="px"
+            label="滚动体高度"
+            marks={[
+              { value: 280, label: '默认' },
+              { value: 440, label: '全字母' },
+            ]}
+            onChange={setBodyHeight}
+          />
+          <List indexBar scrollable bodyClass="ui-kit-demo__list-body-variable">
+            {renderSections()}
+          </List>
+        </div>
+      </DemoVariant>
+      <DemoVariant label="空间充足：27 格全字母（440px）" wide>
         <List indexBar scrollable bodyClass="ui-kit-demo__list-body-tall">
-          {sections.map((section) => (
-            <ListSection key={section.id} id={section.id} title={section.id}>
-              {section.names.map((name) => (
-                <ListItem key={name} label={name} value="详情" accessory="disclosure" />
-              ))}
-            </ListSection>
-          ))}
+          {renderSections()}
         </List>
+      </DemoVariant>
+      <DemoVariant label="空间不足：槽位等分、隔位 • 占位（触点仍覆盖全节）">
+        <List indexBar scrollable>{renderSections()}</List>
       </DemoVariant>
     </DemoVariants>
   )

@@ -355,7 +355,10 @@
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
 }
 
-.list-item--shift {
+/* 让位平移动画：编辑模式下 .list--editing .list-item（0,2,0）的 padding 过渡会按特异性
+   压过单类修饰（0,1,0）——transition 是整条覆盖属性，被 padding 独占后 transform 让位就瞬移；
+   这里同特异性 + 靠后源序改写整个 transition（拖动中 padding 恒定，替换掉无副作用） */
+.list--editing .list-item--shift {
   transition: transform 150ms ease;
 }
 

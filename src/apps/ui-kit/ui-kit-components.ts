@@ -370,7 +370,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'headClass', type: 'string?', description: '追加到表头的附加类' },
       { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区（max-height 280 + overflow auto）' },
       { name: 'bodyClass', type: 'string?', description: '追加到滚动体的附加类；配合 scrollable 使用' },
-      { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节' },
+      { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节；放不下时等分压缩、隔位 • 占位' },
       { name: 'editing', type: 'boolean?', description: '编辑模式：行出现减号删除钮与拖拽排序把手' },
       { name: 'selectedId', type: 'string?', description: '受控单选：配合 ListItem 的 id' },
       { name: 'onSelect', type: '(id: string) => void?', description: 'ListItem 点击上报选中' },
@@ -460,11 +460,11 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'list-index',
     name: 'List A-Z 索引条',
-    description: 'ListSection 出分组与锚点，List 的 indexBar 出右缘字母条——点字母或沿条拖动跳节',
+    description: 'ListSection 出分组与锚点，List 的 indexBar 出右缘字母条——点字母或沿条拖动跳节；槽位放不下完整字母时槽位照旧等分、隔位 • 占位（触点仍覆盖全节）',
     category: 'list-showcase',
     importPath: "import { List, ListSection } from '../../ui/list.tsx'",
     props: [
-      { name: 'indexBar', type: 'boolean?', description: '渲染右缘字母条；自动收集子级 ListSection' },
+      { name: 'indexBar', type: 'boolean?', description: '渲染右缘字母条；自动收集子级 ListSection；槽位放不下完整字母时隔位 • 压缩显示' },
       { name: 'id', type: 'string', description: 'ListSection 的分组锚点（同时是节标题）' },
       { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区，索引跳转需要滚动容器' },
     ],
