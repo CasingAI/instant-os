@@ -825,3 +825,66 @@
   font-size: 12px;
   color: #999;
 }
+
+/* ===== Icon 内凹效果演示 ===== */
+
+/* 承载 <filter> 定义的隐形 svg，只供 filter: url() 引用 */
+.ui-kit-demo__inset-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.ui-kit-demo__inset-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  max-width: 620px;
+}
+
+.ui-kit-demo__inset-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 170px;
+  min-width: 0;
+}
+
+.ui-kit-demo__inset-control .ios-range-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ui-kit-demo__inset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* 键帽底盘：外缘受光的凸面，凹刻字形坐进去；字色即凹刻材料的底色 */
+.ui-kit-demo__inset-plate {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #f8f6f2 0%, #e9e5de 55%, #dcd7ce 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.07),
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 4px 8px rgba(0, 0, 0, 0.07);
+  color: #6f695e;
+}
+
+.ui-kit-demo__inset-plate--dark {
+  background: linear-gradient(180deg, #55524c 0%, #3b3833 55%, #2e2b27 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  color: #cfc9bf;
+}

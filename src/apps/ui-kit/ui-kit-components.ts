@@ -104,7 +104,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'page-button-group',
     name: 'Button Group',
     description:
-      '页头按钮组：PageButtonGroup 内放 PageActionButton 成组使用，空间不足自动多级解压——先收边距、再收间距，带 icon 的双态按钮（icon+文字）此时整钮退化为图标方钮把文字空间让出来，最后纯文字按钮连续压扁，任何宽度都不折行（解压机制只识别 PageActionButton）',
+      '页头按钮组：PageButtonGroup 内放 PageActionButton 成组使用，空间不足自动多级解压——先收边距、再收间距，接着图标方钮 28→20 连续收缩，然后带 icon 的双态按钮（icon+文字）整钮退化为图标方钮把文字空间让出来，最后纯文字按钮连续压扁，任何宽度都不折行（解压机制只识别 PageActionButton）',
     category: 'form',
     importPath:
       "import { PageButtonGroup } from '../../ui/page-button-group.tsx'\nimport { PageActionButton } from '../../ui/page-action-button.tsx'",
@@ -112,7 +112,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'children', type: 'ComponentChildren', description: 'PageButtonGroup：组内放置 PageActionButton' },
       { name: 'tone', type: "'plain' | 'default' | 'danger'", description: 'PageActionButton 色调，默认 plain' },
       { name: 'activated', type: 'boolean?', description: '持久选中态（如「已收藏」），蓝底白字' },
-      { name: 'icon', type: 'ComponentChildren?', description: '仅 icon → 28px 方钮（配 aria-label）；icon+文字 → 双态按钮：宽时文字、组内放不下退化为方钮' },
+      { name: 'icon', type: 'ComponentChildren?', description: '仅 icon → 方钮（组内 28→20 收缩）；icon+文字 → 双态按钮：宽时文字、组内放不下整钮退化为方钮' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
       { name: 'busy', type: 'boolean?', description: '提交中：文字前显示转圈' },
       { name: 'aria-label', type: 'string?', description: '无障碍标签' },
@@ -963,7 +963,35 @@ const buttonRef = useRef(null)
     ],
     codeExample: `<Button icon={<Icon name="add" size={14} />} aria-label="新建" />
 <Button icon={<Icon name="close" size={13} />} aria-label="关闭" />
-<ListItem leading={<Icon name="cloud" size={17} />} label="iCloud 云盘" value="已开启" />`,
+<ListItem leading={<Icon name="cloud" size={17} />} label="iCloud 云盘" value="已开启" accessory="disclosure" />`,
+  },
+  {
+    id: 'icon-inset',
+    name: 'Icon 内凹效果',
+    description:
+      '实验卡片：Material Symbols 是连字文本，CSS 没有原生文字内阴影（text-shadow 只有外阴影，box-shadow inset 只作用于盒子），对比两种画法——SVG 滤镜在字形 alpha 上错位相减挖出顶/底缘月牙环填色叠回，是真·内阴影，凹坑感最强；background-clip: text 塞渐变只是上暗下亮的明暗模拟。深度/浓度/字重滑杆联动全部变体，深色键帽验证滤镜可直接反色复用',
+    category: 'icons',
+    importPath: "import { Icon } from '../../ui/icon.tsx'",
+    props: [
+      { name: 'style · filter', type: 'JSX.CSSProperties', description: "filter: url(#滤镜id) 挂 SVG 内阴影滤镜，需页面里有对应 <filter> 定义" },
+      { name: 'style · 渐变模拟', type: 'JSX.CSSProperties', description: 'background 渐变 + WebkitBackgroundClip/backgroundClip: text + color: transparent，零滤镜开销' },
+    ],
+    codeExample: `{/* 真·内阴影：字形 alpha 经滤镜挖缘环，滤镜 id 见演示卡里的 <filter> 定义 */}
+<Icon
+  name="favorite"
+  style={{ filter: 'url(#ui-kit-icon-inset)' }}
+/>
+
+{/* 模拟：渐变透过字形，上暗下亮 */}
+<Icon
+  name="favorite"
+  style={{
+    background: 'linear-gradient(180deg, rgba(0,0,0,.6), rgba(0,0,0,.2) 40%, rgba(255,255,255,.85))',
+    WebkitBackgroundClip: 'text',
+    backgroundClip: 'text',
+    color: 'transparent',
+  }}
+/>`,
   },
 ]
 
