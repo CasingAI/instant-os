@@ -111,8 +111,7 @@
      --anchored 是 prop 驱动、首帧即达（list.tsx rootClass），不存在挂载滑动 */
   transition:
     padding-left 220ms var(--list-edit-ease),
-    padding-right 220ms var(--list-edit-ease),
-    color 400ms ease-out;
+    padding-right 220ms var(--list-edit-ease);
 }
 
 .list > .list-item:last-child {
@@ -139,7 +138,10 @@
   color: inherit;
 }
 
-.list:not(.list--editing) .list-item:hover:not(:disabled):not(.list-item--selected) {
+/* hover 触达反馈与按下同源：只属于真正可点的行（button，onClick / id+onSelect）。
+   静态行（无任何动作的展示行）零反馈——iOS 原版不可点的 cell 不高亮；
+   选中行也不参与淡灰 hover——浅灰会把反白墨水泡掉。 */
+.list:not(.list--editing) .list-item--button:hover:not(:disabled):not(.list-item--selected) {
   background: linear-gradient(
     180deg,
     var(--list-hover-top, #fbfbfd) 0%,
@@ -147,10 +149,20 @@
   );
 }
 
-.list:not(.list--editing) .list-item--button:active:not(:disabled) {
-  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+/* 按下规则带 :not(--selected) 追平 hover 的特异性（0,6,0），靠源序压过淡灰
+   hover——否则按下时两个伪类同时命中，淡灰底盖掉蓝底、只剩 active 的白字浮在
+   浅灰上。按下用选中蓝（与点闪覆盖层同色）：快速点按松开后高亮只是从「保持」
+   进入「淡出」，颜色不变——iOS 原版按下高亮与松开残留本是同一个蓝。选中行排除
+   在外：按下色即选中色，压上去本就无变化 */
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) {
+  background: linear-gradient(
+    180deg,
+    var(--list-selected-top, #4089d4) 0%,
+    var(--list-selected-bottom, #2068b8) 100%
+  );
   color: #fff;
-  /* 按下的高亮与反白都是硬切（触摸即高亮），退场交给基态过渡淡出 */
+  /* 按下的高亮与反白都是硬切：触摸即高亮、双向瞬切（iOS 高亮退场时内容先回
+     常态色，蓝底在四周褪去——文字从不挂在褪色的高亮上） */
   transition: none;
 }
 
@@ -163,10 +175,6 @@
   color: #fff;
 }
 
-.list:not(.list--editing) .list-item--selected:not(:disabled):active {
-  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
-}
-
 .list-item--button:disabled,
 .list-item--button:disabled:hover,
 .list-item--button:disabled:active {
@@ -177,27 +185,27 @@
 
 /* 按下 / 点闪 / 选中时次级墨水随行反白 */
 
-/* 点闪行本体反白：主标题（__name）继承行 color，随行硬切、退场淡出 */
+/* 点闪行本体反白：主标题（__name）继承行 color，随行双向硬切 */
 .list-item--flashed {
   color: #fff;
   transition: none;
 }
 
-.list:not(.list--editing) .list-item--button:active:not(:disabled) .list-item__value,
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) .list-item__value,
 .list-item--flashed .list-item__value,
 .list-item--selected:not(:disabled) .list-item__value {
   color: rgba(255, 255, 255, 0.85);
   transition: none;
 }
 
-.list:not(.list--editing) .list-item--button:active:not(:disabled) .list-item__subtitle,
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) .list-item__subtitle,
 .list-item--flashed .list-item__subtitle,
 .list-item--selected:not(:disabled) .list-item__subtitle {
   color: rgba(255, 255, 255, 0.75);
   transition: none;
 }
 
-.list:not(.list--editing) .list-item--button:active:not(:disabled) .list-item__disclosure,
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) .list-item__disclosure,
 .list-item--flashed .list-item__disclosure,
 .list-item--selected:not(:disabled) .list-item__disclosure {
   color: rgba(255, 255, 255, 0.88);
@@ -210,11 +218,13 @@
 }
 
 /* ── 点闪（iOS deselectRow 式）──
-   click 落定的行硬切蓝底保持 ~1s（ListItem 计时），再淡出回位色。蓝底画在
+   click 落定的行硬切蓝底保持 ~0.5s（ListItem 计时），再淡出回位色。蓝底画在
    ::after 覆盖层而不是行背景：渐变（background-image）无法参与 transition，
    opacity 才能淡出。进入硬切（transition:none，触摸即高亮不渐入），退场走
-   覆盖层自身的 400ms opacity 过渡。墨水反白同样进硬切、退场走基态 color 过渡。
-   选中行点闪由 --selected 同色渐变接管，淡出无感。 */
+   覆盖层自身的 400ms opacity 过渡。墨水反白双向硬切——淡出的只有高亮本身，
+   文字在退场瞬间先回常态色，蓝底再在四周褪去（选中切换因此也是瞬切：渐变
+   底与墨水都不带过渡）。点闪只发生在纯动作行：选中行不点闪（tsx 里跳过），
+   覆盖层不会滞留在换选后的旧行上。 */
 .list-item::after {
   content: '';
   position: absolute;
@@ -271,9 +281,6 @@
   white-space: nowrap;
   font-size: 11px;
   color: #888;
-  /* 反白墨水（按下/点闪/选中）退场时的淡出通道；进入方向的硬切由状态规则的
-     transition:none 整条覆盖 */
-  transition: color 400ms ease-out;
 }
 
 .list-item__badge {
@@ -291,7 +298,6 @@
   font-size: 12px;
   color: var(--list-value-ink, #666);
   font-variant-numeric: tabular-nums;
-  transition: color 400ms ease-out;
 }
 
 .list-item__control,
@@ -307,7 +313,6 @@
   color: var(--list-accent, #007aff);
   font-weight: 600;
   text-align: center;
-  transition: color 400ms ease-out;
 }
 
 .list-item__disclosure {
@@ -320,7 +325,7 @@
   color: var(--list-disclosure, #b4b4b4);
   transition:
     transform 0.15s ease,
-    color 400ms ease-out;
+    color 0.1s ease;
 }
 
 .list-item__detail {

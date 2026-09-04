@@ -150,6 +150,17 @@ export function ButtonDemo() {
           <Button tone="danger">危险</Button>
         </div>
       </DemoVariant>
+      <DemoVariant label="borderless · 按住看光晕叠在内容上方" wide>
+        <div class="ui-kit-demo__row">
+          <Button variant="borderless">次要</Button>
+          <Button variant="borderless" tone="primary">主要</Button>
+          <Button variant="borderless" tone="danger">危险</Button>
+          <Button variant="borderless" icon="←" title="后退" />
+          <Button variant="borderless" disabled>
+            禁用
+          </Button>
+        </div>
+      </DemoVariant>
       <DemoVariant label="图标 / icon+文字">
         <div class="ui-kit-demo__row">
           <Button icon="←" title="后退" />
@@ -560,7 +571,7 @@ export function ListDemo() {
 
   return (
     <DemoVariants>
-      <DemoVariant label="节标题 / 脚注" wide>
+      <DemoVariant label="节标题 / 脚注（导航行可点：hover / 按下 / 点闪）" wide>
         <List title="通用" footnote="重置网络设置将清除已保存的 Wi-Fi 密码。">
           <ListItem
             label="关于本机"
@@ -577,15 +588,10 @@ export function ListDemo() {
         </List>
         {tapped && <p class="ui-kit-demo__status">已点按：{tapped}</p>}
       </DemoVariant>
-      <DemoVariant label="表头 + 限高滚动区" wide>
+      <DemoVariant label="表头 + 限高滚动区（数据行无 onClick：零反馈）" wide>
         <List head={<><span>文件</span><span>大小</span></>} scrollable>
           {files.map((file) => (
-            <ListItem
-              key={file.id}
-              label={file.name}
-              value={file.size}
-              onClick={() => setTapped(file.name)}
-            />
+            <ListItem key={file.id} label={file.name} value={file.size} />
           ))}
         </List>
       </DemoVariant>
@@ -614,7 +620,7 @@ export function ListItemDemo() {
 
   return (
     <DemoVariants>
-      <DemoVariant label="槽位：值 / 副标题 / 图标 / 徽章 / extra" wide>
+      <DemoVariant label="槽位：值 / 副标题 / 图标 / 徽章 / extra（可点行有 hover/按下反馈，信息行零反馈）" wide>
         <List>
           <ListItem label="网络" value="Wi-Fi" accessory="disclosure" onClick={() => setTapped('网络')} />
           <ListItem
@@ -623,18 +629,9 @@ export function ListItemDemo() {
             accessory="disclosure"
             onClick={() => setTapped('面容解锁')}
           />
-          <ListItem
-            leading={leading('🎵', '#fa5c8f')}
-            label="音乐"
-            value="128 GB"
-            onClick={() => setTapped('音乐')}
-          />
-          <ListItem label="测试通道" badge="BETA" value="已加入" onClick={() => setTapped('测试通道')} />
-          <ListItem
-            label="上次备份"
-            extra={<span class="list-item__value">2 分钟前</span>}
-            onClick={() => setTapped('上次备份')}
-          />
+          <ListItem leading={leading('🎵', '#fa5c8f')} label="音乐" value="128 GB" />
+          <ListItem label="测试通道" badge="BETA" value="已加入" />
+          <ListItem label="上次备份" extra={<span class="list-item__value">2 分钟前</span>} />
         </List>
         {tapped && <p class="ui-kit-demo__status">已点按：{tapped}</p>}
       </DemoVariant>

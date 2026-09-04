@@ -1,5 +1,5 @@
 import type { ComponentChildren, JSX } from 'preact'
-import { useContext, useEffect, useState } from 'preact/hooks'
+import { useContext, useEffect, useRef, useState } from 'preact/hooks'
 import { ForwardIcon, GrabberIcon, InfoIcon } from '../icons/app-icons.tsx'
 import { ListContext, type ListPointerEvent } from './list.tsx'
 
@@ -70,9 +70,22 @@ export function ListItem({
 }: ListItemProps) {
   const list = useContext(ListContext)
   const [armed, setArmed] = useState(false)
+  // 点闪（iOS deselectRow 式）：click 落定后蓝底硬切保持 0.5s 再淡出；只服务于
+  // 纯动作行——选中行的反馈由选中状态自身承载，不做点闪
+  const [flashed, setFlashed] = useState(false)
+  const flashTimer = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     if (!list.editing) setArmed(false)
+  }, [list.editing])
+
+  // 进编辑/卸载时清点闪：编辑态行行为暂停，蓝闪不该挂着
+  useEffect(() => {
+    if (list.editing) {
+      window.clearTimeout(flashTimer.current)
+      setFlashed(false)
+    }
+    return () => window.clearTimeout(flashTimer.current)
   }, [list.editing])
 
   const active = selected ?? (id !== undefined && list.selectedId !== undefined && list.selectedId === id)
@@ -93,6 +106,15 @@ export function ListItem({
     if (list.editing) return
     if (id !== undefined && list.onSelect !== undefined) list.onSelect(id)
     onClick?.()
+    // 点闪只属于纯动作行。受控选中行（id+onSelect，或外部 selected）跳过：它们的
+    // 反馈由选中状态自己承载，若也点闪，覆盖层会挂在换选后的旧行上滞留 0.5s 再淡出，
+    // 肉眼即「旧蓝底慢慢消失」。重复点击顺延保持期（≥0.5s 从最后一次 click 起算）
+    const selectionDriven = (id !== undefined && list.onSelect !== undefined) || selected !== undefined
+    if (actionable && !selectionDriven) {
+      setFlashed(true)
+      window.clearTimeout(flashTimer.current)
+      flashTimer.current = window.setTimeout(() => setFlashed(false), 500)
+    }
   }
 
   const className = [
@@ -100,6 +122,7 @@ export function ListItem({
     actionable ? `${cp}--button` : `${cp}--static`,
     active ? `${cp}--selected` : '',
     armed ? `${cp}--armed` : '',
+    flashed ? `${cp}--flashed` : '',
     plain && unread ? `${cp}--unread` : '',
     itemClass,
   ]

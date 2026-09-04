@@ -103,9 +103,6 @@
      规则里时非编辑侧没有这条属性，进入起跑不可靠、退出必然瞬跳）；只过渡
      padding-left，右侧 12→8 的收窄被同帧展开的把手/红钮掩盖，不可感 */
   transition: padding-left 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
-  /* 反白墨水（按下/点闪/选中）退场时的淡出通道；进入方向的硬切由状态规则的
-     transition:none 整条覆盖 */
-  transition: color 400ms ease-out;
 }
 
 .plain-list > .plain-list-item:last-child {
@@ -129,9 +126,10 @@
    悬停是浅灰触达反馈（邮件同款），蓝渐变留给按下/点闪/选中（iOS 原版同款分工，
    与 grouped 四态同构）。编辑模式整行点按暂停时反馈一并收起。 */
 
-/* hover 触达反馈只属于未选中的行：选中行悬停保持蓝底白字（浅灰 hover 会把
-   反白墨水泡掉），仅微调亮度示意仍可交互 */
-.plain-list:not(.plain-list--editing) .plain-list-item:hover:not(:disabled):not(.plain-list-item--selected) {
+/* hover 触达反馈与按下同源：只属于真正可点的行（button，onClick / id+onSelect）。
+   静态行（无任何动作的展示行）零反馈——iOS 原版不可点的 cell 不高亮；
+   选中行也不参与淡灰 hover（浅灰 hover 会把反白墨水泡掉），仅微调亮度示意仍可交互 */
+.plain-list:not(.plain-list--editing) .plain-list-item--button:hover:not(:disabled):not(.plain-list-item--selected) {
   background: linear-gradient(
     180deg,
     var(--plain-list-hover-top, #fbfbfd) 0%,
@@ -139,14 +137,24 @@
   );
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--selected:not(:disabled):hover {
+.plain-list:not(.plain-list--editing) .plain-list-item--button.plain-list-item--selected:not(:disabled):hover {
   filter: brightness(1.04);
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) {
-  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+/* 按下规则带 :not(--selected) 追平 hover 的特异性（0,6,0），靠源序压过淡灰
+   hover——否则按下时两个伪类同时命中，淡灰底盖掉蓝底、只剩 active 的白字浮在
+   浅灰上。按下用选中蓝（与点闪覆盖层同色）：快速点按松开后高亮只是从「保持」
+   进入「淡出」，颜色不变——iOS 原版按下高亮与松开残留本是同一个蓝。选中行排除
+   在外：按下色即选中色，压上去本就无变化 */
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) {
+  background: linear-gradient(
+    180deg,
+    var(--plain-list-selected-top, #4089d4) 0%,
+    var(--plain-list-selected-bottom, #2068b8) 100%
+  );
   color: #fff;
-  /* 按下的高亮与反白都是硬切（触摸即高亮），退场交给基态过渡淡出 */
+  /* 按下的高亮与反白都是硬切：触摸即高亮、双向瞬切（iOS 高亮退场时内容先回
+     常态色，蓝底在四周褪去——文字从不挂在褪色的高亮上） */
   transition: none;
 }
 
@@ -159,10 +167,6 @@
   color: #fff;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--selected:not(:disabled):active {
-  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
-}
-
 .plain-list-item--button:disabled,
 .plain-list-item--button:disabled:hover,
 .plain-list-item--button:disabled:active {
@@ -173,37 +177,37 @@
 
 /* 按下 / 点闪 / 选中时各级墨水随行反白 */
 
-/* 点闪行本体反白：主标题（__name）继承行 color，随行硬切、退场淡出 */
+/* 点闪行本体反白：主标题（__name）继承行 color，随行双向硬切 */
 .plain-list-item--flashed {
   color: #fff;
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__name,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__name,
 .plain-list-item--flashed .plain-list-item__name,
 .plain-list-item--selected:not(:disabled) .plain-list-item__name,
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__trailing,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__trailing,
 .plain-list-item--flashed .plain-list-item__trailing,
 .plain-list-item--selected:not(:disabled) .plain-list-item__trailing {
   color: #fff;
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__subtitle,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__subtitle,
 .plain-list-item--flashed .plain-list-item__subtitle,
 .plain-list-item--selected:not(:disabled) .plain-list-item__subtitle {
   color: rgba(255, 255, 255, 0.85);
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__preview,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__preview,
 .plain-list-item--flashed .plain-list-item__preview,
 .plain-list-item--selected:not(:disabled) .plain-list-item__preview {
   color: rgba(255, 255, 255, 0.72);
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__disclosure,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__disclosure,
 .plain-list-item--flashed .plain-list-item__disclosure,
 .plain-list-item--selected:not(:disabled) .plain-list-item__disclosure {
   color: rgba(255, 255, 255, 0.88);
@@ -216,11 +220,13 @@
 }
 
 /* ── 点闪（iOS deselectRow 式）──
-   click 落定的行硬切蓝底保持 ~1s（ListItem 计时），再淡出回位色。蓝底画在
+   click 落定的行硬切蓝底保持 ~0.5s（ListItem 计时），再淡出回位色。蓝底画在
    ::after 覆盖层而不是行背景：渐变（background-image）无法参与 transition，
    opacity 才能淡出。进入硬切（transition:none，触摸即高亮不渐入），退场走
-   覆盖层自身的 400ms opacity 过渡。墨水反白同样进硬切、退场走基态 color 过渡。
-   选中行点闪由 --selected 同色渐变接管，淡出无感。 */
+   覆盖层自身的 400ms opacity 过渡。墨水反白双向硬切——淡出的只有高亮本身，
+   文字在退场瞬间先回常态色，蓝底再在四周褪去（选中切换因此也是瞬切：渐变
+   底与墨水都不带过渡）。点闪只发生在纯动作行：选中行不点闪（tsx 里跳过），
+   覆盖层不会滞留在换选后的旧行上。 */
 .plain-list-item::after {
   content: '';
   position: absolute;
@@ -285,7 +291,6 @@
   font-size: 11px;
   color: var(--plain-list-meta-ink, #9a9aa0);
   font-variant-numeric: tabular-nums;
-  transition: color 400ms ease-out;
 }
 
 .plain-list-item__subtitle {
@@ -294,7 +299,6 @@
   white-space: nowrap;
   font-size: 12px;
   color: #3c3c43;
-  transition: color 400ms ease-out;
 }
 
 .plain-list-item__preview {
@@ -303,7 +307,6 @@
   white-space: nowrap;
   font-size: 12px;
   color: var(--plain-list-secondary-ink, #888);
-  transition: color 400ms ease-out;
 }
 
 .plain-list-item__badge {
@@ -323,7 +326,6 @@
   color: var(--plain-list-accent, #007aff);
   font-weight: 600;
   text-align: center;
-  transition: color 400ms ease-out;
 }
 
 .plain-list-item__disclosure {
@@ -336,7 +338,7 @@
   color: #c7c7cc;
   transition:
     transform 0.15s ease,
-    color 400ms ease-out;
+    color 0.1s ease;
 }
 
 .plain-list-item__detail {

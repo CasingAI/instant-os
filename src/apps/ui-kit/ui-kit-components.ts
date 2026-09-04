@@ -78,11 +78,12 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'button',
     name: 'Button',
     description:
-      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标（无底无边，按住时一团亮白光晕叠在内容上方，松手即熄，tone 只改文字色）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     props: [
       { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary' },
+      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 裸内容，按下亮白光晕叠于内容上方' },
       { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名' },
       { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
@@ -92,6 +93,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
     codeExample: `<Button tone="primary" onClick={handleSave}>保存</Button>
 <Button>取消</Button>
+{/* borderless 裸形态：无底无边，按住看光晕叠在内容上方 */}
+<Button variant="borderless" tone="primary">完成</Button>
 {/* 父级设置 --ios-button-color / --ios-button-bg 等即可换皮 */}
 <div style={{ '--ios-button-color': '#c77400' }}>
   <Button>书城</Button>
@@ -360,7 +363,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'list',
     name: 'List',
     description:
-      '设置风格分组列表容器；行内容放 ListItem，支持节标题/脚注、表头滚动区、快速索引条（三档自动显示）与 iOS 6 编辑模式（减号删除 + 把手排序）；scrollable 滚动体内分节标题 sticky 悬停（滚到顶钉住、被下一节顶走）；样式完全自有（--list-* token）；行触达四态同 iOS 6 原版——hover 淡灰、按下蓝渐变反白硬切、点闪保持 1s 后淡出（deselectRow 式）、选中持久蓝底（编辑模式暂停）；variant="plain" 切换为邮件/短信式通栏列表（独立 plain-list.css，选中/编辑/重排机制共用）',
+      '设置风格分组列表容器；行内容放 ListItem，支持节标题/脚注、表头滚动区、快速索引条（三档自动显示）与 iOS 6 编辑模式（减号删除 + 把手排序）；scrollable 滚动体内分节标题 sticky 悬停（滚到顶钉住、被下一节顶走）；样式完全自有（--list-* token）；行触达四态同 iOS 6 原版，且反馈只属于可点行（有 onClick / 受 onSelect 管）——hover 淡灰、按下蓝渐变反白硬切、点闪保持 0.5s 后淡出（deselectRow 式）、选中持久蓝底（编辑模式暂停）；variant="plain" 切换为邮件/短信式通栏列表（独立 plain-list.css，选中/编辑/重排机制共用）',
     category: 'list-showcase',
     importPath: "import { List, ListSection } from '../../ui/list.tsx'",
     props: [

@@ -56,6 +56,18 @@
   --ios-button-danger-shadow-active: inset 0 1px 3px rgba(0, 0, 0, 0.28);
   --ios-button-danger-text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.3);
   --ios-button-danger-disabled-opacity: 0.55;
+
+  /* borderless 变体：裸文字/图标，识别靠 tint 色；glow 为按下时叠于内容上方的亮白光晕（::after 填充整段 background） */
+  --ios-button-borderless-color: #333;
+  --ios-button-borderless-primary-color: #1f6ec7;
+  --ios-button-borderless-danger-color: #c9302a;
+  --ios-button-borderless-disabled-color: #999;
+  --ios-button-borderless-glow: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(214, 233, 255, 0.55) 38%,
+    rgba(214, 233, 255, 0) 68%
+  );
 }
 
 .ios-button {
@@ -139,6 +151,63 @@
   box-shadow: var(--ios-button-danger-shadow-active);
 }
 
+/*
+ * borderless 变体：裸文字/图标——无底无边无影，静止时仅靠 tint 色识别；
+ * 按下时一团亮白光晕（::after，z-index 盖在内容上方，径向渐变无形状边界）点亮，松手即熄。
+ * 光晕时序：点亮无入场动画瞬显（active 态 transition:none 特异性高于常态规则）、松手 0.5s 淡出（常态规则挂 transition）；
+ * reduced-motion 下整段无过渡直接显隐。
+ * 按下不换底不内凹：tone 的 :active 换深渐变规则与此处特异性相同，靠源序压回 none。
+ */
+.ios-button--borderless {
+  position: relative;
+  min-width: 0;
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  text-shadow: none;
+  color: var(--ios-button-borderless-color);
+}
+
+.ios-button--borderless.ios-button--primary {
+  color: var(--ios-button-borderless-primary-color);
+}
+
+.ios-button--borderless.ios-button--danger {
+  color: var(--ios-button-borderless-danger-color);
+}
+
+.ios-button--borderless:active:not(:disabled) {
+  background: none;
+  box-shadow: none;
+}
+
+.ios-button--borderless::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  background: var(--ios-button-borderless-glow);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ios-button--borderless:active:not(:disabled)::after {
+  opacity: 1;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ios-button--borderless::after {
+    transition: opacity 0.5s ease-out;
+  }
+}
+
+/* busy：spinner 默认白圈假设深底，裸形态在浅底上要深圈（值同 secondary 覆写，源序在后故三 tone 通吃） */
+.ios-button--borderless .ios-button__spinner {
+  border-color: rgba(0, 0, 0, 0.12);
+  border-top-color: #555;
+}
+
 .ios-button:disabled {
   color: var(--ios-button-disabled-color);
   text-shadow: var(--ios-button-disabled-text-shadow);
@@ -159,4 +228,17 @@
 
 .ios-button--danger:disabled {
   opacity: var(--ios-button-danger-disabled-opacity);
+}
+
+/* borderless 禁用：统一灰字、无底无光晕（::after 已被 :not(:disabled) 排除）；danger 的 0.55 降透明是 filled 专属处理，裸形态靠灰字足矣 */
+.ios-button--borderless:disabled {
+  color: var(--ios-button-borderless-disabled-color);
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.ios-button--borderless.ios-button--danger:disabled {
+  opacity: 1;
 }
