@@ -803,6 +803,22 @@ export function ListIndexDemo() {
       </ListSection>
     ))
 
+  // 姓氏模式对比用的小名单：默认词典按普通话默认读音归组（曾→C/单→D/仇→C），
+  // surname 开启才按姓氏读音（曾→Z/单→S/仇→Q）
+  const MINI_NAMES = ['曾小明', '单雄信', '仇英']
+  const renderMiniGroups = (surname: boolean) =>
+    groupByIndexLetter(MINI_NAMES, (name) => name, { surname }).map((group) => (
+      <ListSection
+        key={`${surname}-${group.label}`}
+        id={`${surname}-${group.label}`}
+        title={group.label}
+      >
+        {group.items.map((name) => (
+          <ListItem key={name} label={name} accessory="disclosure" />
+        ))}
+      </ListSection>
+    ))
+
   return (
     <DemoVariants>
       <DemoVariant label="拖滑杆调高度：索引条实时在 全字母 / 隔位采样 之间切换" wide>
@@ -852,6 +868,29 @@ export function ListIndexDemo() {
             <ListItem label="菠菜" value="详情" accessory="disclosure" />
             <ListItem label="青椒" value="详情" accessory="disclosure" />
             <ListItem label="茄子" value="详情" accessory="disclosure" />
+          </ListSection>
+        </List>
+      </DemoVariant>
+      <DemoVariant label="姓氏模式对比：默认词典把多音姓按默认读音归组（曾→C/单→D/仇→C），surname 显式开启才按姓氏读音（曾→Z/单→S/仇→Q）；普通词勿开（曾经沧海→zeng…）">
+        <List title="默认词典">
+          {renderMiniGroups(false)}
+        </List>
+        <List title="surname: true（人名列表用）">
+          {renderMiniGroups(true)}
+        </List>
+      </DemoVariant>
+      <DemoVariant label="乱序数据：条上字母乱序（M→A→Z），跳转仍工作但语义错乱，dev 控制台出排序契约告警（生产静默）——数据侧应 groupByIndexLetter 归组或修正节顺序">
+        <List indexBar scrollable>
+          <ListSection id="demo-m" title="M">
+            <ListItem label="马良" value="详情" accessory="disclosure" />
+            <ListItem label="米芾" value="详情" accessory="disclosure" />
+          </ListSection>
+          <ListSection id="demo-a" title="A">
+            <ListItem label="阿福" value="详情" accessory="disclosure" />
+            <ListItem label="安琪" value="详情" accessory="disclosure" />
+          </ListSection>
+          <ListSection id="demo-z" title="Z">
+            <ListItem label="张良" value="详情" accessory="disclosure" />
           </ListSection>
         </List>
       </DemoVariant>
