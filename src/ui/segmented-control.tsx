@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import './segmented-control.css'
 
 export type SegmentedControlItem<T extends string = string> = {
@@ -18,7 +18,8 @@ export type SegmentedControlProps<T extends string = string> = {
   className?: string
 }
 
-/** 凹槽条分段切换器；只管切换 UI，不管内容区 */
+/** 凹槽条分段切换器；只管切换 UI，不管内容区。
+ * 分段以自身文字为最小宽度，均分只分配富余空间，容器放不下时整条让位而不是出省略号 */
 export function SegmentedControl<T extends string>({
   value,
   items,
@@ -27,6 +28,8 @@ export function SegmentedControl<T extends string>({
   className,
 }: SegmentedControlProps<T>) {
   const [motionReady, setMotionReady] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null)
   const activeIndex = Math.max(
     0,
     items.findIndex((item) => item.id === value),
@@ -36,6 +39,28 @@ export function SegmentedControl<T extends string>({
     const frame = requestAnimationFrame(() => setMotionReady(true))
     return () => cancelAnimationFrame(frame)
   }, [])
+
+  // 分段有了文字下限后不再严格均分，滑块几何只能实测活动段
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    const measure = () => {
+      const active = root.querySelector<HTMLButtonElement>(
+        '[aria-selected="true"]',
+      )
+      if (!active) return
+      // offsetLeft 相对根的边框外缘，thumb 的 left 基准在边框内，扣掉边框宽
+      const x = active.offsetLeft - root.clientLeft
+      const w = active.offsetWidth
+      setThumb((prev) =>
+        prev && prev.x === x && prev.w === w ? prev : { x, w },
+      )
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [value, items])
 
   const rootClass = [
     'segmented-control',
@@ -47,12 +72,19 @@ export function SegmentedControl<T extends string>({
 
   return (
     <div
+      ref={rootRef}
       class={rootClass}
       role="tablist"
       aria-label={ariaLabel}
       style={{
         '--segmented-count': String(Math.max(items.length, 1)),
         '--segmented-index': String(activeIndex),
+        ...(thumb
+          ? {
+              '--segmented-thumb-x': `${thumb.x}px`,
+              '--segmented-thumb-w': `${thumb.w}px`,
+            }
+          : {}),
       }}
     >
       <span class="segmented-control__thumb" aria-hidden="true" />

@@ -17,18 +17,20 @@
   bottom: 2px;
   left: 2px;
   z-index: 0;
-  width: calc((100% - 4px) / var(--segmented-count));
+  width: var(--segmented-thumb-w, calc((100% - 4px) / var(--segmented-count)));
   border-radius: 3px;
   background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
     0 1px 1px rgba(0, 0, 0, 0.12);
-  transform: translateX(calc(var(--segmented-index) * 100%));
+  transform: translateX(var(--segmented-thumb-x, calc(var(--segmented-index) * 100%)));
   pointer-events: none;
 }
 
 .segmented-control--ready .segmented-control__thumb {
-  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .segmented-control__item {
@@ -36,7 +38,8 @@
   position: relative;
   z-index: 1;
   flex: 1;
-  min-width: 0;
+  /* 段最小宽度锁到自己的文字：均分只分配富余，整条控件不再被父级 flex 压出省略号 */
+  min-width: max-content;
   border: 0;
   border-radius: 3px;
   padding: 5px 4px;
