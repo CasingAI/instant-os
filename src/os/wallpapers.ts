@@ -1,4 +1,10 @@
-export type WallpaperKind = 'gradient' | 'solid' | 'pattern'
+import {
+  HERO_PATTERNS,
+  heroPatternDataUri,
+  type HeroPattern,
+} from '../vendor/hero-patterns/hero-patterns.ts'
+
+export type WallpaperKind = 'gradient' | 'solid' | 'pattern' | 'heropatterns'
 
 export type BuiltinWallpaper = {
   id: string
@@ -13,6 +19,25 @@ export type BuiltinWallpaper = {
 }
 
 export const DEFAULT_WALLPAPER_ID = 'ocean'
+
+/** Hero Patterns 纹理壁纸：底色打底，墨色 SVG 瓦片平铺（透明度即纹理深浅）。 */
+function heroPatternWallpaper(
+  id: string,
+  name: string,
+  pattern: HeroPattern,
+  baseColor: string,
+  ink: string,
+  options: { inkOpacity?: number; backgroundSize?: string; isLight?: boolean } = {},
+): BuiltinWallpaper {
+  return {
+    id,
+    name,
+    kind: 'heropatterns',
+    background: `${baseColor} url("${heroPatternDataUri(pattern, ink, options.inkOpacity ?? 0.4)}")`,
+    backgroundSize: options.backgroundSize,
+    isLight: options.isLight,
+  }
+}
 
 export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
   {
@@ -216,6 +241,41 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
       'linear-gradient(rgba(120, 160, 220, 0.35) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 160, 220, 0.35) 1px, transparent 1px), linear-gradient(rgba(120, 160, 220, 0.55) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 160, 220, 0.55) 1px, transparent 1px), #fffef8',
     backgroundSize: '14px 14px, 14px 14px, 70px 70px, 70px 70px',
   },
+
+  // Hero Patterns（Steve Schoger，CC BY 4.0，图案源见 src/vendor/hero-patterns/）。
+  heroPatternWallpaper('hero-circuit-board', '电路板', HERO_PATTERNS.circuitBoard, '#14232e', '#3fb98f', {
+    backgroundSize: '152px 152px',
+  }),
+  heroPatternWallpaper('hero-clouds', '云朵', HERO_PATTERNS.clouds, '#dfe9f3', '#6b93b8', {
+    inkOpacity: 0.55,
+    isLight: true,
+  }),
+  heroPatternWallpaper('hero-morphing-diamonds', '变形菱格', HERO_PATTERNS.morphingDiamonds, '#2b2140', '#b39ddb'),
+  heroPatternWallpaper('hero-hexagons', '蜂窝', HERO_PATTERNS.hexagons, '#f6f1e7', '#c9a227', {
+    inkOpacity: 0.5,
+    isLight: true,
+  }),
+  heroPatternWallpaper('hero-zig-zag', '锯齿纹', HERO_PATTERNS.zigZag, '#20304a', '#6c9bd1', {
+    inkOpacity: 0.5,
+  }),
+  heroPatternWallpaper('hero-bubbles', '气泡', HERO_PATTERNS.bubbles, '#0f3460', '#6ea8d8'),
+  heroPatternWallpaper('hero-bathroom-floor', '花砖', HERO_PATTERNS.bathroomFloor, '#f4f1ec', '#a98467', {
+    inkOpacity: 0.5,
+    isLight: true,
+  }),
+  heroPatternWallpaper('hero-stars', '四角星', HERO_PATTERNS.fourPointStars, '#eef0f8', '#8093c1', {
+    inkOpacity: 0.55,
+    isLight: true,
+  }),
+  heroPatternWallpaper('hero-tic-tac-toe', '井字棋', HERO_PATTERNS.ticTacToe, '#22223b', '#9a8c98'),
+  heroPatternWallpaper('hero-signal', '信号波', HERO_PATTERNS.signal, '#212529', '#adb5bd', {
+    inkOpacity: 0.35,
+  }),
+  heroPatternWallpaper('hero-wiggle', '波浪线', HERO_PATTERNS.wiggle, '#fbeedd', '#d98e54', {
+    inkOpacity: 0.5,
+    isLight: true,
+  }),
+  heroPatternWallpaper('hero-moroccan', '摩洛哥纹', HERO_PATTERNS.moroccan, '#14342b', '#52b788'),
 ]
 
 const wallpaperById = new Map(BUILTIN_WALLPAPERS.map((wallpaper) => [wallpaper.id, wallpaper]))
@@ -259,7 +319,8 @@ export function wallpaperPreviewStyle(wallpaper: BuiltinWallpaper): Record<strin
   const style: Record<string, string> = {
     background: layers,
     backgroundPosition: 'center',
-    backgroundRepeat: wallpaper.kind === 'pattern' ? 'repeat' : 'no-repeat',
+    backgroundRepeat:
+      wallpaper.kind === 'pattern' || wallpaper.kind === 'heropatterns' ? 'repeat' : 'no-repeat',
   }
 
   if (wallpaper.backgroundSize) {

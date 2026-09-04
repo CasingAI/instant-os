@@ -19,7 +19,7 @@ export function applyWallpaperToElement(
   )
   element.style.setProperty(
     '--wallpaper-background-repeat',
-    wallpaper.kind === 'pattern' ? 'repeat' : 'no-repeat',
+    wallpaper.kind === 'pattern' || wallpaper.kind === 'heropatterns' ? 'repeat' : 'no-repeat',
   )
   element.style.setProperty('--wallpaper-overlay', wallpaper.overlay ?? 'none')
   element.dataset.wallpaperId = wallpaper.id

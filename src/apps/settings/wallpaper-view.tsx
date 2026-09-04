@@ -30,6 +30,7 @@ export function WallpaperView({ onBack }: WallpaperViewProps) {
 
   const gradients = BUILTIN_WALLPAPERS.filter((wallpaper) => wallpaper.kind === 'gradient')
   const patterns = BUILTIN_WALLPAPERS.filter((wallpaper) => wallpaper.kind === 'pattern')
+  const heroPatterns = BUILTIN_WALLPAPERS.filter((wallpaper) => wallpaper.kind === 'heropatterns')
   const solids = BUILTIN_WALLPAPERS.filter((wallpaper) => wallpaper.kind === 'solid')
 
   const renderWallpaperTile = (wallpaper: (typeof BUILTIN_WALLPAPERS)[number]) => (
@@ -74,6 +75,14 @@ export function WallpaperView({ onBack }: WallpaperViewProps) {
           <div class="settings__wallpaper-grid" role="radiogroup" aria-label="图案壁纸">
             {patterns.map(renderWallpaperTile)}
           </div>
+        </section>
+
+        <section class="settings__section">
+          <h2 class="settings__section-title">Hero Patterns</h2>
+          <div class="settings__wallpaper-grid" role="radiogroup" aria-label="Hero Patterns 壁纸">
+            {heroPatterns.map(renderWallpaperTile)}
+          </div>
+          <p class="settings__section-footnote">Hero Patterns by Steve Schoger · CC BY 4.0</p>
         </section>
 
         <section class="settings__section">
