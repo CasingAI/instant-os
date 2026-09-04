@@ -14,11 +14,17 @@ type ListItemProps = {
   subtitle?: ComponentChildren
   /** 左侧图标/头像位。 */
   leading?: ComponentChildren
-  /** 右侧值文本（与 extra 二选一）。 */
+  /** plain 变体专用：首行右上角落位（日期/时间）。grouped 忽略。 */
+  trailing?: ComponentChildren
+  /** plain 变体专用：末行灰色摘要行。grouped 忽略。 */
+  preview?: ComponentChildren
+  /** plain 变体专用：未读态——标题/副标题置粗。grouped 忽略。 */
+  unread?: boolean
+  /** 右侧值文本（与 extra 二选一）。grouped 专属槽位，plain 忽略。 */
   value?: ComponentChildren
-  /** 右侧自定义内容（与 value 二选一）。 */
+  /** 右侧自定义内容（与 value 二选一）。grouped 专属槽位，plain 忽略。 */
   extra?: ComponentChildren
-  /** 控件槽：放 IosSwitch / IosTextField 等，点击不再触发行选中。 */
+  /** 控件槽：放 IosSwitch / IosTextField 等，点击不再触发行选中。grouped 专属槽位，plain 忽略。 */
   control?: ComponentChildren
   /** 右侧配件：chevron 箭头 / 选中勾（跟随选中态）/ 蓝色 ⓘ 详情钮。 */
   accessory?: ListItemAccessory
@@ -27,21 +33,30 @@ type ListItemProps = {
   /** 强制选中态；缺省时由 List 的 selectedId 结合 id 推导。 */
   selected?: boolean
   disabled?: boolean
-  /** 有 onClick 渲染为 button（可交互行），否则渲染为 div（静态行）。 */
+  /** 有 onClick（或参与 List 受控单选）渲染为 button（可交互行），否则渲染为 div（静态行）；
+   *  编辑模式只暂停行为（aria-disabled），不再换标签——换标签会重建整行 DOM，动画全断。 */
   onClick?: () => void
   class?: string
 } & Omit<JSX.HTMLAttributes<HTMLDivElement>, 'class'>
 
 /**
- * List 的组合行（AntD List.Item 风格）：槽位自由拼装，行为与 List 结合——
- * 带 id 的行自动参与受控单选；List 进入编辑模式时出现删除钮与排序把手，
- * 此时行退化为静态（onClick 暂停）。
+ * List 的组合行，同一组件按 List 的 variant 双分支渲染：grouped（默认）为单行
+ * flex 槽位（AntD List.Item 风格）；plain 为邮件式多行骨架——首行 label+trailing
+ * （发件人与日期同行）、subtitle（主题）、preview（灰色摘要），unread 置粗。
+ * 行为与 List 结合：带 id 的行自动参与受控单选；List 进入编辑模式时出现删除钮
+ * 与排序把手，此时行行为暂停（aria-disabled）而非换标签——换标签会重建整行
+ * DOM，动画全断。减号/把手/红钮常驻 DOM，显隐交给编辑态类下的 CSS 过渡——
+ * 条件挂载的新元素带着终态样式插入，transition 永远不跑，只会闪现。两支类名
+ * 宇宙独立（list-item* / plain-list-item*），机制（armed、拖拽、选中）只有一份。
  */
 export function ListItem({
   id,
   label,
   subtitle,
   leading,
+  trailing,
+  preview,
+  unread,
   value,
   extra,
   control,
@@ -61,41 +76,133 @@ export function ListItem({
   }, [list.editing])
 
   const active = selected ?? (id !== undefined && list.selectedId !== undefined && list.selectedId === id)
-  const interactive = !list.editing && (onClick !== undefined || (id !== undefined && list.onSelect !== undefined))
+  const actionable = onClick !== undefined || (id !== undefined && list.onSelect !== undefined)
 
-  const showMinus = list.editing && id !== undefined && list.onDelete !== undefined
-  const showGrabber = list.editing && id !== undefined && list.onReorder !== undefined
+  const hasDelete = id !== undefined && list.onDelete !== undefined
+  const hasReorder = id !== undefined && list.onReorder !== undefined
+
+  // grouped/plain 两支类名前缀（机制同一份，DOM 骨架与类名按变体分叉）
+  const plain = list.variant === 'plain'
+  const cp = plain ? 'plain-list-item' : 'list-item'
 
   const handleClick = () => {
     if (armed) {
       setArmed(false)
       return
     }
+    if (list.editing) return
     if (id !== undefined && list.onSelect !== undefined) list.onSelect(id)
     onClick?.()
   }
 
   const className = [
-    'list-item',
-    interactive ? 'list-item--button' : 'list-item--static',
-    active ? 'list-item--selected' : '',
-    armed ? 'list-item--armed' : '',
+    cp,
+    actionable ? `${cp}--button` : `${cp}--static`,
+    active ? `${cp}--selected` : '',
+    armed ? `${cp}--armed` : '',
+    plain && unread ? `${cp}--unread` : '',
     itemClass,
   ]
     .filter(Boolean)
     .join(' ')
 
-  const content = (
+  // plain 变体：邮件式多行骨架——首行 label+trailing 同排，下接 subtitle / preview
+  const plainContent = (
     <>
-      {showMinus && (
+      {hasDelete && (
         <span
-          class="list-item__minus"
+          class={`${cp}__minus`}
           role="button"
-          tabIndex={0}
+          tabIndex={list.editing ? 0 : -1}
+          aria-hidden={!list.editing || undefined}
           aria-label={`删除 ${typeof label === 'string' ? label : '该项'}`}
           onClick={(event) => {
             event.stopPropagation()
-            setArmed(true)
+            if (list.editing) setArmed(true)
+          }}
+        />
+      )}
+      {leading !== undefined && <span class={`${cp}__leading`}>{leading}</span>}
+      {label !== undefined && (
+        <span class={`${cp}__label`}>
+          <span class={`${cp}__line`}>
+            <span class={`${cp}__name`}>
+              {label}
+              {badge !== undefined && <span class={`${cp}__badge`}>{badge}</span>}
+            </span>
+            {trailing !== undefined && <span class={`${cp}__trailing`}>{trailing}</span>}
+          </span>
+          {subtitle !== undefined && <span class={`${cp}__subtitle`}>{subtitle}</span>}
+          {preview !== undefined && <span class={`${cp}__preview`}>{preview}</span>}
+        </span>
+      )}
+      {accessory === 'check' && active && (
+        <span class={`${cp}__check`} aria-hidden="true">
+          ✓
+        </span>
+      )}
+      {accessory === 'disclosure' && (
+        <span class={`${cp}__disclosure`} aria-hidden="true">
+          <ForwardIcon size={13} />
+        </span>
+      )}
+      {accessory === 'detail' && (
+        <span
+          class={`${cp}__detail`}
+          role="button"
+          tabIndex={0}
+          aria-label="详情"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <InfoIcon size={18} />
+        </span>
+      )}
+      {hasReorder && (
+        <span
+          class={`${cp}__grabber`}
+          aria-hidden="true"
+          onPointerDown={(event) => {
+            event.preventDefault()
+            list.beginReorder?.(event as ListPointerEvent, id)
+          }}
+          onPointerMove={(event) => list.moveReorder?.(event as ListPointerEvent)}
+          onPointerUp={() => list.endReorder?.()}
+          onLostPointerCapture={() => list.endReorder?.()}
+        >
+          <GrabberIcon size={12} />
+        </span>
+      )}
+      {hasDelete && (
+        <button
+          type="button"
+          class={`${cp}__delete`}
+          tabIndex={armed ? 0 : -1}
+          aria-hidden={!armed || undefined}
+          onClick={(event) => {
+            event.stopPropagation()
+            if (id !== undefined) list.onDelete?.(id)
+          }}
+        >
+          删除
+        </button>
+      )}
+    </>
+  )
+
+  const content = plain ? (
+    plainContent
+  ) : (
+    <>
+      {hasDelete && (
+        <span
+          class="list-item__minus"
+          role="button"
+          tabIndex={list.editing ? 0 : -1}
+          aria-hidden={!list.editing || undefined}
+          aria-label={`删除 ${typeof label === 'string' ? label : '该项'}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            if (list.editing) setArmed(true)
           }}
         />
       )}
@@ -142,7 +249,7 @@ export function ListItem({
           <InfoIcon size={18} />
         </span>
       )}
-      {showGrabber && (
+      {hasReorder && (
         <span
           class="list-item__grabber"
           aria-hidden="true"
@@ -157,10 +264,12 @@ export function ListItem({
           <GrabberIcon size={12} />
         </span>
       )}
-      {armed && (
+      {hasDelete && (
         <button
           type="button"
           class="list-item__delete"
+          tabIndex={armed ? 0 : -1}
+          aria-hidden={!armed || undefined}
           onClick={(event) => {
             event.stopPropagation()
             if (id !== undefined) list.onDelete?.(id)
@@ -172,12 +281,14 @@ export function ListItem({
     </>
   )
 
-  return interactive ? (
+  return actionable ? (
     <button
       type="button"
       data-list-item-id={id}
       class={className}
       aria-current={active ? 'true' : undefined}
+      aria-disabled={list.editing || undefined}
+      tabIndex={list.editing ? -1 : undefined}
       disabled={disabled}
       onClick={handleClick}
       {...(rest as JSX.HTMLAttributes<HTMLButtonElement>)}

@@ -360,7 +360,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'list',
     name: 'List',
     description:
-      '设置风格分组列表容器；行内容放 ListItem，支持节标题/脚注、表头滚动区、A-Z 索引条与 iOS 6 编辑模式（减号删除 + 把手排序）；scrollable 滚动体内分节标题 sticky 悬停（滚到顶钉住、被下一节顶走）；样式完全自有（--list-* token），行 hover 蓝渐变反白（编辑模式暂停）',
+      '设置风格分组列表容器；行内容放 ListItem，支持节标题/脚注、表头滚动区、快速索引条（三档自动显示）与 iOS 6 编辑模式（减号删除 + 把手排序）；scrollable 滚动体内分节标题 sticky 悬停（滚到顶钉住、被下一节顶走）；样式完全自有（--list-* token），行 hover 蓝渐变反白（编辑模式暂停）；variant="plain" 切换为邮件/短信式通栏列表（独立 plain-list.css，选中/编辑/重排机制共用）',
     category: 'list-showcase',
     importPath: "import { List, ListSection } from '../../ui/list.tsx'",
     props: [
@@ -372,7 +372,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'headClass', type: 'string?', description: '追加到表头的附加类' },
       { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区（max-height 280 + overflow auto）' },
       { name: 'bodyClass', type: 'string?', description: '追加到滚动体的附加类；配合 scrollable 使用' },
-      { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节；放不下时等分压缩、显示层隔位采样。排序契约：组件不排序，节的条上标签须沿列表非降序——数据侧用 groupByIndexLetter 分组排序，dev 下逆序告警' },
+      { name: 'indexBar', type: 'boolean?', description: '右缘快速索引条；自动收集子级 ListSection，点击/沿条拖动跳节；条上文字三档自动切换——节少（≤12）显示标题首字、节多降为拼音首字母、槽位放不下再隔位采样。排序契约：组件不排序，节的条上标签须沿列表非降序——数据侧用 groupByIndexLetter 分组排序，dev 下逆序告警' },
+      { name: 'variant', type: "'grouped' | 'plain'?", description: '变体：grouped（默认）为设置分组盒；plain 为邮件/短信式通栏列表（行多行槽 trailing/preview/unread 生效，样式在 plain-list.css）' },
       { name: 'editing', type: 'boolean?', description: '编辑模式：行出现减号删除钮与拖拽排序把手' },
       { name: 'selectedId', type: 'string?', description: '受控单选：配合 ListItem 的 id' },
       { name: 'onSelect', type: '(id: string) => void?', description: 'ListItem 点击上报选中' },
@@ -396,7 +397,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'list-item',
     name: 'ListItem',
     description:
-      'List 的组合行（AntD List.Item 风格）：label/subtitle/leading/value/extra/control 槽位自由拼装；accessory 配件（箭头/选中勾/蓝 ⓘ）；带 id 即与 List 受控单选、编辑模式结合',
+      'List 的组合行，同一组件双分支渲染：grouped（默认）为单行 flex 槽位（AntD List.Item 风格）label/subtitle/leading/value/extra/control 自由拼装；plain 为邮件式多行骨架（trailing/preview/unread 专属槽，grouped 忽略）；accessory 配件（箭头/选中勾/蓝 ⓘ）；带 id 即与 List 受控单选、编辑模式结合',
     category: 'list-showcase',
     importPath: "import { ListItem } from '../../ui/list-item.tsx'",
     props: [
@@ -404,6 +405,9 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'label', type: 'ComponentChildren?', description: '左侧主标题' },
       { name: 'subtitle', type: 'ComponentChildren?', description: '灰色第二行副标题' },
       { name: 'leading', type: 'ComponentChildren?', description: '左侧图标/头像位' },
+      { name: 'trailing', type: 'ComponentChildren?', description: 'plain 专属：首行右上角落位（日期/时间）；grouped 忽略' },
+      { name: 'preview', type: 'ComponentChildren?', description: 'plain 专属：末行灰色摘要；grouped 忽略' },
+      { name: 'unread', type: 'boolean?', description: 'plain 专属：未读态，标题/副标题置粗；grouped 忽略' },
       { name: 'value', type: 'ComponentChildren?', description: '右侧值文本（与 extra 二选一）' },
       { name: 'extra', type: 'ComponentChildren?', description: '右侧自定义内容（与 value 二选一）' },
       { name: 'control', type: 'ComponentChildren?', description: '控件槽（IosSwitch 等）；点击不触发行选中' },
@@ -461,15 +465,15 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   },
   {
     id: 'list-index',
-    name: 'List A-Z 索引条',
-    description: 'ListSection 出分组，List 的 indexBar 出右缘字母条——条上文字由节标题自动派生（拼音/字母首字母，词组标题也只占一槽），点字母或沿条拖动跳节；槽位放不下时隔位采样（触点按全节等比映射，显示与触点不同步）。排序契约：组件不排序，启用即承诺节标签沿列表非降序（数据侧用 groupByIndexLetter 归组排序，dev 下逆序告警）',
+    name: 'List 快速索引条',
+    description: 'ListSection 出分组，List 的 indexBar 出右缘快速索引条——条上文字由节标题自动派生且随节数分三档：节少（≤12）显示标题首字（水果类→水，更易扫读）、节多降为拼音首字母（水果类→S）、槽位放不下再隔位采样（触点按全节等比映射，显示与触点不同步）；点字母或沿条拖动跳节。排序契约：组件不排序，启用即承诺节标签沿列表非降序（数据侧用 groupByIndexLetter 归组排序，dev 下逆序告警）',
     category: 'list-showcase',
     importPath: "import { List, ListSection } from '../../ui/list.tsx'\nimport { groupByIndexLetter } from '../../ui/list-index.ts'",
     props: [
-      { name: 'indexBar', type: 'boolean?', description: '渲染右缘字母条；条上文字自动派生自 ListSection 的 title；槽位放不下完整字母时隔位采样稀疏显示' },
+      { name: 'indexBar', type: 'boolean?', description: '渲染右缘快速索引条；条上文字三档自动：≤12 节显示标题首字、13+ 节降为拼音首字母、槽位放不下时隔位采样稀疏显示' },
       { name: 'id', type: 'string', description: 'ListSection 的跳转锚点，须唯一；不出现在索引条上' },
-      { name: 'title', type: 'string', description: 'ListSection 的节标题（可为词组）；条上文字缺省由它派生（水果类→S）' },
-      { name: 'indexLabel', type: 'string?', description: 'ListSection 的条上文字显式覆盖；派生不准（冷僻姓氏/词典外词）时用它兜底' },
+      { name: 'title', type: 'string', description: 'ListSection 的节标题（可为词组）；条上文字缺省由它派生（首字档取标题首字「水」、字母档取拼音首字母「S」）' },
+      { name: 'indexLabel', type: 'string?', description: 'ListSection 的条上文字显式覆盖，任何档位原样显示；派生不准（冷僻姓氏/词典外词）时用它兜底' },
       { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区，索引跳转需要滚动容器' },
     ],
     codeExample: `// 平铺名单自动归组排序（A-Z 升序、# 沉底、组内按全拼）；姓氏模式修多音姓
@@ -485,7 +489,7 @@ const groups = groupByIndexLetter(names, (name) => name, { surname: true })
   ))}
 </List>
 
-// 词组节标题：条上自动派生首字母；indexLabel 可显式覆盖
+// 词组节标题：节少自动显示首字「水」「蔬」，节多自动降为拼音首字母；indexLabel 显式值任何档位原样上条
 <ListSection id="fruit" title="水果类" />
 <ListSection id="veg" title="蔬菜类" indexLabel="蔬" />`,
   },
@@ -508,6 +512,60 @@ const groups = groupByIndexLetter(names, (name) => name, { surname: true })
   onReorder={(from, to) => reorder(from, to)}
 >
   {items.map((it) => <ListItem key={it.id} id={it.id} label={it.label} value={it.qty} />)}
+</List>`,
+  },
+  {
+    id: 'list-plain-variant',
+    name: 'List plain 变体',
+    description: 'variant="plain" 切换为 iOS 6 邮件/短信式通栏列表：行发丝线、选中蓝底白字、未读加粗；plain 专属槽 trailing（首行右上角日期）/preview（灰色摘要）/unread。同一组件同一份属性面，传参即换装——机制（选中/编辑/重排）与 grouped 共用一份',
+    category: 'list-showcase',
+    importPath: "import { List } from '../../ui/list.tsx'\nimport { ListItem } from '../../ui/list-item.tsx'",
+    props: [
+      { name: 'variant', type: "'grouped' | 'plain'?", description: 'grouped（默认）设置分组盒 / plain 通栏列表' },
+      { name: 'trailing', type: 'ComponentChildren?', description: 'ListItem plain 专属：首行右上角落位' },
+      { name: 'preview', type: 'ComponentChildren?', description: 'ListItem plain 专属：末行灰色摘要' },
+      { name: 'unread', type: 'boolean?', description: 'ListItem plain 专属：未读置粗' },
+      { name: 'selectedId', type: 'string?', description: '受控单选（机制与 grouped 相同）' },
+    ],
+    codeExample: `const [variant, setVariant] = useState<'grouped' | 'plain'>('plain')
+
+<SegmentedControl
+  ariaLabel="List 变体"
+  value={variant}
+  onChange={setVariant}
+  items={[
+    { id: 'grouped', label: 'grouped 设置' },
+    { id: 'plain', label: 'plain 邮件' },
+  ]}
+/>
+<List variant={variant} selectedId={id} onSelect={setId}>
+  <ListItem id="t1" label="设计组" trailing="10:24"
+    subtitle="Q3 视觉规范终稿" preview="打印样张已经寄出……" unread />
+</List>`,
+  },
+  {
+    id: 'list-plain-editing',
+    name: 'List plain 编辑模式',
+    description: 'plain 分支的编辑模式与 grouped 同一套机制：减号/把手淡入、行内容两侧平滑内收，点减号红删除钮滑入滑出，拖把手重排（拖动行浮起、其余让位），onDelete/onReorder 落数据；样式在 plain-list.css',
+    category: 'list-showcase',
+    importPath: "import { List } from '../../ui/list.tsx'\nimport { ListItem } from '../../ui/list-item.tsx'",
+    props: [
+      { name: 'variant', type: "'plain'", description: '通栏列表变体' },
+      { name: 'editing', type: 'boolean?', description: '是否处于编辑态' },
+      { name: 'onDelete', type: '(id: string) => void?', description: '确认删除某行' },
+      { name: 'onReorder', type: '(fromId: string, toId: string) => void?', description: '拖拽重排落定' },
+    ],
+    codeExample: `const [editing, setEditing] = useState(false)
+
+<Button onClick={() => setEditing(!editing)}>{editing ? '完成' : '编辑'}</Button>
+<List variant="plain" editing={editing}
+  onDelete={(id) => remove(id)}
+  onReorder={(from, to) => reorder(from, to)}
+>
+  {threads.map((it) => (
+    <ListItem key={it.id} id={it.id} label={it.label} trailing={it.date}
+      subtitle={it.subject} preview={it.snippet} />
+  ))}
 </List>`,
   },
   {

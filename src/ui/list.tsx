@@ -1,8 +1,10 @@
 import type { ComponentChildren, JSX } from 'preact'
 import { createContext } from 'preact'
 import { useContext, useEffect, useRef, useState } from 'preact/hooks'
-import { compareIndexLabelRank, deriveIndexLabel } from './list-index.ts'
+import { compareIndexLabelRank, deriveIndexChar, deriveIndexLabel } from './list-index.ts'
+import { useReorderDrag, type ListPointerEvent } from './list-reorder.ts'
 import './list.css'
+import './plain-list.css'
 
 type ListProps = {
   /** 追加到容器的局部修饰类。 */
@@ -20,15 +22,24 @@ type ListProps = {
   /** 节脚注（盒子外下方）。 */
   footnote?: ComponentChildren
   /**
-   * 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节；槽位放不下完整字母时按 iOS 方式等分压缩，显示层隔位采样、只渲染采样字母（触点始终按全节等比映射，显示与触点不同步）。
+   * 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节。条上
+   * 文字随节数自动分档：节少（≤CHAR_LABEL_MAX_SECTIONS 且槽位容得下）显示
+   * 标题首字（蔬/水/S，信息量大）；节多降为拼音首字母（等宽单字符）；节更多
+   * 按 iOS 方式等分压缩、隔位采样（触点始终按全节等比映射，显示与触点不同
+   * 步）。indexLabel 显式指定时各档都原样显示。
    *
    * 排序契约：本组件只按 DOM 顺序收集节并等比映射跳转——不排序、不重排。
    * 启用即承诺「各节的条上标签自上而下非降序」，等价于数据已按拼音首字母序
    * 排好（分组排序用 list-index.ts 的 groupByIndexLetter）；未启用本功能时
    * 列表可按任意语义排序（时间/频次…），两者互不约束。标签逆序在 dev 构建
-   * 下 console.warn，生产构建静默。
+   * 下 console.warn，生产构建静默；首字档的 CJK 标签不参与逆序判定（语义
+   * 分类的顺序本就由调用方自定义）。
    */
   indexBar?: boolean
+  /** 变体：grouped（默认）为 iOS 6 设置分组盒；plain 为 iOS 6 邮件/短信式通栏列表。
+   *  两支类名宇宙独立（plain 分支样式全在 plain-list.css），机制（选中/编辑/重排）共用；
+   *  行槽 trailing/preview/unread 仅 plain 生效。 */
+  variant?: 'grouped' | 'plain'
   /** 编辑模式：ListItem 行出现减号删除钮与拖拽排序把手。 */
   editing?: boolean
   /** 受控单选：配合 ListItem 的 id 使用。 */
@@ -46,6 +57,9 @@ function joinClass(base: string, extra?: string): string {
 
 /** iOS 式索引压缩阈值：每槽低于该高度（10px 字形 + ~3px 呼吸）视为放不下完整字母，进入压缩档。 */
 const MIN_INDEX_SLOT_PX = 13
+
+/** 首字档节数上限：一打以内的语义分类，条上直接显示标题首字（蔬/水/S）扫读性最好；超过则降为拼音首字母（字母序提供位置线索、汉字密度伤扫读），再多再走压缩采样。 */
+const CHAR_LABEL_MAX_SECTIONS = 12
 
 /** 压缩档步距：1 = 全字母；n = 每 n 槽显示 1 个真实字母，其余槽不渲染（显示稀疏化，触点全节等比）。 */
 function indexStrideFor(height: number, count: number): number {
@@ -83,11 +97,12 @@ function warnIndexOrderUnordered(labels: string[]): void {
   }
 }
 
-/** List ↔ ListItem 结合上下文：受控单选 + 编辑态 + 拖拽重排。 */
+/** List ↔ ListItem 结合上下文：变体 + 受控单选 + 编辑态 + 拖拽重排。 */
 type ListContextValue = {
   selectedId?: string
   onSelect?: (id: string) => void
   editing?: boolean
+  variant?: 'grouped' | 'plain'
   onDelete?: (id: string) => void
   onReorder?: (fromId: string, toId: string) => void
   beginReorder?: (event: ListPointerEvent, id: string) => void
@@ -95,32 +110,23 @@ type ListContextValue = {
   endReorder?: () => void
 }
 
-/** 拖拽把手需要的最小指针事件面（preact 的 PointerEvent 结构上兼容）。 */
-export type ListPointerEvent = {
-  clientY: number
-  pointerId: number
-  currentTarget: EventTarget & Element
-}
+export type { ListPointerEvent }
 
 const ListContext = createContext<ListContextValue>({})
 
 type ListSectionAnchor = {
   key: string
+  /** 字母档显示：拼音/字母首字母（indexLabel 覆盖优先）。 */
   label: string
-}
-
-type ReorderDrag = {
-  rows: HTMLElement[]
-  fromIndex: number
-  toIndex: number
-  height: number
-  startY: number
+  /** 首字档显示：标题首个码点（indexLabel 覆盖优先，空回退 label）。 */
+  char: string
 }
 
 /**
- * iOS 设置风格的分组列表容器。行内容放 ListItem（或过渡期旧家族行组件，
- * 它们自带样式）；容器、行、状态观感全部自有于 list.css，不依赖任何外部
- * 作用域——换肤/暗色只需覆盖 --list-* token。
+ * iOS 设置风格的分组列表容器（variant="plain" 时为邮件/短信式通栏列表）。
+ * 行内容放 ListItem（或过渡期旧家族行组件，它们自带样式）；容器、行、状态观感
+ * 全部自有于 list.css / plain-list.css，不依赖任何外部作用域——换肤/暗色只需
+ * 覆盖 --list-* / --plain-list-* token。两支类名宇宙零交集，机制层共用。
  */
 export function List({
   class: listClass,
@@ -131,6 +137,7 @@ export function List({
   title,
   footnote,
   indexBar,
+  variant,
   editing,
   selectedId,
   onSelect,
@@ -149,7 +156,6 @@ export function List({
   const [activeLetter, setActiveLetter] = useState<string | null>(null)
   // 索引条槽位高度，压缩档的判定输入；量到 0 说明窗口隐藏，维持上次值
   const [indexStripHeight, setIndexStripHeight] = useState(0)
-  const dragRef = useRef<ReorderDrag | null>(null)
 
   useEffect(() => {
     if (!indexBar) return
@@ -161,6 +167,7 @@ export function List({
         .map((node) => ({
           key: node.dataset.listSection ?? '',
           label: node.dataset.listSectionLabel ?? node.dataset.listSection ?? '',
+          char: node.dataset.listSectionChar ?? '',
         }))
         .filter((section) => section.key !== '')
       const signature = next.map((section) => section.label).join('\u0000')
@@ -218,86 +225,93 @@ export function List({
     jumpTo(section.key, behavior)
   }
 
-  const beginReorder = (event: ListPointerEvent, id: string) => {
-    const root = rootRef.current
-    if (!editing || !onReorder || !root) return
-    const rows = Array.from(root.querySelectorAll<HTMLElement>('[data-list-item-id]'))
-    const fromIndex = rows.findIndex((row) => row.dataset.listItemId === id)
-    if (fromIndex < 0) return
-    event.currentTarget.setPointerCapture(event.pointerId)
-    dragRef.current = {
-      rows,
-      fromIndex,
-      toIndex: fromIndex,
-      height: rows[fromIndex].offsetHeight,
-      startY: event.clientY,
-    }
-    rows[fromIndex].classList.add('list__row--dragging')
-  }
+  // grouped/plain 两支类名宇宙独立：plain 分支的样式全部住在 plain-list.css，与
+  // list.css 零交叉；机制（选中/编辑/重排）共用一份，这里只按 variant 换类名前缀。
+  // 容器内所有结构类（head/body/title/index-bar…）与拖拽/编辑修饰类都从这张表取。
+  const plain = variant === 'plain'
+  const c = plain
+    ? {
+        base: 'plain-list',
+        editing: 'plain-list--editing',
+        anchored: 'plain-list--anchored',
+        title: 'plain-list__title',
+        head: 'plain-list__head',
+        body: 'plain-list__body',
+        footnote: 'plain-list__footnote',
+        indexBar: 'plain-list__index-bar',
+        indexBarChar: 'plain-list__index-bar--char',
+        indexBarCompressed: 'plain-list__index-bar--compressed',
+        indexBarPressed: 'plain-list__index-bar--pressed',
+        indexLetter: 'plain-list__index-letter',
+        indexLetterActive: 'plain-list__index-letter--active',
+        dragging: 'plain-list__row--dragging',
+        shift: 'plain-list-item--shift',
+      }
+    : {
+        base: 'list',
+        editing: 'list--editing',
+        anchored: 'list--anchored',
+        title: 'list__title',
+        head: 'list__head',
+        body: 'list__body',
+        footnote: 'list__footnote',
+        indexBar: 'list__index-bar',
+        indexBarChar: 'list__index-bar--char',
+        indexBarCompressed: 'list__index-bar--compressed',
+        indexBarPressed: 'list__index-bar--pressed',
+        indexLetter: 'list__index-letter',
+        indexLetterActive: 'list__index-letter--active',
+        dragging: 'list__row--dragging',
+        shift: 'list-item--shift',
+      }
 
-  const moveReorder = (event: ListPointerEvent) => {
-    const drag = dragRef.current
-    if (!drag) return
-    const dy = event.clientY - drag.startY
-    const last = drag.rows.length - 1
-    const toIndex = Math.max(0, Math.min(last, drag.fromIndex + Math.round(dy / drag.height)))
-    drag.rows[drag.fromIndex].style.transform = `translateY(${dy}px)`
-    if (toIndex === drag.toIndex) return
-    drag.rows.forEach((row, i) => {
-      if (i === drag.fromIndex) return
-      row.classList.add('list-item--shift')
-      if (i > drag.fromIndex && i <= toIndex) row.style.transform = `translateY(${-drag.height}px)`
-      else if (i < drag.fromIndex && i >= toIndex) row.style.transform = `translateY(${drag.height}px)`
-      else row.style.transform = ''
-    })
-    drag.toIndex = toIndex
-  }
-
-  const endReorder = () => {
-    const drag = dragRef.current
-    if (!drag) return
-    dragRef.current = null
-    const { rows, fromIndex, toIndex } = drag
-    rows.forEach((row) => {
-      row.style.transform = ''
-      row.classList.remove('list__row--dragging', 'list-item--shift')
-    })
-    if (fromIndex !== toIndex) {
-      const fromId = rows[fromIndex].dataset.listItemId
-      const toId = rows[toIndex].dataset.listItemId
-      if (fromId && toId) onReorder?.(fromId, toId)
-    }
-  }
+  const reorder = useReorderDrag({
+    rootRef,
+    editing,
+    onReorder,
+    draggingClass: c.dragging,
+    shiftClass: c.shift,
+  })
 
   const contextValue: ListContextValue = {
     selectedId,
     onSelect,
     editing,
+    variant,
     onDelete,
     onReorder,
-    beginReorder,
-    moveReorder,
-    endReorder,
+    beginReorder: reorder.beginReorder,
+    moveReorder: reorder.moveReorder,
+    endReorder: reorder.endReorder,
   }
 
   const indexStride = indexStrideFor(indexStripHeight, sections.length)
 
+  // 首字档：节少且槽位容得下时，条上直接显示标题首字（蔬/水/S）——信息量大于
+  // 字母；跨过节数上限或槽高不足则降回字母档（含压缩采样）。槽高未测得的首帧
+  // 偏向首字档，与 indexStrideFor 对 0 高度的处理对称。charMode 蕴含槽位
+  // ≥13px，indexStrideFor 数学上必为 1，两档渲染路径互斥不叠加。
+  const charMode =
+    sections.length > 0 &&
+    sections.length <= CHAR_LABEL_MAX_SECTIONS &&
+    (indexStripHeight === 0 || indexStripHeight / sections.length >= MIN_INDEX_SLOT_PX)
+
   const rootClass = joinClass(
-    'list',
-    [listClass, indexBar ? 'list--anchored' : '', editing ? 'list--editing' : '']
+    c.base,
+    [listClass, indexBar ? c.anchored : '', editing ? c.editing : '']
       .filter(Boolean)
       .join(' '),
   )
 
   return (
     <ListContext.Provider value={contextValue}>
-      {title !== undefined && <div class="list__title">{title}</div>}
+      {title !== undefined && <div class={c.title}>{title}</div>}
       <div ref={rootRef} class={rootClass} {...rest}>
         {head !== undefined && (
-          <div class={joinClass('list__head', headClass)}>{head}</div>
+          <div class={joinClass(c.head, headClass)}>{head}</div>
         )}
         {scrollable ? (
-          <div ref={bodyRef} class={joinClass('list__body', bodyClass)}>
+          <div ref={bodyRef} class={joinClass(c.body, bodyClass)}>
             {children}
           </div>
         ) : (
@@ -307,10 +321,10 @@ export function List({
           <div
             ref={indexStripRef}
             class={joinClass(
-              'list__index-bar',
-              `${indexStride > 1 ? 'list__index-bar--compressed' : ''}${
-                activeLetter !== null ? ' list__index-bar--pressed' : ''
-              }`,
+              c.indexBar,
+              `${charMode ? c.indexBarChar : ''}${
+                indexStride > 1 ? ` ${c.indexBarCompressed}` : ''
+              }${activeLetter !== null ? ` ${c.indexBarPressed}` : ''}`,
             )}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId)
@@ -325,7 +339,8 @@ export function List({
             {sections.map((section, i) => {
               // 压缩档：显示层隔位采样，非采样位不渲染——采样字母 flex:1 等分全条，
               // indexStrideFor 保证每槽 ≥13px，字形不贴槽位边缘；触点走全节等比映射，
-              // 显示与触点不同步（按住两个采样字母之间仍命中中间节）
+              // 显示与触点不同步（按住两个采样字母之间仍命中中间节）。
+              // 首字档（charMode）槽位必然 ≥13px，stride 恒为 1，不进采样分支
               if (
                 indexStride > 1 &&
                 i % indexStride !== 0 &&
@@ -337,18 +352,18 @@ export function List({
                 <span
                   key={section.key}
                   class={joinClass(
-                    'list__index-letter',
-                    activeLetter === section.key ? 'list__index-letter--active' : '',
+                    c.indexLetter,
+                    activeLetter === section.key ? c.indexLetterActive : '',
                   )}
                 >
-                  {section.label}
+                  {charMode ? section.char : section.label}
                 </span>
               )
             })}
           </div>
         )}
       </div>
-      {footnote !== undefined && <p class="list__footnote">{footnote}</p>}
+      {footnote !== undefined && <p class={c.footnote}>{footnote}</p>}
     </ListContext.Provider>
   )
 }
@@ -356,8 +371,9 @@ export function List({
 /**
  * 索引分组：盒内小节标题行 + 行内容。三个字段各司其职：id 只作跳转锚点与
  * React 键（须唯一，不出现在索引条上）；title 是盒内显示的小节标题（可为
- * 词组）；索引条上的文字默认由 deriveIndexLabel(title) 自动派生（拼音/字母
- * 首字母，词组标题也只占一槽），要显示别的文字时用 indexLabel 显式覆盖。
+ * 词组）；索引条上的文字默认自动派生——字母档 deriveIndexLabel(title)（拼
+ * 音/字母首字母）、首字档 deriveIndexChar(title)（标题首字，节数少时组件
+ * 自动选用），要显示别的文字时用 indexLabel 显式覆盖（各档都原样显示）。
  */
 export function ListSection({
   id,
@@ -371,9 +387,16 @@ export function ListSection({
   indexLabel?: string
   children: ComponentChildren
 }) {
+  const list = useContext(ListContext)
   return (
-    <div data-list-section={id} data-list-section-label={indexLabel ?? deriveIndexLabel(title)}>
-      <div class="list-section__title">{title}</div>
+    <div
+      data-list-section={id}
+      data-list-section-label={indexLabel ?? deriveIndexLabel(title)}
+      data-list-section-char={indexLabel ?? (deriveIndexChar(title) || deriveIndexLabel(title))}
+    >
+      <div class={list.variant === 'plain' ? 'plain-list-section__title' : 'list-section__title'}>
+        {title}
+      </div>
       {children}
     </div>
   )

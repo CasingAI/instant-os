@@ -1,0 +1,429 @@
+/* List plain 变体（variant="plain"）自有样式表：iOS 6 邮件/短信式通栏列表。
+   本文件零外部样式依赖：不 import 其他 css、不引用 --list-* token；类名前缀
+   plain-list / plain-list-item 与 grouped 分支（list*）零交集，两支互不命中。
+   换肤/暗色只需覆盖 --plain-list-* 变量。 */
+
+/* ── token 默认值（换肤入口） ── */
+
+.plain-list {
+  --plain-list-bg: #fff;
+  --plain-list-row-border: #e0e0e4;
+  --plain-list-accent: #007aff;
+  --plain-list-secondary-ink: #888;
+  --plain-list-meta-ink: #9a9aa0;
+  --plain-list-selected-top: #4089d4;
+  --plain-list-selected-bottom: #2068b8;
+  --plain-list-hover-top: #fbfbfd;
+  --plain-list-hover-bottom: #ececf0;
+  /* 编辑模式动效（内容内收、减号滑入、红钮滑出）共用的减速曲线：急起缓收，收尾不顿 */
+  --plain-list-edit-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+/* ── 容器：通栏平铺，无分组盒的边框/圆角/内阴影 ── */
+
+.plain-list {
+  position: relative;
+  background: var(--plain-list-bg, #fff);
+}
+
+.plain-list + .plain-list {
+  margin-top: 10px;
+}
+
+.plain-list__title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+}
+
+.plain-list__head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--plain-list-row-border, #e0e0e4);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--plain-list-secondary-ink, #888);
+}
+
+.plain-list__head span:last-child {
+  text-align: right;
+}
+
+/* 滚动体不设 max-height：plain 列表通常填满所在窗格（邮件/短信），高度由宿主管 */
+.plain-list__body {
+  overflow-y: auto;
+}
+
+.plain-list__footnote {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--plain-list-secondary-ink, #888);
+  text-align: start;
+  text-align-last: start;
+  text-justify: none;
+}
+
+.plain-list-section__title {
+  padding: 4px 12px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--plain-list-secondary-ink, #888);
+}
+
+/* ── 行 ── */
+
+.plain-list-item {
+  display: flex;
+  position: relative;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 12px;
+  text-align: left;
+  /* 按钮重置自带于基态：本文件不依赖 global.css 的 button reset 也能正确渲染 */
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  appearance: none;
+  border-bottom: 1px solid var(--plain-list-row-border, #e0e0e4);
+  font-size: 13px;
+  /* 裁掉藏于行外的红删除钮（translateX(100%) 停在行右缘外），防它把滚动体
+     撑出横向滚动条；visible+clip 是合法组合，纵向不裁，拖拽行阴影不受影响 */
+  overflow-x: clip;
+  /* 编辑态 padding 位移的过渡常驻基态（同 grouped 的结论：transition 写在状态
+     规则里时非编辑侧没有这条属性，进入起跑不可靠、退出必然瞬跳）；只过渡
+     padding-left，右侧 12→8 的收窄被同帧展开的把手/红钮掩盖，不可感 */
+  transition: padding-left 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.plain-list > .plain-list-item:last-child {
+  border-bottom: none;
+}
+
+/* 包装在 ListSection 等容器内的行仍是 :last-child，需保留底部分隔线 */
+.plain-list > :not(:last-child) > .plain-list-item:last-child {
+  border-bottom: 1px solid var(--plain-list-row-border, #e0e0e4);
+}
+
+.plain-list-item--static {
+  cursor: default;
+}
+
+.plain-list-item--button {
+  cursor: default;
+}
+
+/* ── 行状态：hover / 按下 / 选中 / 禁用 ──
+   plain 的触达反馈是浅灰渐变（邮件同款），蓝渐变留给「选中」这一持久状态——
+   与 grouped 的「hover 即蓝」不同源。编辑模式整行点按暂停时反馈一并收起。 */
+
+/* hover 触达反馈只属于未选中的行：选中行悬停保持蓝底白字（浅灰 hover 会把
+   反白墨水泡掉），仅微调亮度示意仍可交互 */
+.plain-list:not(.plain-list--editing) .plain-list-item:hover:not(:disabled):not(.plain-list-item--selected) {
+  background: linear-gradient(
+    180deg,
+    var(--plain-list-hover-top, #fbfbfd) 0%,
+    var(--plain-list-hover-bottom, #ececf0) 100%
+  );
+}
+
+.plain-list:not(.plain-list--editing) .plain-list-item--selected:not(:disabled):hover {
+  filter: brightness(1.04);
+}
+
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) {
+  background: linear-gradient(180deg, #e2e2e7 0%, #d6d6db 100%);
+}
+
+.plain-list-item--selected:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    var(--plain-list-selected-top, #4089d4) 0%,
+    var(--plain-list-selected-bottom, #2068b8) 100%
+  );
+  color: #fff;
+}
+
+.plain-list:not(.plain-list--editing) .plain-list-item--selected:not(:disabled):active {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.plain-list-item--button:disabled,
+.plain-list-item--button:disabled:hover,
+.plain-list-item--button:disabled:active {
+  cursor: default;
+  color: #8e8e93;
+  background: #d8d8d8;
+}
+
+/* 选中时各级墨水随行反白 */
+.plain-list-item--selected:not(:disabled) .plain-list-item__name,
+.plain-list-item--selected:not(:disabled) .plain-list-item__trailing {
+  color: #fff;
+}
+
+.plain-list-item--selected:not(:disabled) .plain-list-item__subtitle {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.plain-list-item--selected:not(:disabled) .plain-list-item__preview {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.plain-list-item--selected:not(:disabled) .plain-list-item__disclosure {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.plain-list-item--selected:not(:disabled) .plain-list-item__check {
+  color: #fff;
+}
+
+/* ── 槽位 ── */
+
+.plain-list-item__leading {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.plain-list-item__label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+/* 首行：标题与右上角落位（日期/时间）同排 */
+.plain-list-item__line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.plain-list-item__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plain-list-item__trailing {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--plain-list-meta-ink, #9a9aa0);
+  font-variant-numeric: tabular-nums;
+}
+
+.plain-list-item__subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #3c3c43;
+}
+
+.plain-list-item__preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--plain-list-secondary-ink, #888);
+}
+
+.plain-list-item__badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--plain-list-accent, #007aff);
+  background: rgba(0, 122, 255, 0.12);
+}
+
+.plain-list-item__check {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--plain-list-accent, #007aff);
+  font-weight: 600;
+  text-align: center;
+}
+
+.plain-list-item__disclosure {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #c7c7cc;
+  transition:
+    transform 0.15s ease,
+    color 0.1s ease;
+}
+
+.plain-list-item__detail {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  transition: filter 0.1s ease;
+}
+
+.plain-list-item__detail:hover {
+  filter: brightness(1.15);
+}
+
+.plain-list-item__detail:active {
+  filter: brightness(0.92);
+}
+
+/* 未读：标题/副标题置粗（iOS 6 邮件同款信号） */
+.plain-list-item--unread .plain-list-item__name,
+.plain-list-item--unread .plain-list-item__subtitle {
+  font-weight: 700;
+}
+
+/* ── 编辑模式 ── */
+
+.plain-list--editing .plain-list-item {
+  padding-left: 38px;
+  padding-right: 8px;
+}
+
+/* 减号删除钮：绝对定位挂在行左缘，常驻 DOM、编辑态淡入滑入——显隐由
+   .plain-list--editing 切换（条件挂载的新元素带着终态样式插入，transition
+   不跑只会闪现） */
+.plain-list-item__minus {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    opacity 160ms ease-out,
+    transform 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+/* 非编辑态：左移 10px 藏到行左缘（left 10px − 10px，不外溢），指针/键盘/读屏全隔离 */
+.plain-list:not(.plain-list--editing) .plain-list-item__minus {
+  opacity: 0;
+  transform: translateY(-50%) translateX(-10px);
+  pointer-events: none;
+}
+
+.plain-list-item__minus::before {
+  content: '';
+  width: 9px;
+  height: 1.6px;
+  background: #fff;
+  border-radius: 1px;
+}
+
+.plain-list-item__minus:hover {
+  background: #e0342b;
+}
+
+.plain-list-item__minus:active {
+  background: #c92f27;
+}
+
+/* 红色删除钮：armed 时从右缘滑入覆盖行。常驻 DOM，非 armed 停在行外
+   （translateX(100%)，由行 overflow-x: clip 裁掉），armed 翻转发生在同一元素上，
+   滑入滑出双向走 transition */
+.plain-list-item__delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 74px;
+  border: none;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transform: translateX(100%);
+  transition: transform 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
+  z-index: 1;
+}
+
+.plain-list-item--armed .plain-list-item__delete {
+  transform: none;
+}
+
+.plain-list-item__delete:hover {
+  background: #e0342b;
+}
+
+.plain-list-item__delete:active {
+  background: #c92f27;
+}
+
+/* 拖拽把手：常驻 DOM、编辑态淡入；宽度与负 margin（抵掉行 gap 10px）同步过渡，
+   行内容随之平滑内收，与 padding 过渡同节奏。min-width: 0 + overflow: hidden
+   破掉 flex 子项的最小内容地板，宽度才能真正收到 0 */
+.plain-list-item__grabber {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  width: 12px;
+  min-width: 0;
+  overflow: hidden;
+  color: #c7c7cc;
+  cursor: grab;
+  touch-action: none;
+  opacity: 1;
+  transition:
+    width 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1)),
+    margin-left 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1)),
+    opacity 160ms ease-out;
+}
+
+.plain-list:not(.plain-list--editing) .plain-list-item__grabber {
+  width: 0;
+  margin-left: -10px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.plain-list__row--dragging {
+  transition: none !important;
+  position: relative;
+  z-index: 2;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+/* 让位平移动画：transition 是整条覆盖属性，行基态的 padding-left 过渡会把它独占，
+   transform 让位就瞬移；这里以更高特异性在拖动期限定改写整个 transition
+   （拖动中 padding 恒定，替换掉无副作用） */
+.plain-list--editing .plain-list-item--shift {
+  transition: transform 180ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
+}

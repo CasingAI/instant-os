@@ -30,6 +30,7 @@ import { HelpHint } from '../../ui/help-hint.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { TreeView, type TreeViewRemovalSelection } from '../../ui/tree-view.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
+import { ICON_RECOMMENDED, ICON_RECOMMENDED_NAMES } from './icon-recommended.ts'
 import '../settings/settings.css'
 import '../../ui/ios-nav-back.css'
 
@@ -816,6 +817,61 @@ export function ListIndexDemo() {
   // 可调高度变体：滑杆经 CSS 变量驱动滚动体 max-height，List 内部的 ResizeObserver 会实时重算压缩档
   const [bodyHeight, setBodyHeight] = useState(280)
 
+  // 分类数量滑杆变体：超市分类名池先按拼音归组排序（扁平化后仍保持拼音序，字母档
+  // 不会触发排序契约告警），滑杆取前 N——默认 280px 高度下 N≤12 首字档、
+  // 13~21 字母档、≥22 采样档，一杆看全三档
+  const CATEGORY_POOL = [
+    '水果类',
+    '蔬菜类',
+    '肉禽蛋',
+    '海鲜水产',
+    '粮油调味',
+    '酒水饮料',
+    '乳制品',
+    '烘焙面点',
+    '休闲零食',
+    '糖果巧克力',
+    '方便速食',
+    '罐头腌渍',
+    '茶叶咖啡',
+    '个人护理',
+    '美容护肤',
+    '口腔护理',
+    '纸品清洁',
+    '家庭清洁',
+    '厨房用品',
+    '小家电',
+    '数码配件',
+    '文具玩具',
+    '母婴用品',
+    '宠物用品',
+    '内衣袜子',
+    '男装',
+    '女装',
+    '童装童鞋',
+    '鞋靴箱包',
+    '床上用品',
+    '家居收纳',
+    '绿植园艺',
+    '五金工具',
+    '汽车用品',
+    '医药保健',
+    '节令礼品',
+  ]
+  const sortedCategories = groupByIndexLetter(CATEGORY_POOL, (cat) => cat).flatMap(
+    (group) => group.items,
+  )
+  const [catCount, setCatCount] = useState(8)
+
+  const renderCategorySections = () =>
+    sortedCategories.slice(0, catCount).map((cat) => (
+      <ListSection key={cat} id={`cat-${cat}`} title={cat}>
+        <ListItem label={`${cat}·精选`} value="详情" accessory="disclosure" />
+        <ListItem label={`${cat}·促销`} value="详情" accessory="disclosure" />
+        <ListItem label={`${cat}·新品`} value="详情" accessory="disclosure" />
+      </ListSection>
+    ))
+
   const renderSections = () =>
     groups.map((group) => (
       <ListSection key={group.label} id={group.label} title={group.label}>
@@ -843,6 +899,22 @@ export function ListIndexDemo() {
 
   return (
     <DemoVariants>
+      <DemoVariant label="分类数量滑杆：三档全自动——节少条上显示标题首字（水果类→水），节多降为拼音首字母（水果类→S），再多槽位放不下走隔位采样" wide>
+        <IosRangeSlider
+          value={catCount}
+          min={4}
+          max={36}
+          step={1}
+          suffix="节"
+          label="分类数量"
+          marks={[
+            { value: 12, label: '首字上限' },
+            { value: 22, label: '采样' },
+          ]}
+          onChange={setCatCount}
+        />
+        <List indexBar scrollable>{renderCategorySections()}</List>
+      </DemoVariant>
       <DemoVariant label="拖滑杆调高度：索引条实时在 全字母 / 隔位采样 之间切换" wide>
         <div
           class="ui-kit-demo__index-height-host"
@@ -877,7 +949,7 @@ export function ListIndexDemo() {
       <DemoVariant label="节标题悬停：滚到滚动体顶部即钉住、被下一节顶走（无索引条）">
         <List scrollable>{renderSections()}</List>
       </DemoVariant>
-      <DemoVariant label="词组节标题：左侧完整词组，条上自动派生拼音首字母（水果类→S）；indexLabel 显式覆盖（蔬菜类→蔬）；id 只做锚点可任意命名">
+      <DemoVariant label="词组节标题：左侧完整词组，节少时条上自动显示标题首字（水果类→水、蔬菜类→蔬），同条标签语言统一；id 只做锚点可任意命名">
         <List indexBar scrollable>
           <ListSection id="fruit" title="水果类">
             <ListItem label="苹果" value="详情" accessory="disclosure" />
@@ -885,11 +957,24 @@ export function ListIndexDemo() {
             <ListItem label="脐橙" value="详情" accessory="disclosure" />
             <ListItem label="葡萄" value="详情" accessory="disclosure" />
           </ListSection>
-          <ListSection id="veg" title="蔬菜类" indexLabel="蔬">
+          <ListSection id="veg" title="蔬菜类">
             <ListItem label="白菜" value="详情" accessory="disclosure" />
             <ListItem label="菠菜" value="详情" accessory="disclosure" />
             <ListItem label="青椒" value="详情" accessory="disclosure" />
             <ListItem label="茄子" value="详情" accessory="disclosure" />
+          </ListSection>
+        </List>
+      </DemoVariant>
+      <DemoVariant label="indexLabel 显式覆盖：显式值任何档位原样上条（可与首字/拼音都无关，派生不准时兜底）">
+        <List indexBar scrollable>
+          <ListSection id="clearance" title="清仓特惠" indexLabel="C">
+            <ListItem label="库存尾货" value="详情" accessory="disclosure" />
+          </ListSection>
+          <ListSection id="hot" title="热销单品" indexLabel="H">
+            <ListItem label="本周销冠" value="详情" accessory="disclosure" />
+          </ListSection>
+          <ListSection id="new-arrival" title="新品上架" indexLabel="N">
+            <ListItem label="首发开售" value="详情" accessory="disclosure" />
           </ListSection>
         </List>
       </DemoVariant>
@@ -969,6 +1054,149 @@ export function ListEditingDemo() {
           ))}
         </List>
         {shopping.length === 0 && <p class="list__footnote">清单已清空</p>}
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+type PlainThread = {
+  id: string
+  label: string
+  trailing: string
+  subtitle: string
+  preview: string
+  unread: boolean
+}
+
+const PLAIN_THREADS: PlainThread[] = [
+  {
+    id: 't1',
+    label: '设计组',
+    trailing: '10:24',
+    subtitle: 'Q3 视觉规范终稿',
+    preview: '打印样张已经寄出，收到后请确认色差再回签。',
+    unread: true,
+  },
+  {
+    id: 't2',
+    label: 'John Doe',
+    trailing: '昨天',
+    subtitle: 'Re: instant-app 发版计划',
+    preview: '周四上午十点窗口，改动冻结提前到周三晚。',
+    unread: false,
+  },
+  {
+    id: 't3',
+    label: 'GitHub',
+    trailing: '周二',
+    subtitle: '[instant-app] PR #42 已合并',
+    preview: 'fix(ui): flat 引擎进退窗口 header 下边框在动画中变深。',
+    unread: false,
+  },
+  {
+    id: 't4',
+    label: '机场快线',
+    trailing: '9月1日',
+    subtitle: '行程提醒',
+    preview: '您预订的 9 月 3 日 08:30 班次即将出发。',
+    unread: false,
+  },
+  {
+    id: 't5',
+    label: '账单中心',
+    trailing: '8月30日',
+    subtitle: '8 月账单已出',
+    preview: '本期应缴 ¥42.00，点击查看明细。',
+    unread: false,
+  },
+]
+
+export function ListPlainVariantDemo() {
+  const [variant, setVariant] = useState<'grouped' | 'plain'>('plain')
+  const [selectedId, setSelectedId] = useState('t2')
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="variant 现场切换：同一组件同一份数据，传参换装（plain 专属槽位 trailing/preview/unread 在 grouped 下忽略）" wide>
+        <SegmentedControl
+          ariaLabel="List 变体"
+          value={variant}
+          onChange={setVariant}
+          items={[
+            { id: 'grouped', label: 'grouped 设置' },
+            { id: 'plain', label: 'plain 邮件' },
+          ]}
+        />
+        <List variant={variant} selectedId={selectedId} onSelect={setSelectedId}>
+          {PLAIN_THREADS.map((thread) => (
+            <ListItem
+              key={thread.id}
+              id={thread.id}
+              label={thread.label}
+              trailing={thread.trailing}
+              subtitle={thread.subtitle}
+              preview={thread.preview}
+              unread={thread.unread}
+              accessory="check"
+            />
+          ))}
+        </List>
+        <p class="ui-kit-demo__status">
+          当前变体：{variant} · 选中：{selectedId}
+        </p>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function ListPlainEditingDemo() {
+  const [editing, setEditing] = useState(false)
+  const [threads, setThreads] = useState(PLAIN_THREADS)
+
+  const reorder = (fromId: string, toId: string) => {
+    setThreads((prev) => {
+      const from = prev.findIndex((it) => it.id === fromId)
+      const to = prev.findIndex((it) => it.id === toId)
+      if (from < 0 || to < 0) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="「编辑」进出：减号删除 / 把手重排（plain 分支与 grouped 共用同一套机制）" wide>
+        <div class="ui-kit-demo__row">
+          <Button size="compact" onClick={() => setEditing(!editing)}>
+            {editing ? '完成' : '编辑'}
+          </Button>
+          {!editing && threads.length !== PLAIN_THREADS.length && (
+            <Button size="compact" onClick={() => setThreads(PLAIN_THREADS)}>
+              还原列表
+            </Button>
+          )}
+        </div>
+        <List
+          variant="plain"
+          editing={editing}
+          onDelete={(id) => setThreads((prev) => prev.filter((it) => it.id !== id))}
+          onReorder={reorder}
+        >
+          {threads.map((thread) => (
+            <ListItem
+              key={thread.id}
+              id={thread.id}
+              label={thread.label}
+              trailing={thread.trailing}
+              subtitle={thread.subtitle}
+              preview={thread.preview}
+              unread={thread.unread}
+            />
+          ))}
+        </List>
+        {threads.length === 0 && <p class="ui-kit-demo__status">列表已清空</p>}
       </DemoVariant>
     </DemoVariants>
   )
@@ -1964,6 +2192,9 @@ const ICON_GRID_CELL_WIDTH = 86
 const ICON_GRID_ROW_INSET = 6
 const ICON_GRID_OVERSCAN = 3
 
+/** 推荐名单查集：iOS 6 系统界面符号精选（名单与语义见 icon-recommended.ts） */
+const ICON_RECOMMENDED_SET = new Set(ICON_RECOMMENDED_NAMES)
+
 /** 目录数据 ~1.9MB，随本卡片动态 import 单独成 chunk，其余 demo 不为其买单。 */
 export function IconDemo() {
   const [catalog, setCatalog] = useState<MaterialIconCatalogModule | null>(null)
@@ -1971,8 +2202,8 @@ export function IconDemo() {
   const [fill, setFill] = useState(false)
   const [weight, setWeight] = useState(400)
   const [query, setQuery] = useState('')
-  /** null=全部；''=未分类；其余为规范类目名 */
-  const [category, setCategory] = useState<string | null>(null)
+  /** null=全部；''=未分类；ICON_RECOMMENDED=推荐（iOS 6 系统符号精选）；其余为规范类目名。默认落在推荐。 */
+  const [category, setCategory] = useState<string | null>(ICON_RECOMMENDED)
   const [copied, setCopied] = useState<string | null>(null)
   const [gridWidth, setGridWidth] = useState(0)
   const gridAreaRef = useRef<HTMLDivElement>(null)
@@ -2021,6 +2252,12 @@ export function IconDemo() {
     return { counts, uncategorized, total: supportedRows.length }
   }, [catalog, supportedRows])
 
+  // 推荐徽标数与其它徽标一样随字体族联动（名单本身三族全可用，此处仍按 supportedRows 现算以防名单日后收录缺字形图标）
+  const recommendedCount = useMemo(() => {
+    if (!supportedRows) return 0
+    return supportedRows.filter((row) => ICON_RECOMMENDED_SET.has(row[0])).length
+  }, [supportedRows])
+
   const visibleCategories = useMemo(() => {
     if (!catalog) return []
     return catalog.MATERIAL_ICON_CATEGORIES.filter((cat) => (categoryStats.counts.get(cat) ?? 0) > 0)
@@ -2028,12 +2265,17 @@ export function IconDemo() {
 
   useEffect(() => {
     if (category === null) return
+    if (category === ICON_RECOMMENDED) {
+      // 哨兵不在 categoryStats.counts 里，必须走自己的空判断，否则会被下面的通用检查弹回全部
+      if (recommendedCount === 0) setCategory(null)
+      return
+    }
     if (category === '') {
       if (categoryStats.uncategorized === 0) setCategory(null)
       return
     }
     if ((categoryStats.counts.get(category) ?? 0) === 0) setCategory(null)
-  }, [category, categoryStats])
+  }, [category, categoryStats, recommendedCount])
 
   const filtered = useMemo(() => {
     if (!supportedRows) return null
@@ -2041,6 +2283,9 @@ export function IconDemo() {
       return supportedRows.filter((row) => `${row[0]} ${row[2]}`.includes(normalizedQuery))
     }
     if (category === null) return supportedRows
+    if (category === ICON_RECOMMENDED) {
+      return supportedRows.filter((row) => ICON_RECOMMENDED_SET.has(row[0]))
+    }
     if (category === '') return supportedRows.filter((row) => !row[1])
     return supportedRows.filter((row) => row[1].split(',').includes(category))
   }, [supportedRows, searching, normalizedQuery, category])
@@ -2097,9 +2342,11 @@ export function IconDemo() {
     ? `搜索结果 · ${fmt(filtered.length)}`
     : category === null
       ? `全部 · ${fmt(categoryStats.total)}`
-      : category === ''
-        ? '未分类'
-        : `${ICON_CATEGORY_CN[category] ?? category}（${category}）`
+      : category === ICON_RECOMMENDED
+        ? `推荐（iOS 6 系统符号） · ${fmt(recommendedCount)}`
+        : category === ''
+          ? '未分类'
+          : `${ICON_CATEGORY_CN[category] ?? category}（${category}）`
 
   return (
     <DemoVariants>
@@ -2138,6 +2385,14 @@ export function IconDemo() {
           </div>
           <div class="ui-kit-demo__icon-browser">
             <nav class="ui-kit-demo__icon-cats" aria-label="图标分类">
+              <button
+                type="button"
+                class={catClass(ICON_RECOMMENDED)}
+                onClick={() => setCategory(ICON_RECOMMENDED)}
+              >
+                <span class="ui-kit-demo__icon-cat-name">推荐</span>
+                <span class="ui-kit-demo__icon-cat-count">{fmt(recommendedCount)}</span>
+              </button>
               <button type="button" class={catClass(null)} onClick={() => setCategory(null)}>
                 <span class="ui-kit-demo__icon-cat-name">全部</span>
                 <span class="ui-kit-demo__icon-cat-count">{fmt(categoryStats.total)}</span>

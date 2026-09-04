@@ -81,6 +81,19 @@ export function deriveIndexLabel(text: string, options?: IndexSortOptions): Inde
   return first !== undefined && first >= 'a' && first <= 'z' ? first.toUpperCase() : '#'
 }
 
+/**
+ * 首字标签（节少档显示用）：取文本首个码点原样输出，字母转大写，不做 # 归并。
+ *   '水果类'→'水'   '蔬菜类'→'蔬'   'snacks'→'S'   '0元购'→'0'   ''→''
+ * 与 deriveIndexLabel 的区别：不查拼音、不归并 #——首字档展示的是「分类真实的
+ * 第一个字」，信息量大于字母；纯英文标题两档输出天然一致（首字母）。空串返回
+ * 空由调用方回退（ListSection 回退到 deriveIndexLabel）。
+ */
+export function deriveIndexChar(text: string): string {
+  const first = [...text.trim()][0]
+  if (first === undefined) return ''
+  return first >= 'a' && first <= 'z' ? first.toUpperCase() : first
+}
+
 /** 标签 → 排序秩：'A'-'Z' → 1-26，'#' → 27（沉底）；其余 null（不可比）。 */
 function indexLabelRank(label: string): number | null {
   if (label.length !== 1) return null

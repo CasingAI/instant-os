@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import {
   compareIndexLabelRank,
+  deriveIndexChar,
   deriveIndexLabel,
   groupByIndexLetter,
   indexSortKey,
@@ -87,6 +88,20 @@ import {
 // 空输入 → 空分组。
 {
   assert.deepEqual(groupByIndexLetter([], (n) => n), [])
+}
+
+// 首字派生：取首个码点原样（字母大写），不查拼音、不归 #；纯英文两档输出一致。
+{
+  assert.equal(deriveIndexChar('水果类'), '水')
+  assert.equal(deriveIndexChar('蔬菜类'), '蔬')
+  assert.equal(deriveIndexChar('snacks'), 'S')
+  assert.equal(deriveIndexChar('Snacks'), 'S')
+  assert.equal(deriveIndexChar('0元购'), '0', '首字档显示真实首字，不归 #')
+  assert.equal(deriveIndexChar('！！！'), '！')
+  assert.equal(deriveIndexChar('  阿福  '), '阿', '首尾空白剔除')
+  assert.equal(deriveIndexChar('👍赞'), '👍', '代理对按整码点取')
+  assert.equal(deriveIndexChar(''), '')
+  assert.equal(deriveIndexChar('olivia'), deriveIndexLabel('olivia'), '纯英文两档一致')
 }
 
 // 逆序判定：仅对 /[A-Z#]/ 单字符判定，自定义标签返回 null 不判。
