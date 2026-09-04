@@ -1,0 +1,224 @@
+/* 钥匙串（新版）— 对齐系统设置的边距 / 尺寸 / 颜色 / 圆角 */
+
+/* ── 能力 Tab 间距（样式见 SegmentedControl）── */
+
+.keychain__capability-tabs {
+  margin: 0 0 10px;
+}
+
+.keychain__section-empty {
+  margin-top: 0;
+  min-height: 88px;
+}
+
+/* ── 供应商 / 模型详情分组（对齐 settings__section 间距）── */
+
+.keychain__form-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.keychain__form-group + .keychain__form-group {
+  margin-top: 22px;
+}
+
+.keychain__form-group-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+/* ── 上下文设置界面的间距 ── */
+.keychain__context-options + .keychain__form-group {
+  margin-top: 22px;
+}
+
+.keychain__context-options .settings__row--check + .settings__row--check {
+  margin-top: 12px;
+}
+
+/* ── PageStack 桥接：SettingsChoicePickerView 片段页（.page 包裹）──
+ * 片段页没有 .page-header/.page__body 结构，转场网格里补上显式行列；
+ * 正文滑动复用 page-stack.css 的同名 keyframes。 */
+.keychain__picker-page > .settings__body {
+  overflow-y: auto;
+}
+
+.keychain__picker-page > .settings__body > .settings__content {
+  flex: none;
+}
+
+.page-stack--push .keychain__picker-page > .settings__nav,
+.page-stack--pop .keychain__picker-page > .settings__nav {
+  grid-row: 1;
+  grid-column: 1;
+  position: relative;
+  z-index: 3;
+}
+
+.page-stack--push .keychain__picker-page > .settings__body,
+.page-stack--pop .keychain__picker-page > .settings__body {
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+  background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
+}
+
+.page-stack--push .page-stack__layer--over .keychain__picker-page > .settings__body {
+  animation: page-body-over-push 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+.page-stack--push .page-stack__layer--under .keychain__picker-page > .settings__body {
+  animation: page-body-under-push 0.35s ease-in-out both;
+}
+
+.page-stack--pop .page-stack__layer--over .keychain__picker-page > .settings__body {
+  animation: page-body-over-pop 0.35s ease-in-out both;
+  z-index: 2;
+}
+
+.page-stack--pop .page-stack__layer--under .keychain__picker-page > .settings__body {
+  animation: page-body-under-pop 0.35s ease-in-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-stack--push .keychain__picker-page > .settings__body,
+  .page-stack--pop .keychain__picker-page > .settings__body {
+    animation: none !important;
+  }
+}
+
+/* ── PageStack 迁移（系统组件）── */
+
+/* 应用根：内容样式随 settings 样式表分发，token 定义在 .settings 上；换
+   系统壳（Page/.page）后在此补齐用到的 token（nav-kit-demo 同款做法） */
+.keychain-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+
+  --settings-list-bg: #fff;
+  --settings-list-border: #a8a8a8;
+  --settings-list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  --settings-row-border: #ececec;
+  --settings-row-size: #666;
+  --settings-disclosure: #b4b4b4;
+  --settings-section-title: #555;
+  --settings-section-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-section-subtitle: #666;
+  --settings-footnote: #666;
+  --settings-footnote-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-btn-plain-color: #333;
+  --settings-btn-plain-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --settings-btn-plain-bg-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --settings-btn-border: 1px solid rgba(0, 0, 0, 0.28);
+  --settings-btn-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  --settings-btn-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-nav-bg: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  --settings-nav-border: 1px solid rgba(0, 0, 0, 0.14);
+  --settings-nav-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72),
+    0 5px 14px -8px rgba(0, 0, 0, 0.22);
+  --settings-nav-heading: #222;
+  --settings-nav-heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+/* ── AdaptiveSplitNav（flat 引擎）转场桥接 ──
+ * 顶层导航已换 flat 引擎：窄屏进退走 data-stack-transition 窗口（stage 级
+ * 拆盒），宽屏帧进退走 data-frame-nav 窗口（详情 host 内拆盒）。引擎只认
+ * .page-header/.page__body 结构；flow 页（模型设置/添加模型，页根内嵌
+ * idle 子栈）在此打平子栈，让内层表单页的 header/正文参与外层拆盒
+ * （page-stack.css 同款三板斧）。 */
+
+.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
+  .adaptive-split-nav__host:is(.is-under, .is-over)
+  .keychain__flow-page
+  > .page-stack:not([class*='page-stack--']),
+.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
+  .adaptive-split-nav__host[data-pos='detail']:is(.is-under, .is-over)
+  .keychain__flow-page
+  > .page-stack:not([class*='page-stack--']) {
+  display: contents;
+}
+
+.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
+  .adaptive-split-nav__host:is(.is-under, .is-over)
+  .keychain__flow-page
+  > .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer,
+.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
+  .adaptive-split-nav__host[data-pos='detail']:is(.is-under, .is-over)
+  .keychain__flow-page
+  > .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer {
+  display: contents;
+  position: static;
+  inset: auto;
+}
+
+.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
+  .adaptive-split-nav__host:is(.is-under, .is-over)
+  .keychain__flow-page
+  > .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer
+  > .page,
+.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
+  .adaptive-split-nav__host[data-pos='detail']:is(.is-under, .is-over)
+  .keychain__flow-page
+  > .page-stack:not([class*='page-stack--'])
+  > .page-stack__layer
+  > .page {
+  display: contents;
+  height: auto;
+}
+
+/* ── 分栏返回键淡入淡出 ──
+ * 深度 1 帧（GitHub / AI 供应商）的返回键只在窄形态有：A 型形变（窄→宽）
+ * 随滑轨淡出，C 型（宽→窄）落定交棒后才出现——短淡入代替硬蹦
+ * （services/nav-kit-demo 同款）。 */
+
+.keychain__back-fade-out .page-back-button {
+  pointer-events: none;
+  animation: keychain-back-out var(--asn-frame-ms, 380ms)
+    cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes keychain-back-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+.keychain__back-fade-in-0 .page-back-button,
+.keychain__back-fade-in-1 .page-back-button {
+  animation: keychain-back-in 240ms ease-out both;
+}
+
+@keyframes keychain-back-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keychain__back-fade-out .page-back-button,
+  .keychain__back-fade-in-0 .page-back-button,
+  .keychain__back-fade-in-1 .page-back-button {
+    animation: none;
+  }
+}

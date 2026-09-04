@@ -339,6 +339,15 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: false,
     desktop: false,
   }),
+  // 平行验证期的新版钥匙串（AdaptiveSplitNav-flat + 系统 List）；验证通过后替换
+  // apps/keychain/ 内容，此条目与 loaders 条目一并移除。
+  {
+    id: 'keychain-next',
+    name: BUILTIN_APP_DISPLAY_NAMES['keychain-next'],
+    icon: KeychainIcon,
+    dock: false,
+    desktop: false,
+  },
   withAbout({
     id: 'github-desktop',
     name: BUILTIN_APP_DISPLAY_NAMES['github-desktop'],

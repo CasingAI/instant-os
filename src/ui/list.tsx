@@ -18,7 +18,7 @@ type ListProps = {
   title?: ComponentChildren
   /** 节脚注（盒子外下方）。 */
   footnote?: ComponentChildren
-  /** 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节。 */
+  /** 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节；槽位放不下完整字母时按 iOS 方式等分压缩、隔位 • 占位（触点仍覆盖全节）。 */
   indexBar?: boolean
   /** 编辑模式：ListItem 行出现减号删除钮与拖拽排序把手。 */
   editing?: boolean
@@ -33,6 +33,16 @@ type ListProps = {
 
 function joinClass(base: string, extra?: string): string {
   return extra ? `${base} ${extra}` : base
+}
+
+/** iOS 式索引压缩阈值：每槽低于该高度（10px 字形 + ~3px 呼吸）视为放不下完整字母，进入压缩档。 */
+const MIN_INDEX_SLOT_PX = 13
+
+/** 压缩档步距：1 = 全字母；n = 每 n 槽显示 1 个真实字母，其余槽显示 •（触点不分家）。 */
+function indexStrideFor(height: number, count: number): number {
+  if (height <= 0 || count <= 0) return 1
+  const maxShown = Math.max(1, Math.floor(height / MIN_INDEX_SLOT_PX))
+  return count > maxShown ? Math.ceil(count / maxShown) : 1
 }
 
 /** List ↔ ListItem 结合上下文：受控单选 + 编辑态 + 拖拽重排。 */
@@ -96,6 +106,8 @@ export function List({
   const [sections, setSections] = useState<ListSectionAnchor[]>([])
   // 按住/拖动索引条时命中的字母：整条挂 --pressed、当前字母挂 --active（悬停反馈由 CSS :hover 负责）
   const [activeLetter, setActiveLetter] = useState<string | null>(null)
+  // 索引条槽位高度，压缩档的判定输入；量到 0 说明窗口隐藏，维持上次值
+  const [indexStripHeight, setIndexStripHeight] = useState(0)
   const dragRef = useRef<ReorderDrag | null>(null)
 
   useEffect(() => {
@@ -118,6 +130,22 @@ export function List({
     observer.observe(root, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [indexBar])
+
+  // 索引条随节集合条件渲染，挂载后才开始测量；ResizeObserver 跟随窗口/卡片高度变化
+  const stripMounted = sections.length > 0
+  useEffect(() => {
+    if (!indexBar || !stripMounted) return
+    const strip = indexStripRef.current
+    if (!strip) return
+    const measure = () => {
+      const height = strip.clientHeight
+      if (height > 0) setIndexStripHeight(height)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(strip)
+    return () => observer.disconnect()
+  }, [indexBar, stripMounted])
 
   const jumpTo = (key: string) => {
     rootRef.current
@@ -200,6 +228,8 @@ export function List({
     endReorder,
   }
 
+  const indexStride = indexStrideFor(indexStripHeight, sections.length)
+
   const rootClass = joinClass(
     'list',
     [listClass, indexBar ? 'list--anchored' : '', editing ? 'list--editing' : '']
@@ -224,7 +254,9 @@ export function List({
             ref={indexStripRef}
             class={joinClass(
               'list__index-bar',
-              activeLetter !== null ? 'list__index-bar--pressed' : '',
+              `${indexStride > 1 ? 'list__index-bar--compressed ' : ''}${
+                activeLetter !== null ? 'list__index-bar--pressed' : ''
+              }`,
             )}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId)
@@ -236,18 +268,28 @@ export function List({
             onPointerUp={() => setActiveLetter(null)}
             onPointerCancel={() => setActiveLetter(null)}
           >
-            {sections.map((section) => (
-              <span
-                key={section.key}
-                data-letter={section.key}
-                class={joinClass(
-                  'list__index-letter',
-                  activeLetter === section.key ? 'list__index-letter--active' : '',
-                )}
-              >
-                {section.label}
-              </span>
-            ))}
+            {sections.map((section, i) => {
+              // 压缩档：非采样槽位显示 •，槽位照旧等分、data-letter 触点不缺位；被按住的位揭示真实字母
+              const elided =
+                indexStride > 1 &&
+                i % indexStride !== 0 &&
+                i !== sections.length - 1 &&
+                activeLetter !== section.key
+              return (
+                <span
+                  key={section.key}
+                  data-letter={section.key}
+                  class={joinClass(
+                    'list__index-letter',
+                    `${elided ? 'list__index-letter--elided ' : ''}${
+                      activeLetter === section.key ? 'list__index-letter--active' : ''
+                    }`,
+                  )}
+                >
+                  {elided ? '•' : section.label}
+                </span>
+              )
+            })}
           </div>
         )}
       </div>
@@ -273,6 +315,35 @@ export function ListSection({
       <div class="list-section__title">{title}</div>
       {children}
     </div>
+  )
+}
+
+/**
+ * 分组盒尾部的居中添加行（iOS「＋ 添加…」样式）：放在 List 内所有行之后，
+ * 与上方行的分隔线由上一行的 border-bottom 提供，自身不画顶线。
+ */
+export function ListAddRow({
+  label,
+  onClick,
+  disabled,
+  class: rowClass,
+}: {
+  /** 添加动作文案，如「添加模型…」。 */
+  label: ComponentChildren
+  onClick?: () => void
+  disabled?: boolean
+  class?: string
+}) {
+  return (
+    <button
+      type="button"
+      class={joinClass('list-add-row', rowClass)}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span class="list-add-row__plus" aria-hidden="true" />
+      {label}
+    </button>
   )
 }
 

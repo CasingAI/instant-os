@@ -53,6 +53,9 @@ const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = {
   'disk-utility': () =>
     import('../apps/disk-utility/disk-utility-app.tsx').then((m) => m.DiskUtilityApp),
   keychain: () => import('../apps/keychain/keychain-app.tsx').then((m) => m.KeychainApp),
+  // 平行验证期的新版钥匙串；验证通过后文件移回 apps/keychain/，本条与注册表条目一并移除。
+  'keychain-next': () =>
+    import('../apps/keychain-next/keychain-next-app.tsx').then((m) => m.KeychainNextApp),
   'github-desktop': () =>
     import('../apps/github-desktop/github-desktop-app.tsx').then((m) => m.GithubDesktopApp),
   help: () => import('../apps/help/help-app.tsx').then((m) => m.HelpApp),
