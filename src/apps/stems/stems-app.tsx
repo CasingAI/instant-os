@@ -3077,7 +3077,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
             <Button
-              icon
+              icon="♪"
               class={`stems__metronome${metronomeOn ? ' stems__metronome--on' : ''}`}
               disabled={!tempo}
               title={
@@ -3089,11 +3089,34 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               }
               aria-label="节拍器"
               onClick={() => setMetronomeOn((on) => !on)}
-            >
-              ♪
-            </Button>
+            />
             <Button
-              icon
+              icon={
+                <svg
+                  class="stems__sound-icon"
+                  viewBox="0 0 16 16"
+                  width="14"
+                  height="14"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M2 6.2v3.6h2.2l3.4 3V3.2l-3.4 3H2z" />
+                  <path
+                    d="M10.8 5.4a3.2 3.2 0 0 1 0 5.2"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M12.6 3.8a5.6 5.6 0 0 1 0 8.4"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              }
               class={`stems__sound${metronomeSoundOn ? ' stems__sound--on' : ''}`}
               disabled={!tempo}
               title={
@@ -3105,32 +3128,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               }
               aria-label="节拍器声音"
               onClick={() => setMetronomeSoundOn((on) => !on)}
-            >
-              <svg
-                class="stems__sound-icon"
-                viewBox="0 0 16 16"
-                width="14"
-                height="14"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M2 6.2v3.6h2.2l3.4 3V3.2l-3.4 3H2z" />
-                <path
-                  d="M10.8 5.4a3.2 3.2 0 0 1 0 5.2"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  fill="none"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M12.6 3.8a5.6 5.6 0 0 1 0 8.4"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  fill="none"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </Button>
+            />
             <input
               type="range"
               class="stems__volume"
@@ -3383,7 +3381,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                     { id: 'zipformer', label: 'Zipformer 中文' },
                     { id: 'sense-voice', label: 'SenseVoice 五语' },
                   ]}
-                  className="stems__lyrics-model-picker"
+                  className="segmented-control--clamp stems__lyrics-model-picker"
                 />
                 <Button
                   tone={alignedLrc ? undefined : 'primary'}
@@ -3463,15 +3461,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             <footer class="stems__footer">
               <div class="stems__zoom">
                 <Button
-                  icon
+                  icon="−"
                   class="stems__zoom-btn"
                   disabled={view.level <= 0.01}
                   onClick={() => zoomTo(view.level - 1, getPlaybackTime())}
                   title="缩小一倍（以当前播放位置为锚）"
                   aria-label="缩小"
-                >
-                  −
-                </Button>
+                />
                 <input
                   type="range"
                   class="stems__zoom-slider"
@@ -3483,15 +3479,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   title="波形缩放：可见窗口时长（以当前播放位置为锚）"
                 />
                 <Button
-                  icon
+                  icon="+"
                   class="stems__zoom-btn"
                   disabled={view.level >= maxZoomLevel - 0.01}
                   onClick={() => zoomTo(view.level + 1, getPlaybackTime())}
                   title="放大一倍（以当前播放位置为锚）"
                   aria-label="放大"
-                >
-                  +
-                </Button>
+                />
                 <span class="stems__zoom-label">{formatZoomLabel(view.level)}</span>
                 {view.level > 0.01 && (
                   <Button
@@ -4038,23 +4032,19 @@ function StemTrackRow({
       <div class="stems__track-controls">
         <div class="stems__track-chips">
           <Button
-            icon
+            icon="M"
             class={`stems__chip${track.mute ? ' stems__chip--mute-on' : ''}`}
             onClick={onToggleMute}
             title="静音"
             aria-label="静音"
-          >
-            M
-          </Button>
+          />
           <Button
-            icon
+            icon="S"
             class={`stems__chip${track.solo ? ' stems__chip--solo-on' : ''}`}
             onClick={onToggleSolo}
             title="独奏"
             aria-label="独奏"
-          >
-            S
-          </Button>
+          />
         </div>
         <input
           type="range"
