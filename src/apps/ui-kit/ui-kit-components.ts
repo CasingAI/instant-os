@@ -78,13 +78,13 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'button',
     name: 'Button',
     description:
-      'iOS 6 拟物按钮；secondary / primary / danger，支持 compact；icon 属性接收前导图标内容（元素或字符），仅图标无文字时自动渲染为方形图标按钮。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+      'iOS 6 拟物按钮；secondary / primary / danger，支持 compact；icon 与文字互斥——传入 icon 即只渲染图标（自动方形图标按钮），children 文字不再显示、转作无障碍名回退。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     props: [
       { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary' },
       { name: 'size', type: "'default' | 'compact'", description: '尺寸' },
-      { name: 'icon', type: 'ComponentChildren?', description: '前导图标内容；仅图标无文字时自动渲染为方形图标按钮' },
+      { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标（方形按钮），文字转作无障碍名' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
       { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type' },
       { name: 'aria-label', type: 'string?', description: '无障碍标签' },
@@ -101,7 +101,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'page-button-group',
     name: 'Button Group',
     description:
-      '页头按钮组：PageButtonGroup 内放 PageActionButton 成组使用，空间不足自动三级解压——先收边距、再收间距、最后把文字连续压扁，任何宽度都不折行（解压机制只识别 PageActionButton）',
+      '页头按钮组：PageButtonGroup 内放 PageActionButton 成组使用，空间不足自动多级解压——先收边距、再收间距，带 icon 的双态按钮（icon+文字）此时整钮退化为图标方钮把文字空间让出来，最后纯文字按钮连续压扁，任何宽度都不折行（解压机制只识别 PageActionButton）',
     category: 'form',
     importPath:
       "import { PageButtonGroup } from '../../ui/page-button-group.tsx'\nimport { PageActionButton } from '../../ui/page-action-button.tsx'",
@@ -109,7 +109,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'children', type: 'ComponentChildren', description: 'PageButtonGroup：组内放置 PageActionButton' },
       { name: 'tone', type: "'plain' | 'default' | 'danger'", description: 'PageActionButton 色调，默认 plain' },
       { name: 'activated', type: 'boolean?', description: '持久选中态（如「已收藏」），蓝底白字' },
-      { name: 'icon', type: 'ComponentChildren?', description: '传入则为方形图标按钮（配 aria-label）' },
+      { name: 'icon', type: 'ComponentChildren?', description: '仅 icon → 28px 方钮（配 aria-label）；icon+文字 → 双态按钮：宽时文字、组内放不下退化为方钮' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
       { name: 'busy', type: 'boolean?', description: '提交中：文字前显示转圈' },
       { name: 'aria-label', type: 'string?', description: '无障碍标签' },
@@ -885,7 +885,7 @@ const buttonRef = useRef(null)
     ],
     codeExample: `<Icon name="delete" />
 <Icon name="add" family="sharp" fill weight={600} size={18} />
-{/* 前导图标；仅图标无文字时 Button 自动渲染为方形图标按钮 */}
+{/* icon 与文字互斥：传了 icon 只显示图标（方钮），文字转作无障碍名 */}
 <Button icon={<Icon name="add" size={13} />}>新建</Button>
 <Button icon={<Icon name="close" size={13} />} aria-label="关闭" />`,
   },
@@ -893,11 +893,11 @@ const buttonRef = useRef(null)
     id: 'icon-combo',
     name: 'Icon × 组件组合',
     description:
-      'Icon 与 kit 组件的组合示范：Button 的 icon 属性传前导图标（仅图标无文字自动成方钮）、List 的 leading 槽放图标；图标颜色随容器文字色（currentColor）',
+      'Icon 与 kit 组件的组合示范：Button 的 icon 属性与文字互斥（icon 独占成方钮、文字转无障碍名）、List 的 leading 槽放图标；图标颜色随容器文字色（currentColor）',
     category: 'icons',
     importPath: "import { Icon } from '../../ui/icon.tsx'",
     props: [
-      { name: 'Button · icon', type: 'ComponentChildren', description: '前导图标内容；无文字时自动渲染为 26×26 方钮' },
+      { name: 'Button · icon', type: 'ComponentChildren', description: '图标内容；与文字互斥，传入即渲染为 26×26 方钮' },
       { name: 'ListItem · leading', type: 'ComponentChildren', description: '行首图标/头像位' },
     ],
     codeExample: `<Button icon={<Icon name="add" size={13} />}>新建</Button>

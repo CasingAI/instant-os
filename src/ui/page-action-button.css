@@ -47,6 +47,15 @@
   flex-shrink: 0;
 }
 
+/*
+ * 双态按钮（icon + 文字）：平时就是文字按钮，图标休眠；只有在
+ * PageButtonGroup 里进入退位档（pg-icon-mode，见 page-button-group.css）
+ * 才整钮切到图标方钮。图标/文字不同时可见——与 Button 的 icon 互斥规则同源。
+ */
+.page-action-button--dual .page-action-button__icon {
+  display: none;
+}
+
 /* 方形图标按钮（+ / ⋯ 等），与文字按钮同高 */
 .page-action-button--icon {
   min-width: 28px;

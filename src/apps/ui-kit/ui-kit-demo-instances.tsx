@@ -188,8 +188,9 @@ export function ButtonDemo() {
 }
 
 export function PageButtonGroupDemo() {
-  // 挤压沙盒：滑杆控制容器宽，PageButtonGroup 自带 ResizeObserver 实时三级解压
+  // 挤压沙盒：滑杆控制容器宽，PageButtonGroup 自带 ResizeObserver 实时多级解压
   const [sandboxWidth, setSandboxWidth] = useState(340)
+  const [dualSandboxWidth, setDualSandboxWidth] = useState(340)
 
   return (
     <DemoVariants>
@@ -210,6 +211,27 @@ export function PageButtonGroupDemo() {
             <PageActionButton disabled>不可用</PageActionButton>
             <PageActionButton icon="＋" aria-label="添加" />
           </PageButtonGroup>
+        </div>
+      </DemoVariant>
+      <DemoVariant label="icon + 文字（放不下退化为图标）" wide>
+        <div class="ui-kit-demo__sandbox" style={{ width: `${dualSandboxWidth}px` }}>
+          <PageButtonGroup>
+            <PageActionButton icon={<Icon name="favorite" size={13} />}>收藏</PageActionButton>
+            <PageActionButton icon={<Icon name="download" size={13} />}>下载</PageActionButton>
+            <PageActionButton>分享</PageActionButton>
+            <PageActionButton tone="danger">删除</PageActionButton>
+          </PageButtonGroup>
+        </div>
+        <div class="ui-kit-demo__sandbox-controls">
+          <input
+            class="ui-kit-demo__sandbox-slider"
+            type="range"
+            min={90}
+            max={380}
+            value={dualSandboxWidth}
+            onInput={(e) => setDualSandboxWidth(Number(e.currentTarget.value))}
+          />
+          <span class="ui-kit-demo__sandbox-width">{dualSandboxWidth}px</span>
         </div>
       </DemoVariant>
       <DemoVariant label="挤压沙盒（拖滑杆收窄容器）" wide>
@@ -2154,18 +2176,18 @@ export function IconDemo() {
   )
 }
 
-/** 图标与 kit 组件的组合示范：Button 前导图标（无文字自动方钮）与 List 行首图标。 */
+/** 图标与 kit 组件的组合示范：Button 的 icon 与文字互斥（icon 独占成方钮）与 List 行首图标。 */
 export function IconComboDemo() {
   return (
     <DemoVariants>
-      <DemoVariant label="Button · 图标 + 文字" wide>
+      <DemoVariant label="Button · icon + 文字（文字不渲染，icon 独占）" wide>
         <div class="ui-kit-demo__row">
-          <Button icon={<Icon name="add" size={13} />}>新建</Button>
-          <Button tone="primary" icon={<Icon name="cloud_download" size={13} />}>
+          <Button title="新建" icon={<Icon name="add" size={13} />}>新建</Button>
+          <Button tone="primary" title="下载" icon={<Icon name="cloud_download" size={13} />}>
             下载
           </Button>
-          <Button tone="danger" icon={<Icon name="delete" size={13} />}>删除</Button>
-          <Button size="compact" icon={<Icon name="search" size={12} />}>
+          <Button tone="danger" title="删除" icon={<Icon name="delete" size={13} />}>删除</Button>
+          <Button size="compact" title="搜索" icon={<Icon name="search" size={12} />}>
             搜索
           </Button>
         </div>

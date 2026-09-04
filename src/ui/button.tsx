@@ -8,8 +8,8 @@ export type ButtonProps = {
   children?: ComponentChildren
   tone?: ButtonTone
   size?: ButtonSize
-  /** 方形图标按钮（导航箭头等） */
-  icon?: boolean
+  /** 图标内容（元素或字符）；与文字互斥——传入即只渲染图标（方形图标按钮），children 不再显示、转作无障碍名回退 */
+  icon?: ComponentChildren
   /** 异步进行中：以转圈替换文案并标记 aria-busy */
   busy?: boolean
   type?: 'button' | 'submit' | 'reset'
@@ -25,7 +25,7 @@ export function Button({
   children,
   tone = 'secondary',
   size = 'default',
-  icon = false,
+  icon,
   busy = false,
   type = 'button',
   disabled = false,
@@ -34,11 +34,12 @@ export function Button({
   'aria-label': ariaLabel,
   onClick,
 }: ButtonProps) {
+  const iconOnly = !!icon
   const classes = [
     'ios-button',
     `ios-button--${tone}`,
     size === 'compact' ? 'ios-button--compact' : undefined,
-    icon ? 'ios-button--icon' : undefined,
+    iconOnly ? 'ios-button--icon' : undefined,
     busy ? 'ios-button--busy' : undefined,
     className,
   ]
@@ -52,14 +53,23 @@ export function Button({
       disabled={disabled}
       title={title}
       aria-busy={busy || undefined}
-      aria-label={busy ? (ariaLabel ?? extractText(children)) : ariaLabel}
+      aria-label={ariaLabel ?? (busy || iconOnly ? extractText(children) : undefined)}
       onClick={onClick}
     >
-      {busy ? <span class="ios-button__spinner" aria-hidden="true" /> : children}
+      {busy ? (
+        <span class="ios-button__spinner" aria-hidden="true" />
+      ) : (
+        <>
+          {icon ? <span class="ios-button__icon">{icon}</span> : undefined}
+          {iconOnly ? undefined : children}
+        </>
+      )}
     </button>
   )
 }
 
+// 方形图标按钮（.ios-button--icon）由「传了 icon」直接推断，不再有独立布尔开关；
+// 图标与文字互斥：icon 存在时文字不渲染，屏幕阅读器名从 children 回退（见下方 extractText）
 // busy 时文案被 spinner 替换，屏幕阅读器仍需从 children 里取到可读标签
 function extractText(children: ComponentChildren): string | undefined {
   if (typeof children === 'string') return children

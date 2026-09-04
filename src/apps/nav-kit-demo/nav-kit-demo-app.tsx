@@ -12,6 +12,7 @@ import { PageHeader } from '../../ui/page-header.tsx'
 import { Button } from '../../ui/button.tsx'
 import { PageButtonGroup } from '../../ui/page-button-group.tsx'
 import { PageActionButton } from '../../ui/page-action-button.tsx'
+import { Icon } from '../../ui/icon.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import {
   AdaptiveSplitNav,
@@ -338,13 +339,17 @@ export function NavKitDemoApp() {
             onBack={showBack ? backPos : undefined}
             actions={
               <PageButtonGroup>
-                <PageActionButton activated={isFav} onClick={() => toggleFavorite(favKey)}>
+                <PageActionButton
+                  icon={<Icon name="favorite" size={13} />}
+                  activated={isFav}
+                  onClick={() => toggleFavorite(favKey)}
+                >
                   收藏
                 </PageActionButton>
                 <PageActionButton activated={isRead} onClick={() => toggleRead(readKey)}>
                   标记已读
                 </PageActionButton>
-                <PageActionButton>分享</PageActionButton>
+                <PageActionButton icon={<Icon name="share" size={13} />}>分享</PageActionButton>
                 <PageActionButton>导出备份</PageActionButton>
               </PageButtonGroup>
             }
@@ -414,13 +419,17 @@ export function NavKitDemoApp() {
             onBack={showBack ? backPos : undefined}
             actions={
               <PageButtonGroup>
-                <PageActionButton activated={isFav} onClick={() => toggleFavorite(favKey)}>
+                <PageActionButton
+                  icon={<Icon name="favorite" size={13} />}
+                  activated={isFav}
+                  onClick={() => toggleFavorite(favKey)}
+                >
                   收藏
                 </PageActionButton>
                 <PageActionButton activated={isRead} onClick={() => toggleRead(readKey)}>
                   标记已读
                 </PageActionButton>
-                <PageActionButton>分享</PageActionButton>
+                <PageActionButton icon={<Icon name="share" size={13} />}>分享</PageActionButton>
                 <PageActionButton>导出备份</PageActionButton>
               </PageButtonGroup>
             }
