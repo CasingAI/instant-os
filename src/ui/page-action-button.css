@@ -1,4 +1,5 @@
-/* 页面操作按钮（自包含）：与系统 Header 按钮（settings__btn）同款外观与挤压行为。 */
+/* 页面操作按钮（自包含）：与系统 Header 按钮（settings__btn）同款外观与挤压行为；
+ * 字重已对齐 Button 单档规格（400），其余几何（84px 最小宽 / 0 14px 边距 / 13px 字号）与压缩级联保持原状。 */
 
 :root {
   --page-action-plain-color: #333;
@@ -25,7 +26,7 @@
   border: var(--page-action-border);
   font: inherit;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--page-action-plain-color);
   background: var(--page-action-plain-bg);
   text-shadow: var(--page-action-text-shadow);
