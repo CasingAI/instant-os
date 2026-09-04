@@ -2398,6 +2398,9 @@ export async function copyNodeTo(params: {
   onProgress?: (progress: FilesVfsOpProgress) => void
   /** 协作取消：树内文件之间为检查点；取消时 best-effort 清掉已建的目的子树 */
   signal?: AbortSignal
+  /** 调用方已算好的复制工作量（estimate 钩子结果）；镜像卷上遍历目录要排卷队列，
+   *  省掉内部二次遍历就省掉一半的「正在统计…」等待。缺省时仍内部估算。 */
+  workload?: { nodeCount: number; byteSize: number }
 }): Promise<FilesNode> {
   const source = await getNodeOrThrow(params.sourceId)
   if (isTrashLocationId(params.destLocationId)) {
@@ -2420,7 +2423,7 @@ export async function copyNodeTo(params: {
     await assertAdditionalBytesAvailable(needed)
   }
 
-  const workload = await estimateCopyWorkloadForNode(source)
+  const workload = params.workload ?? (await estimateCopyWorkloadForNode(source))
   const total = filesWorkloadUnits(workload.nodeCount, workload.byteSize)
   const progressState = { done: 0, items: 0, bytes: 0 }
   params.onProgress?.({

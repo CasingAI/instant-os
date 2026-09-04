@@ -2336,6 +2336,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                   destLocationId: locationId,
                   destParentId: folderId,
                   signal,
+                  workload: workloads[index],
                   onProgress: (progress) => {
                     report({
                       done: done + progress.done,

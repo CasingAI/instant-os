@@ -38,12 +38,14 @@ export function isOpfsAvailable(): boolean {
 /** 测试用：改走内存，不碰浏览器 OPFS。可重复调用，不清已有内容。 */
 export function useMemoryOpfsForTests(): void {
   if (memoryFiles === undefined) memoryFiles = new Map()
+  nativeFileHandleCache.clear()
   blobsDirPromise = undefined
 }
 
 /** 测试用：清空正文；内存模式保持开启。 */
 export function resetOpfsBlobsForTests(): void {
   memoryFiles?.clear()
+  nativeFileHandleCache.clear()
   blobsDirPromise = undefined
 }
 
@@ -85,14 +87,24 @@ async function getBlobsDir(): Promise<FileSystemDirectoryHandle> {
   }
 }
 
+/**
+ * OPFS 句柄是文件路径的稳定引用，可跨调用复用（getFile() 每次现调，大小/元数据仍新鲜）。
+ * 镜像卷扇区补页是高频小读，省掉每次 getFileHandle 的异步往返是成倍的开销差。
+ */
+const nativeFileHandleCache = new Map<string, FileSystemFileHandle>()
+
 async function getNativeFileHandle(
   blobId: string,
   create: boolean,
 ): Promise<FileSystemFileHandle | undefined> {
+  const cached = nativeFileHandleCache.get(blobId)
+  if (cached) return cached
   const dir = await getBlobsDir()
   const name = opfsFileName(blobId)
   try {
-    return await dir.getFileHandle(name, { create })
+    const handle = await dir.getFileHandle(name, { create })
+    nativeFileHandleCache.set(blobId, handle)
+    return handle
   } catch {
     if (create) throw new Error('无法在 OPFS 中创建正文文件')
     return undefined
@@ -248,6 +260,7 @@ export async function copyOpfsBlob(fromId: string, toId: string): Promise<void> 
 }
 
 export async function deleteOpfsBlob(blobId: string): Promise<void> {
+  nativeFileHandleCache.delete(blobId)
   if (memoryFiles !== undefined) {
     memoryFiles.delete(opfsFileName(blobId))
     return

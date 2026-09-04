@@ -4,7 +4,9 @@ import type { ImageVolumeEntry, ImageVolumeFsInfo } from './files-image-volume.t
 import { IMAGE_VOLUME_CLOSING_ERROR } from './files-image-volume.ts'
 
 const SECTOR = 512
-const PREFETCH_MIN = 4096
+/** 缺页补页的预取下限：每次补页 = 一趟 OPFS 异步读（事务 + 句柄 getFile），
+ *  往返成本远高于多读的字节本身；按 64KB 预取让目录表/簇链的散布访问成倍减少补页次数 */
+const PREFETCH_MIN = 64 * 1024
 /** 单次操作允许的缺页补页次数；挂载时已预填 FAT，此上限只防极端碎片 */
 const SECTOR_MISS_RETRY_LIMIT = 1024
 const WRITE_BEHIND_IDLE_MS = 100
