@@ -275,6 +275,32 @@ function applyLocalItemsChange(
   )
 }
 
+/**
+ * 列目录结果与「仍在写入的占位行」合并。
+ * 镜像卷上 in-flight 的 listDirectory 可能在 mkdir 之前就进了串行队列，
+ * 返回的旧清单若直接整表替换，会把刚插入、进度表里还挂着的目标根冲掉。
+ */
+function mergeListingWithWritingPlaceholders(
+  listed: readonly FilesNode[],
+  previous: readonly FilesNode[],
+  locationId: FilesLocationId,
+  folderId: string | undefined,
+  sort: FilesSort,
+): FilesNode[] {
+  const writing = getFilesWriteProgressSnapshot()
+  if (writing.size === 0) return sortNodeList([...listed], sort)
+  const listedIds = new Set(listed.map((node) => node.id))
+  const placeholders = previous.filter(
+    (node) =>
+      !listedIds.has(node.id) &&
+      writing.has(node.id) &&
+      node.locationId === locationId &&
+      node.parentId === folderId,
+  )
+  if (placeholders.length === 0) return sortNodeList([...listed], sort)
+  return sortNodeList([...listed, ...placeholders], sort)
+}
+
 /** 列表排序：文件夹恒排前，组内按 key 排序；direction=desc 组内反转 */
 function sortNodeList(nodes: readonly FilesNode[], sort: FilesSort): FilesNode[] {
   const compare = (a: FilesNode, b: FilesNode): number => {
@@ -787,6 +813,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const viewportMetaDebounceRef = useRef<number | undefined>(undefined)
   const itemsRef = useRef<FilesNode[]>([])
   itemsRef.current = items
+  const locationIdRef = useRef(locationId)
+  locationIdRef.current = locationId
+  const folderIdRef = useRef(folderId)
+  folderIdRef.current = folderId
   const lastOpenedDocumentIdRef = useRef<string | undefined>(undefined)
   const lastRevealNonceRef = useRef(0)
   const narrowLayoutRef = useRef(narrowLayout)
@@ -1116,7 +1146,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
     resetViewportMeta()
     if (cachedListing !== undefined) {
-      setItems(sortNodeList(cachedListing, sort))
+      setItems((prev) =>
+        mergeListingWithWritingPlaceholders(cachedListing, prev, locationId, folderId, sort),
+      )
       armScrollRestore()
     }
     if (!options?.quiet) {
@@ -1149,7 +1181,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         resolvePathNodes(locationId, folderId),
       ])
       if (gen !== refreshGenRef.current) return
-      setItems(sortNodeList(listed, sort))
+      setItems((prev) =>
+        mergeListingWithWritingPlaceholders(listed, prev, locationId, folderId, sort),
+      )
       armScrollRestore()
       setPathNodes(path)
     } catch (err) {
@@ -1477,7 +1511,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
   // 写入中行内进度：登记表自带 ~100ms 节流通知，快照每次新 Map 触发行重渲染
   useEffect(
-    () => subscribeFilesWriteProgress(() => setWriteProgress(getFilesWriteProgressSnapshot())),
+    () =>
+      subscribeFilesWriteProgress(() => {
+        const snapshot = getFilesWriteProgressSnapshot()
+        setWriteProgress(snapshot)
+      }),
     [],
   )
 
@@ -2189,6 +2227,21 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     ],
   )
 
+  /** 粘贴/拖放的目标仍是当前打开的目录时，立刻把根文件夹插进列表（与新建文件夹同一范式）。
+   *  中途点进别的目录则不往新列表塞。按 id 去重，收尾那次 add 不会插重复行。 */
+  const insertDestRootIfViewing = useCallback(
+    (root: FilesNode, destLocationId: FilesLocationId, destParentId: string | undefined) => {
+      if (locationIdRef.current !== destLocationId) return
+      if (folderIdRef.current !== destParentId) return
+      setItems((prev) => applyLocalItemsChange(prev, { kind: 'add', nodes: [root] }, sort))
+      // 新行按名称排序，往往不在当前屏；等提交进 DOM 再滚到最近可见
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => scrollSelectedIntoView(root.id))
+      })
+    },
+    [scrollSelectedIntoView, sort],
+  )
+
   const handlePaste = useCallback(async () => {
     const entry = getFilesClipboard()
     if (!entry) {
@@ -2337,6 +2390,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                   destParentId: folderId,
                   signal,
                   workload: workloads[index],
+                  onDestRootReady: (root) => insertDestRootIfViewing(root, locationId, folderId),
                   onProgress: (progress) => {
                     report({
                       done: done + progress.done,
@@ -2386,7 +2440,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
       await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
     }
-  }, [askFilesConflict, canCreateHere, closeTransientMenus, folderId, locationId, modal, pasteVmFiles, refresh, setItems, showToast, sort])
+  }, [askFilesConflict, canCreateHere, closeTransientMenus, folderId, insertDestRootIfViewing, locationId, modal, pasteVmFiles, refresh, setItems, showToast, sort])
 
   /**
    * 删除选中项：默认移入废纸篓；permanent（按住 ⌥）时永久删除。
@@ -3031,6 +3085,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                     destLocationId: dest.destLocationId,
                     destParentId: dest.destParentId,
                     signal,
+                    onDestRootReady: (root) =>
+                      insertDestRootIfViewing(root, dest.destLocationId, dest.destParentId),
                     onProgress: (progress) => {
                       report({
                         done: done + progress.done,
@@ -3073,7 +3129,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
       }
     },
-    [clearSelection, folderId, modal, refresh, showToast],
+    [clearSelection, folderId, insertDestRootIfViewing, modal, refresh, showToast],
   )
 
   /** 导入系统外部文件（拖放 / 选择器）：写入由公共 importExternalNodes 完成 */

@@ -4,6 +4,7 @@ import {
   filesOpProgressFraction,
   formatFilesOpRemainingLabel,
   FILES_OP_PROGRESS_MIN_VISIBLE_MS,
+  FILES_OP_PROGRESS_SHOW_DELAY_MS,
   type FilesOpProgressSnapshot,
 } from './files-op-progress-policy.ts'
 import {
@@ -32,7 +33,7 @@ export type FilesOpProgressUiState = {
   title: string
   remainingLabel: string
   fraction: number
-  /** 统计阶段：总量未定时圆饼走旋转弧线，而不是停在 0 的空饼 */
+  /** 统计阶段：总量未定（迷你窗仍画横条，文案走「正在统计…」） */
   indeterminate?: boolean
   /** 补充信息（字节数 / 项数），由 task 在 report 里附带 */
   detailLabel?: string
@@ -69,7 +70,7 @@ function titleForKind(kind: FilesOpProgressKind): string {
   return '正在删除…'
 }
 
-/** 提供 estimate 时入口态文案：窗口立刻出现，进度条停在 0 */
+/** 提供 estimate 时入口态文案：操作超过延迟门槛未完成时窗口出现，先显示此统计态 */
 export const FILES_OP_PROGRESS_ESTIMATING_LABEL = '正在统计需要处理的内容…'
 
 /** 速度采样下限：开跑头几百毫秒按总耗时折算会虚高，先不显示 */
@@ -85,8 +86,14 @@ export async function runFilesOpWithProgress<T>(params: {
   /** 最短显示时长；默认 FILES_OP_PROGRESS_MIN_VISIBLE_MS（测试可调短） */
   minVisibleMs?: number
   /**
-   * 统计阶段钩子。提供时窗口先显示「正在统计…」，await 得到总量后再进入正式进度。
-   * 不传则行为与原先一致：立即用 totalWork 定标并展示。
+   * 延迟显示门槛（毫秒）；默认 FILES_OP_PROGRESS_SHOW_DELAY_MS。
+   * 在此时长内完成的操作全程不弹窗（也不回调 onUiChange）。
+   * 传 0 恢复立即显示（测试用）。
+   */
+  showDelayMs?: number
+  /**
+   * 统计阶段钩子。提供时窗口出现后先显示「正在统计…」，await 得到总量后再进入正式进度。
+   * 操作在延迟门槛内完成则窗口根本不出现，此钩子照常执行、不产生任何 UI 回调。
    */
   estimate?: () => Promise<number>
   /** 可选：调用方本地 UI；系统迷你窗由进度会话自动打开，不必再传 */
@@ -112,7 +119,12 @@ export async function runFilesOpWithProgress<T>(params: {
   let total = Math.max(1, params.totalWork ?? 1)
   let estimatedTotalMs = params.estimatedTotalMs ?? estimateFilesOpDurationMs(total)
   const minVisibleMs = Math.max(0, params.minVisibleMs ?? FILES_OP_PROGRESS_MIN_VISIBLE_MS)
+  /** 延迟显示门槛：测试可调短；0 表示沿用旧行为（立即显示） */
+  const showDelayMs = Math.max(0, params.showDelayMs ?? FILES_OP_PROGRESS_SHOW_DELAY_MS)
   let uiTimer: number | undefined
+  let showTimer: number | undefined
+  /** 延迟期内尚未展示：短操作直接结束，全程零 UI 回调 */
+  let uiShown = false
 
   const snapshot = (): FilesOpProgressSnapshot => ({
     done,
@@ -122,8 +134,18 @@ export async function runFilesOpWithProgress<T>(params: {
   })
 
   const emitUi = (state: FilesOpProgressUiState | undefined) => {
+    // 延迟期内尚未展示：进度上报只记账不推送，短操作结束时全程零 UI 回调
+    if (!uiShown) return
     params.onUiChange?.(state)
     publishFilesOpProgress(sessionId, state)
+  }
+
+  /** 首次展示：一旦展示就启动 250ms 刷新节拍 */
+  const showUi = () => {
+    if (uiShown) return
+    uiShown = true
+    pushUi()
+    uiTimer = window.setInterval(pushUi, 250)
   }
 
   const pushUi = () => {
@@ -176,17 +198,24 @@ export async function runFilesOpWithProgress<T>(params: {
   }
 
   const clearTimers = () => {
+    if (showTimer !== undefined) {
+      window.clearTimeout(showTimer)
+      showTimer = undefined
+    }
     if (uiTimer !== undefined) {
       window.clearInterval(uiTimer)
       uiTimer = undefined
     }
   }
 
-  // 立即展示：进度窗的意义就是让用户看到操作在进行。此前「350ms 观察窗 + 剩余
-  // ETA≥2s 才弹」的门槛按本地卷吞吐估算，镜像卷实际慢一个量级，大拷贝整程无窗，
-  // 用户误以为已完成就推出，写入被截断后静默丢数据。
-  pushUi()
-  uiTimer = window.setInterval(pushUi, 250)
+  // 延迟展示：耗时短于门槛的操作全程不弹窗（也不回调 onUiChange），结束即返回。
+  // 门槛只看耗时、不预估 ETA——本地卷小操作不打扰，
+  // 镜像卷上慢一个量级的大拷贝一定会超时弹窗，不复现「整程无窗误退出截断写入」。
+  if (showDelayMs <= 0) {
+    showUi()
+  } else {
+    showTimer = window.setTimeout(showUi, showDelayMs)
+  }
 
   let succeeded = false
   try {
@@ -209,7 +238,9 @@ export async function runFilesOpWithProgress<T>(params: {
     throw error
   } finally {
     clearTimers()
-    if (succeeded) {
+    // 延迟期内已结束（uiShown 为 false）：窗口从未出现，不补完成态、不补最短停留，
+    // 下面的 emitUi(undefined) 因门控直接返回，全程零 UI 回调
+    if (uiShown && succeeded) {
       // 完成态立刻可见；窗口保持到最短显示时长再关，避免一闪而过被当成没弹过
       emitUi({
         title: params.titleOverride ?? titleForKind(params.kind),

@@ -1,19 +1,20 @@
 /**
  * 全局流写入进度登记表。
  *
- * openStreamWrite 打开后登记（含 expectedSize 总量），每 chunk 累加 written，
- * close/abort 后移除。列表行的「写入中」小圆圈从这里取数，不依赖
- * FILES_VFS_CHANGED_EVENT（分片写不发事件，目录缓存在 close 前也是陈旧的）。
+ * 登记表只承载百分比：登记方（解压落盘、外部导入、流写、文件夹拷贝）手里
+ * 本来就同时有 done 和 total，由它们算好 0~1 的 fraction 喂进来；圆饼只认
+ * fraction——undefined 表示总量未知，画旋转弧。openStreamWrite 打开后登记，
+ * 每 chunk 更新，close/abort 后移除。列表行的「写入中」小圆圈从这里取数，
+ * 不依赖 FILES_VFS_CHANGED_EVENT（分片写不发事件，目录缓存在 close 前也是陈旧的）。
  *
- * 通知节流：登记/移除立即通知（行要马上出现/消失圆圈）；written 更新走
+ * 通知节流：登记/移除立即通知（行要马上出现/消失圆圈）；fraction 更新走
  * 尾随定时器（~100ms），避免 1MB 分片高频刷新拖累列表渲染。
  */
 
 export type FilesWriteProgressEntry = {
   nodeId: string
-  written: number
-  /** 预期总量（expectedSize）；缺省时行内显示不定态旋转 */
-  total: number | undefined
+  /** 0~1；缺省表示进度未知（行内画旋转弧） */
+  fraction: number | undefined
 }
 
 type FilesWriteProgressListener = () => void
@@ -49,15 +50,15 @@ export function getFilesWriteProgressSnapshot(): ReadonlyMap<string, FilesWriteP
   return new Map(entries)
 }
 
-export function registerFilesWriteProgress(nodeId: string, total: number | undefined): void {
-  entries.set(nodeId, { nodeId, written: 0, total })
+export function registerFilesWriteProgress(nodeId: string, fraction: number | undefined): void {
+  entries.set(nodeId, { nodeId, fraction })
   notifyNow()
 }
 
-export function updateFilesWriteProgress(nodeId: string, written: number): void {
+export function updateFilesWriteProgress(nodeId: string, fraction: number): void {
   const entry = entries.get(nodeId)
   if (!entry) return
-  entry.written = written
+  entry.fraction = Math.min(1, Math.max(0, fraction))
   notifyDirty = true
   if (notifyTimer === undefined) {
     notifyTimer = setTimeout(() => {

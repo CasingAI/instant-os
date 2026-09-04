@@ -1,6 +1,12 @@
 /** 进度窗最短停留时长：极快操作补足到 1 秒防一闪而过；已超过的任务完成即刻关窗 */
 export const FILES_OP_PROGRESS_MIN_VISIBLE_MS = 1000
 
+/**
+ * 进度窗延迟显示门槛：操作在此耗时内完成则全程不弹窗（也不回调 onUiChange）。
+ * 纯耗时门槛、不预估 ETA——镜像卷上的慢操作一定会弹窗，快操作永不打扰。
+ */
+export const FILES_OP_PROGRESS_SHOW_DELAY_MS = 350
+
 export type FilesOpProgressSnapshot = {
   done: number
   total: number

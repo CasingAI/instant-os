@@ -1537,8 +1537,9 @@ export async function openStreamWrite(params: {
     // 用 writer.node（实际占位节点）：unique-suffix 撞名后名称已变，须按最终名通知
     await emitNodeCreated(writer.node)
   }
-  // 写入中登记（行内小圆圈数据源）：新建与覆盖都算；close/abort 无论成败都要移除
-  registerFilesWriteProgress(writer.node.id, expectedSize)
+  // 写入中登记（行内小圆圈数据源）：新建与覆盖都算；close/abort 无论成败都要移除。
+  // expectedSize 未知时 fraction 缺省（旋转弧）；已知则按字节百分比推进
+  registerFilesWriteProgress(writer.node.id, expectedSize && expectedSize > 0 ? 0 : undefined)
   let registryWritten = 0
   return {
     node: writer.node,
@@ -1546,7 +1547,9 @@ export async function openStreamWrite(params: {
       const startedAt = performance.now()
       await writer.write(chunk)
       registryWritten += chunk.byteLength
-      updateFilesWriteProgress(writer.node.id, registryWritten)
+      if (expectedSize && expectedSize > 0) {
+        updateFilesWriteProgress(writer.node.id, registryWritten / expectedSize)
+      }
       recordFilesIoWrite(writer.node, chunk.byteLength, 'streamWrite', performance.now() - startedAt)
     },
     close: async () => {
@@ -1669,10 +1672,6 @@ export type FilesDeleteWorkload = {
 }
 
 const LARGE_SUBTREE_DELETE_THRESHOLD = 2000
-
-function nodeWorkloadUnits(node: FilesNode): number {
-  return filesWorkloadUnits(1, node.byteSize)
-}
 
 export async function estimateCopyWorkload(sourceId: string): Promise<FilesCopyWorkload> {
   const source = await getNodeOrThrow(sourceId)
@@ -2401,6 +2400,12 @@ export async function copyNodeTo(params: {
   /** 调用方已算好的复制工作量（estimate 钩子结果）；镜像卷上遍历目录要排卷队列，
    *  省掉内部二次遍历就省掉一半的「正在统计…」等待。缺省时仍内部估算。 */
   workload?: { nodeCount: number; byteSize: number }
+  /**
+   * 文件夹源：目标根已 mkdir、写入进度已登记、尚未开始拷子项。
+   * 调用方据此立刻把该行插进当前目录列表——镜像卷上 listDirectory 与写入
+   * 抢同一条串行队列，等刷新则行出现时饼早已撤掉。文件源不回调。
+   */
+  onDestRootReady?: (root: FilesNode) => void
 }): Promise<FilesNode> {
   const source = await getNodeOrThrow(params.sourceId)
   if (isTrashLocationId(params.destLocationId)) {
@@ -2434,10 +2439,20 @@ export async function copyNodeTo(params: {
     bytes: { done: 0, total: workload.byteSize },
   })
 
-  const reportNodeDone = (node: FilesNode) => {
-    progressState.done = Math.min(total, progressState.done + nodeWorkloadUnits(node))
+  /** 目标根登记后才指向其 id；reportNodeDone 据此按每个节点推进圆饼，避免整段停在空心圆 */
+  let pieNodeId: string | undefined
+  const reportNodeDone = (node: FilesNode, realByteSize?: number) => {
+    // 挂载卷源节点 byteSize 恒 0（列表懒解析），拷贝时以读到的真实 blob.size 记账
+    const byteSize = realByteSize ?? node.byteSize
+    progressState.done = Math.min(total, progressState.done + filesWorkloadUnits(1, byteSize))
     progressState.items += 1
-    progressState.bytes += node.byteSize
+    progressState.bytes += byteSize
+    if (pieNodeId !== undefined) {
+      // 字节总量已知走字节百分比；挂载卷等 0 字节树走项数百分比（如 2/14）
+      const fraction =
+        workload.byteSize > 0 ? progressState.bytes / workload.byteSize : progressState.items / workload.nodeCount
+      updateFilesWriteProgress(pieNodeId, fraction)
+    }
     params.onProgress?.({
       done: progressState.done,
       total,
@@ -2447,9 +2462,14 @@ export async function copyNodeTo(params: {
     })
   }
 
+  // 挂载卷等尺寸懒解析的源树会估出 byteSize=0（mount:* 列表建节点时字节恒 0，
+  // 读文件才补 stat），不能据此当空树跳过登记；树里不止根自己就登记，圆饼
+  // 按项数推进。真正空树（nodeCount===1）仍不登记，免得闪一帧。
+  const shouldTrackPie = workload.byteSize > 0 || workload.nodeCount > 1
+
   // 文件夹源：目标根文件夹先建出来并登记写入进度（列表里图标叠圆饼），
   // 再逐个往里拷子项；子项的变更仍按调用方的批量合并排队，但根文件夹
-  // 的 created 立即广播，当前目录列表马上出现「正在填充」的它。
+  // 的 created 立即广播，并由 onDestRootReady 让当前目录立刻插行。
   if (source.kind === 'folder') {
     const root = await mkdir({
       locationId: params.destLocationId,
@@ -2457,25 +2477,27 @@ export async function copyNodeTo(params: {
       name: source.name,
     })
     reportNodeDone(source)
-    // 空树没有可填充的字节，登记只会闪一帧旋转弧；直接不登记
-    if (workload.byteSize > 0) registerFilesWriteProgress(root.id, workload.byteSize)
+    if (shouldTrackPie) {
+      registerFilesWriteProgress(root.id, 0)
+      pieNodeId = root.id
+    }
     try {
       await emitNodeCreatedImmediately(root)
+      params.onDestRootReady?.(root)
       const children = await listDirectory(source.locationId, source.id)
       for (const child of children) {
         params.signal?.throwIfAborted?.()
         await copyNodeTree(child, params.destLocationId, root.id, reportNodeDone, params.signal)
-        if (workload.byteSize > 0) updateFilesWriteProgress(root.id, progressState.bytes)
       }
     } catch (err) {
-      if (workload.byteSize > 0) removeFilesWriteProgress(root.id)
+      if (shouldTrackPie) removeFilesWriteProgress(root.id)
       if (params.signal?.aborted) {
         // 取消：内层 copyNodeTree 已逐层清掉各自建的目录，这里清根
         await removeNodeForced(root.id).catch(() => undefined)
       }
       throw err
     }
-    if (workload.byteSize > 0) removeFilesWriteProgress(root.id)
+    if (shouldTrackPie) removeFilesWriteProgress(root.id)
     params.onProgress?.({
       done: total,
       total,
@@ -2544,7 +2566,7 @@ async function copyNodeTree(
   source: FilesNode,
   destLocationId: FilesLocationId,
   destParentId: string | undefined,
-  reportNodeDone: (node: FilesNode) => void,
+  reportNodeDone: (node: FilesNode, realByteSize?: number) => void,
   signal?: AbortSignal,
 ): Promise<FilesNode> {
   // 取消粒度=文件之间：当前节点保持原子提交，下一个节点开工前才检查
@@ -2594,7 +2616,8 @@ async function copyNodeTree(
         text,
       })
     }
-    reportNodeDone(source)
+    // 挂载卷源节点 byteSize 恒 0，读到的 blob.size 才是真实字节数，交给进度记账
+    reportNodeDone(source, blob.size)
     return created
   }
 

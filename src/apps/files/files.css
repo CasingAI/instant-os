@@ -1035,6 +1035,7 @@ button.files__path-bar-segment:active {
   width: 28px;
   height: 28px;
   flex: 0 0 auto;
+  overflow: visible;
 }
 
 .files__list-icon .files-node-icon--list {
@@ -1660,8 +1661,8 @@ button.files__path-bar-segment:active {
   position: absolute;
   right: -3px;
   bottom: -3px;
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
@@ -1671,8 +1672,8 @@ button.files__path-bar-segment:active {
 .files-write-progress--grid .files-write-progress__badge {
   right: 1px;
   bottom: 1px;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .files-progress-pie__spin {

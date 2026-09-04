@@ -45,7 +45,7 @@ function toUpsertItem(absolutePath: string, bytes: Uint8Array): FilesUpsertBatch
 
 /**
  * 解压前先建好顶层文件夹并触发 VFS 通知，让文件管理器立刻能看见目标。
- * 同时登记写入进度（总量=该顶层子树字节）：文件夹图标上叠圆饼表示「已占位、未就绪」。
+ * 同时登记写入进度（按该顶层子树字节百分比推进）：文件夹图标上叠圆饼表示「已占位、未就绪」。
  */
 async function ensureTopLevelFolders(
   destRoot: string,
@@ -64,7 +64,7 @@ async function ensureTopLevelFolders(
     if (!existing) await filesMkdir(folderPath)
     const node = await resolveNodeByAbsolutePath(folderPath, { follow: false })
     if (!node || total <= 0) continue
-    registerFilesWriteProgress(node.id, total)
+    registerFilesWriteProgress(node.id, 0)
     fills.push({ name, nodeId: node.id, written: 0, total })
   }
   return fills
@@ -137,7 +137,7 @@ export async function materializeArchiveEntries(params: {
         const fill = topName ? fillByTopName.get(topName) : undefined
         if (fill) {
           fill.written += row.byteLength
-          updateFilesWriteProgress(fill.nodeId, fill.written)
+          updateFilesWriteProgress(fill.nodeId, fill.written / fill.total)
         }
         onProgress?.({
           done,

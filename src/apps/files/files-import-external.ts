@@ -277,7 +277,7 @@ export async function importExternalNodes(params: {
               dirStack.push({ path: actualPath, id: created.id })
               if (isTopLevel) {
                 const total = topFolderTotals.shift() ?? 0
-                if (total > 0) registerFilesWriteProgress(created.id, total)
+                if (total > 0) registerFilesWriteProgress(created.id, 0)
                 activeFill = { id: created.id, written: 0, total }
                 await emitNodeCreatedImmediately(created)
               }
@@ -337,7 +337,7 @@ export async function importExternalNodes(params: {
                 written += bytes.byteLength
                 if (activeFill && activeFill.total > 0) {
                   activeFill.written += bytes.byteLength
-                  updateFilesWriteProgress(activeFill.id, activeFill.written)
+                  updateFilesWriteProgress(activeFill.id, activeFill.written / activeFill.total)
                 }
                 report({
                   done: written,

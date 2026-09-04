@@ -1,10 +1,11 @@
 /**
  * 进度包装器单测：
- * - 任务开始立即展示进度窗（无观察窗/ETA 门槛）
- * - 成功后立刻进入完成态（fraction=1、「已完成」、无取消按钮），窗口保持到最短显示时长才关；
- *   任务时长已超过最短显示时完成即关，不追加挂起
+ * - 延迟显示：耗时短于门槛的操作全程不弹窗（onUiChange 零回调）；
+ *   超过门槛才展示，成功后进入完成态（fraction=1、「已完成」、无取消按钮），
+ *   窗口保持到最短显示时长才关；任务时长已超过最短显示时完成即关，不追加挂起
  * - 失败/取消不进入完成态，窗口立即关闭
  * - estimate 钩子：先出「正在统计…」再定标；抛错关窗并传播；统计阶段计入最短显示
+ * - showDelayMs: 0 恢复立即显示（旧行为，测试里用来覆盖展示后的各状态）
  * 运行：node --experimental-strip-types src/apps/files/files-run-with-op-progress.test.ts
  */
 import './files-mount-test-window.ts'
@@ -28,6 +29,7 @@ async function testShowsImmediatelyAndCompletes(): Promise<void> {
     kind: 'paste',
     totalWork: 100,
     minVisibleMs: MIN_VISIBLE,
+    showDelayMs: 0,
     onUiChange: (state) => states.push(state ? { ...state } : state),
     task: async (report) => {
       // 首个 report 之前窗口就必须已经展示
@@ -49,6 +51,52 @@ async function testShowsImmediatelyAndCompletes(): Promise<void> {
   console.log('run-with-op-progress immediate-show + completed-hold ok')
 }
 
+/** 短操作在延迟门槛内完成：全程零 UI 回调、不弹窗 */
+async function testQuickOpShowsNothing(): Promise<void> {
+  const states: Array<FilesOpProgressUiState | undefined> = []
+  await runFilesOpWithProgress({
+    kind: 'paste',
+    totalWork: 10,
+    minVisibleMs: MIN_VISIBLE,
+    showDelayMs: 60,
+    onUiChange: (state) => states.push(state ? { ...state } : state),
+    task: async (report) => {
+      report({ done: 10, total: 10 })
+    },
+  })
+  assert.equal(states.length, 0, `短操作不应有任何 UI 回调 states=${JSON.stringify(states)}`)
+  console.log('run-with-op-progress quick-op silent ok')
+}
+
+/** 慢操作超过延迟门槛：延迟后出现，之后行为与立即显示一致 */
+async function testSlowOpShowsAfterDelay(): Promise<void> {
+  const states: Array<FilesOpProgressUiState | undefined> = []
+  let firstAt = 0
+  const showDelayMs = 60
+  await runFilesOpWithProgress({
+    kind: 'paste',
+    totalWork: 100,
+    minVisibleMs: MIN_VISIBLE,
+    showDelayMs,
+    onUiChange: (state) => {
+      if (state && firstAt === 0) firstAt = performance.now()
+      states.push(state ? { ...state } : state)
+    },
+    task: async (report) => {
+      await sleep(showDelayMs + 40)
+      report({ done: 50, total: 100 })
+      await sleep(10)
+      report({ done: 100, total: 100 })
+    },
+  })
+  assert.ok(states.length > 0, '慢操作应展示进度窗')
+  assert.ok(firstAt > 0)
+  const closedIndex = states.findIndex((state) => state === undefined)
+  assert.ok(closedIndex > 0, '窗口最终要关闭')
+  assert.equal(states[closedIndex - 1]!.remainingLabel, '已完成')
+  console.log('run-with-op-progress slow-op delayed-show ok')
+}
+
 async function testErrorClosesWithoutCompletedState(): Promise<void> {
   const states: Array<FilesOpProgressUiState | undefined> = []
   await assert.rejects(
@@ -56,6 +104,7 @@ async function testErrorClosesWithoutCompletedState(): Promise<void> {
       kind: 'delete',
       totalWork: 10,
       minVisibleMs: MIN_VISIBLE,
+      showDelayMs: 0,
       onUiChange: (state) => states.push(state ? { ...state } : state),
       task: async () => {
         await sleep(5)
@@ -78,6 +127,7 @@ async function testCancelConvertsToCancelledError(): Promise<void> {
       kind: 'paste',
       totalWork: 10,
       minVisibleMs: MIN_VISIBLE,
+      showDelayMs: 0,
       onUiChange: () => undefined,
       signal: controller.signal,
       cancel: () => controller.abort(),
@@ -97,6 +147,7 @@ async function testEstimateShowsCountingThenCalibrates(): Promise<void> {
   await runFilesOpWithProgress({
     kind: 'delete',
     minVisibleMs: MIN_VISIBLE,
+    showDelayMs: 0,
     estimate: async () => {
       assert.ok(states.length >= 1, '统计开始前窗口必须已展示')
       assert.equal(states[0]!.remainingLabel, FILES_OP_PROGRESS_ESTIMATING_LABEL)
@@ -127,6 +178,7 @@ async function testEstimateErrorClosesAndPropagates(): Promise<void> {
     runFilesOpWithProgress({
       kind: 'paste',
       minVisibleMs: MIN_VISIBLE,
+      showDelayMs: 0,
       estimate: async () => {
         await sleep(5)
         throw new Error('estimate-fail')
@@ -154,6 +206,7 @@ async function testEstimatePhaseCountsTowardMinVisible(): Promise<void> {
   await runFilesOpWithProgress({
     kind: 'compress',
     minVisibleMs,
+    showDelayMs: 0,
     estimate: async () => {
       await sleep(estimateMs)
       return 8
@@ -183,6 +236,7 @@ async function testClosesImmediatelyWhenPastMinVisible(): Promise<void> {
   await runFilesOpWithProgress({
     kind: 'paste',
     minVisibleMs,
+    showDelayMs: 0,
     onUiChange: (state) => {
       if (state && firstAt === 0) firstAt = performance.now()
       if (state === undefined) closedAt = performance.now()
@@ -204,6 +258,7 @@ async function testForwardsTreeDetailAndIndeterminate(): Promise<void> {
   await runFilesOpWithProgress({
     kind: 'paste',
     minVisibleMs: MIN_VISIBLE,
+    showDelayMs: 0,
     estimate: async () => {
       assert.equal(states[0]!.indeterminate, true)
       return 20
@@ -238,6 +293,7 @@ async function testSpeedLabelWithByteProgress(): Promise<void> {
     kind: 'paste',
     totalWork: 1000,
     minVisibleMs: MIN_VISIBLE,
+    showDelayMs: 0,
     onUiChange: (state) => states.push(state ? { ...state } : state),
     task: async (report) => {
       await sleep(700)
@@ -258,6 +314,7 @@ async function testNoSpeedWithoutByteProgress(): Promise<void> {
     kind: 'delete',
     totalWork: 10,
     minVisibleMs: MIN_VISIBLE,
+    showDelayMs: 0,
     onUiChange: (state) => states.push(state ? { ...state } : state),
     task: async (report) => {
       await sleep(700)
@@ -272,6 +329,8 @@ async function testNoSpeedWithoutByteProgress(): Promise<void> {
 }
 
 await testShowsImmediatelyAndCompletes()
+await testQuickOpShowsNothing()
+await testSlowOpShowsAfterDelay()
 await testErrorClosesWithoutCompletedState()
 await testCancelConvertsToCancelledError()
 await testEstimateShowsCountingThenCalibrates()

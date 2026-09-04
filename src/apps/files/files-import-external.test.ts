@@ -22,7 +22,6 @@ import {
   getFilesWriteProgressSnapshot,
   resetFilesWriteProgressForTests,
   subscribeFilesWriteProgress,
-  type FilesWriteProgressEntry,
 } from './files-write-progress.ts'
 
 function file(name: string, size = 3): File {
@@ -119,12 +118,13 @@ async function testImportTopLevelFolderPie(): Promise<void> {
     { name: 'loose.txt', kind: 'file', file: file('loose.txt', 100) },
   ]
 
-  let sawTopFill: FilesWriteProgressEntry | undefined
+  // 快照里的 entry 是会被原地更新的同一引用，必须在通知当下抓数值
+  let sawTopFillFraction: number | undefined
   const unsubscribe = subscribeFilesWriteProgress(() => {
-    if (sawTopFill) return
-    for (const entry of getFilesWriteProgressSnapshot().values()) {
-      if (entry.total === 5000) sawTopFill = entry
-    }
+    if (sawTopFillFraction !== undefined) return
+    const snapshot = getFilesWriteProgressSnapshot()
+    // 顶层目标文件夹登记发生在任何文件流写之前：首个通知里只有它一条
+    if (snapshot.size === 1) sawTopFillFraction = [...snapshot.values()][0]?.fraction
   })
   let batchEvents = 0
   const onVfsChanged = () => {
@@ -142,7 +142,7 @@ async function testImportTopLevelFolderPie(): Promise<void> {
     window.removeEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
   }
   assert.ok(result.fileCount >= 3, `应导入 3 个文件，实际 ${result.fileCount}`)
-  assert.ok(sawTopFill, '导入期间应登记顶层目标文件夹的圆饼（总量=子树字节 5000）')
+  assert.equal(sawTopFillFraction, 0, '导入期间应登记顶层目标文件夹的圆饼，登记时从 0 起步')
   assert.equal(getFilesWriteProgressSnapshot().size, 0, '导入结束后登记应全部撤掉')
   assert.ok(batchEvents > 0, '顶层文件夹的 created 应绕过批量合并立即广播')
   const top = await resolveNodeByAbsolutePath('/user/imported-top', { follow: false })
