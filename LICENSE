@@ -220,15 +220,37 @@ The following packages may be included in distributed builds. Each retains its
 own license. Full license files ship with the packages in node_modules/.
 
 MIT-licensed:
+- preact — Copyright (c) 2015-present Jason Miller
 - three — Copyright © 2010-2026 three.js authors
 - monaco-editor — Copyright (c) 2016 - present Microsoft Corporation
-- preact — Copyright (c) 2015-present Jason Miller
 - marked — Copyright (c) Christopher Jeffrey
-- fflate — Copyright (c) 2026 Arjun Barrett
+- marked-katex-extension — Copyright (c) Tony Brix
+- katex — Copyright (c) 2013-2020 Khan Academy and other contributors
+- @tiptap/core, @tiptap/pm, @tiptap/starter-kit, @tiptap/suggestion,
+  @tiptap/extension-code-block-lowlight, @tiptap/extension-details,
+  @tiptap/extension-image, @tiptap/extension-placeholder,
+  @tiptap/extension-table, @tiptap/extension-table-cell,
+  @tiptap/extension-table-header, @tiptap/extension-table-row,
+  @tiptap/extension-task-item, @tiptap/extension-task-list,
+  @tiptap/extension-underline — Copyright (c) 2025, Tiptap GmbH
+- tiptap-markdown — Copyright (c) Antoine Guingand
+- lowlight — Copyright (c) Titus Wormer
+- @floating-ui/dom — Copyright (c) atomiks
 - frimousse — Copyright (c) 2025 Liveblocks
 - html-to-image — Copyright (c) 2017-2025 W.Y.
-- vite (dev) — Copyright (c) Evan You and Vite contributors
-- @preact/preset-vite (dev) — Copyright (c) The Preact Team
+- fflate — Copyright (c) 2026 Arjun Barrett
+- esbuild-wasm — Copyright (c) 2020 Evan Wallace
+- quickjs-emscripten — Copyright (c) 2019-2024 Jake Teton-Landis
+  (bundles the QuickJS-ng engine, https://github.com/quickjs-ng/quickjs, MIT)
+- onnxruntime-web — Copyright (c) Microsoft Corporation
+- libflacjs — Copyright (c) 2014-2020 DFKI GmbH
+  (compiled from libFLAC, Copyright (C) 2000-2009 Josh Coalson, BSD license)
+- @wasm-audio-decoders/flac — Copyright (c) Ethan Halsall
+- hash-wasm — Copyright (c) Dani Biró
+- @noble/hashes — Copyright (c) Paul Miller
+- buffer — Copyright (c) Feross Aboukhadijeh
+- libmount — Copyright (c) 2025 vip-delete
+- pricetoken — Copyright (c) 2026 Andres Romero
 
 ISC-licensed:
 - d3-hierarchy — Copyright 2010-2021 Mike Bostock
@@ -239,11 +261,31 @@ Apache-2.0-licensed (full text in appendix below):
 - @dimforge/rapier3d-compat — Copyright 2020 Sébastien Crozet
 - openai — Copyright (c) OpenAI
 - typescript — Copyright (c) Microsoft Corp.
+- less — Copyright (c) Alexis Sellier
+- docx-preview — Copyright (c) Volodymyr Baydalka
+- material-symbols, @material-symbols/metadata — Google’s Material Symbols
+  icon font and metadata (npm packaging by Marella)
 - dompurify — Copyright 2015 Mario Heiderich
   (dual-licensed MPL-2.0 OR Apache-2.0; this project uses the Apache-2.0 option)
 
 For each MIT-licensed package above, the standard MIT permission notice and
 disclaimer apply under that package’s copyright.
+
+IMPORTANT — GPL-3.0-only component:
+
+- hyperformula — Copyright (c) HANDSONCODE sp. z o. o.
+  https://github.com/handsontable/hyperformula
+
+  HyperFormula is licensed under the GNU General Public License v3.0 only
+  (GPL-3.0-only), which is NOT compatible with redistributing this project
+  under the MIT License above. Its formula engine is currently bundled into
+  build artifacts (used by the Pages app table formulas). Before any
+  redistribution of this project, HyperFormula must be replaced, removed, or
+  licensed commercially from Handsoncode.
+
+Build-time-only tooling (not part of distributed builds) is not listed above;
+for completeness: vite — Copyright (c) Evan You and Vite contributors, and
+@preact/preset-vite — Copyright (c) The Preact Team (both MIT).
 
 --------------------------------------------------------------------------------
 6. Third-party 3D assets (CC0)
@@ -269,6 +311,87 @@ not part of the Instant OS MIT-licensed source code. Recipients should treat
 redistribution and use of these fonts as subject to Apple’s rights and
 applicable law, and consider replacing them with openly licensed emoji fonts
 (for example Noto Emoji or Twemoji) for compliance-sensitive distributions.
+
+--------------------------------------------------------------------------------
+8. Fonts
+--------------------------------------------------------------------------------
+
+Material Symbols (Apache-2.0)
+-----------------------------
+The Material Symbols icon font, shipped via the npm packages material-symbols
+and @material-symbols/metadata. The font and icons are Copyright (c) Google,
+licensed under the Apache License 2.0 (full text in the appendix below).
+Source: https://fonts.google.com/icons
+
+KaTeX fonts (SIL Open Font License 1.1)
+---------------------------------------
+The font files shipped with katex (katex/dist/fonts/, e.g. KaTeX_*.woff2)
+are licensed under the SIL Open Font License 1.1.
+https://openfontlicense.org
+
+Apple Color Emoji is covered separately in section 7 above.
+
+--------------------------------------------------------------------------------
+9. Vendored source code
+--------------------------------------------------------------------------------
+
+Hero Patterns (CC BY 4.0)
+-------------------------
+Selected tiling SVG background patterns by Steve Schoger, vendored under
+src/vendor/hero-patterns/ and used as built-in wallpaper textures (12
+patterns, used unmodified; re-colored at run time by replacing the fill
+color and inlined as a data URI).
+
+Author: Steve Schoger
+Source: https://www.heropatterns.com
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+License text: src/vendor/hero-patterns/LICENSE and
+https://creativecommons.org/licenses/by/4.0/
+
+pinyin-pro (MIT)
+----------------
+Self-contained ESM build vendored under src/vendor/pinyin-pro/ with its
+LICENSE file kept alongside.
+Source: https://github.com/zh-lx/pinyin-pro
+Copyright (c) 2022-present zh-lx
+
+@gcu/iso9660 (MIT)
+------------------
+ISO 9660 filesystem reader/writer vendored under src/archive/vendor/iso9660/
+with its README and LICENSE.
+Source: https://github.com/endarthur/auditable
+Copyright (c) 2025 Arthur Endlein Correia
+
+Embedded quickjs guest bundle (MIT)
+-----------------------------------
+src/quickjs/quickjs-buffer-bundle-source.ts embeds the base64-js, buffer,
+and ieee754 packages (Copyright (c) Feross Aboukhadijeh and contributors,
+MIT).
+
+--------------------------------------------------------------------------------
+10. Models, sounds, and data assets
+--------------------------------------------------------------------------------
+
+Asset directories under public/assets/ carry their own license files:
+
+- public/assets/sounds/ — UI SFX v0.4.0 by Romain Simon, audio CC0 1.0
+  (see public/assets/sounds/licenses/)
+- public/assets/demucs/ — HTDemucs 6-stem ONNX weights (Meta AI Research).
+  Research / personal use only — NOT cleared for commercial redistribution
+  (see public/assets/demucs/licenses/ and docs/demucs-model-license.md)
+- public/assets/mdx/ — UVR-MDX-NET source-separation weights (KUIELab
+  MDX-Net / UVR) (see docs/mdx-model-license.md)
+- public/assets/phoneme/ — wav2vec2-lv-60-espeak-cv-ft phoneme model,
+  Apache-2.0 (see public/assets/phoneme/licenses/)
+- public/assets/sense-voice/, public/assets/zipformer-ctc/,
+  public/assets/zipformer-ctc-en/ — sherpa-onnx speech models (k2-fsa),
+  Apache-2.0
+- public/assets/tokenizers/ — see section 3 above
+- public/assets/attunebench/ — AttuneBench evaluation conversations
+  (Test Samples from https://github.com/Thoughtful-Lab/attunebench).
+  Upstream code is MIT; the Test Samples data is licensed
+  CC BY 4.0: “AttuneBench” by Thoughtful Lab,
+  https://creativecommons.org/licenses/by/4.0/
 
 --------------------------------------------------------------------------------
 Appendix: Apache License 2.0
