@@ -2103,25 +2103,24 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     >
       <div class="virtual-machine__toolbar" onPointerDown={releaseGuestKeyboard}>
         <div class="virtual-machine__toolbar-actions">
-          <Button size="compact" onClick={handleNew}>
+          <Button onClick={handleNew}>
             新建
           </Button>
-          <Button size="compact" disabled={!hasSelection} onClick={handleSettings}>
+          <Button disabled={!hasSelection} onClick={handleSettings}>
             设置
           </Button>
           <Button
-            size="compact"
             disabled={!canStart}
             onClick={() => handlePower('start')}
           >
             开机
           </Button>
           {selectedAgentCapable ? (
-            <Button size="compact" disabled={!canStop} onClick={() => handlePower('shutdown')}>
+            <Button disabled={!canStop} onClick={() => handlePower('shutdown')}>
               关机
             </Button>
           ) : (
-            <Button size="compact" disabled={!canStop} onClick={() => handlePower('stop')}>
+            <Button disabled={!canStop} onClick={() => handlePower('stop')}>
               断电
             </Button>
           )}

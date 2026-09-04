@@ -3033,7 +3033,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         )}
         {sourceName && (
           <Button
-            size="compact"
             onClick={openLyricsEditor}
             title="编辑歌词（文件或剪贴板导入）"
           >
@@ -3079,7 +3078,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             </span>
             <Button
               icon
-              size="compact"
               class={`stems__metronome${metronomeOn ? ' stems__metronome--on' : ''}`}
               disabled={!tempo}
               title={
@@ -3096,7 +3094,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             </Button>
             <Button
               icon
-              size="compact"
               class={`stems__sound${metronomeSoundOn ? ' stems__sound--on' : ''}`}
               disabled={!tempo}
               title={
@@ -3389,7 +3386,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   className="stems__lyrics-model-picker"
                 />
                 <Button
-                  size="compact"
                   tone={alignedLrc ? undefined : 'primary'}
                   disabled={!tracks || alignBusy || isSeparating || !lyrics.trim()}
                   title={
@@ -3468,7 +3464,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               <div class="stems__zoom">
                 <Button
                   icon
-                  size="compact"
                   class="stems__zoom-btn"
                   disabled={view.level <= 0.01}
                   onClick={() => zoomTo(view.level - 1, getPlaybackTime())}
@@ -3489,7 +3484,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 />
                 <Button
                   icon
-                  size="compact"
                   class="stems__zoom-btn"
                   disabled={view.level >= maxZoomLevel - 0.01}
                   onClick={() => zoomTo(view.level + 1, getPlaybackTime())}
@@ -3501,7 +3495,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 <span class="stems__zoom-label">{formatZoomLabel(view.level)}</span>
                 {view.level > 0.01 && (
                   <Button
-                    size="compact"
                     class="stems__zoom-fit"
                     onClick={() => setView({ start: 0, level: 0 })}
                   >
@@ -3604,15 +3597,14 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       >
         <div class="stems__clipboard-field">
           <div class="stems__lyrics-editor-tools">
-            <Button size="compact" onClick={() => void handleLoadLyricsFile()}>
+            <Button onClick={() => void handleLoadLyricsFile()}>
               从文件导入…
             </Button>
-            <Button size="compact" onClick={() => void importClipboardToDraft()}>
+            <Button onClick={() => void importClipboardToDraft()}>
               从剪贴板导入…
             </Button>
             {lyricsDraft.trim() && (
               <Button
-                size="compact"
                 onClick={() => {
                   setLyricsDraft('')
                   setLyricsDraftSource('')
@@ -4047,7 +4039,6 @@ function StemTrackRow({
         <div class="stems__track-chips">
           <Button
             icon
-            size="compact"
             class={`stems__chip${track.mute ? ' stems__chip--mute-on' : ''}`}
             onClick={onToggleMute}
             title="静音"
@@ -4057,7 +4048,6 @@ function StemTrackRow({
           </Button>
           <Button
             icon
-            size="compact"
             class={`stems__chip${track.solo ? ' stems__chip--solo-on' : ''}`}
             onClick={onToggleSolo}
             title="独奏"

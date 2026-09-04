@@ -255,7 +255,7 @@ function DetailActionsBar({
     entries.push({
       key: 'erase-image',
       node: (
-        <Button tone="danger" size="compact" onClick={() => actions.eraseImage(node)}>
+        <Button tone="danger" onClick={() => actions.eraseImage(node)}>
           抹掉
         </Button>
       ),
@@ -265,7 +265,7 @@ function DetailActionsBar({
         ? {
             key: 'partition-apply',
             node: (
-              <Button tone="secondary" size="compact" onClick={() => actions.partitionImage(node)}>
+              <Button tone="secondary" onClick={() => actions.partitionImage(node)}>
                 执行分区
               </Button>
             ),
@@ -273,7 +273,7 @@ function DetailActionsBar({
         : {
             key: 'partition-view',
             node: (
-              <Button tone="secondary" size="compact" onClick={() => actions.enterPartitionView(node)}>
+              <Button tone="secondary" onClick={() => actions.enterPartitionView(node)}>
                 分区
               </Button>
             ),
@@ -283,7 +283,7 @@ function DetailActionsBar({
       entries.push({
         key: 'unmount',
         node: (
-          <Button tone="secondary" size="compact" onClick={() => actions.unmountImage(node)}>
+          <Button tone="secondary" onClick={() => actions.unmountImage(node)}>
             推出
           </Button>
         ),
@@ -297,7 +297,6 @@ function DetailActionsBar({
       node: (
         <Button
           tone="danger"
-          size="compact"
           disabled={disableForUnknownFs}
           onClick={() => actions.erasePartition(node)}
         >
@@ -313,7 +312,6 @@ function DetailActionsBar({
       node: (
         <Button
           tone="secondary"
-          size="compact"
           disabled={disableForUnknownFs}
           onClick={() => {
             const path = node.pathRoot ?? node.imageFile?.path
@@ -331,7 +329,7 @@ function DetailActionsBar({
     entries.push({
       key: 'sniff',
       node: (
-        <Button tone="secondary" size="compact" onClick={actions.openSpaceSniffer}>
+        <Button tone="secondary" onClick={actions.openSpaceSniffer}>
           空间嗅探
         </Button>
       ),
@@ -344,7 +342,6 @@ function DetailActionsBar({
       node: (
         <Button
           tone="secondary"
-          size="compact"
           disabled={disableForUnknownFs}
           onClick={() => actions.scanImage(node)}
         >
@@ -358,7 +355,7 @@ function DetailActionsBar({
     entries.push({
       key: 'benchmark',
       node: (
-        <Button tone="secondary" size="compact" onClick={() => actions.runBenchmark(node)}>
+        <Button tone="secondary" onClick={() => actions.runBenchmark(node)}>
           测速
         </Button>
       ),
@@ -566,11 +563,11 @@ function BrowserStorageSection({
         {renderUsageBar(storage.dataStorageUsedBytes, storage.systemCapacityBytes)}
       </div>
       <div class="disk-utility__detail-actions">
-        <Button tone="secondary" size="compact" onClick={onRefresh}>
+        <Button tone="secondary" onClick={onRefresh}>
           刷新
         </Button>
         {!storage.persisted ? (
-          <Button tone="primary" size="compact" onClick={onRequestPersistence}>
+          <Button tone="primary" onClick={onRequestPersistence}>
             请求持久化
           </Button>
         ) : undefined}

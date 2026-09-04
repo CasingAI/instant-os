@@ -44,7 +44,7 @@ export function ChromoSettingsPage({
                 <div class="chromo-settings__label">浏览数据</div>
                 <div class="chromo-settings__hint">清除访问过的网页记录</div>
               </div>
-              <Button size="compact" onClick={onClearHistory}>
+              <Button onClick={onClearHistory}>
                 清空历史记录
               </Button>
             </div>

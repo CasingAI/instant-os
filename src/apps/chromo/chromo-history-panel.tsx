@@ -135,7 +135,7 @@ export function ChromoHistoryPage({
 
       {visits.length > 0 ? (
         <footer class="chromo-internal__footer">
-          <Button size="compact" onClick={handleClearAll}>
+          <Button onClick={handleClearAll}>
             清空历史记录
           </Button>
         </footer>

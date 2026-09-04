@@ -237,7 +237,6 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
                   </span>
                   {row.cached ? (
                     <Button
-                      size="compact"
                       tone="danger"
                       disabled={row.busy}
                       onClick={() => setPendingClear(entry)}
@@ -247,7 +246,6 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
                   ) : (
                     <span class="settings__row-model-cache-actions">
                       <Button
-                        size="compact"
                         disabled={row.busy}
                         onClick={() => void handleImport(entry)}
                       >
@@ -258,7 +256,6 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
                           : '导入'}
                       </Button>
                       <Button
-                        size="compact"
                         disabled={row.busy}
                         onClick={() => void handleCache(entry)}
                       >

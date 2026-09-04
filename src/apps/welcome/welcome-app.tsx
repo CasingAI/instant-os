@@ -140,7 +140,6 @@ function WelcomeHero({
           <p class="welcome-app__hero-body welcome-app__hero-body--full">{taskBody(item.id)}</p>
         )}
         <Button
-          size="compact"
           tone={item.id === 'setup-key' && !keyAdded ? 'primary' : 'secondary'}
           onClick={onOpen}
         >

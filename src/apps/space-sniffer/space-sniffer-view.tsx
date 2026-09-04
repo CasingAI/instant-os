@@ -247,17 +247,16 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
     <div class="space-sniffer__view">
       <div class="space-sniffer__toolbar" role="toolbar" aria-label="空间嗅探工具栏">
         <div class="space-sniffer__toolbar-group">
-          <Button size="compact" title="新建扫描标签 (⌘N)" onClick={onNewScan}>
+          <Button title="新建扫描标签 (⌘N)" onClick={onNewScan}>
             新建
           </Button>
         </div>
         <span class="space-sniffer__toolbar-sep" aria-hidden="true" />
         <div class="space-sniffer__toolbar-group">
-          <Button size="compact" title="后退 (⌘[)" disabled={historyIndex <= 0} onClick={goBack}>
+          <Button title="后退 (⌘[)" disabled={historyIndex <= 0} onClick={goBack}>
             后退
           </Button>
           <Button
-            size="compact"
             title="前进 (⌘])"
             disabled={historyIndex >= history.length - 1}
             onClick={goForward}
@@ -265,21 +264,19 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
             前进
           </Button>
           <Button
-            size="compact"
             title="上一级"
             disabled={!viewRoot || viewRoot.path === rootPath}
             onClick={goUp}
           >
             上一级
           </Button>
-          <Button size="compact" title="回到扫描根" onClick={goHome}>
+          <Button title="回到扫描根" onClick={goHome}>
             根目录
           </Button>
         </div>
         <span class="space-sniffer__toolbar-sep" aria-hidden="true" />
         <div class="space-sniffer__toolbar-group">
           <Button
-            size="compact"
             tone={scanning ? 'danger' : 'secondary'}
             title={scanning ? '停止扫描' : '重新扫描'}
             onClick={() => {
@@ -293,7 +290,6 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
             {scanning ? '停止' : '扫描'}
           </Button>
           <Button
-            size="compact"
             title="减少细节"
             disabled={detailLevel <= MIN_DETAIL_LEVEL}
             onClick={() => setDetailLevel((value) => Math.max(MIN_DETAIL_LEVEL, value - 1))}
@@ -301,7 +297,6 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
             减少细节
           </Button>
           <Button
-            size="compact"
             title="增加细节"
             disabled={detailLevel >= MAX_DETAIL_LEVEL}
             onClick={() => setDetailLevel((value) => Math.min(MAX_DETAIL_LEVEL, value + 1))}

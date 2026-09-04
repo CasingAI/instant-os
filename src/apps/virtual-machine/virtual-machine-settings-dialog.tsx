@@ -769,7 +769,6 @@ export function VirtualMachineSettingsDialog({
                 ) : null}
                 <div class="virtual-machine-settings__add-device">
                   <Button
-                    size="compact"
                     tone="secondary"
                     disabled={busy || running}
                     onClick={() => setAddModalOpen(true)}
@@ -813,7 +812,7 @@ export function VirtualMachineSettingsDialog({
                           patch({ sharedFolderPath: (event.currentTarget as HTMLInputElement).value })
                         }
                       />
-                      <Button size="compact" disabled={busy} onClick={() => void pickSharedFolderPath()}>
+                      <Button disabled={busy} onClick={() => void pickSharedFolderPath()}>
                         选择…
                       </Button>
                     </div>
@@ -845,7 +844,6 @@ export function VirtualMachineSettingsDialog({
                         </p>
                         <div class="virtual-machine-settings__path">
                           <Button
-                            size="compact"
                             disabled={busy || running}
                             onClick={() => patch({ network: 'ne2k', networkBackend: 'fetch' })}
                           >
@@ -856,7 +854,6 @@ export function VirtualMachineSettingsDialog({
                     ) : null}
                     <div class="virtual-machine-settings__path">
                       <Button
-                        size="compact"
                         tone="danger"
                         disabled={busy}
                         onClick={removeSharedFolderDevice}
@@ -915,7 +912,6 @@ export function VirtualMachineSettingsDialog({
                         }
                       />
                       <Button
-                        size="compact"
                         disabled={busy || running}
                         onClick={() => void pickDevicePath(selectedStorage.id)}
                       >
@@ -923,7 +919,6 @@ export function VirtualMachineSettingsDialog({
                       </Button>
                       {selectedStorage.type === 'hdd' ? (
                         <Button
-                          size="compact"
                           disabled={busy || running}
                           onClick={() => openCreateBlankDisk()}
                         >
@@ -932,7 +927,6 @@ export function VirtualMachineSettingsDialog({
                       ) : null}
                       {selectedStorage.path.trim() ? (
                         <Button
-                          size="compact"
                           disabled={busy || running}
                           onClick={() => updateDevice(selectedStorage.id, { path: '' })}
                         >
@@ -942,7 +936,6 @@ export function VirtualMachineSettingsDialog({
                     </div>
                     <div class="virtual-machine-settings__path">
                       <Button
-                        size="compact"
                         tone="danger"
                         disabled={busy || running}
                         onClick={() => removeDevice(selectedStorage.id)}
@@ -1090,7 +1083,6 @@ export function VirtualMachineSettingsDialog({
                                   {vmKeySpecLabel(mapping.to)}
                                 </span>
                                 <Button
-                                  size="compact"
                                   tone="secondary"
                                   disabled={busy || keyCapture !== undefined}
                                   onClick={() =>
@@ -1114,7 +1106,6 @@ export function VirtualMachineSettingsDialog({
                       )}
                       <div class="virtual-machine-settings__keymap-actions">
                         <Button
-                          size="compact"
                           disabled={
                             busy ||
                             keyCapture !== undefined ||
@@ -1130,7 +1121,6 @@ export function VirtualMachineSettingsDialog({
                         {VM_KEY_MAPPING_PRESETS.map((preset) => (
                           <Button
                             key={preset.id}
-                            size="compact"
                             tone="secondary"
                             title={preset.description}
                             disabled={busy || keyCapture !== undefined}
@@ -1195,7 +1185,6 @@ export function VirtualMachineSettingsDialog({
                           <div class="virtual-machine-settings__keymap-capture-actions">
                             {keyCapture.step === 'to' ? (
                               <Button
-                                size="compact"
                                 tone="secondary"
                                 onClick={() => {
                                   setKeyCaptureError(undefined)
@@ -1205,7 +1194,7 @@ export function VirtualMachineSettingsDialog({
                                 重选来源键
                               </Button>
                             ) : null}
-                            <Button size="compact" tone="secondary" onClick={cancelKeyCapture}>
+                            <Button tone="secondary" onClick={cancelKeyCapture}>
                               取消
                             </Button>
                           </div>

@@ -25,7 +25,7 @@ export function BooksShelf({
       <div class="books-shelf books-shelf--empty">
         <div class="books-shelf__empty">
           <p class="books-shelf__empty-text">当前还没有添加书籍</p>
-          <Button size="compact" onClick={onGoStore}>
+          <Button onClick={onGoStore}>
             进入书城
           </Button>
         </div>

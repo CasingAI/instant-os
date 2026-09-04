@@ -150,14 +150,13 @@ export function ButtonDemo() {
           <Button tone="danger">危险</Button>
         </div>
       </DemoVariant>
-      <DemoVariant label="compact / icon">
+      <DemoVariant label="图标 / icon+文字">
         <div class="ui-kit-demo__row">
-          <Button size="compact">紧凑</Button>
-          <Button icon="←" size="compact" title="后退" />
-          <Button icon="→" size="compact" title="前进" />
+          <Button icon="←" title="后退" />
+          <Button icon="→" title="前进" />
           {/* showBothIconAndText 是受控例外：仅演示能力，实际页面未经用户要求不得使用 */}
           <Button icon="＋" showBothIconAndText>新建</Button>
-          <Button size="compact" disabled>
+          <Button disabled>
             禁用
           </Button>
         </div>
@@ -176,12 +175,11 @@ export function ButtonDemo() {
               'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 2px rgba(0, 0, 0, 0.12)',
             '--ios-button-shadow-active': 'inset 0 1px 2px rgba(0, 0, 0, 0.14)',
             '--ios-button-text-shadow': '0 1px 0 rgba(255, 255, 255, 0.8)',
-            '--ios-button-compact-min-width': '64px',
           }}
         >
-          <Button size="compact">编辑</Button>
-          <Button size="compact">书城</Button>
-          <Button size="compact" disabled>
+          <Button>编辑</Button>
+          <Button>书城</Button>
+          <Button disabled>
             刷新
           </Button>
         </div>
@@ -558,19 +556,36 @@ export function ListDemo() {
     { id: 'f3', name: '会议记录.md', size: '12 KB' },
     { id: 'f4', name: '素材包.zip', size: '148 MB' },
   ]
+  const [tapped, setTapped] = useState<string | null>(null)
 
   return (
     <DemoVariants>
       <DemoVariant label="节标题 / 脚注" wide>
         <List title="通用" footnote="重置网络设置将清除已保存的 Wi-Fi 密码。">
-          <ListItem label="关于本机" value="iOS 6.1.4" accessory="disclosure" />
-          <ListItem label="软件更新" value="已是最新" accessory="disclosure" />
+          <ListItem
+            label="关于本机"
+            value="iOS 6.1.4"
+            accessory="disclosure"
+            onClick={() => setTapped('关于本机')}
+          />
+          <ListItem
+            label="软件更新"
+            value="已是最新"
+            accessory="disclosure"
+            onClick={() => setTapped('软件更新')}
+          />
         </List>
+        {tapped && <p class="ui-kit-demo__status">已点按：{tapped}</p>}
       </DemoVariant>
       <DemoVariant label="表头 + 限高滚动区" wide>
         <List head={<><span>文件</span><span>大小</span></>} scrollable>
           {files.map((file) => (
-            <ListItem key={file.id} label={file.name} value={file.size} />
+            <ListItem
+              key={file.id}
+              label={file.name}
+              value={file.size}
+              onClick={() => setTapped(file.name)}
+            />
           ))}
         </List>
       </DemoVariant>
@@ -595,22 +610,48 @@ export function ListItemDemo() {
       {emoji}
     </span>
   )
+  const [tapped, setTapped] = useState<string | null>(null)
 
   return (
     <DemoVariants>
       <DemoVariant label="槽位：值 / 副标题 / 图标 / 徽章 / extra" wide>
         <List>
-          <ListItem label="网络" value="Wi-Fi" accessory="disclosure" />
-          <ListItem label="面容解锁" subtitle="抬起唤醒并注视屏幕以解锁" accessory="disclosure" />
-          <ListItem leading={leading('🎵', '#fa5c8f')} label="音乐" value="128 GB" />
-          <ListItem label="测试通道" badge="BETA" value="已加入" />
-          <ListItem label="上次备份" extra={<span class="list-item__value">2 分钟前</span>} />
+          <ListItem label="网络" value="Wi-Fi" accessory="disclosure" onClick={() => setTapped('网络')} />
+          <ListItem
+            label="面容解锁"
+            subtitle="抬起唤醒并注视屏幕以解锁"
+            accessory="disclosure"
+            onClick={() => setTapped('面容解锁')}
+          />
+          <ListItem
+            leading={leading('🎵', '#fa5c8f')}
+            label="音乐"
+            value="128 GB"
+            onClick={() => setTapped('音乐')}
+          />
+          <ListItem label="测试通道" badge="BETA" value="已加入" onClick={() => setTapped('测试通道')} />
+          <ListItem
+            label="上次备份"
+            extra={<span class="list-item__value">2 分钟前</span>}
+            onClick={() => setTapped('上次备份')}
+          />
         </List>
+        {tapped && <p class="ui-kit-demo__status">已点按：{tapped}</p>}
       </DemoVariant>
       <DemoVariant label="配件：蓝色 ⓘ 详情钮（点击不触发行）">
         <List>
-          <ListItem label="iCloud 云盘" value="已开启" accessory="detail" />
-          <ListItem label="查找我的 iPhone" value="关闭" accessory="detail" />
+          <ListItem
+            label="iCloud 云盘"
+            value="已开启"
+            accessory="detail"
+            onClick={() => setTapped('iCloud 云盘')}
+          />
+          <ListItem
+            label="查找我的 iPhone"
+            value="关闭"
+            accessory="detail"
+            onClick={() => setTapped('查找我的 iPhone')}
+          />
         </List>
       </DemoVariant>
     </DemoVariants>
@@ -868,9 +909,9 @@ export function ListIndexDemo() {
   const renderCategorySections = () =>
     sortedCategories.slice(0, catCount).map((cat) => (
       <ListSection key={cat} id={`cat-${cat}`} title={cat}>
-        <ListItem label={`${cat}·精选`} value="详情" accessory="disclosure" />
-        <ListItem label={`${cat}·促销`} value="详情" accessory="disclosure" />
-        <ListItem label={`${cat}·新品`} value="详情" accessory="disclosure" />
+        <ListItem label={`${cat}·精选`} value="详情" accessory="disclosure" onClick={() => {}} />
+        <ListItem label={`${cat}·促销`} value="详情" accessory="disclosure" onClick={() => {}} />
+        <ListItem label={`${cat}·新品`} value="详情" accessory="disclosure" onClick={() => {}} />
       </ListSection>
     ))
 
@@ -878,7 +919,7 @@ export function ListIndexDemo() {
     groups.map((group) => (
       <ListSection key={group.label} id={group.label} title={group.label}>
         {group.items.map((name) => (
-          <ListItem key={name} label={name} value="详情" accessory="disclosure" />
+          <ListItem key={name} label={name} value="详情" accessory="disclosure" onClick={() => {}} />
         ))}
       </ListSection>
     ))
@@ -954,29 +995,29 @@ export function ListIndexDemo() {
       <DemoVariant label="词组节标题：左侧完整词组，节少时条上自动显示标题首字（水果类→水、蔬菜类→蔬），同条标签语言统一；id 只做锚点可任意命名">
         <List indexBar scrollable>
           <ListSection id="fruit" title="水果类">
-            <ListItem label="苹果" value="详情" accessory="disclosure" />
-            <ListItem label="香蕉" value="详情" accessory="disclosure" />
-            <ListItem label="脐橙" value="详情" accessory="disclosure" />
-            <ListItem label="葡萄" value="详情" accessory="disclosure" />
+            <ListItem label="苹果" value="详情" accessory="disclosure" onClick={() => {}} />
+            <ListItem label="香蕉" value="详情" accessory="disclosure" onClick={() => {}} />
+            <ListItem label="脐橙" value="详情" accessory="disclosure" onClick={() => {}} />
+            <ListItem label="葡萄" value="详情" accessory="disclosure" onClick={() => {}} />
           </ListSection>
           <ListSection id="veg" title="蔬菜类">
-            <ListItem label="白菜" value="详情" accessory="disclosure" />
-            <ListItem label="菠菜" value="详情" accessory="disclosure" />
-            <ListItem label="青椒" value="详情" accessory="disclosure" />
-            <ListItem label="茄子" value="详情" accessory="disclosure" />
+            <ListItem label="白菜" value="详情" accessory="disclosure" onClick={() => {}} />
+            <ListItem label="菠菜" value="详情" accessory="disclosure" onClick={() => {}} />
+            <ListItem label="青椒" value="详情" accessory="disclosure" onClick={() => {}} />
+            <ListItem label="茄子" value="详情" accessory="disclosure" onClick={() => {}} />
           </ListSection>
         </List>
       </DemoVariant>
       <DemoVariant label="indexLabel 显式覆盖：显式值任何档位原样上条（可与首字/拼音都无关，派生不准时兜底）">
         <List indexBar scrollable>
           <ListSection id="clearance" title="清仓特惠" indexLabel="C">
-            <ListItem label="库存尾货" value="详情" accessory="disclosure" />
+            <ListItem label="库存尾货" value="详情" accessory="disclosure" onClick={() => {}} />
           </ListSection>
           <ListSection id="hot" title="热销单品" indexLabel="H">
-            <ListItem label="本周销冠" value="详情" accessory="disclosure" />
+            <ListItem label="本周销冠" value="详情" accessory="disclosure" onClick={() => {}} />
           </ListSection>
           <ListSection id="new-arrival" title="新品上架" indexLabel="N">
-            <ListItem label="首发开售" value="详情" accessory="disclosure" />
+            <ListItem label="首发开售" value="详情" accessory="disclosure" onClick={() => {}} />
           </ListSection>
         </List>
       </DemoVariant>
@@ -991,15 +1032,15 @@ export function ListIndexDemo() {
       <DemoVariant label="乱序数据：条上字母乱序（M→A→Z），跳转仍工作但语义错乱，dev 控制台出排序契约告警（生产静默）——数据侧应 groupByIndexLetter 归组或修正节顺序">
         <List indexBar scrollable>
           <ListSection id="demo-m" title="M">
-            <ListItem label="马良" value="详情" accessory="disclosure" />
-            <ListItem label="米芾" value="详情" accessory="disclosure" />
+            <ListItem label="马良" value="详情" accessory="disclosure" onClick={() => {}} />
+            <ListItem label="米芾" value="详情" accessory="disclosure" onClick={() => {}} />
           </ListSection>
           <ListSection id="demo-a" title="A">
-            <ListItem label="阿福" value="详情" accessory="disclosure" />
-            <ListItem label="安琪" value="详情" accessory="disclosure" />
+            <ListItem label="阿福" value="详情" accessory="disclosure" onClick={() => {}} />
+            <ListItem label="安琪" value="详情" accessory="disclosure" onClick={() => {}} />
           </ListSection>
           <ListSection id="demo-z" title="Z">
-            <ListItem label="张良" value="详情" accessory="disclosure" />
+            <ListItem label="张良" value="详情" accessory="disclosure" onClick={() => {}} />
           </ListSection>
         </List>
       </DemoVariant>
@@ -1037,11 +1078,11 @@ export function ListEditingDemo() {
     <DemoVariants>
       <DemoVariant label="「编辑」进出：减号删除 / 把手重排" wide>
         <div class="ui-kit-demo__row">
-          <Button size="compact" onClick={() => setEditing(!editing)}>
+          <Button onClick={() => setEditing(!editing)}>
             {editing ? '完成' : '编辑'}
           </Button>
           {!editing && shopping.length !== INITIAL_SHOPPING.length && (
-            <Button size="compact" onClick={() => setShopping(INITIAL_SHOPPING)}>
+            <Button onClick={() => setShopping(INITIAL_SHOPPING)}>
               还原清单
             </Button>
           )}
@@ -1171,11 +1212,11 @@ export function ListPlainEditingDemo() {
     <DemoVariants>
       <DemoVariant label="「编辑」进出：减号删除 / 把手重排（plain 分支与 grouped 共用同一套机制）" wide>
         <div class="ui-kit-demo__row">
-          <Button size="compact" onClick={() => setEditing(!editing)}>
+          <Button onClick={() => setEditing(!editing)}>
             {editing ? '完成' : '编辑'}
           </Button>
           {!editing && threads.length !== PLAIN_THREADS.length && (
-            <Button size="compact" onClick={() => setThreads(PLAIN_THREADS)}>
+            <Button onClick={() => setThreads(PLAIN_THREADS)}>
               还原列表
             </Button>
           )}
@@ -1722,7 +1763,7 @@ export function PopoverDemo() {
       <DemoVariant label="锚定气泡（箭头跟随触发器）" wide>
         <div class="ui-kit-demo__row">
           <span ref={anchorRef}>
-            <Button size="compact" onClick={() => setOpen(!open)}>
+            <Button onClick={() => setOpen(!open)}>
               {open ? '关闭气泡' : '打开气泡'}
             </Button>
           </span>
@@ -2433,7 +2474,7 @@ export function IconDemo() {
   )
 }
 
-/** 图标与 kit 组件的组合示范：Button 仅图标方钮与 icon+文字同显（showBothIconAndText，受控例外）、List 行首图标，顶部滑杆统一调整套卡图标字重。 */
+/** 图标与 kit 组件的组合示范：Button 仅图标与 icon+文字同显（showBothIconAndText，受控例外）、List 行首图标，顶部滑杆统一调整套卡图标字重。 */
 export function IconComboDemo() {
   const [weight, setWeight] = useState(400)
   // 卡片 demo 区是横向 flex，必须像 IconDemo 一样收成单一纵向根，滑杆行和变体区才不会并排
@@ -2444,7 +2485,7 @@ export function IconComboDemo() {
         <IosRangeSlider value={weight} min={100} max={700} step={100} onChange={setWeight} />
       </div>
       <DemoVariants>
-        <DemoVariant label="Button · 仅图标（无文字自动方钮）">
+        <DemoVariant label="Button · 仅图标（无文字）">
           <div class="ui-kit-demo__row">
             <Button icon={<Icon name="chevron_left" size={14} weight={weight} />} title="后退" aria-label="后退" />
             <Button icon={<Icon name="chevron_right" size={14} weight={weight} />} title="前进" aria-label="前进" />

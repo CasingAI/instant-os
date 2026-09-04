@@ -181,7 +181,7 @@ export function SpaceSnifferStartDialog({
                 }
               }}
             />
-            <Button size="compact" onClick={handlePickFolder}>
+            <Button onClick={handlePickFolder}>
               选择文件夹…
             </Button>
           </div>

@@ -163,7 +163,7 @@ export function Popover({
         >
           <div class="popover-modal__body">{childrenRef.current}</div>
           <div class="popover-modal__actions">
-            <Button tone="primary" size="compact" onClick={onClose}>
+            <Button tone="primary" onClick={onClose}>
               {dismissLabel}
             </Button>
           </div>

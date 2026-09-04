@@ -245,7 +245,6 @@ export function MidiDemoApp() {
           {MIDI_DEMO_EXAMPLES.map((example) => (
             <Button
               key={example}
-              size="compact"
               disabled={generating}
               onClick={() => setPrompt(example)}
             >
@@ -278,7 +277,6 @@ export function MidiDemoApp() {
           <div class="midi-demo__section-head">
             <h2>ABC 乐谱</h2>
             <Button
-              size="compact"
               disabled={generating || !abc.trim()}
               onClick={() => applyAbc()}
             >

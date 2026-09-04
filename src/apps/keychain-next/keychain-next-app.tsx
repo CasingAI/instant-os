@@ -1079,7 +1079,6 @@ export function KeychainNextApp() {
                 ) : showDelete ? (
                   <Button
                     tone="danger"
-                    size="compact"
                     onClick={handleProviderDelete}
                   >
                     删除
@@ -2210,7 +2209,7 @@ function ModelSettingsView({
             onBack={onBack}
             actions={
               showRemove ? (
-                <Button tone="danger" size="compact" onClick={handleRemove}>
+                <Button tone="danger" onClick={handleRemove}>
                   移除
                 </Button>
               ) : undefined

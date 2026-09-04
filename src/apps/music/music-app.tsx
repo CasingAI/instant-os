@@ -622,7 +622,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
               {currentLibraryTrack?.title ?? '歌词文件'}
             </span>
             {transientLyrics && currentLibraryTrack ? (
-              <Button size="compact" onClick={() => void handleBindTransientLyrics()}>
+              <Button onClick={() => void handleBindTransientLyrics()}>
                 绑定到当前歌曲
               </Button>
             ) : (
@@ -699,7 +699,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
         <>
           <header class="music__toolbar">
             {tracks.length > 0 ? (
-              <Button size="compact" disabled={refreshing} onClick={() => setEditing((value) => !value)}>
+              <Button disabled={refreshing} onClick={() => setEditing((value) => !value)}>
                 {editing ? '完成' : '编辑'}
               </Button>
             ) : (
@@ -709,7 +709,6 @@ export function MusicApp({ windowId }: { windowId?: string }) {
             <div class="music__toolbar-actions">
               {currentLibraryTrack ? (
                 <Button
-                  size="compact"
                   onClick={() => {
                     setVisualizerOpen(false)
                     setLyricsOpen(true)
@@ -719,7 +718,6 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                 </Button>
               ) : null}
               <Button
-                size="compact"
                 onClick={() => {
                   setLyricsOpen(false)
                   setVisualizerOpen(true)
@@ -727,7 +725,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
               >
                 可视化
               </Button>
-              <Button size="compact" onClick={handleOpenMusicsFolder}>
+              <Button onClick={handleOpenMusicsFolder}>
                 音乐文件夹
               </Button>
             </div>
@@ -745,7 +743,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                   同名 .lrc 自动作为歌词。
                 </p>
                 <div class="music__empty-actions">
-                  <Button size="compact" onClick={handleOpenMusicsFolder}>
+                  <Button onClick={handleOpenMusicsFolder}>
                     打开音乐文件夹
                   </Button>
                 </div>
@@ -767,7 +765,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
               <span class="music__transient-text" title={transient.track.fileName}>
                 正在播放「{transient.track.title}」
               </span>
-              <Button size="compact" onClick={() => void handleCopyTransientToMusics()}>
+              <Button onClick={() => void handleCopyTransientToMusics()}>
                 复制到音乐文件夹
               </Button>
             </div>

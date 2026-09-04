@@ -17,13 +17,9 @@
   --ios-button-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.12);
   --ios-button-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
   --ios-button-height: 28px;
-  --ios-button-padding: 0 14px;
+  --ios-button-padding: 0 8px;
   --ios-button-font-size: 12px;
-  --ios-button-min-width: 68px;
-  --ios-button-compact-min-width: 0;
-  --ios-button-compact-height: 26px;
-  --ios-button-compact-padding: 0 10px;
-  --ios-button-compact-font-size: 11px;
+  --ios-button-min-width: 48px;
   --ios-button-disabled-color: #999;
   --ios-button-disabled-bg: linear-gradient(180deg, #ececec 0%, #dcdcdc 55%, #d0d0d0 100%);
   --ios-button-disabled-border: 1px solid #b8b8b8;
@@ -74,7 +70,7 @@
   border: var(--ios-button-border);
   font: inherit;
   font-size: var(--ios-button-font-size);
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1;
   cursor: pointer;
   color: var(--ios-button-color);
@@ -84,20 +80,10 @@
   appearance: none;
 }
 
-.ios-button--compact {
-  min-width: var(--ios-button-compact-min-width);
-  height: var(--ios-button-compact-height);
-  padding: var(--ios-button-compact-padding);
-  font-size: var(--ios-button-compact-font-size);
-}
-
-.ios-button--icon {
-  min-width: 26px;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  font-size: 13px;
-  font-weight: 700;
+.ios-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ios-button__spinner {

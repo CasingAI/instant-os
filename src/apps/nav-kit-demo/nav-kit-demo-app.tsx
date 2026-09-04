@@ -246,7 +246,6 @@ export function NavKitDemoApp() {
             onBack={showBack ? backPos : undefined}
             actions={
               <Button
-                size="compact"
                 tone={isFav ? 'primary' : 'secondary'}
                 onClick={() => toggleFavorite(favKey)}
               >

@@ -140,7 +140,6 @@ export function BooksReader({ book, store, onStoreChange, onBack }: BooksReaderP
           <span class="books__toolbar-spacer" />
         ) : (
           <Button
-            size="compact"
             disabled={!canReadAloud}
             onClick={() => {
               if (!canReadAloud) {

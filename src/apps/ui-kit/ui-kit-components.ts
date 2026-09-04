@@ -78,13 +78,12 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'button',
     name: 'Button',
     description:
-      'iOS 6 拟物按钮；secondary / primary / danger，支持 compact；icon 与文字默认互斥——传入 icon 即只渲染图标（自动方形图标按钮），children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     props: [
       { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary' },
-      { name: 'size', type: "'default' | 'compact'", description: '尺寸' },
-      { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标（方形按钮），文字转作无障碍名' },
+      { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名' },
       { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
       { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type' },
@@ -92,10 +91,10 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'onClick', type: '() => void', description: '点击回调' },
     ],
     codeExample: `<Button tone="primary" onClick={handleSave}>保存</Button>
-<Button size="compact">取消</Button>
+<Button>取消</Button>
 {/* 父级设置 --ios-button-color / --ios-button-bg 等即可换皮 */}
 <div style={{ '--ios-button-color': '#c77400' }}>
-  <Button size="compact">书城</Button>
+  <Button>书城</Button>
 </div>`,
   },
   {
@@ -952,11 +951,11 @@ const buttonRef = useRef(null)
     id: 'icon-combo',
     name: 'Icon × 组件组合',
     description:
-      'Icon 与 kit 组件的组合示范：Button 仅传 icon（无文字自动成方钮），showBothIconAndText 时 icon+文字同显（受控例外，未经用户要求一般不启用）、List 的 leading 槽放图标；图标颜色随容器文字色（currentColor），顶部滑杆可统一调整套卡图标字重',
+      'Icon 与 kit 组件的组合示范：Button 仅传 icon（无文字），showBothIconAndText 时 icon+文字同显（受控例外，未经用户要求一般不启用）、List 的 leading 槽放图标；图标颜色随容器文字色（currentColor），顶部滑杆可统一调整套卡图标字重',
     category: 'icons',
     importPath: "import { Icon } from '../../ui/icon.tsx'",
     props: [
-      { name: 'Button · icon', type: 'ComponentChildren', description: '图标内容；仅传图标（无文字）即渲染为 26×26 方钮' },
+      { name: 'Button · icon', type: 'ComponentChildren', description: '图标内容；仅传图标（无文字）即只渲染图标' },
       { name: 'ListItem · leading', type: 'ComponentChildren', description: '行首图标/头像位' },
     ],
     codeExample: `<Button icon={<Icon name="add" size={14} />} aria-label="新建" />

@@ -377,7 +377,6 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
           <div class="downloader-app__dialog-row">
             <span class="downloader-app__dialog-label">或</span>
             <Button
-              size="compact"
               onClick={() => void handlePickMetalinkFile()}
               disabled={isAdding}
             >
@@ -396,7 +395,6 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
               onInput={(event) => setTargetDirectory((event.target as HTMLInputElement).value)}
             />
             <Button
-              size="compact"
               onClick={() => void handlePickTargetDirectory()}
               disabled={isAdding}
             >
@@ -417,11 +415,10 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
             <span class="downloader-app__dialog-concurrency">{concurrency}</span>
           </div>
           <div class="downloader-app__dialog-actions">
-            <Button size="compact" onClick={() => setShowAddDialog(false)} disabled={isAdding}>
+            <Button onClick={() => setShowAddDialog(false)} disabled={isAdding}>
               取消
             </Button>
             <Button
-              size="compact"
               tone="primary"
               disabled={!canSubmit}
               onClick={() => void handleAddDownload()}
@@ -437,9 +434,7 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
   function renderToolbar() {
     return (
       <div class="downloader-app__toolbar">
-        <Button tone="primary" icon onClick={() => openAddDialog()} aria-label="新建下载">
-          +
-        </Button>
+        <Button tone="primary" icon="+" onClick={() => openAddDialog()} aria-label="新建下载" />
         <span class="downloader-app__toolbar-title">下载器</span>
         <span class="downloader-app__toolbar-spacer" aria-hidden="true" />
         {runningCount > 0 ? (
@@ -499,23 +494,22 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
         </span>
         <span class="downloader-app__col downloader-app__col--actions">
           {isPausable ? (
-            <Button size="compact" onClick={() => void handlePauseResume(task)}>
+            <Button onClick={() => void handlePauseResume(task)}>
               暂停
             </Button>
           ) : isResumable ? (
-            <Button size="compact" onClick={() => void handlePauseResume(task)}>
+            <Button onClick={() => void handlePauseResume(task)}>
               继续
             </Button>
           ) : (
             <span class="downloader-app__action-placeholder" />
           )}
           {canOpenFolder ? (
-            <Button size="compact" onClick={() => handleOpenFolder(task)}>
+            <Button onClick={() => handleOpenFolder(task)}>
               打开文件夹
             </Button>
           ) : undefined}
           <Button
-            size="compact"
             tone="danger"
             onClick={() => void handleDelete(task)}
           >

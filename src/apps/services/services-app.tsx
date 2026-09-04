@@ -269,7 +269,6 @@ export function ServicesApp() {
             <div class="services__detail-actions">
               {canStart && (
                 <Button
-                  size="compact"
                   onClick={() =>
                     selected.id === 'ai-inference'
                       ? restartAiInference()
@@ -281,7 +280,6 @@ export function ServicesApp() {
               )}
               {canStop && (
                 <Button
-                  size="compact"
                   tone="danger"
                   onClick={() =>
                     selected.id === 'ai-inference'
@@ -294,7 +292,6 @@ export function ServicesApp() {
               )}
               {canRestart && (
                 <Button
-                  size="compact"
                   onClick={() =>
                     selected.id === 'ai-inference'
                       ? restartAiInference()

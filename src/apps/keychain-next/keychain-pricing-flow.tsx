@@ -377,7 +377,6 @@ export function KeychainPricingFlow({
             onBack={() => navigate('source', 'pop')}
             actions={
               <Button
-                size="compact"
                 tone="primary"
                 disabled={!canSaveManual}
                 onClick={() => {

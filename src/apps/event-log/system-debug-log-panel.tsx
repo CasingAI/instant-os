@@ -265,10 +265,10 @@ export function SystemDebugLogPanel({ narrowLayout }: SystemDebugLogPanelProps) 
         </span>
         <span class="event-log__system-status-meta">{statusMeta}</span>
         <div class="event-log__system-status-actions">
-          <Button size="compact" onClick={() => void handleCopy()}>
+          <Button onClick={() => void handleCopy()}>
             复制
           </Button>
-          <Button size="compact" onClick={handleClear}>
+          <Button onClick={handleClear}>
             清空当前
           </Button>
         </div>

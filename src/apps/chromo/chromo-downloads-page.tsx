@@ -188,7 +188,7 @@ export function ChromoDownloadsPage(_props: ChromoDownloadsPageProps) {
 
       {items.length > 0 ? (
         <footer class="chromo-internal__footer">
-          <Button size="compact" onClick={() => clearFinishedChromoDownloads()}>
+          <Button onClick={() => clearFinishedChromoDownloads()}>
             清除记录（保留文件）
           </Button>
         </footer>

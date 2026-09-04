@@ -222,10 +222,11 @@
   flex: 0 0 auto;
 }
 
-/* 关闭叉：覆盖 Button icon 档的 26×26，与 actions 动作按钮同高 28px；hover 为 Button 缺失项的补偿 */
+/* 关闭叉：icon-only 钮与文字钮同规格，此处显式固定 28×28 方形并归零 padding（防基础 padding 挤压图标）；hover 为 Button 缺失项的补偿 */
 .window-modal__close {
   width: 28px;
   height: 28px;
+  padding: 0;
 }
 
 .window-modal__close:hover:not(:disabled) {
@@ -519,9 +520,8 @@
     gap: 6px;
   }
 
-  /* 按钮皮肤归 Button 后，窄容器降档走 --ios-button-* 变量（对 headerActions 同样生效） */
+  /* 按钮皮肤归 Button 后，窄容器降档走 --ios-button-* 变量（对 headerActions 同样生效）；基础 padding 已收窄至 0 8px，无需再降 */
   .window-modal {
     --ios-button-font-size: 11px;
-    --ios-button-padding: 0 10px;
   }
 }

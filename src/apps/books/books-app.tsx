@@ -303,11 +303,10 @@ export function BooksApp() {
           <IosNavBackButton iconSize={14} label="书架" onClick={() => setScreen('shelf')} />
           <span class="books__toolbar-title books__toolbar-title--center">书城</span>
           <div class="books__toolbar-actions">
-            <Button size="compact" onClick={openSearch} aria-label="搜索">
+            <Button onClick={openSearch} aria-label="搜索">
               搜索
             </Button>
             <Button
-              size="compact"
               disabled={catalogLoading}
               onClick={() => void refreshCatalog(true)}
             >
@@ -351,14 +350,14 @@ export function BooksApp() {
     <div class="books">
       <header class="books__toolbar">
         {store.library.length > 0 ? (
-          <Button size="compact" onClick={() => setShelfEditing((editing) => !editing)}>
+          <Button onClick={() => setShelfEditing((editing) => !editing)}>
             {shelfEditing ? '完成' : '编辑'}
           </Button>
         ) : (
           <span class="books__toolbar-spacer" />
         )}
         <span class="books__toolbar-title books__toolbar-title--center">书架</span>
-        <Button size="compact" disabled={shelfEditing} onClick={openStore}>
+        <Button disabled={shelfEditing} onClick={openStore}>
           书城
         </Button>
       </header>

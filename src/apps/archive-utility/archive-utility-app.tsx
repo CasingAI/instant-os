@@ -915,18 +915,16 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
 
   const renderToolbar = () => (
     <div class="archive-utility-app__toolbar">
-      <Button size="compact" onClick={() => void handleOpenArchive()}>
+      <Button onClick={() => void handleOpenArchive()}>
         打开
       </Button>
       <Button
-        size="compact"
         onClick={() => void handleExtract(false)}
         disabled={!session || busy !== undefined}
       >
         全部解压
       </Button>
       <Button
-        size="compact"
         onClick={() => void handleExtract(true)}
         disabled={!session || selectedCount === 0 || busy !== undefined}
       >
@@ -934,14 +932,12 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       </Button>
       <span class="archive-utility-app__toolbar-sep" aria-hidden="true" />
       <Button
-        size="compact"
         onClick={() => void handleAddFiles()}
         disabled={!session || session.format === 'gzip-file' || busy !== undefined}
       >
         添加文件
       </Button>
       <Button
-        size="compact"
         onClick={() => void handleDeleteSelected()}
         disabled={!session || selectedCount === 0 || session.format === 'gzip-file' || busy !== undefined}
       >
@@ -949,14 +945,13 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       </Button>
       <span class="archive-utility-app__toolbar-sep" aria-hidden="true" />
       <Button
-        size="compact"
         onClick={() => void handleCreateArchive()}
         disabled={busy !== undefined}
       >
         新建归档
       </Button>
       <span class="archive-utility-app__toolbar-spacer" aria-hidden="true" />
-      <Button size="compact" onClick={handleRefresh} disabled={!session || busy !== undefined}>
+      <Button onClick={handleRefresh} disabled={!session || busy !== undefined}>
         刷新
       </Button>
     </div>
@@ -1033,7 +1028,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           选择其他文件
         </Button>
         {documentId ? (
-          <Button size="compact" onClick={handleRefresh}>
+          <Button onClick={handleRefresh}>
             重试
           </Button>
         ) : undefined}
@@ -1174,11 +1169,10 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
             <span class="archive-utility-app__create-extension">.{extension}</span>
           </div>
           <div class="archive-utility-app__create-actions">
-            <Button size="compact" onClick={() => setCreateDialog(undefined)}>
+            <Button onClick={() => setCreateDialog(undefined)}>
               取消
             </Button>
             <Button
-              size="compact"
               tone="primary"
               disabled={!createName.trim()}
               onClick={() =>
@@ -1285,7 +1279,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
             {currentPath ? <span class="archive-utility-app__busy-path"> · {currentPath}</span> : undefined}
           </p>
           <div class="archive-utility-app__busy-actions">
-            <Button size="compact" onClick={cancelBusy}>
+            <Button onClick={cancelBusy}>
               取消
             </Button>
           </div>

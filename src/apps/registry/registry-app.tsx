@@ -558,7 +558,6 @@ function RegistryDetailPane({
             entries.length > 0 ? (
               <Button
                 tone="danger"
-                size="compact"
                 busy={clearing}
                 onClick={onConfirmClear}
               >
@@ -648,7 +647,7 @@ function RegistryBrowsePane({
           backLabel={backLabel}
           onBack={onBack}
           actions={
-            <Button tone="primary" size="compact" onClick={onEditJson}>
+            <Button tone="primary" onClick={onEditJson}>
               编辑 JSON
             </Button>
           }
@@ -751,7 +750,6 @@ function RegistryValuePane({
           actions={
             <Button
               tone="primary"
-              size="compact"
               disabled={!canSave}
               busy={saving}
               onClick={() => void onSave(draft)}

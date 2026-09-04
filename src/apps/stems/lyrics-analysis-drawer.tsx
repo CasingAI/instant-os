@@ -864,10 +864,10 @@ function rescueReviewNote(
                   </span>
                 )}
                 <span class="stems__analysis-focus-text">{focusLineObj.text}</span>
-                <Button size="compact" onClick={playWholeLine} disabled={!focusLineObj}>
+                <Button onClick={playWholeLine} disabled={!focusLineObj}>
                   播整行
                 </Button>
-                <Button size="compact" onClick={copyLineDump} disabled={!focusTrace}>
+                <Button onClick={copyLineDump} disabled={!focusTrace}>
                   {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制这一行'}
                 </Button>
               </div>
@@ -1027,7 +1027,7 @@ function rescueReviewNote(
             <div class="stems__analysis-recognized">
               <div class="stems__analysis-recognized-head">
                 <span class="stems__analysis-recognized-label">模型识别到：</span>
-                <Button size="compact" onClick={copyRecognizedDump}>
+                <Button onClick={copyRecognizedDump}>
                   {recognizedCopyState === 'copied' ? '已复制' : recognizedCopyState === 'failed' ? '复制失败' : '复制识别'}
                 </Button>
               </div>
@@ -1049,7 +1049,7 @@ function rescueReviewNote(
                     {preview.line && (
                       <BadgeFromLine line={preview.line} />
                     )}
-                    <Button size="compact" onClick={copyPreviewDump} disabled={!preview.trace}>
+                    <Button onClick={copyPreviewDump} disabled={!preview.trace}>
                       {previewCopyState === 'copied' ? '已复制' : previewCopyState === 'failed' ? '复制失败' : '复制预览'}
                     </Button>
                   </div>
@@ -1060,7 +1060,6 @@ function rescueReviewNote(
                     <p class="stems__analysis-preview-note">{preview.note}</p>
                     <div class="stems__analysis-actions">
                       <Button
-                        size="compact"
                         tone="primary"
                         disabled={!preview.line.words || preview.line.words.length === 0 || appliedKey === preview.key}
                         onClick={applyPreview}
@@ -1068,7 +1067,6 @@ function rescueReviewNote(
                         {appliedKey === preview.key ? '已应用' : '应用到主界面'}
                       </Button>
                       <Button
-                        size="compact"
                         tone="danger"
                         disabled={!canUndo}
                         onClick={() => {
@@ -1092,7 +1090,6 @@ function rescueReviewNote(
             <summary class="stems__analysis-alllines-summary">
               <span>全部行诊断（{lineStats.length} 行）</span>
               <Button
-                size="compact"
                 onClick={(event) => {
                   event.stopPropagation()
                   event.preventDefault()
@@ -1164,7 +1161,7 @@ function ActionRow({
               {progress.chunk}/{progress.total}
             </span>
           ) : null}
-          <Button size="compact" tone={disabled ? 'secondary' : 'primary'} disabled={disabled} onClick={onClick}>
+          <Button tone={disabled ? 'secondary' : 'primary'} disabled={disabled} onClick={onClick}>
             {active ? (progress ? `${Math.round((progress.chunk / progress.total) * 100)}%` : '处理中…') : '修复'}
           </Button>
         </div>

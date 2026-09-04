@@ -38,11 +38,6 @@
     0 1px 1px rgba(0, 0, 0, 0.18);
   --ios-button-shadow-active: inset 0 1px 3px rgba(0, 0, 0, 0.22);
   --ios-button-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
-  --ios-button-min-width: 72px;
-  --ios-button-compact-min-width: 56px;
-  --ios-button-compact-height: 26px;
-  --ios-button-compact-padding: 0 10px;
-  --ios-button-compact-font-size: 11px;
   --ios-button-disabled-color: #7a756c;
   --ios-button-disabled-bg: linear-gradient(180deg, #ece8e0 0%, #d8d3ca 100%);
   --ios-button-disabled-border: 1px solid #b0aaa0;
@@ -249,6 +244,7 @@
   min-width: 30px;
   width: 30px;
   height: 30px;
+  padding: 0;
   font-size: 13px;
 }
 
@@ -266,6 +262,7 @@
   min-width: 30px;
   width: 30px;
   height: 30px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -396,10 +393,11 @@
   min-width: 20px;
   width: 20px;
   height: 20px;
+  padding: 0;
   font-size: 12px;
 }
 
-.stems__zoom-fit.ios-button--compact {
+.stems__zoom-fit.ios-button {
   min-width: 0;
   height: 20px;
   padding: 0 7px;
@@ -789,6 +787,7 @@
   min-width: 22px;
   width: 22px;
   height: 22px;
+  padding: 0;
   font-size: 10px;
   letter-spacing: 0.02em;
   flex: none;
