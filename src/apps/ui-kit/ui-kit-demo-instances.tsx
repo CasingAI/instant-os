@@ -12,6 +12,7 @@ import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { IosRangeSlider, type IosRangeSliderMark } from '../../ui/ios-range-slider.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { List, ListSection } from '../../ui/list.tsx'
+import { groupByIndexLetter } from '../../ui/list-index.ts'
 import { ListItem } from '../../ui/list-item.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -658,59 +659,145 @@ export function ListControlsDemo() {
 }
 
 export function ListIndexDemo() {
-  // 归节手工标注，等价于 iOS 通讯录的 phonetic 拼音字段：字典推断解决不了多音姓氏，
-  // 曾小贤→Z（zēng）、单雄信→S（shàn）、仇英→Q（qiú）都按姓氏读音归节
-  const sections = [
-    {
-      id: '#',
-      names: [
-        '0 元秒杀',
-        '12306 客服',
-        '24 便利店',
-        '3M 便利贴',
-        '4S 店小哥',
-        '58 同城',
-        '618 大促',
-        '7-11 便当',
-        '8 折优惠券',
-        '9 键输入法',
-      ],
-    },
-    { id: 'A', names: ['阿福', '安琪', '敖丙', '艾克'] },
-    { id: 'B', names: ['白露', '包拯', '百晓生', '北岛', '毕加索'] },
-    { id: 'C', names: ['曹操', '陈皮', '蔡文姬', '晁盖', '车晓'] },
-    { id: 'D', names: ['丁丁', '大卫', '貂蝉', '杜甫', '董卓'] },
-    { id: 'E', names: ['恩雅', '耳东'] },
-    { id: 'F', names: ['范闲', '飞白', '方鸿', '冯程程', '傅雷'] },
-    { id: 'G', names: ['关雎', '归海', '高渐离', '郭靖', '顾城'] },
-    { id: 'H', names: ['韩非', '何晏', '胡杨', '华佗', '黄盖', '花木兰'] },
-    { id: 'I', names: ['Ivy'] },
-    { id: 'J', names: ['建安', '九斤', '姜子牙', '金铃儿', '贾宝玉', '纪晓岚'] },
-    { id: 'K', names: ['快雪', '凯风', '孔明', '柯南'] },
-    { id: 'L', names: ['李白', '林徽', '柳如是', '刘备', '陆游', '鲁智深'] },
-    { id: 'M', names: ['马良', '木心', '毛遂', '孟姜女', '米芾'] },
-    { id: 'N', names: ['南音', '妞妞', '倪妮', '聂小倩', '牛皋'] },
-    { id: 'O', names: ['欧阳', 'Olivia'] },
-    { id: 'P', names: ['潘安', '彭小满', '萍聚', '皮皮'] },
-    { id: 'Q', names: ['仇英', '钱塘', '青梅', '秦筝', '乔峰', '屈原'] },
-    { id: 'R', names: ['任盈盈', '若曦', '阮小二'] },
-    { id: 'S', names: ['单雄信', '苏轼', '石秀', '史湘云', '孙悟空', '宋江', '沈眉庄', '施小雅'] },
-    { id: 'T', names: ['唐寅', '陶朱', '汤唯', '铁拐李'] },
-    { id: 'U', names: ['Una'] },
-    { id: 'V', names: ['Vivian'] },
-    { id: 'W', names: ['王维', '吴刚', '魏征', '温宁'] },
-    { id: 'X', names: ['徐霞', '薛涛', '夏侯惇', '谢小楼', '项少龙'] },
-    { id: 'Y', names: ['颜回', '虞姬', '严守一', '余则成', '杨过', '叶问'] },
-    { id: 'Z', names: ['张良', '庄周', '赵子龙', '郑和', '周瑜', '朱迪', '曾小贤'] },
+  // 平铺名单 → groupByIndexLetter 自动归节排序。姓氏模式修正默认词典的姓氏读音
+  // （曾小贤→Z、单雄信→S、仇英→Q）；List 组件只按 DOM 顺序收集节，「标签非降序」
+  // 这条排序契约由数据侧的输出保证（A-Z 升序、# 沉底、组内按全拼）
+  const names = [
+    '0 元秒杀',
+    '12306 客服',
+    '24 便利店',
+    '3M 便利贴',
+    '4S 店小哥',
+    '58 同城',
+    '618 大促',
+    '7-11 便当',
+    '8 折优惠券',
+    '9 键输入法',
+    '阿福',
+    '安琪',
+    '敖丙',
+    '艾克',
+    '白露',
+    '包拯',
+    '百晓生',
+    '北岛',
+    '毕加索',
+    '曹操',
+    '陈皮',
+    '蔡文姬',
+    '晁盖',
+    '车晓',
+    '丁丁',
+    '大卫',
+    '貂蝉',
+    '杜甫',
+    '董卓',
+    '恩雅',
+    '耳东',
+    '范闲',
+    '飞白',
+    '方鸿',
+    '冯程程',
+    '傅雷',
+    '关雎',
+    '归海',
+    '高渐离',
+    '郭靖',
+    '顾城',
+    '韩非',
+    '何晏',
+    '胡杨',
+    '华佗',
+    '黄盖',
+    '花木兰',
+    'Ivy',
+    '建安',
+    '九斤',
+    '姜子牙',
+    '金铃儿',
+    '贾宝玉',
+    '纪晓岚',
+    '快雪',
+    '凯风',
+    '孔明',
+    '柯南',
+    '李白',
+    '林徽',
+    '柳如是',
+    '刘备',
+    '陆游',
+    '鲁智深',
+    '马良',
+    '木心',
+    '毛遂',
+    '孟姜女',
+    '米芾',
+    '南音',
+    '妞妞',
+    '倪妮',
+    '聂小倩',
+    '牛皋',
+    '欧阳',
+    'Olivia',
+    '潘安',
+    '彭小满',
+    '萍聚',
+    '皮皮',
+    '仇英',
+    '钱塘',
+    '青梅',
+    '秦筝',
+    '乔峰',
+    '屈原',
+    '任盈盈',
+    '若曦',
+    '阮小二',
+    '单雄信',
+    '苏轼',
+    '石秀',
+    '史湘云',
+    '孙悟空',
+    '宋江',
+    '沈眉庄',
+    '施小雅',
+    '唐寅',
+    '陶朱',
+    '汤唯',
+    '铁拐李',
+    'Una',
+    'Vivian',
+    '王维',
+    '吴刚',
+    '魏征',
+    '温宁',
+    '徐霞',
+    '薛涛',
+    '夏侯惇',
+    '谢小楼',
+    '项少龙',
+    '颜回',
+    '虞姬',
+    '严守一',
+    '余则成',
+    '杨过',
+    '叶问',
+    '张良',
+    '庄周',
+    '赵子龙',
+    '郑和',
+    '周瑜',
+    '朱迪',
+    '曾小贤',
   ]
+  const groups = groupByIndexLetter(names, (name) => name, { surname: true })
 
   // 可调高度变体：滑杆经 CSS 变量驱动滚动体 max-height，List 内部的 ResizeObserver 会实时重算压缩档
   const [bodyHeight, setBodyHeight] = useState(280)
 
   const renderSections = () =>
-    sections.map((section) => (
-      <ListSection key={section.id} id={section.id} title={section.id}>
-        {section.names.map((name) => (
+    groups.map((group) => (
+      <ListSection key={group.label} id={group.label} title={group.label}>
+        {group.items.map((name) => (
           <ListItem key={name} label={name} value="详情" accessory="disclosure" />
         ))}
       </ListSection>
@@ -748,6 +835,25 @@ export function ListIndexDemo() {
       </DemoVariant>
       <DemoVariant label="空间不足：只渲染采样字母（触点按全节等比映射）">
         <List indexBar scrollable>{renderSections()}</List>
+      </DemoVariant>
+      <DemoVariant label="节标题悬停：滚到滚动体顶部即钉住、被下一节顶走（无索引条）">
+        <List scrollable>{renderSections()}</List>
+      </DemoVariant>
+      <DemoVariant label="词组节标题：左侧完整词组，条上自动派生拼音首字母（水果类→S）；indexLabel 显式覆盖（蔬菜类→蔬）；id 只做锚点可任意命名">
+        <List indexBar scrollable>
+          <ListSection id="fruit" title="水果类">
+            <ListItem label="苹果" value="详情" accessory="disclosure" />
+            <ListItem label="香蕉" value="详情" accessory="disclosure" />
+            <ListItem label="脐橙" value="详情" accessory="disclosure" />
+            <ListItem label="葡萄" value="详情" accessory="disclosure" />
+          </ListSection>
+          <ListSection id="veg" title="蔬菜类" indexLabel="蔬">
+            <ListItem label="白菜" value="详情" accessory="disclosure" />
+            <ListItem label="菠菜" value="详情" accessory="disclosure" />
+            <ListItem label="青椒" value="详情" accessory="disclosure" />
+            <ListItem label="茄子" value="详情" accessory="disclosure" />
+          </ListSection>
+        </List>
       </DemoVariant>
     </DemoVariants>
   )

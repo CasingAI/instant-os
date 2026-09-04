@@ -16,7 +16,7 @@
  * 命中位置（tie）与目录原顺序稳定排序。纯逻辑模块，可 node 单测。
  */
 
-import { pinyin } from '../apps/align/vendor/pinyin-pro/index.mjs'
+import { pinyin } from '../vendor/pinyin-pro/index.mjs'
 import type { DesktopAppSearchEntry } from './desktop-app-search.ts'
 
 const CJK_RE = /[\u3400-\u4dbf\u4e00-\u9fff]/

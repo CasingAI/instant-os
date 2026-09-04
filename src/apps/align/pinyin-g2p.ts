@@ -9,7 +9,7 @@
  * 纯逻辑模块，可 node --experimental-strip-types 单测。
  */
 
-import { getFinalParts, getInitialAndFinal, pinyin } from './vendor/pinyin-pro/index.mjs'
+import { getFinalParts, getInitialAndFinal, pinyin } from '../../vendor/pinyin-pro/index.mjs'
 import { tokenizeLyricsLine } from './align-g2p.ts'
 import { ipaToPinyin } from '../stems/phoneme-ipa-mapping.ts'
 import type { G2pLine } from './align-types.ts'

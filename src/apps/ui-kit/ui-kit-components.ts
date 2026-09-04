@@ -360,7 +360,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'list',
     name: 'List',
     description:
-      '设置风格分组列表容器；行内容放 ListItem，支持节标题/脚注、表头滚动区、A-Z 索引条与 iOS 6 编辑模式（减号删除 + 把手排序）；样式完全自有（--list-* token），行 hover 蓝渐变反白（编辑模式暂停）',
+      '设置风格分组列表容器；行内容放 ListItem，支持节标题/脚注、表头滚动区、A-Z 索引条与 iOS 6 编辑模式（减号删除 + 把手排序）；scrollable 滚动体内分节标题 sticky 悬停（滚到顶钉住、被下一节顶走）；样式完全自有（--list-* token），行 hover 蓝渐变反白（编辑模式暂停）',
     category: 'list-showcase',
     importPath: "import { List, ListSection } from '../../ui/list.tsx'",
     props: [
@@ -372,7 +372,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'headClass', type: 'string?', description: '追加到表头的附加类' },
       { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区（max-height 280 + overflow auto）' },
       { name: 'bodyClass', type: 'string?', description: '追加到滚动体的附加类；配合 scrollable 使用' },
-      { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节；放不下时等分压缩、显示层隔位采样' },
+      { name: 'indexBar', type: 'boolean?', description: '右缘 A-Z 索引条；自动收集子级 ListSection，点击/沿条拖动跳节；放不下时等分压缩、显示层隔位采样。排序契约：组件不排序，节的条上标签须沿列表非降序——数据侧用 groupByIndexLetter 分组排序，dev 下逆序告警' },
       { name: 'editing', type: 'boolean?', description: '编辑模式：行出现减号删除钮与拖拽排序把手' },
       { name: 'selectedId', type: 'string?', description: '受控单选：配合 ListItem 的 id' },
       { name: 'onSelect', type: '(id: string) => void?', description: 'ListItem 点击上报选中' },
@@ -462,27 +462,37 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'list-index',
     name: 'List A-Z 索引条',
-    description: 'ListSection 出分组与锚点，List 的 indexBar 出右缘字母条——点字母或沿条拖动跳节；槽位放不下完整字母时只渲染采样字母（触点按全节等比映射，显示与触点不同步）',
+    description: 'ListSection 出分组，List 的 indexBar 出右缘字母条——条上文字由节标题自动派生（拼音/字母首字母，词组标题也只占一槽），点字母或沿条拖动跳节；槽位放不下时隔位采样（触点按全节等比映射，显示与触点不同步）。排序契约：组件不排序，启用即承诺节标签沿列表非降序（数据侧用 groupByIndexLetter 归组排序，dev 下逆序告警）',
     category: 'list-showcase',
-    importPath: "import { List, ListSection } from '../../ui/list.tsx'",
+    importPath: "import { List, ListSection } from '../../ui/list.tsx'\nimport { groupByIndexLetter } from '../../ui/list-index.ts'",
     props: [
-      { name: 'indexBar', type: 'boolean?', description: '渲染右缘字母条；自动收集子级 ListSection；槽位放不下完整字母时隔位采样稀疏显示' },
-      { name: 'id', type: 'string', description: 'ListSection 的分组锚点（同时是节标题）' },
+      { name: 'indexBar', type: 'boolean?', description: '渲染右缘字母条；条上文字自动派生自 ListSection 的 title；槽位放不下完整字母时隔位采样稀疏显示' },
+      { name: 'id', type: 'string', description: 'ListSection 的跳转锚点，须唯一；不出现在索引条上' },
+      { name: 'title', type: 'string', description: 'ListSection 的节标题（可为词组）；条上文字缺省由它派生（水果类→S）' },
+      { name: 'indexLabel', type: 'string?', description: 'ListSection 的条上文字显式覆盖；派生不准（冷僻姓氏/词典外词）时用它兜底' },
       { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区，索引跳转需要滚动容器' },
     ],
-    codeExample: `<List indexBar scrollable>
-  <ListSection id="A" title="A">
-    <ListItem label="阿福" accessory="disclosure" />
-  </ListSection>
-  <ListSection id="B" title="B">
-    <ListItem label="白露" accessory="disclosure" />
-  </ListSection>
-</List>`,
+    codeExample: `// 平铺名单自动归组排序（A-Z 升序、# 沉底、组内按全拼）；姓氏模式修多音姓
+const groups = groupByIndexLetter(names, (name) => name, { surname: true })
+
+<List indexBar scrollable>
+  {groups.map((g) => (
+    <ListSection key={g.label} id={g.label} title={g.label}>
+      {g.items.map((name) => (
+        <ListItem key={name} label={name} accessory="disclosure" />
+      ))}
+    </ListSection>
+  ))}
+</List>
+
+// 词组节标题：条上自动派生首字母；indexLabel 可显式覆盖
+<ListSection id="fruit" title="水果类" />
+<ListSection id="veg" title="蔬菜类" indexLabel="蔬" />`,
   },
   {
     id: 'list-editing',
     name: 'List 编辑模式',
-    description: 'editing 进编辑态：点减号行内滑出红删除钮，拖右缘把手重排（拖动行浮起、其余让位），onDelete/onReorder 落数据',
+    description: 'editing 进编辑态：减号/把手淡入、行内容两侧平滑内收，点减号红删除钮滑入滑出，拖右缘把手重排（拖动行浮起、其余让位），onDelete/onReorder 落数据',
     category: 'list-showcase',
     importPath: "import { List } from '../../ui/list.tsx'",
     props: [

@@ -1,6 +1,7 @@
 import type { ComponentChildren, JSX } from 'preact'
 import { createContext } from 'preact'
 import { useContext, useEffect, useRef, useState } from 'preact/hooks'
+import { compareIndexLabelRank, deriveIndexLabel } from './list-index.ts'
 import './list.css'
 
 type ListProps = {
@@ -18,7 +19,15 @@ type ListProps = {
   title?: ComponentChildren
   /** 节脚注（盒子外下方）。 */
   footnote?: ComponentChildren
-  /** 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节；槽位放不下完整字母时按 iOS 方式等分压缩，显示层隔位采样、只渲染采样字母（触点始终按全节等比映射，显示与触点不同步）。 */
+  /**
+   * 右缘 A-Z 索引条：自动收集子级 ListSection 并支持点击/沿条拖动跳节；槽位放不下完整字母时按 iOS 方式等分压缩，显示层隔位采样、只渲染采样字母（触点始终按全节等比映射，显示与触点不同步）。
+   *
+   * 排序契约：本组件只按 DOM 顺序收集节并等比映射跳转——不排序、不重排。
+   * 启用即承诺「各节的条上标签自上而下非降序」，等价于数据已按拼音首字母序
+   * 排好（分组排序用 list-index.ts 的 groupByIndexLetter）；未启用本功能时
+   * 列表可按任意语义排序（时间/频次…），两者互不约束。标签逆序在 dev 构建
+   * 下 console.warn，生产构建静默。
+   */
   indexBar?: boolean
   /** 编辑模式：ListItem 行出现减号删除钮与拖拽排序把手。 */
   editing?: boolean
@@ -43,6 +52,35 @@ function indexStrideFor(height: number, count: number): number {
   if (height <= 0 || count <= 0) return 1
   const maxShown = Math.max(1, Math.floor(height / MIN_INDEX_SLOT_PX))
   return count > maxShown ? Math.ceil(count / maxShown) : 1
+}
+
+/** dev 构建标记（防御式读取，仿 virtual-machine-runtime-config 的 readViteEnv；非 Vite 环境按生产处理）——仅供排序契约告警使用。 */
+const IS_DEV = (() => {
+  try {
+    return (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true
+  } catch {
+    return false
+  }
+})()
+
+/**
+ * 排序契约守卫（仅 dev 调用）：indexBar 要求节标签沿列表非降序（见 indexBar
+ * JSDoc），违反时等比映射的跳转语义错乱且无任何视觉异常——静默错乱是最坏的
+ * 失败形态，把首个逆序对报出来。compareIndexLabelRank 对自定义标签返回 null，
+ * 此类对不判定、不告警。
+ */
+function warnIndexOrderUnordered(labels: string[]): void {
+  for (let i = 1; i < labels.length; i += 1) {
+    const diff = compareIndexLabelRank(labels[i - 1]!, labels[i]!)
+    if (diff !== null && diff > 0) {
+      console.warn(
+        `[List] indexBar 排序契约：节标签出现逆序（${labels[i - 1]} → ${labels[i]}）。` +
+          '索引条要求标签自上而下非降序——数据需按拼音首字母序排好（可用 list-index.ts 的 ' +
+          'groupByIndexLetter 分组排序），或用 ListSection 的 indexLabel 显式指定条上文字。',
+      )
+      return
+    }
+  }
 }
 
 /** List ↔ ListItem 结合上下文：受控单选 + 编辑态 + 拖拽重排。 */
@@ -105,6 +143,8 @@ export function List({
   const bodyRef = useRef<HTMLDivElement>(null)
   const indexStripRef = useRef<HTMLDivElement>(null)
   const [sections, setSections] = useState<ListSectionAnchor[]>([])
+  // 排序契约告警的去重签名：节标签序列没变就不重复报（collect 随每次 DOM 变更触发）
+  const indexOrderSigRef = useRef('')
   // 按住/拖动索引条时命中的字母：整条挂 --pressed、当前字母挂 --active（悬停反馈由 CSS :hover 负责）
   const [activeLetter, setActiveLetter] = useState<string | null>(null)
   // 索引条槽位高度，压缩档的判定输入；量到 0 说明窗口隐藏，维持上次值
@@ -117,14 +157,18 @@ export function List({
     if (!root) return
     const collect = () => {
       const nodes = Array.from(root.querySelectorAll<HTMLElement>('[data-list-section]'))
-      setSections(
-        nodes
-          .map((node) => ({
-            key: node.dataset.listSection ?? '',
-            label: node.dataset.listSectionLabel ?? node.dataset.listSection ?? '',
-          }))
-          .filter((section) => section.key !== ''),
-      )
+      const next = nodes
+        .map((node) => ({
+          key: node.dataset.listSection ?? '',
+          label: node.dataset.listSectionLabel ?? node.dataset.listSection ?? '',
+        }))
+        .filter((section) => section.key !== '')
+      const signature = next.map((section) => section.label).join('\u0000')
+      if (signature !== indexOrderSigRef.current) {
+        indexOrderSigRef.current = signature
+        if (IS_DEV) warnIndexOrderUnordered(next.map((section) => section.label))
+      }
+      setSections(next)
     }
     collect()
     const observer = new MutationObserver(collect)
@@ -310,19 +354,25 @@ export function List({
 }
 
 /**
- * 索引分组：盒内小节标题行 + 行内容；id 同时作为 List indexBar 的跳转锚点。
+ * 索引分组：盒内小节标题行 + 行内容。三个字段各司其职：id 只作跳转锚点与
+ * React 键（须唯一，不出现在索引条上）；title 是盒内显示的小节标题（可为
+ * 词组）；索引条上的文字默认由 deriveIndexLabel(title) 自动派生（拼音/字母
+ * 首字母，词组标题也只占一槽），要显示别的文字时用 indexLabel 显式覆盖。
  */
 export function ListSection({
   id,
   title,
+  indexLabel,
   children,
 }: {
   id: string
   title: string
+  /** 条上索引文字覆盖；缺省由 title 自动派生（见 list-index.ts）。 */
+  indexLabel?: string
   children: ComponentChildren
 }) {
   return (
-    <div data-list-section={id} data-list-section-label={title}>
+    <div data-list-section={id} data-list-section-label={indexLabel ?? deriveIndexLabel(title)}>
       <div class="list-section__title">{title}</div>
       {children}
     </div>
