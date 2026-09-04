@@ -260,6 +260,38 @@
   z-index: 2;
 }
 
+/*
+ * 滑动页左缘：窗口期 over 页正文整页平移，左缘悬在 under 页之上却无描边，
+ * 两页同为 --page-bg 底色时界限消失。补 1px 界线 + 软投影（与左栏分隔线
+ * 同色系），窗口类移除即消失、静止态零影响。与 page-stack.css 同款——
+ * 独立栈与两套分栏引擎共用同一套拆盒动画，边缘语言保持一致。投影模糊向
+ * 四周溢出，向上会叠到持续标题条带上（条带与正文同为 z-index 2、树序在
+ * 前拦不住），clip-path 把投影裁到只向左伸出 40px，上下右溢出一律不留。
+ * reduced-motion 下动画被禁、页停在原位，不加线避免缝隙处常驻叠线。
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .adaptive-split-nav__frames--push .is-over .page__body,
+  .adaptive-split-nav__frames--pop .is-over .page__body {
+    box-shadow:
+      -1px 0 0 rgba(0, 0, 0, 0.18),
+      -12px 0 28px rgba(0, 0, 0, 0.18);
+    clip-path: inset(0 0 0 -40px);
+  }
+
+  /*
+   * 形变滑轨面板左缘：A 型面板左缘与列表轨道右缘严丝合缝，而列表栏自己的
+   * border-right 恒被面板盖住（面板左缘从 0 滑到 L，栏右缘从 W 滑到 L，
+   * 始终在面板下方），滑轨中的缝隙线只能由面板补；B/D 面板整体平移、C
+   * 面板向左扩张，左缘扫过列表内容，同理需要边缘。收尾时面板线与列表栏
+   * border-right 同像素换手，均为 1px 不叠线。
+   */
+  .adaptive-split-nav--morphing .adaptive-split-nav__frames {
+    box-shadow:
+      -1px 0 0 rgba(0, 0, 0, 0.18),
+      -12px 0 28px rgba(0, 0, 0, 0.18);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .adaptive-split-nav__frames--push::before,
   .adaptive-split-nav__frames--pop::before {
