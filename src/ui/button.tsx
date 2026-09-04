@@ -8,8 +8,11 @@ export type ButtonProps = {
   children?: ComponentChildren
   tone?: ButtonTone
   size?: ButtonSize
-  /** 图标内容（元素或字符）；与文字互斥——传入即只渲染图标（方形图标按钮），children 不再显示、转作无障碍名回退 */
+  /** 图标内容（元素或字符）；与文字互斥——传入即只渲染图标（方形图标按钮），children 不再显示、转作无障碍名回退；例外见 showBothIconAndText */
   icon?: ComponentChildren
+  /** 受控例外：icon 与文字并排同显，不再退化为方形图标钮。仅当用户明确要求按钮带图标时才启用；
+   *  未经用户要求默认不得传此属性——icon 互斥设计的目的就是避免主动给按钮乱配图标 */
+  showBothIconAndText?: boolean
   /** 异步进行中：以转圈替换文案并标记 aria-busy */
   busy?: boolean
   type?: 'button' | 'submit' | 'reset'
@@ -26,6 +29,7 @@ export function Button({
   tone = 'secondary',
   size = 'default',
   icon,
+  showBothIconAndText = false,
   busy = false,
   type = 'button',
   disabled = false,
@@ -34,7 +38,7 @@ export function Button({
   'aria-label': ariaLabel,
   onClick,
 }: ButtonProps) {
-  const iconOnly = !!icon
+  const iconOnly = !!icon && !showBothIconAndText
   const classes = [
     'ios-button',
     `ios-button--${tone}`,
@@ -68,8 +72,9 @@ export function Button({
   )
 }
 
-// 方形图标按钮（.ios-button--icon）由「传了 icon」直接推断，不再有独立布尔开关；
-// 图标与文字互斥：icon 存在时文字不渲染，屏幕阅读器名从 children 回退（见下方 extractText）
+// 方形图标按钮（.ios-button--icon）由「传了 icon 且未开 showBothIconAndText」直接推断，不再有独立布尔开关；
+// 图标与文字默认互斥：icon 存在时文字不渲染，屏幕阅读器名从 children 回退（见下方 extractText）；
+// 唯一例外是 showBothIconAndText——图标文字并排同显、走常规胶囊样式，仅供用户明确要求时使用
 // busy 时文案被 spinner 替换，屏幕阅读器仍需从 children 里取到可读标签
 function extractText(children: ComponentChildren): string | undefined {
   if (typeof children === 'string') return children

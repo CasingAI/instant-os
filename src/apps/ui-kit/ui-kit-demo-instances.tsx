@@ -155,6 +155,8 @@ export function ButtonDemo() {
           <Button size="compact">紧凑</Button>
           <Button icon="←" size="compact" title="后退" />
           <Button icon="→" size="compact" title="前进" />
+          {/* showBothIconAndText 是受控例外：仅演示能力，实际页面未经用户要求不得使用 */}
+          <Button icon="＋" showBothIconAndText>新建</Button>
           <Button size="compact" disabled>
             禁用
           </Button>
@@ -2431,49 +2433,70 @@ export function IconDemo() {
   )
 }
 
-/** 图标与 kit 组件的组合示范：Button 的 icon 与文字互斥（icon 独占成方钮）与 List 行首图标。 */
+/** 图标与 kit 组件的组合示范：Button 仅图标方钮与 icon+文字同显（showBothIconAndText，受控例外）、List 行首图标，顶部滑杆统一调整套卡图标字重。 */
 export function IconComboDemo() {
+  const [weight, setWeight] = useState(400)
+  // 卡片 demo 区是横向 flex，必须像 IconDemo 一样收成单一纵向根，滑杆行和变体区才不会并排
   return (
-    <DemoVariants>
-      <DemoVariant label="Button · icon + 文字（文字不渲染，icon 独占）" wide>
-        <div class="ui-kit-demo__row">
-          <Button title="新建" icon={<Icon name="add" size={13} />}>新建</Button>
-          <Button tone="primary" title="下载" icon={<Icon name="cloud_download" size={13} />}>
-            下载
-          </Button>
-          <Button tone="danger" title="删除" icon={<Icon name="delete" size={13} />}>删除</Button>
-          <Button size="compact" title="搜索" icon={<Icon name="search" size={12} />}>
-            搜索
-          </Button>
-        </div>
-      </DemoVariant>
-      <DemoVariant label="Button · 仅图标（无文字自动方钮）">
-        <div class="ui-kit-demo__row">
-          <Button icon={<Icon name="chevron_left" size={14} />} title="后退" aria-label="后退" />
-          <Button icon={<Icon name="chevron_right" size={14} />} title="前进" aria-label="前进" />
-          <Button tone="primary" icon={<Icon name="add" size={14} />} title="新建" aria-label="新建" />
-          <Button tone="danger" icon={<Icon name="delete" size={13} />} title="删除" aria-label="删除" />
-        </div>
-      </DemoVariant>
-      <DemoVariant label="List · leading 槽" wide>
-        <List class="ui-kit-demo__settings-group">
-          <ListItem
-            id="icon-combo-icloud"
-            leading={<Icon name="cloud" size={17} />}
-            label="iCloud 云盘"
-            value="已开启"
-            accessory="disclosure"
-          />
-          <ListItem
-            id="icon-combo-trash"
-            leading={<Icon name="delete" size={17} />}
-            label="最近删除"
-            value="3 项"
-            accessory="disclosure"
-          />
-        </List>
-      </DemoVariant>
-    </DemoVariants>
+    <div class="ui-kit-demo__icon-panel">
+      <div class="ui-kit-demo__icon-slider" style={{ flex: '0 0 auto' }}>
+        <span class="ui-kit-demo__label">字重</span>
+        <IosRangeSlider value={weight} min={100} max={700} step={100} onChange={setWeight} />
+      </div>
+      <DemoVariants>
+        <DemoVariant label="Button · 仅图标（无文字自动方钮）">
+          <div class="ui-kit-demo__row">
+            <Button icon={<Icon name="chevron_left" size={14} weight={weight} />} title="后退" aria-label="后退" />
+            <Button icon={<Icon name="chevron_right" size={14} weight={weight} />} title="前进" aria-label="前进" />
+            <Button
+              tone="primary"
+              icon={<Icon name="add" size={14} weight={weight} />}
+              title="新建"
+              aria-label="新建"
+            />
+            <Button
+              tone="danger"
+              icon={<Icon name="delete" size={13} weight={weight} />}
+              title="删除"
+              aria-label="删除"
+            />
+          </div>
+        </DemoVariant>
+        {/* showBothIconAndText 是受控例外：仅演示能力，实际页面未经用户要求不得使用 */}
+        <DemoVariant label="Button · icon + 文字（showBothIconAndText）">
+          <div class="ui-kit-demo__row">
+            <Button icon={<Icon name="add" size={14} weight={weight} />} showBothIconAndText>
+              新建
+            </Button>
+            <Button
+              tone="primary"
+              icon={<Icon name="cloud_download" size={14} weight={weight} />}
+              showBothIconAndText
+            >
+              下载
+            </Button>
+          </div>
+        </DemoVariant>
+        <DemoVariant label="List · leading 槽" wide>
+          <List class="ui-kit-demo__settings-group">
+            <ListItem
+              id="icon-combo-icloud"
+              leading={<Icon name="cloud" size={17} weight={weight} />}
+              label="iCloud 云盘"
+              value="已开启"
+              accessory="disclosure"
+            />
+            <ListItem
+              id="icon-combo-trash"
+              leading={<Icon name="delete" size={17} weight={weight} />}
+              label="最近删除"
+              value="3 项"
+              accessory="disclosure"
+            />
+          </List>
+        </DemoVariant>
+      </DemoVariants>
+    </div>
   )
 }
 
