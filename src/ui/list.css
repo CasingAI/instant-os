@@ -21,6 +21,11 @@
   --list-index-pressed-bg: rgba(0, 0, 0, 0.11);
   /* 编辑模式动效（内容内收、减号滑入、红钮滑出）共用的减速曲线：急起缓收，收尾不顿 */
   --list-edit-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
+  /* 选中/点闪的蓝渐变两端 + 悬停淡灰两端：悬停/按下/点闪/选中四态共用色源 */
+  --list-selected-top: #4089d4;
+  --list-selected-bottom: #2068b8;
+  --list-hover-top: #fbfbfd;
+  --list-hover-bottom: #ececf0;
 }
 
 /* ── 容器盒 ── */
@@ -84,6 +89,9 @@
 .list-item {
   display: flex;
   position: relative;
+  /* 行自成堆叠上下文：点闪的 ::after 覆盖层（z-index:-1）恰好落在行背景之上、
+     内容之下——悬停淡灰被它盖住，文字与定位件（减号/红钮）不受影响 */
+  isolation: isolate;
   align-items: center;
   gap: 10px;
   width: 100%;
@@ -103,7 +111,8 @@
      --anchored 是 prop 驱动、首帧即达（list.tsx rootClass），不存在挂载滑动 */
   transition:
     padding-left 220ms var(--list-edit-ease),
-    padding-right 220ms var(--list-edit-ease);
+    padding-right 220ms var(--list-edit-ease),
+    color 400ms ease-out;
 }
 
 .list > .list-item:last-child {
@@ -120,26 +129,37 @@
   cursor: default;
 }
 
-/* ── 行状态：hover / 按下 / 选中 / 禁用 ──
-   指针环境下行默认 hover 反白（系统设置同款触达反馈），编辑模式整行点按暂停时
-   hover/按下反馈一并收起；按下加深只属于真正可点的行（button）。 */
+/* ── 行状态：hover / 按下 / 点闪 / 选中 / 禁用 ──
+   悬停只是淡灰触达反馈（蓝色留给按下/点闪/选中，iOS 原版同款分工），编辑模式
+   整行点按暂停时反馈一并收起；按下加深只属于真正可点的行（button）。
+   选中行不参与淡灰 hover——浅灰会把反白墨水泡掉。 */
 
 .list-item--button {
   cursor: default;
   color: inherit;
 }
 
-.list:not(.list--editing) .list-item:hover:not(:disabled) {
-  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
-  color: #fff;
+.list:not(.list--editing) .list-item:hover:not(:disabled):not(.list-item--selected) {
+  background: linear-gradient(
+    180deg,
+    var(--list-hover-top, #fbfbfd) 0%,
+    var(--list-hover-bottom, #ececf0) 100%
+  );
 }
 
 .list:not(.list--editing) .list-item--button:active:not(:disabled) {
   background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+  color: #fff;
+  /* 按下的高亮与反白都是硬切（触摸即高亮），退场交给基态过渡淡出 */
+  transition: none;
 }
 
 .list-item--selected:not(:disabled) {
-  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  background: linear-gradient(
+    180deg,
+    var(--list-selected-top, #4089d4) 0%,
+    var(--list-selected-bottom, #2068b8) 100%
+  );
   color: #fff;
 }
 
@@ -155,27 +175,64 @@
   background: #d8d8d8;
 }
 
-/* hover / 按下 / 选中时次级墨水随行反白 */
-.list:not(.list--editing) .list-item:hover:not(:disabled) .list-item__value,
+/* 按下 / 点闪 / 选中时次级墨水随行反白 */
+
+/* 点闪行本体反白：主标题（__name）继承行 color，随行硬切、退场淡出 */
+.list-item--flashed {
+  color: #fff;
+  transition: none;
+}
+
 .list:not(.list--editing) .list-item--button:active:not(:disabled) .list-item__value,
+.list-item--flashed .list-item__value,
 .list-item--selected:not(:disabled) .list-item__value {
   color: rgba(255, 255, 255, 0.85);
+  transition: none;
 }
 
-.list:not(.list--editing) .list-item:hover:not(:disabled) .list-item__subtitle,
 .list:not(.list--editing) .list-item--button:active:not(:disabled) .list-item__subtitle,
+.list-item--flashed .list-item__subtitle,
 .list-item--selected:not(:disabled) .list-item__subtitle {
   color: rgba(255, 255, 255, 0.75);
+  transition: none;
 }
 
-.list:not(.list--editing) .list-item:hover:not(:disabled) .list-item__disclosure,
 .list:not(.list--editing) .list-item--button:active:not(:disabled) .list-item__disclosure,
+.list-item--flashed .list-item__disclosure,
 .list-item--selected:not(:disabled) .list-item__disclosure {
   color: rgba(255, 255, 255, 0.88);
 }
 
+.list-item--flashed .list-item__check,
 .list-item--selected:not(:disabled) .list-item__check {
   color: #fff;
+  transition: none;
+}
+
+/* ── 点闪（iOS deselectRow 式）──
+   click 落定的行硬切蓝底保持 ~1s（ListItem 计时），再淡出回位色。蓝底画在
+   ::after 覆盖层而不是行背景：渐变（background-image）无法参与 transition，
+   opacity 才能淡出。进入硬切（transition:none，触摸即高亮不渐入），退场走
+   覆盖层自身的 400ms opacity 过渡。墨水反白同样进硬切、退场走基态 color 过渡。
+   选中行点闪由 --selected 同色渐变接管，淡出无感。 */
+.list-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    180deg,
+    var(--list-selected-top, #4089d4) 0%,
+    var(--list-selected-bottom, #2068b8) 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 400ms ease-out;
+}
+
+.list-item--flashed::after {
+  opacity: 1;
+  transition: none;
 }
 
 /* ── 槽位 ── */
@@ -214,6 +271,9 @@
   white-space: nowrap;
   font-size: 11px;
   color: #888;
+  /* 反白墨水（按下/点闪/选中）退场时的淡出通道；进入方向的硬切由状态规则的
+     transition:none 整条覆盖 */
+  transition: color 400ms ease-out;
 }
 
 .list-item__badge {
@@ -231,6 +291,7 @@
   font-size: 12px;
   color: var(--list-value-ink, #666);
   font-variant-numeric: tabular-nums;
+  transition: color 400ms ease-out;
 }
 
 .list-item__control,
@@ -246,6 +307,7 @@
   color: var(--list-accent, #007aff);
   font-weight: 600;
   text-align: center;
+  transition: color 400ms ease-out;
 }
 
 .list-item__disclosure {
@@ -258,7 +320,7 @@
   color: var(--list-disclosure, #b4b4b4);
   transition:
     transform 0.15s ease,
-    color 0.1s ease;
+    color 400ms ease-out;
 }
 
 .list-item__detail {
@@ -284,8 +346,10 @@
   padding-right: 8px;
 }
 
-/* 减号删除钮：绝对定位挂在行左缘，常驻 DOM、编辑态淡入滑入——显隐由 .list--editing
-   切换（条件挂载的新元素带着终态样式插入，transition 不跑只会闪现） */
+/* 减号删除钮：绝对定位挂在行左缘，常驻 DOM、编辑态从行缘「长出来」（淡入+放大+滑入
+   同步）——显隐由 .list--editing 切换（条件挂载的新元素带着终态样式插入，transition
+   不跑只会闪现）。纯淡入的整尺寸红盘出现感很重，缩放生长才是自然浮现；30ms 小延迟
+   保留文字让位的拍点，且圆盘在小尺寸、半透明阶段即使被文字碾过也无感 */
 .list-item__minus {
   position: absolute;
   left: 10px;
@@ -304,15 +368,20 @@
   cursor: pointer;
   user-select: none;
   transition:
-    opacity 160ms ease-out,
+    opacity 200ms ease-out 30ms,
     transform 220ms var(--list-edit-ease);
 }
 
-/* 非编辑态：左移 10px 藏到行左缘（left 10px − 10px，不外溢），指针/键盘/读屏全隔离 */
+/* 非编辑态：左移 6px 并缩到 40% 藏起来（不外溢），指针/键盘/读屏全隔离。
+   退出方向的过渡在此整条覆盖（transition 不按子属性合并）：淡出 110ms 无延迟——
+   文字滑回圆盘区约需 60ms，红盘得先撤干净，文字回的才是干净空间 */
 .list:not(.list--editing) .list-item__minus {
   opacity: 0;
-  transform: translateY(-50%) translateX(-10px);
+  transform: translateY(-50%) translateX(-6px) scale(0.4);
   pointer-events: none;
+  transition:
+    opacity 110ms ease-out,
+    transform 220ms var(--list-edit-ease);
 }
 
 .list-item__minus::before {

@@ -79,6 +79,9 @@
 .plain-list-item {
   display: flex;
   position: relative;
+  /* 行自成堆叠上下文：点闪的 ::after 覆盖层（z-index:-1）恰好落在行背景之上、
+     内容之下——悬停淡灰被它盖住，文字与定位件（减号/红钮）不受影响 */
+  isolation: isolate;
   align-items: center;
   gap: 10px;
   width: 100%;
@@ -100,6 +103,9 @@
      规则里时非编辑侧没有这条属性，进入起跑不可靠、退出必然瞬跳）；只过渡
      padding-left，右侧 12→8 的收窄被同帧展开的把手/红钮掩盖，不可感 */
   transition: padding-left 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
+  /* 反白墨水（按下/点闪/选中）退场时的淡出通道；进入方向的硬切由状态规则的
+     transition:none 整条覆盖 */
+  transition: color 400ms ease-out;
 }
 
 .plain-list > .plain-list-item:last-child {
@@ -119,9 +125,9 @@
   cursor: default;
 }
 
-/* ── 行状态：hover / 按下 / 选中 / 禁用 ──
-   plain 的触达反馈是浅灰渐变（邮件同款），蓝渐变留给「选中」这一持久状态——
-   与 grouped 的「hover 即蓝」不同源。编辑模式整行点按暂停时反馈一并收起。 */
+/* ── 行状态：hover / 按下 / 点闪 / 选中 / 禁用 ──
+   悬停是浅灰触达反馈（邮件同款），蓝渐变留给按下/点闪/选中（iOS 原版同款分工，
+   与 grouped 四态同构）。编辑模式整行点按暂停时反馈一并收起。 */
 
 /* hover 触达反馈只属于未选中的行：选中行悬停保持蓝底白字（浅灰 hover 会把
    反白墨水泡掉），仅微调亮度示意仍可交互 */
@@ -138,7 +144,10 @@
 }
 
 .plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) {
-  background: linear-gradient(180deg, #e2e2e7 0%, #d6d6db 100%);
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+  color: #fff;
+  /* 按下的高亮与反白都是硬切（触摸即高亮），退场交给基态过渡淡出 */
+  transition: none;
 }
 
 .plain-list-item--selected:not(:disabled) {
@@ -162,26 +171,74 @@
   background: #d8d8d8;
 }
 
-/* 选中时各级墨水随行反白 */
+/* 按下 / 点闪 / 选中时各级墨水随行反白 */
+
+/* 点闪行本体反白：主标题（__name）继承行 color，随行硬切、退场淡出 */
+.plain-list-item--flashed {
+  color: #fff;
+  transition: none;
+}
+
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__name,
+.plain-list-item--flashed .plain-list-item__name,
 .plain-list-item--selected:not(:disabled) .plain-list-item__name,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__trailing,
+.plain-list-item--flashed .plain-list-item__trailing,
 .plain-list-item--selected:not(:disabled) .plain-list-item__trailing {
   color: #fff;
+  transition: none;
 }
 
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__subtitle,
+.plain-list-item--flashed .plain-list-item__subtitle,
 .plain-list-item--selected:not(:disabled) .plain-list-item__subtitle {
   color: rgba(255, 255, 255, 0.85);
+  transition: none;
 }
 
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__preview,
+.plain-list-item--flashed .plain-list-item__preview,
 .plain-list-item--selected:not(:disabled) .plain-list-item__preview {
   color: rgba(255, 255, 255, 0.72);
+  transition: none;
 }
 
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled) .plain-list-item__disclosure,
+.plain-list-item--flashed .plain-list-item__disclosure,
 .plain-list-item--selected:not(:disabled) .plain-list-item__disclosure {
   color: rgba(255, 255, 255, 0.88);
 }
 
+.plain-list-item--flashed .plain-list-item__check,
 .plain-list-item--selected:not(:disabled) .plain-list-item__check {
   color: #fff;
+  transition: none;
+}
+
+/* ── 点闪（iOS deselectRow 式）──
+   click 落定的行硬切蓝底保持 ~1s（ListItem 计时），再淡出回位色。蓝底画在
+   ::after 覆盖层而不是行背景：渐变（background-image）无法参与 transition，
+   opacity 才能淡出。进入硬切（transition:none，触摸即高亮不渐入），退场走
+   覆盖层自身的 400ms opacity 过渡。墨水反白同样进硬切、退场走基态 color 过渡。
+   选中行点闪由 --selected 同色渐变接管，淡出无感。 */
+.plain-list-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    180deg,
+    var(--plain-list-selected-top, #4089d4) 0%,
+    var(--plain-list-selected-bottom, #2068b8) 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 400ms ease-out;
+}
+
+.plain-list-item--flashed::after {
+  opacity: 1;
+  transition: none;
 }
 
 /* ── 槽位 ── */
@@ -228,6 +285,7 @@
   font-size: 11px;
   color: var(--plain-list-meta-ink, #9a9aa0);
   font-variant-numeric: tabular-nums;
+  transition: color 400ms ease-out;
 }
 
 .plain-list-item__subtitle {
@@ -236,6 +294,7 @@
   white-space: nowrap;
   font-size: 12px;
   color: #3c3c43;
+  transition: color 400ms ease-out;
 }
 
 .plain-list-item__preview {
@@ -244,6 +303,7 @@
   white-space: nowrap;
   font-size: 12px;
   color: var(--plain-list-secondary-ink, #888);
+  transition: color 400ms ease-out;
 }
 
 .plain-list-item__badge {
@@ -263,6 +323,7 @@
   color: var(--plain-list-accent, #007aff);
   font-weight: 600;
   text-align: center;
+  transition: color 400ms ease-out;
 }
 
 .plain-list-item__disclosure {
@@ -275,7 +336,7 @@
   color: #c7c7cc;
   transition:
     transform 0.15s ease,
-    color 0.1s ease;
+    color 400ms ease-out;
 }
 
 .plain-list-item__detail {
@@ -307,9 +368,10 @@
   padding-right: 8px;
 }
 
-/* 减号删除钮：绝对定位挂在行左缘，常驻 DOM、编辑态淡入滑入——显隐由
-   .plain-list--editing 切换（条件挂载的新元素带着终态样式插入，transition
-   不跑只会闪现） */
+/* 减号删除钮：绝对定位挂在行左缘，常驻 DOM、编辑态从行缘「长出来」（淡入+放大+滑入
+   同步）——显隐由 .plain-list--editing 切换（条件挂载的新元素带着终态样式插入，
+   transition 不跑只会闪现）。纯淡入的整尺寸红盘出现感很重，缩放生长才是自然浮现；
+   30ms 小延迟保留文字让位的拍点，且圆盘在小尺寸、半透明阶段即使被文字碾过也无感 */
 .plain-list-item__minus {
   position: absolute;
   left: 10px;
@@ -328,15 +390,20 @@
   cursor: pointer;
   user-select: none;
   transition:
-    opacity 160ms ease-out,
+    opacity 200ms ease-out 30ms,
     transform 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
-/* 非编辑态：左移 10px 藏到行左缘（left 10px − 10px，不外溢），指针/键盘/读屏全隔离 */
+/* 非编辑态：左移 6px 并缩到 40% 藏起来（不外溢），指针/键盘/读屏全隔离。
+   退出方向的过渡在此整条覆盖（transition 不按子属性合并）：淡出 110ms 无延迟——
+   文字滑回圆盘区约需 60ms，红盘得先撤干净，文字回的才是干净空间 */
 .plain-list:not(.plain-list--editing) .plain-list-item__minus {
   opacity: 0;
-  transform: translateY(-50%) translateX(-10px);
+  transform: translateY(-50%) translateX(-6px) scale(0.4);
   pointer-events: none;
+  transition:
+    opacity 110ms ease-out,
+    transform 220ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 .plain-list-item__minus::before {
