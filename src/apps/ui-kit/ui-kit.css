@@ -113,6 +113,10 @@
   overflow: hidden;
 }
 
+.ui-kit__card--wide {
+  grid-column: 1 / -1;
+}
+
 .ui-kit__card-header {
   padding: 14px 16px 12px;
   border-bottom: 1px solid #e5e5e5;
@@ -637,4 +641,187 @@
 
 .ui-kit--narrow .ui-kit__cards {
   grid-template-columns: 1fr;
+}
+
+/* ── Icon demo ── */
+
+.ui-kit-demo__icon-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.ui-kit-demo__icon-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ui-kit-demo__icon-search {
+  flex: 1 1 200px;
+  max-width: 280px;
+}
+
+.ui-kit-demo__icon-fill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.ui-kit-demo__icon-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+  max-width: 280px;
+  min-width: 0;
+}
+
+.ui-kit-demo__icon-slider .ios-range-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ui-kit-demo__icon-copied {
+  font-size: 11px;
+  color: #1f6ec7;
+}
+
+.ui-kit-demo__icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+  gap: 4px;
+}
+
+.ui-kit-demo__icon-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  gap: 4px;
+  padding: 8px 4px 5px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ui-kit-demo__icon-cell:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.ui-kit-demo__icon-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.2;
+  word-break: break-all;
+  color: #666;
+  text-align: center;
+  user-select: none;
+}
+
+/* 图标浏览器：左类目导航 + 右固定高度虚拟滚动网格 */
+
+.ui-kit-demo__icon-browser {
+  display: flex;
+  gap: 10px;
+  height: 560px;
+}
+
+.ui-kit-demo__icon-cats {
+  flex: 0 0 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.ui-kit-demo__icon-cat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: #333;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-kit-demo__icon-cat:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.ui-kit-demo__icon-cat--active {
+  background: rgba(47, 135, 226, 0.14);
+  color: #145da8;
+  font-weight: 600;
+}
+
+.ui-kit-demo__icon-cat-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-kit-demo__icon-cat-count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: #888;
+}
+
+.ui-kit-demo__icon-cat--active .ui-kit-demo__icon-cat-count {
+  color: #145da8;
+}
+
+.ui-kit-demo__icon-gridarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background: #fcfcfc;
+}
+
+.ui-kit-demo__icon-scroller {
+  height: 100%;
+}
+
+.ui-kit-demo__icon-row {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0 6px;
+  box-sizing: border-box;
+  justify-content: center;
+}
+
+.ui-kit-demo__icon-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 12px;
+  color: #999;
 }

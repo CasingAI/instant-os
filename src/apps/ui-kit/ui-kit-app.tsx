@@ -7,6 +7,8 @@ import {
   IosCheckToggleDemo,
   CheckboxDemo,
   ButtonDemo,
+  IconDemo,
+  IconComboDemo,
   PageButtonGroupDemo,
   IosTextFieldDemo,
   IosRangeSliderDemo,
@@ -53,6 +55,8 @@ const DEMO_COMPONENTS: Record<string, () => preact.JSX.Element> = {
   'ios-check-toggle': IosCheckToggleDemo,
   'checkbox': CheckboxDemo,
   'button': ButtonDemo,
+  'icon': IconDemo,
+  'icon-combo': IconComboDemo,
   'page-button-group': PageButtonGroupDemo,
   'ios-text-field': IosTextFieldDemo,
   'ios-range-slider': IosRangeSliderDemo,
@@ -108,7 +112,7 @@ function ComponentCard({ component }: { component: ComponentDemo }) {
   }
 
   return (
-    <article class="ui-kit__card">
+    <article class={component.wide ? 'ui-kit__card ui-kit__card--wide' : 'ui-kit__card'}>
       <header class="ui-kit__card-header">
         <h3 class="ui-kit__card-title">{component.name}</h3>
         <p class="ui-kit__card-desc">{component.description}</p>
