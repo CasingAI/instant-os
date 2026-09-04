@@ -385,6 +385,10 @@
   top: 6px;
   right: 2px;
   bottom: 6px;
+  /* 宽度钉死：auto 收缩包紧时条宽 = 当前渲染的最宽字形 + padding，跨压缩档门槛
+     （字号 10→9px、渲染集合变采样子集）最宽字形会变，条宽随之随视窗高度跳变。
+     18px = right 2px + 字母左右各 3px padding + 最宽 10px 字形，内容盒 12px 容得下字形 */
+  width: 18px;
   display: flex;
   flex-direction: column;
   background: var(--list-index-bg, rgba(0, 0, 0, 0.05));
@@ -406,7 +410,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 5px;
+  padding: 0 3px;
   font-size: 10px;
   font-weight: 600;
   line-height: 1; /* 密集索引（百级节）时槽位要能压到字形高，行高不兜底 */
@@ -444,7 +448,7 @@
   transform: none;
 }
 
-/* 索引带宽 = right 2px + 字母左右各 5px padding = 22px：行与表头右缘内容让位，不压字母。
+/* 索引条钉宽 18px、footprint 20px：行与表头右缘保留 22px 让位，不压字母。
    靠文件末尾的源序压过 .list-item--static / .list__head 自身的 12px 右内边距 */
 .list--anchored .list-item,
 .list--anchored .list__head {
