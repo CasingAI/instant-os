@@ -33,12 +33,24 @@
     width 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* 定宽容器契约：整条被钉进比文字窄的格子（固定网格列等）时由调用方挂上，
+   分段退回可收缩，靠 item 自带的 nowrap/ellipsis 出省略号，整条绝不越界 */
+.segmented-control--clamp {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.segmented-control--clamp .segmented-control__item {
+  min-width: 0;
+}
+
 .segmented-control__item {
   appearance: none;
   position: relative;
   z-index: 1;
   flex: 1;
-  /* 段最小宽度锁到自己的文字：均分只分配富余，整条控件不再被父级 flex 压出省略号 */
+  /* 段最小宽度锁到自己的文字：均分只分配富余，整条控件不再被父级 flex 压出省略号；
+     被钉进定宽格子时由 --clamp 松开此下限改出省略号 */
   min-width: max-content;
   border: 0;
   border-radius: 3px;

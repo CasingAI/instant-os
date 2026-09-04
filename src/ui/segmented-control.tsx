@@ -19,7 +19,9 @@ export type SegmentedControlProps<T extends string = string> = {
 }
 
 /** 凹槽条分段切换器；只管切换 UI，不管内容区。
- * 分段以自身文字为最小宽度，均分只分配富余空间，容器放不下时整条让位而不是出省略号 */
+ * 默认契约：分段以自身文字为最小宽度，均分只分配富余空间，父级压不动；
+ * 被钉进比文字窄的定宽格子（固定网格列等）时由调用方追加 className
+ * `segmented-control--clamp`：整条不越界，分段退回省略号截断 */
 export function SegmentedControl<T extends string>({
   value,
   items,
