@@ -51,6 +51,12 @@ const ICON_GRID_CELL_WIDTH = 86
 const ICON_GRID_ROW_INSET = 6
 const ICON_GRID_OVERSCAN = 3
 
+/** 自绘图标（非字体 ligature，Icon 内置 CSS 绘制）在浏览器里的合成行；排在目录最前、独占侧栏类目 */
+const BUILTIN_ICON_CATEGORY = '内置自绘'
+const BUILTIN_ICON_ROWS: MaterialIconRow[] = [
+  ['activity-indicator', BUILTIN_ICON_CATEGORY, '转圈 加载 进行中 loading spinner busy activity indicator'],
+]
+
 /** 推荐名单查集：iOS 6 系统界面符号精选（名单与语义见 icon-recommended.ts） */
 const ICON_RECOMMENDED_SET = new Set(ICON_RECOMMENDED_NAMES)
 
@@ -92,34 +98,37 @@ export default function IconDemo() {
   const normalizedQuery = query.trim().toLowerCase()
   const searching = normalizedQuery.length > 0
 
-  // 当前字体族缺字形的图标直接不进目录，避免渲染出 ligature 原文
-  const supportedRows = useMemo(() => {
+  // 当前字体族缺字形的图标直接不进目录，避免渲染出 ligature 原文；自绘行不依赖字体，恒在前
+  const allRows = useMemo(() => {
     if (!rows) return null
-    return rows.filter((row) => !row[3] || !row[3].split(',').includes(family))
+    return [...BUILTIN_ICON_ROWS, ...rows.filter((row) => !row[3] || !row[3].split(',').includes(family))]
   }, [rows, family])
 
   const categoryStats = useMemo(() => {
     const counts = new Map<string, number>()
     let uncategorized = 0
-    if (!catalog || !supportedRows) return { counts, uncategorized, total: 0 }
+    if (!catalog || !allRows) return { counts, uncategorized, total: 0 }
+    counts.set(BUILTIN_ICON_CATEGORY, 0)
     for (const cat of catalog.MATERIAL_ICON_CATEGORIES) counts.set(cat, 0)
-    for (const row of supportedRows) {
+    for (const row of allRows) {
       const cats = row[1] ? row[1].split(',') : []
       if (cats.length === 0) uncategorized++
       for (const cat of cats) counts.set(cat, (counts.get(cat) ?? 0) + 1)
     }
-    return { counts, uncategorized, total: supportedRows.length }
-  }, [catalog, supportedRows])
+    return { counts, uncategorized, total: allRows.length }
+  }, [catalog, allRows])
 
-  // 推荐徽标数与其它徽标一样随字体族联动（名单本身三族全可用，此处仍按 supportedRows 现算以防名单日后收录缺字形图标）
+  // 推荐徽标数与其它徽标一样随字体族联动（名单本身三族全可用，此处仍按 allRows 现算以防名单日后收录缺字形图标）
   const recommendedCount = useMemo(() => {
-    if (!supportedRows) return 0
-    return supportedRows.filter((row) => ICON_RECOMMENDED_SET.has(row[0])).length
-  }, [supportedRows])
+    if (!allRows) return 0
+    return allRows.filter((row) => ICON_RECOMMENDED_SET.has(row[0])).length
+  }, [allRows])
 
   const visibleCategories = useMemo(() => {
     if (!catalog) return []
-    return catalog.MATERIAL_ICON_CATEGORIES.filter((cat) => (categoryStats.counts.get(cat) ?? 0) > 0)
+    return [BUILTIN_ICON_CATEGORY, ...catalog.MATERIAL_ICON_CATEGORIES].filter(
+      (cat) => (categoryStats.counts.get(cat) ?? 0) > 0,
+    )
   }, [catalog, categoryStats])
 
   useEffect(() => {
@@ -137,17 +146,17 @@ export default function IconDemo() {
   }, [category, categoryStats, recommendedCount])
 
   const filtered = useMemo(() => {
-    if (!supportedRows) return null
+    if (!allRows) return null
     if (searching) {
-      return supportedRows.filter((row) => `${row[0]} ${row[2]}`.includes(normalizedQuery))
+      return allRows.filter((row) => `${row[0]} ${row[2]}`.includes(normalizedQuery))
     }
-    if (category === null) return supportedRows
+    if (category === null) return allRows
     if (category === ICON_RECOMMENDED) {
-      return supportedRows.filter((row) => ICON_RECOMMENDED_SET.has(row[0]))
+      return allRows.filter((row) => ICON_RECOMMENDED_SET.has(row[0]))
     }
-    if (category === '') return supportedRows.filter((row) => !row[1])
-    return supportedRows.filter((row) => row[1].split(',').includes(category))
-  }, [supportedRows, searching, normalizedQuery, category])
+    if (category === '') return allRows.filter((row) => !row[1])
+    return allRows.filter((row) => row[1].split(',').includes(category))
+  }, [allRows, searching, normalizedQuery, category])
 
   // 虚拟滚动按行喂：列数随容器宽度变化时整表重切；格宽固定，余数不进格子
   const columns = Math.max(1, Math.floor((gridWidth - ICON_GRID_ROW_INSET * 2) / ICON_GRID_CELL_WIDTH))
@@ -205,7 +214,9 @@ export default function IconDemo() {
         ? `推荐（iOS 6 系统符号） · ${fmt(recommendedCount)}`
         : category === ''
           ? '未分类'
-          : `${ICON_CATEGORY_CN[category] ?? category}（${category}）`
+          : category === BUILTIN_ICON_CATEGORY
+            ? '内置自绘'
+            : `${ICON_CATEGORY_CN[category] ?? category}（${category}）`
 
   return (
     <DemoVariants>

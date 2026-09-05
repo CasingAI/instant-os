@@ -1,0 +1,45 @@
+/* 自绘图标：iOS 6 风格转圈。12 根刻度错峰明暗形成转动感；刻度用比例尺寸（宽 9%、高 28%），
+   任意盒子边长都成立；颜色走 currentColor，父级覆盖 color 即可换色 */
+.icon-activity-indicator {
+  position: relative;
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.icon-activity-indicator__tick {
+  position: absolute;
+  inset: 0;
+  transform: rotate(calc(var(--icon-ai-i) * 30deg));
+}
+
+.icon-activity-indicator__tick::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: calc(50% - 4.5%);
+  width: 9%;
+  height: 28%;
+  border-radius: 999px;
+  background: currentColor;
+  animation: icon-activity-indicator-fade 1s linear infinite;
+  animation-delay: calc(var(--icon-ai-i) * -0.0833s);
+}
+
+@keyframes icon-activity-indicator-fade {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.15;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-activity-indicator__tick::before {
+    animation: none;
+    opacity: 0.6;
+  }
+}

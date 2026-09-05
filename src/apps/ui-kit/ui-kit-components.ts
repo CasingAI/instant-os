@@ -559,37 +559,19 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     category: 'icons',
     importPath: "import { Icon } from '../../ui/icon.tsx'",
     demos: [
-      { id: 'basic', title: '图标库浏览器', description: '搜索、字体族、填充/字重、类目侧栏与虚拟滚动网格；点击格复制名字' },
+      { id: 'basic', title: '图标库浏览器', description: '搜索、字体族、填充/字重、类目侧栏与虚拟滚动网格；点击格复制名字。侧栏「内置自绘」类目下有 CSS 绘制的 activity-indicator 转圈，不依赖字体' },
       { id: 'combo', title: '与组件组合', description: 'Button 图标钮、icon+文字受控例外、List leading 槽；顶部滑杆统一调字重' },
+      { id: 'spinner', title: '转圈图标', description: '内置自绘图标 activity-indicator：iOS 6 风格加载转圈，尺寸随 size、颜色随文字色' },
       { id: 'inset', title: '内凹两种画法', description: 'SVG 滤镜真·内阴影 vs 渐变明暗模拟；深度/浓度/字重滑杆联动' },
     ],
     props: [
-      { name: 'name', type: 'string', description: 'ligature 名，如 "delete"；全目录见 fonts.google.com/icons', defaultValue: '—' },
+      { name: 'name', type: 'string', description: 'ligature 名，如 "delete"；全目录见 fonts.google.com/icons。内置自绘例外："activity-indicator"（iOS 6 风格转圈，CSS 绘制，不占字体）', defaultValue: '—' },
       { name: 'family', type: "'outlined' | 'rounded' | 'sharp'", description: '字体族轮廓风格', defaultValue: "'rounded'" },
       { name: 'fill', type: 'boolean?', description: 'FILL 轴：描边（默认）/ 填充实心', defaultValue: 'false' },
       { name: 'weight', type: 'number?', description: 'wght 轴 100–700', defaultValue: '400' },
       { name: 'grade', type: 'number?', description: 'GRAD 轴 -25–200', defaultValue: '0' },
       { name: 'size', type: 'number?', description: 'font-size 像素值', defaultValue: '24' },
       { name: 'label', type: 'string?', description: '语义化标签；缺省时 aria-hidden 仅作装饰', defaultValue: '—' },
-    ],
-  },
-  {
-    id: 'activity-indicator',
-    name: 'ActivityIndicator',
-    description:
-      'iOS 6 风格独立加载转圈（UIActivityIndicatorView）：12 根放射状刻度条错峰明暗形成转动感；纯展示不拦截交互，颜色随文字颜色，可摆放在任意位置',
-    category: 'other',
-    importPath: "import { ActivityIndicator } from '../../ui/activity-indicator.tsx'",
-    whenToUse: '局部区域的进行中提示：列表加载中、内容区刷新、与文字并排的轻量等待标识；需要锁住整个界面的场景请用弹窗，不要用转圈',
-    demos: [
-      { id: 'basic', title: '基础用法', description: '两档尺寸、spinning 转/停与 hidesWhenStopped 停转即隐藏' },
-      { id: 'scenarios', title: '业务场景', description: '点按钮模拟 2 秒加载，转圈与提示文字并排出现' },
-    ],
-    props: [
-      { name: 'spinning', type: 'boolean?', description: '是否转动；停下时刻度静止变暗', defaultValue: 'true' },
-      { name: 'size', type: "'small' | 'large'?", description: '尺寸档位，对应 iOS 的 20pt / 37pt', defaultValue: "'small'" },
-      { name: 'hidesWhenStopped', type: 'boolean?', description: '停转后整体不渲染（对齐 iOS 默认值 false）', defaultValue: 'false' },
-      { name: 'label', type: 'string?', description: '无障碍标签', defaultValue: "'加载中'" },
     ],
   },
   {
