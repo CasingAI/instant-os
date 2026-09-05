@@ -1,0 +1,23 @@
+/* CollectionView：数据驱动网格容器。格高/列数/间距来自 props 内联，这里只管壳与行格骨架。
+   高度由外部容器给（flex 子元素或固定高）；滚动体复用 fixed-row-virtual-list 的壳。 */
+.collection-view {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+
+.collection-view__scroller {
+  height: 100%;
+}
+
+.collection-view__row {
+  width: 100%;
+  display: grid;
+  align-items: stretch;
+  box-sizing: border-box;
+}
+
+.collection-view__cell {
+  min-width: 0;
+  box-sizing: border-box;
+}
