@@ -134,8 +134,8 @@ import {
 } from './github-cloning-store.ts'
 import type { GithubProgress, GithubProgressDetail } from './github-progress.ts'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
-import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
-import '../../ui/ios-check-toggle.css'
+import { CheckToggle } from '../../ui/check-toggle.tsx'
+import '../../ui/check-toggle.css'
 import './github-desktop.css'
 
 const APP_ID = 'github-desktop' as const
@@ -2765,7 +2765,7 @@ export function GithubDesktopApp() {
                           }`}
                         >
                           <span class="github-desktop__change-check">
-                            <IosCheckToggle
+                            <CheckToggle
                               checked={staged}
                               disabled={busy}
                               size="small"
@@ -2796,7 +2796,7 @@ export function GithubDesktopApp() {
                   />
                   <div class="github-desktop__changes-header github-desktop__changes-header--footer">
                     {changes.length > 0 ? (
-                      <IosCheckToggle
+                      <CheckToggle
                         checked={allChangesStaged}
                         disabled={busy}
                         size="small"

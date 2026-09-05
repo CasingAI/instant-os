@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import { List } from '../../../../ui/list.tsx'
 import { ListItem } from '../../../../ui/list-item.tsx'
-import { IosSwitch } from '../../../../ui/ios-switch.tsx'
+import { Switch } from '../../../../ui/switch.tsx'
 import { IosTextField } from '../../../../ui/ios-text-field.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
@@ -17,7 +17,7 @@ export default function ListControlsDemo() {
           <ListItem
             label="Wi-Fi"
             value={wifi ? '已开启' : '关闭'}
-            control={<IosSwitch checked={wifi} onChange={setWifi} label="Wi-Fi" />}
+            control={<Switch checked={wifi} onChange={setWifi} label="Wi-Fi" />}
           />
           <ListItem
             label="主页"

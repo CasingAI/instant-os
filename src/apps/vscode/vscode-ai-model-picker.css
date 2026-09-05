@@ -747,7 +747,7 @@
   cursor: default;
 }
 
-.vscode-ai-model-picker__edit-row .ios-switch {
+.vscode-ai-model-picker__edit-row .switch {
   transform: scale(0.86);
   transform-origin: right center;
 }

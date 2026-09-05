@@ -1,26 +1,26 @@
-type IosCheckToggleSize = 'default' | 'small'
+type CheckToggleSize = 'default' | 'small'
 
-type IosCheckToggleProps = {
+type CheckToggleProps = {
   checked: boolean
   disabled?: boolean
   label: string
-  size?: IosCheckToggleSize
+  size?: CheckToggleSize
   onChange?: (checked: boolean) => void
 }
 
-export function IosCheckToggle({
+export function CheckToggle({
   checked,
   disabled = false,
   label,
   size = 'default',
   onChange,
-}: IosCheckToggleProps) {
+}: CheckToggleProps) {
   return (
     <button
       type="button"
-      class={`ios-check-toggle${size === 'small' ? ' ios-check-toggle--small' : ''}${
-        checked ? ' ios-check-toggle--on' : ''
-      }${disabled ? ' ios-check-toggle--disabled' : ''}`}
+      class={`check-toggle${size === 'small' ? ' check-toggle--small' : ''}${
+        checked ? ' check-toggle--on' : ''
+      }${disabled ? ' check-toggle--disabled' : ''}`}
       aria-pressed={checked}
       aria-label={label}
       disabled={disabled}
@@ -33,7 +33,7 @@ export function IosCheckToggle({
       }}
     >
       {checked && (
-        <span class="ios-check-toggle__mark" aria-hidden="true">
+        <span class="check-toggle__mark" aria-hidden="true">
           ✓
         </span>
       )}

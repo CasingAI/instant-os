@@ -20,7 +20,7 @@ import {
   subscribeSystemVolume,
 } from '../../os/system-volume.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from './settings-layout-breakpoints.ts'
 import { SettingsChoicePickerView } from './settings-choice-picker-view.tsx'
@@ -289,7 +289,7 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
           <div class="settings__list">
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">静音</span>
-              <IosSwitch
+              <Switch
                 checked={systemMuted}
                 onChange={handleMutedChange}
                 label="静音"
@@ -349,7 +349,7 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
           <div class="settings__list">
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">系统提示音</span>
-              <IosSwitch
+              <Switch
                 checked={enabled}
                 onChange={handleEnabledChange}
                 label="系统提示音"

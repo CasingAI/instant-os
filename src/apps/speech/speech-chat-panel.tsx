@@ -15,8 +15,8 @@ import { createStreamingPcmPlayer } from '../../ai/speech-pcm-player.ts'
 import { formatThinkingDurationMs } from '../../ai/format-human-duration.ts'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
-import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
-import '../../ui/ios-check-toggle.css'
+import { CheckToggle } from '../../ui/check-toggle.tsx'
+import '../../ui/check-toggle.css'
 import {
   createSpeechScriptPlayQueue,
   playCachedLineAudio,
@@ -1201,7 +1201,7 @@ export function SpeechChatPanel({
           <label class="speech-app__field speech-app__field--wide speech-app__field--toggle">
             <span>播报途中可打断</span>
             <div class="speech-app__toggle-row">
-              <IosCheckToggle
+              <CheckToggle
                 checked={bargeInEnabled}
                 label="播报途中可打断"
                 onChange={setBargeInEnabled}
@@ -1216,7 +1216,7 @@ export function SpeechChatPanel({
           <label class="speech-app__field speech-app__field--wide speech-app__field--toggle">
             <span>深度思考</span>
             <div class="speech-app__toggle-row">
-              <IosCheckToggle
+              <CheckToggle
                 checked={thinkingEnabled}
                 label="深度思考"
                 onChange={setThinkingEnabled}

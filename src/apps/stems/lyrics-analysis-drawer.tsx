@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { Button } from '../../ui/button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { formatLrcTimestamp, isPunctuationOnly } from '../align/align-lrc.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
@@ -873,7 +873,7 @@ function rescueReviewNote(
               </div>
               <label class="stems__analysis-vocals-only">
                 <span>试听只播人声（模型听到的）</span>
-                <IosSwitch
+                <Switch
                   checked={previewVocalsOnly}
                   onChange={onPreviewVocalsOnlyChange}
                   label="试听只播人声"

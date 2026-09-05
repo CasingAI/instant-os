@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { Icon, type IconFamily } from '../../../../ui/icon.tsx'
-import { IosSwitch } from '../../../../ui/ios-switch.tsx'
+import { Switch } from '../../../../ui/switch.tsx'
 import { IosTextField } from '../../../../ui/ios-text-field.tsx'
 import { IosRangeSlider } from '../../../../ui/ios-range-slider.tsx'
 import { SegmentedControl } from '../../../../ui/segmented-control.tsx'
@@ -228,7 +228,7 @@ export default function IconDemo() {
             />
             <div class="ui-kit-demo__icon-fill">
               <span class="ui-kit-demo__label">填充</span>
-              <IosSwitch checked={fill} onChange={setFill} label="填充" />
+              <Switch checked={fill} onChange={setFill} label="填充" />
             </div>
             <div class="ui-kit-demo__icon-slider">
               <span class="ui-kit-demo__label">字重</span>

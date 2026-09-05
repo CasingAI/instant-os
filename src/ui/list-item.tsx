@@ -24,7 +24,7 @@ type ListItemProps = {
   value?: ComponentChildren
   /** 右侧自定义内容（与 value 二选一）。grouped 专属槽位，plain 忽略。 */
   extra?: ComponentChildren
-  /** 控件槽：放 IosSwitch / IosTextField 等，点击不再触发行选中。grouped 专属槽位，plain 忽略。 */
+  /** 控件槽：放 Switch / IosTextField 等，点击不再触发行选中。grouped 专属槽位，plain 忽略。 */
   control?: ComponentChildren
   /** 右侧配件：chevron 箭头 / 选中勾（跟随选中态）/ 蓝色 ⓘ 详情钮。 */
   accessory?: ListItemAccessory

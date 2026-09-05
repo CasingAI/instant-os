@@ -3,7 +3,7 @@ import type { ComponentChildren, ComponentType } from 'preact'
 import { osNowMs } from '../../os/os-clock.ts'
 import { ICodeIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { buildSiteDocument, EMPTY_SITE_DOCUMENT } from '../generated/generated-app-site-html.ts'
@@ -2106,7 +2106,7 @@ export function ICodeApp() {
                             <strong>{title}</strong>
                             <span>{note}</span>
                           </div>
-                          <IosSwitch
+                          <Switch
                             label={`启用${title}`}
                             checked={hasAppCapabilityTag(tags, tag)}
                             onChange={(enabled) => {

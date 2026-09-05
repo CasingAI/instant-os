@@ -1,4 +1,4 @@
-.ios-check-toggle {
+.check-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -14,7 +14,7 @@
   vertical-align: middle;
 }
 
-.ios-check-toggle--on {
+.check-toggle--on {
   border-color: #4a90d9;
   background: linear-gradient(180deg, #5b9de4 0%, #2563eb 100%);
   box-shadow:
@@ -22,12 +22,12 @@
     0 1px 2px rgba(37, 99, 235, 0.2);
 }
 
-.ios-check-toggle--disabled {
+.check-toggle--disabled {
   opacity: 0.55;
   cursor: default;
 }
 
-.ios-check-toggle__mark {
+.check-toggle__mark {
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
@@ -35,12 +35,12 @@
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.15);
 }
 
-.ios-check-toggle--small {
+.check-toggle--small {
   width: 16px;
   height: 16px;
   border-radius: 4px;
 }
 
-.ios-check-toggle--small .ios-check-toggle__mark {
+.check-toggle--small .check-toggle__mark {
   font-size: 10px;
 }

@@ -1,5 +1,5 @@
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import { useMemo, useState } from 'preact/hooks'
 import {
   getDomainUsageList,
@@ -51,7 +51,7 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
           <div class="settings__list">
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">允许 AI 拒绝生成网站</span>
-              <IosSwitch
+              <Switch
                 checked={allowAiRefuseSite}
                 onChange={handleToggleAiRefuseSite}
                 label="允许 AI 拒绝生成网站"

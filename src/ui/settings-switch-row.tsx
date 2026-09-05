@@ -1,4 +1,4 @@
-import { IosSwitch } from './ios-switch.tsx'
+import { Switch } from './switch.tsx'
 
 type SettingsSwitchRowProps = {
   label: string
@@ -23,7 +23,7 @@ export function SettingsSwitchRow({
       }${detail ? ' settings__row--switch-with-detail' : ''}`}
     >
       <span class="settings__row-name">{label}</span>
-      <IosSwitch
+      <Switch
         checked={checked}
         onChange={onChange}
         label={label}

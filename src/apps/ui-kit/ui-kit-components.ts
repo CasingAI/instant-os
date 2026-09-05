@@ -26,11 +26,11 @@ export type ComponentDemo = {
 
 export const UI_COMPONENTS: ComponentDemo[] = [
   {
-    id: 'ios-switch',
-    name: 'IosSwitch',
-    description: 'iOS 6 风格 ON/OFF 滑块开关；可单独使用，也可嵌在设置行里',
+    id: 'switch',
+    name: 'Switch',
+    description: 'ON/OFF 滑块开关；可单独使用，也可嵌在设置行里',
     category: 'form',
-    importPath: "import { IosSwitch } from '../../ui/ios-switch.tsx'",
+    importPath: "import { Switch } from '../../ui/switch.tsx'",
     demos: [
       { id: 'basic', title: '基础用法', description: '受控开关：点按切换 ON / OFF，label 兼作无障碍标签' },
     ],
@@ -41,11 +41,11 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
-    id: 'ios-check-toggle',
-    name: 'IosCheckToggle',
-    description: 'iOS 风格复选框；支持 default / small 尺寸与 disabled',
+    id: 'check-toggle',
+    name: 'CheckToggle',
+    description: '复选框；支持 default / small 尺寸与 disabled',
     category: 'form',
-    importPath: "import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'",
+    importPath: "import { CheckToggle } from '../../ui/check-toggle.tsx'",
     demos: [
       { id: 'basic', title: '基础用法', description: 'default / small 两种尺寸与禁用态' },
     ],
@@ -223,7 +223,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'settings-switch-row',
     name: 'SettingsSwitchRow',
-    description: '设置开关行；标签 + IosSwitch 组合，常成组出现',
+    description: '设置开关行；标签 + Switch 组合，常成组出现',
     category: 'settings',
     importPath: "import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'",
     demos: [
@@ -299,7 +299,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     demos: [
       { id: 'basic', title: '节标题与滚动区', description: '节标题/脚注、表头限高滚动区；可点行有触达反馈，信息行零反馈' },
       { id: 'selection', title: '受控单选', description: 'selectedId/onSelect，点击自动上报、蓝底高亮、accessory 勾随选中' },
-      { id: 'controls', title: '控件行', description: 'control 槽放 IosSwitch / IosTextField（点控件不触发行）；纯勾选行用整行点按切换' },
+      { id: 'controls', title: '控件行', description: 'control 槽放 Switch / IosTextField（点控件不触发行）；纯勾选行用整行点按切换' },
       { id: 'index', title: '快速索引条', description: '条上文字三档自动：标题首字 → 拼音首字母 → 隔位采样；含姓氏模式与乱序告警演示' },
       { id: 'editing', title: '编辑模式', description: '「编辑」进出：减号删除、把手重排' },
       { id: 'plain-variant', title: 'plain 变体换装', description: '同一组件同一份数据，传参即换装：grouped ↔ plain 现场切换' },
@@ -343,7 +343,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'unread', type: 'boolean?', description: 'plain 专属：未读态，标题/副标题置粗；grouped 忽略', defaultValue: 'false' },
       { name: 'value', type: 'ComponentChildren?', description: '右侧值文本（与 extra 二选一）', defaultValue: '—' },
       { name: 'extra', type: 'ComponentChildren?', description: '右侧自定义内容（与 value 二选一）', defaultValue: '—' },
-      { name: 'control', type: 'ComponentChildren?', description: '控件槽（IosSwitch 等）；点击不触发行选中', defaultValue: '—' },
+      { name: 'control', type: 'ComponentChildren?', description: '控件槽（Switch 等）；点击不触发行选中', defaultValue: '—' },
       { name: 'accessory', type: "'none' | 'disclosure' | 'check' | 'detail'?", description: '右侧配件；check 跟随选中态', defaultValue: "'none'" },
       { name: 'badge', type: 'string?', description: '名称旁徽章文本', defaultValue: '—' },
       { name: 'selected', type: 'boolean?', description: '强制选中态；缺省由 List selectedId + id 推导', defaultValue: '—' },
@@ -571,6 +571,25 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'grade', type: 'number?', description: 'GRAD 轴 -25–200', defaultValue: '0' },
       { name: 'size', type: 'number?', description: 'font-size 像素值', defaultValue: '24' },
       { name: 'label', type: 'string?', description: '语义化标签；缺省时 aria-hidden 仅作装饰', defaultValue: '—' },
+    ],
+  },
+  {
+    id: 'activity-indicator',
+    name: 'ActivityIndicator',
+    description:
+      'iOS 6 风格独立加载转圈（UIActivityIndicatorView）：12 根放射状刻度条错峰明暗形成转动感；纯展示不拦截交互，颜色随文字颜色，可摆放在任意位置',
+    category: 'other',
+    importPath: "import { ActivityIndicator } from '../../ui/activity-indicator.tsx'",
+    whenToUse: '局部区域的进行中提示：列表加载中、内容区刷新、与文字并排的轻量等待标识；需要锁住整个界面的场景请用弹窗，不要用转圈',
+    demos: [
+      { id: 'basic', title: '基础用法', description: '两档尺寸、spinning 转/停与 hidesWhenStopped 停转即隐藏' },
+      { id: 'scenarios', title: '业务场景', description: '点按钮模拟 2 秒加载，转圈与提示文字并排出现' },
+    ],
+    props: [
+      { name: 'spinning', type: 'boolean?', description: '是否转动；停下时刻度静止变暗', defaultValue: 'true' },
+      { name: 'size', type: "'small' | 'large'?", description: '尺寸档位，对应 iOS 的 20pt / 37pt', defaultValue: "'small'" },
+      { name: 'hidesWhenStopped', type: 'boolean?', description: '停转后整体不渲染（对齐 iOS 默认值 false）', defaultValue: 'false' },
+      { name: 'label', type: 'string?', description: '无障碍标签', defaultValue: "'加载中'" },
     ],
   },
   {

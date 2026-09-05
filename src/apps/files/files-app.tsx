@@ -21,7 +21,7 @@ import {
   type AdaptiveActionMenuItem,
 } from '../../ui/adaptive-action-menu.tsx'
 import { getFloatingOverlayRoot } from '../../ui/floating-overlay-root.ts'
-import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
+import { CheckToggle } from '../../ui/check-toggle.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
@@ -159,7 +159,7 @@ import {
   subscribeFilesWriteProgress,
   type FilesWriteProgressEntry,
 } from './files-write-progress.ts'
-import '../../ui/ios-check-toggle.css'
+import '../../ui/check-toggle.css'
 import '../../ui/ios-nav-back.css'
 import './files.css'
 
@@ -4558,7 +4558,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               class="files__open-with-always"
               onClick={() => setOpenWithAlways((value) => !value)}
             >
-              <IosCheckToggle
+              <CheckToggle
                 checked={openWithAlways}
                 label="始终使用此程序打开此类文件"
                 onChange={setOpenWithAlways}

@@ -1,5 +1,5 @@
 import { Button } from '../../ui/button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 
 type ChromoSettingsPageProps = {
   bookmarksBarVisible: boolean
@@ -27,7 +27,7 @@ export function ChromoSettingsPage({
           <div class="chromo-settings__group">
             <div class="chromo-settings__row chromo-settings__row--switch">
               <span class="chromo-settings__label">显示书签栏</span>
-              <IosSwitch
+              <Switch
                 checked={bookmarksBarVisible}
                 onChange={() => onToggleBookmarksBar()}
                 label="显示书签栏"

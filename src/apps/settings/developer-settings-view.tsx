@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import {
   ExtAppManifestFetchError,
@@ -55,7 +55,7 @@ function DeveloperFeature({ title, description, checked, onChange }: DeveloperFe
       <div class="settings__list">
         <div class="settings__toggle-row">
           <span class="settings__toggle-row-label">{title}</span>
-          <IosSwitch checked={checked} onChange={onChange} label={title} />
+          <Switch checked={checked} onChange={onChange} label={title} />
         </div>
       </div>
       <p class="settings__section-footnote">{description}</p>
@@ -520,7 +520,7 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
               <div class="settings__list">
                 <div class="settings__toggle-row">
                   <span class="settings__toggle-row-label">系统诊断日志（黑匣子）</span>
-                  <IosSwitch
+                  <Switch
                     checked={systemDebugLog}
                     onChange={handleToggleSystemDebugLog}
                     label="系统诊断日志"

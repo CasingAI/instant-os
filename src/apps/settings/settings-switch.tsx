@@ -1,4 +1,4 @@
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 
 type SettingsSwitchProps = {
   checked: boolean
@@ -7,5 +7,5 @@ type SettingsSwitchProps = {
 }
 
 export function SettingsSwitch({ checked, onChange, label }: SettingsSwitchProps) {
-  return <IosSwitch checked={checked} onChange={onChange} label={label} />
+  return <Switch checked={checked} onChange={onChange} label={label} />
 }

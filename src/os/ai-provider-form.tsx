@@ -20,9 +20,9 @@ import { SettingsChoiceField } from '../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../ui/settings-inline-input-row.tsx'
 import { SettingsSwitchRow } from '../ui/settings-switch-row.tsx'
 import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
-import { IosCheckToggle } from '../ui/ios-check-toggle.tsx'
+import { CheckToggle } from '../ui/check-toggle.tsx'
 import { AiModelCapabilityTags } from '../ui/ai-model-capability-tags.tsx'
-import '../ui/ios-check-toggle.css'
+import '../ui/check-toggle.css'
 import '../ui/ai-model-capability-tags.css'
 
 const PROVIDER_OPTIONS = AI_PROVIDER_PRESETS.map((item) => ({
@@ -185,7 +185,7 @@ export function AiProviderForm({
               >
                 <div class="ai-model-card__header">
                   {!isCustom && (
-                    <IosCheckToggle
+                    <CheckToggle
                       checked={row.enabled}
                       label={row.enabled ? `禁用 ${row.name}` : `启用 ${row.name}`}
                       onChange={() => handleModelToggle(row.modelId, row.name)}

@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import {
   loadNotificationCenterSettings,
   patchNotificationCenterSettings,
@@ -128,7 +128,7 @@ export function NotificationCenterSettingsView({ onBack }: NotificationCenterSet
           <div class="settings__list">
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">天气</span>
-              <IosSwitch
+              <Switch
                 checked={showWeather}
                 onChange={handleToggle('showWeather', setShowWeather)}
                 label="显示天气"
@@ -136,7 +136,7 @@ export function NotificationCenterSettingsView({ onBack }: NotificationCenterSet
             </div>
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">股票</span>
-              <IosSwitch
+              <Switch
                 checked={showStocks}
                 onChange={handleToggle('showStocks', setShowStocks)}
                 label="显示股票"

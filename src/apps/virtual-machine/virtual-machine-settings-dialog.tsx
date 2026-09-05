@@ -5,7 +5,7 @@ import {
   IosRangeSlider,
   type IosRangeSliderMark,
 } from '../../ui/ios-range-slider.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
@@ -185,7 +185,7 @@ function SwitchRow({
         <span class="virtual-machine-settings__label">{label}</span>
         {detail ? <p class="virtual-machine-settings__hint">{detail}</p> : null}
       </div>
-      <IosSwitch checked={checked} disabled={disabled} onChange={onChange} label={label} />
+      <Switch checked={checked} disabled={disabled} onChange={onChange} label={label} />
     </div>
   )
 }
@@ -786,7 +786,7 @@ export function VirtualMachineSettingsDialog({
                       <span class="virtual-machine-settings__source-title">共享文件夹</span>
                       <div class="virtual-machine-settings__connect">
                         <span class="virtual-machine-settings__label">连接到虚拟机</span>
-                        <IosSwitch
+                        <Switch
                           checked={draft.sharedFolderConnected}
                           disabled={busy}
                           label="连接到虚拟机"
@@ -880,7 +880,7 @@ export function VirtualMachineSettingsDialog({
                       {selectedStorage.type !== 'state' ? (
                         <div class="virtual-machine-settings__connect">
                           <span class="virtual-machine-settings__label">连接到虚拟机</span>
-                          <IosSwitch
+                          <Switch
                             checked={selectedStorage.connected !== false}
                             disabled={busy || (running && selectedStorage.type === 'hdd')}
                             label="连接到虚拟机"

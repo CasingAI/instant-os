@@ -13,7 +13,7 @@ import { renderMarkdownHtml } from '../../markdown/render-markdown-html.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import {
   runPlaygroundCompletion,
   usePlaygroundTextModels,
@@ -717,7 +717,7 @@ export function LlmPlaygroundApp() {
             <span class="llm-playground-field__head">
               <span class="llm-playground-field__label">深度思考</span>
             </span>
-            <IosSwitch
+            <Switch
               checked={config.thinkingEnabled}
               label="深度思考"
               onChange={(checked) => updateConfig({ thinkingEnabled: checked })}
@@ -837,7 +837,7 @@ export function LlmPlaygroundApp() {
             <span class="llm-playground-field__head">
               <span class="llm-playground-field__label">响应自动追加</span>
             </span>
-            <IosSwitch
+            <Switch
               checked={config.autoAppendResponse}
               label="响应自动追加"
               onChange={(checked) => updateConfig({ autoAppendResponse: checked })}

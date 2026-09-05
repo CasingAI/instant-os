@@ -5,7 +5,7 @@ import { supportsThinkingParam } from '../../ai/ai-thinking.ts'
 import type { FlatEnabledModel } from '../../ai/ai-providers.ts'
 import { FLOATING_PANEL_VIEWPORT_PADDING } from '../../ui/compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from '../../ui/floating-overlay-root.ts'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import { PopoverNavHeader } from '../../ui/popover-nav-header.tsx'
 import { PopoverNavRow } from '../../ui/popover-nav-row.tsx'
 import {
@@ -1064,7 +1064,7 @@ export function VscodeAiModelPicker({
                       {showThinking ? (
                         <div class="vscode-ai-model-picker__edit-row">
                           <span class="vscode-ai-model-picker__edit-row-label">思考</span>
-                          <IosSwitch
+                          <Switch
                             label="思考"
                             checked={thinkingOn}
                             onChange={(checked) => {
@@ -1097,7 +1097,7 @@ export function VscodeAiModelPicker({
                           class={`vscode-ai-model-picker__edit-row${showThinking || thinkingOn ? ' vscode-ai-model-picker__edit-row--spaced' : ''}`}
                         >
                           <span class="vscode-ai-model-picker__edit-row-label">极速</span>
-                          <IosSwitch
+                          <Switch
                             label="极速"
                             checked={editKey === pair.fastKey}
                             onChange={(checked) => {

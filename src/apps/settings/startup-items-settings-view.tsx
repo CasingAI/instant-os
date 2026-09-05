@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
 import { useStartupItemsShellHost } from '../../os/startup-items-host.ts'
@@ -475,7 +475,7 @@ function StartupItemsReorderList({
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <IosSwitch
+            <Switch
               checked={item.enabled}
               onChange={(enabled) => onToggle(item.id, enabled)}
               label={`启用 ${startupItemDisplayLabel(item)}`}

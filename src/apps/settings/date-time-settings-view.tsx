@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { Switch } from '../../ui/switch.tsx'
 import {
   formatCalendarYearLabel,
   normalizeCalendarInstant,
@@ -169,7 +169,7 @@ export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
           <div class="settings__list">
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">自动设置</span>
-              <IosSwitch
+              <Switch
                 checked={useSystemTime}
                 onChange={handleToggleSystemTime}
                 label="自动设置日期与时间"
@@ -177,7 +177,7 @@ export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
             </div>
             <div class="settings__toggle-row">
               <span class="settings__toggle-row-label">24 小时制</span>
-              <IosSwitch
+              <Switch
                 checked={use24HourTime}
                 onChange={handleToggle24HourTime}
                 label="24 小时制"
