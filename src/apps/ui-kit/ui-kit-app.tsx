@@ -70,7 +70,7 @@ function DemoRenderer({ componentId, demoId }: { componentId: string; demoId: st
 
   useEffect(() => {
     if (staticComp) {
-      setComp(staticComp)
+      setComp(() => staticComp)
       return
     }
     if (!loader) return
