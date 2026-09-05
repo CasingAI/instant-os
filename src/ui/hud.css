@@ -1,0 +1,141 @@
+/* iOS 6 / MBProgressHUD 风格 HUD：深色半透明圆角块浮在所在窗口内容之上，
+   淡入淡出 + 轻微缩放；盖住范围不接受点击（短操作期间的模态语义）。
+   挂在窗口框架内（absolute，圆角对齐窗口 8px）或指定容器内（absolute）。 */
+.hud {
+  --hud-backdrop: rgba(0, 0, 0, 0.24);
+  --hud-box-bg: rgba(20, 20, 20, 0.78);
+  --hud-box-border: rgba(255, 255, 255, 0.26);
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--hud-backdrop);
+  color: #fff;
+  animation: hud-fade-in 0.18s ease-out both;
+}
+
+/* 不暗化背景：遮罩仍在、只是透明，盖住范围照样不接受点击 */
+.hud--clear {
+  background: transparent;
+}
+
+.hud--exiting {
+  animation: hud-fade-out 0.16s ease-in both;
+}
+
+.hud__box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 200px;
+  height: 200px;
+  box-sizing: border-box;
+  padding: 0 18px;
+  border-radius: 14px;
+  background: var(--hud-box-bg);
+  border: 1px solid var(--hud-box-border);
+  box-shadow:
+    0 6px 22px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  animation: hud-box-in 0.18s ease-out both;
+}
+
+.hud--exiting .hud__box {
+  animation: hud-box-out 0.16s ease-in both;
+}
+
+.hud__text {
+  font-size: 15px;
+  line-height: 1.35;
+  text-align: center;
+  word-break: break-word;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.55);
+}
+
+.hud__detail {
+  font-size: 13px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  word-break: break-word;
+}
+
+.hud__bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  overflow: hidden;
+}
+
+.hud__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #fff;
+  transition: width 0.15s ease-out;
+}
+
+.hud__percent {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud__spinner,
+.hud__glyph {
+  color: #fff;
+}
+
+@keyframes hud-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hud-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes hud-box-in {
+  from {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes hud-box-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud,
+  .hud__box,
+  .hud--exiting,
+  .hud--exiting .hud__box {
+    animation: none;
+  }
+}

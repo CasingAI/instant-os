@@ -513,6 +513,35 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
+    id: 'hud',
+    name: 'Hud',
+    description:
+      'iOS 6 风格 HUD 浮层：深色半透明圆角块 + 转圈/对勾/叉/横条进度与白字，几秒内短操作的进行中/刚完成反馈。useHud() 命令式调用：hud.view 放进组件树任意位置（位置就此定死在所在窗口），hud.show()/hide() 随时收放，连续 show 原地替换内容；默认盖整个窗口（含标题栏，期间不接受点击），show 传 containerRef 可只盖指定容器；没有全屏形态，窗口/容器都解析不到就不弹',
+    category: 'other',
+    importPath: "import { useHud } from '../../ui/hud.tsx'",
+    whenToUse:
+      '几秒内短操作的进行中/刚完成反馈，不打断、不需要回应。要用户决策的用 WindowModal；可能超时、可取消的长任务用进度窗（如文件 App 的迷你进度窗），不要拿 HUD 长时间盖住窗口',
+    demos: [
+      { id: 'basic', title: '模拟保存', description: 'show 转圈「保存中…」2 秒 → 对勾「已保存」→ 自动收；期间本窗口点不动' },
+      { id: 'modes', title: '五种形态', description: '转圈/纯文字/成功/失败各弹 1.2 秒；进度模式滑杆调 percent、开关收放' },
+      { id: 'background', title: '后台任务完成', description: '任务跑完才 show：无论当时焦点在哪，都弹在自己窗口' },
+      { id: 'local', title: '局部遮罩', description: 'containerRef 只盖指定盒子，盒外照常可点' },
+    ],
+    props: [
+      { name: 'view', type: 'ComponentChildren', description: 'HUD 渲染位：放进组件树任意位置，位置就此定死在所在窗口', defaultValue: '—' },
+      { name: 'show', type: '(options?: string | HudShowOptions) => void', description: '弹出或替换内容；传字符串等价 { text }', defaultValue: '—' },
+      { name: 'hide', type: '() => void', description: '收起（补满 minVisibleMs 后播退出动画再卸载）', defaultValue: '—' },
+      { name: 'mode', type: "'spinner' | 'text' | 'success' | 'error' | 'progress'", description: 'show 选项：内容形态', defaultValue: "'spinner'" },
+      { name: 'text', type: 'string?', description: 'show 选项：主文案', defaultValue: '—' },
+      { name: 'detail', type: 'string?', description: 'show 选项：第二行浅灰小字', defaultValue: '—' },
+      { name: 'percent', type: 'number?', description: 'show 选项：progress 模式 0-100，自动 clamp', defaultValue: '—' },
+      { name: 'dimBackground', type: 'boolean?', description: 'show 选项：是否暗化背景（遮罩仍在，只是不画暗色）', defaultValue: 'true' },
+      { name: 'minVisibleMs', type: 'number?', description: 'show 选项：最短显示毫秒，防成功一闪而过', defaultValue: '0' },
+      { name: 'containerRef', type: 'RefObject<HTMLElement>?', description: 'show 选项：只盖指定容器（需非 static 定位）；缺省盖所在窗口', defaultValue: '—' },
+      { name: 'ariaLabel', type: 'string?', description: 'show 选项：无障碍标签；缺省用 text', defaultValue: '—' },
+    ],
+  },
+  {
     id: 'window-modal',
     name: 'WindowModal',
     description: '窗口模态对话框；primary / secondary / danger 按钮，支持 wide / scrollBody、标题对齐、副标题与关闭钮',
