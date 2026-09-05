@@ -1,0 +1,229 @@
+/* PopNav：强制 Nav 的大弹出窗。细长固定尺寸，锚定形态带指向触发器的箭头；
+   宿主窗口很窄时退化为居中模态。类名前缀 pop-nav，与 popover 系互不相干。 */
+
+.pop-nav {
+  position: fixed;
+  z-index: 2200;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 10px;
+  color: #222;
+  background: linear-gradient(180deg, #fafafa 0%, #ececec 100%);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  animation: pop-nav-in 120ms ease;
+}
+
+.pop-nav--below {
+  transform-origin: var(--pop-nav-arrow-x, 50%) 0;
+}
+
+.pop-nav--above {
+  transform-origin: var(--pop-nav-arrow-x, 50%) 100%;
+}
+
+@keyframes pop-nav-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 退出动画由 useOverlayPresence 驱动：exiting 期间保持挂载，播完转隐藏 */
+.pop-nav.pop-nav--exiting {
+  animation: pop-nav-out 120ms ease forwards;
+}
+
+@keyframes pop-nav-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+/* 箭头：外层描边三角 + 内层填充三角（画法照 popover 系）。
+   伪元素高 8px：7px 悬在面板外、1px 伸进面板内部，盖掉顶部高光穿过箭头的那段；
+   left 里的 -1px 补偿伪元素以 padding box 定位、JS 按 border box 计算的偏差。 */
+.pop-nav--below::before,
+.pop-nav--above::before,
+.pop-nav--below::after,
+.pop-nav--above::after {
+  content: '';
+  position: absolute;
+  width: 11px;
+  height: 8px;
+  pointer-events: none;
+}
+
+/* 面板在锚点下方：顶边朝上箭头 */
+.pop-nav--below::before {
+  top: -7px;
+  left: calc(var(--pop-nav-arrow-x, 50%) - 6.5px);
+  background: rgba(0, 0, 0, 0.28);
+  clip-path: polygon(50% 18.75%, 100% 87.5%, 0% 87.5%);
+}
+
+.pop-nav--below::after {
+  top: -7px;
+  left: calc(var(--pop-nav-arrow-x, 50%) - 6.5px);
+  background: #fafafa;
+  clip-path: polygon(50% 36.4%, 96.25% 100%, 3.75% 100%);
+}
+
+/* 面板在锚点上方：底边朝下箭头 */
+.pop-nav--above::before {
+  bottom: -7px;
+  left: calc(var(--pop-nav-arrow-x, 50%) - 6.5px);
+  background: rgba(0, 0, 0, 0.28);
+  clip-path: polygon(50% 81.25%, 100% 12.5%, 0% 12.5%);
+}
+
+.pop-nav--above::after {
+  bottom: -7px;
+  left: calc(var(--pop-nav-arrow-x, 50%) - 6.5px);
+  background: #ececec;
+  clip-path: polygon(50% 63.6%, 96.24% 0%, 3.76% 0%);
+}
+
+/* 无锚点的居中形态不出箭头（放在箭头规则之后，同权重靠后者胜） */
+.pop-nav--center::before,
+.pop-nav--center::after {
+  content: none;
+}
+
+/* hide 不 destroy：关窗动画播完常驻隐藏，Nav 页与滚动位置保活 */
+.pop-nav--hidden {
+  display: none;
+}
+
+/* 内容壳裁圆角（面板本体不裁——箭头悬在面板外，overflow: hidden 会把它剪掉） */
+.pop-nav__content {
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.pop-nav__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff 0%, #e6e6e6 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: #555;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pop-nav__close:active {
+  background: linear-gradient(180deg, #d9d9d9 0%, #cfcfcf 100%);
+}
+
+/* 窄屏：居中模态对话框 */
+
+.pop-nav-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.28);
+  animation: pop-nav-backdrop-in 150ms ease;
+}
+
+.pop-nav-modal {
+  position: relative;
+  width: min(320px, 100%);
+  height: min(480px, 100%);
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 12px;
+  overflow: hidden;
+  color: #222;
+  background: linear-gradient(180deg, #fafafa 0%, #ececec 100%);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  animation: pop-nav-modal-in 150ms ease;
+}
+
+.pop-nav-modal .pop-nav__content {
+  border-radius: 11px;
+}
+
+/* hide 不 destroy：模态退场动画播完常驻隐藏 */
+.pop-nav-modal__backdrop--hidden {
+  display: none;
+}
+
+@keyframes pop-nav-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop-nav-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.pop-nav-modal__backdrop.pop-nav-modal__backdrop--exiting {
+  animation: pop-nav-backdrop-out 150ms ease forwards;
+}
+
+.pop-nav-modal.pop-nav-modal--exiting {
+  animation: pop-nav-modal-out 150ms ease forwards;
+}
+
+@keyframes pop-nav-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-nav-modal-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+/* Trigger 兜底壳：透明、不参与排版，仅在孩子接不了 ref 时兜底登记锚点 */
+.pop-nav-trigger {
+  display: contents;
+}

@@ -361,8 +361,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     whenToUse:
       '要在限高区域里摆大量等高格子（相册宫格、文件缩略图墙、色块卡片）时；需要瀑布流、分节标题或一节横着滑时暂不适用（二期）',
     demos: [
-      { id: 'basic', title: '基础用法', description: 'iOS 主屏式 App 宫格：固定 4 列、按压缩放、点按打开反馈；搜索过滤，无结果走空态兜底' },
-      { id: 'auto-columns', title: '自适应列数', description: 'Finder 图标视图式文件网格：滑杆调格子尺寸（或拖窄窗口），列数随之变化；点选高亮' },
+      { id: 'basic', title: '基础用法', description: 'iOS 设置式壁纸选择宫格：分类切换、固定 3 列；点选蓝勾随选择迁移' },
+      { id: 'auto-columns', title: '自适应列数', description: 'App Store 式图文卡片墙：滑杆调卡片宽度（或拖窄窗口），列数随之变化；点按打开提示' },
       { id: 'virtualized', title: '万条虚拟滚动', description: '万张照片墙只挂可见行；卡片点按收藏、按钮跳到任意一项验证 scrollToIndex' },
     ],
     props: [
@@ -523,6 +523,30 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'children', type: 'ComponentChildren', description: '气泡内容', defaultValue: '—' },
       { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
       { name: 'dismissLabel', type: 'string?', description: '窄屏模态关闭按钮文案', defaultValue: "'好'" },
+    ],
+  },
+  {
+    id: 'pop-nav',
+    name: 'PopNav',
+    description:
+      '强制 Nav 的大弹出窗：细长固定尺寸（320×480，不可调），内容只能是 Nav 页面；锚定形态箭头指向触发器、宿主窗口内钳制不越界，无锚点时视口居中；关闭（外点/Esc/右上角关闭钮）仅隐藏不销毁，Nav 状态保留；宿主窗口宽 ≤520px 时退化成居中模态',
+    category: 'other',
+    importPath: "import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'",
+    demos: [
+      {
+        id: 'basic',
+        title: '基础用法',
+        description: '锚定弹窗：箭头跟随触发器、越界翻转夹紧；翻页后关窗再开仍在原页；窗口拖窄退化居中模态',
+      },
+    ],
+    props: [
+      { name: 'open', type: 'boolean', description: '是否打开', defaultValue: '—' },
+      { name: 'onClose', type: '() => void', description: '关闭通知（外部点按 / Esc / 右上角关闭钮）；面板仅隐藏不销毁', defaultValue: '—' },
+      { name: 'onOpen', type: '() => void?', description: 'PopNavTrigger 点按时的开窗请求', defaultValue: '—' },
+      { name: 'anchorRef', type: 'RefObject<HTMLElement>?', description: '逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）', defaultValue: '—' },
+      { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
+      { name: '…NavProps', type: 'NavProps', description: "controller 与 renderNarrowPage/renderWideFrames（或 engine:'flat' 一套）原样透传给内部 Nav——内容只能是 Nav 页面，没有塞任意组件的口子", defaultValue: '—' },
+      { name: '<PopNavTrigger>', type: 'ComponentChildren', description: '触发器：包住按钮等元素，ref 与点按自动接好，箭头指向它；孩子须是原生元素或接 ref 的组件，否则退回透明壳', defaultValue: '—' },
     ],
   },
   {

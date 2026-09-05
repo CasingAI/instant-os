@@ -22,6 +22,8 @@ export type ButtonProps = {
   title?: string
   class?: string
   'aria-label'?: string
+  /** 挂载回调：拿到最外层 <button> 真实节点（锚定弹层等场景靠它定位）；卸载时以 null 回调 */
+  ref?: (el: HTMLButtonElement | null) => void
   onClick?: JSX.MouseEventHandler<HTMLButtonElement>
 }
 
@@ -38,6 +40,7 @@ export function Button({
   title,
   class: className,
   'aria-label': ariaLabel,
+  ref,
   onClick,
 }: ButtonProps) {
   const iconOnly = !!icon && !showBothIconAndText
@@ -55,6 +58,7 @@ export function Button({
   return (
     <button
       type={type}
+      ref={ref}
       class={classes}
       disabled={disabled}
       title={title}
