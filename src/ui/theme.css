@@ -1,7 +1,7 @@
 /*
  * 系统暗色主题作用域：App 在自己的根节点切 data-theme='dark'，
  * 作用域内所有系统页面组件（Page / PageHeader / PageBackButton /
- * PageStack 转场 / AdaptiveSplitNav，均消费同一套 --page-* token）
+ * PageStack 转场 / Nav，均消费同一套 --page-* token）
  * 原生联动暗色，无需各 App 自行桥接。
  *
  * 自定义属性按「最近的定义祖先」继承，天然压过各组件 :root 的

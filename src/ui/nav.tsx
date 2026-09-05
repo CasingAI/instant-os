@@ -13,13 +13,13 @@ import {
   useAppNarrowLayout,
 } from './use-app-narrow-layout.ts'
 import { PageStack, usePageStack, type PageStackTransition } from './page-stack.tsx'
-import { hitsNavFrameIndex, wideNavFrameIndices } from './adaptive-split-nav-model.ts'
-import './adaptive-split-nav.css'
-import './adaptive-split-nav-flat.css'
+import { hitsNavFrameIndex, wideNavFrameIndices } from './nav-model.ts'
+import './nav.css'
+import './nav-flat.css'
 import './theme.css'
 
 /**
- * 自适应分栏导航：布局原语（类 Ant Design 抽屉/分栏）。
+ * 导航：布局原语（类 Ant Design 抽屉/分栏）。
  * Header（返回键 / 操作区，PageHeader 套件）与全部正文内容由应用自行渲染，
  * 本组件不强加任何外壳样式——应用想写什么就写什么。
  *
@@ -34,7 +34,7 @@ import './theme.css'
  *
  * 单一真源是应用的领域状态：子页与帧都从它派生，本组件不持有任何业务
  * 导航历史。子页栈（PageStack，壳无关）由组件接管——应用经
- * useAdaptiveSplitNav 拿到 navigate/setPageSilent 驱动，形态切回子页栈时
+ * useNav 拿到 navigate/setPageSilent 驱动，形态切回子页栈时
  * 组件会按 narrowPageForState 静默重置栈；分栏右栏帧栈纯视觉叠放（无
  * 历史，返回即改状态）：push 新帧从右滑入、pop 旧帧保帧滑出
  * frameAnimationMs 后才移除、重置/跨级跳变立即整体替换；进退的转场窗口
@@ -42,14 +42,14 @@ import './theme.css'
  * 各自完整的一帧。
  */
 
-export type AdaptiveFrameSpec = {
+export type NavFrameSpec = {
   /** 帧稳定性键：结构变化（push/pop/重置）按 id 序列判定 */
   id: string
   content: ComponentChildren
 }
 
 /** 形态翻转计划：翻转那一帧渲染期写入，供组件编排面板形变与页面交接 */
-export type AdaptiveSplitNavSwitchPlan = {
+export type NavSwitchPlan = {
   /** true = 窄 → 宽 */
   toWide: boolean
   /** 翻转前的栈顶页（窄屏满屏显示的那页） */
@@ -62,17 +62,17 @@ export type AdaptiveSplitNavSwitchPlan = {
  * 形变分型（见组件注释）。应用可用来对齐两种形态不同的 chrome：
  * 例如首帧在窄屏有返回、分栏没有——A 淡出、C 淡入，B/D 不必动。
  */
-export type AdaptiveSplitNavMorphKind = 'A' | 'B' | 'C' | 'D'
+export type NavMorphKind = 'A' | 'B' | 'C' | 'D'
 
 function morphKindFromPlan(
-  plan: AdaptiveSplitNavSwitchPlan,
+  plan: NavSwitchPlan,
   listPage: string,
-): AdaptiveSplitNavMorphKind {
+): NavMorphKind {
   if (plan.toWide) return plan.fromPage === listPage ? 'B' : 'A'
   return plan.narrowTarget === listPage ? 'D' : 'C'
 }
 
-export type AdaptiveSplitNavController = {
+export type NavController = {
   /** 当前是否渲染为子页栈形态（split 未开启时恒为 true） */
   narrowLayout: boolean
   /** 完成首次宽度测量（仅 split 开启时有意义） */
@@ -103,7 +103,7 @@ export type AdaptiveSplitNavController = {
     handleMotionEnd: (event: AnimationEvent) => void
   }
   /** 形态翻转计划（组件内部编排形变用，应用勿动）：翻转渲染期写入、下次翻转覆盖 */
-  switchPlanRef: { current: AdaptiveSplitNavSwitchPlan | undefined }
+  switchPlanRef: { current: NavSwitchPlan | undefined }
   /**
    * 形变进行中（含翻转当帧）。应用用来对齐两种形态不同的 chrome：
    * 例如首帧在窄屏有返回、分栏没有——形变期先按起始形态画，随滑轨淡入淡出。
@@ -111,14 +111,14 @@ export type AdaptiveSplitNavController = {
    */
   morphing: boolean
   /** 当前形变分型；未在形变时为 undefined */
-  morphKind: AdaptiveSplitNavMorphKind | undefined
+  morphKind: NavMorphKind | undefined
   /** 形变收尾/跳过时清掉 morphing（组件内部用，应用勿动） */
   morphingSetRef: {
-    current: (next: boolean, kind?: AdaptiveSplitNavMorphKind) => void
+    current: (next: boolean, kind?: NavMorphKind) => void
   }
 }
 
-export function useAdaptiveSplitNav(options: {
+export function useNav(options: {
   /** 由领域状态推导当前应处的子页 id（分栏切回子页栈时调用） */
   narrowPageForState: () => string
   /** 开启响应式分栏：宽屏左右两栏、窄屏子页栈；缺省 = 永远子页栈 */
@@ -131,7 +131,7 @@ export function useAdaptiveSplitNav(options: {
   narrowExitWidth?: number
   /** 形态切换回调（首次测量不触发；仅 split 开启时会触发） */
   onLayoutChange?: (narrow: boolean) => void
-}): AdaptiveSplitNavController {
+}): NavController {
   const enterWidth = options.narrowEnterWidth ?? APP_NARROW_LAYOUT_MAX_WIDTH
   const exitWidth = options.narrowExitWidth ?? APP_NARROW_LAYOUT_EXIT_WIDTH
   const { hostRef: formHostRef, narrowLayout: measuredNarrow, layoutReady } = useAppNarrowLayout({
@@ -144,7 +144,7 @@ export function useAdaptiveSplitNav(options: {
     settleMs: SPLIT_FLIP_SETTLE_MS,
   })
   // 紧凑档测量实例：分栏宽度 ≤640 进入、≥700 退出。缺省 settleMs=0 逐帧
-  // 即时跟随——档位只改写 --asn-list-ratio 的取值，不触发形态翻转，无需
+  // 即时跟随——档位只改写 --nav-list-ratio 的取值，不触发形态翻转，无需
   // settle 保护；与上面的形态实例各持一个 ResizeObserver，挂同一宿主节点。
   const { hostRef: compactHostRef, narrowLayout: compactSplit } = useAppNarrowLayout({
     enterWidth: COMPACT_SPLIT_ENTER_WIDTH,
@@ -174,18 +174,18 @@ export function useAdaptiveSplitNav(options: {
   const { showPage, ...stack } = usePageStack<string>(initialPage)
   const listPage = options.listPage ?? ''
 
-  // 形态翻转计划：必须在渲染期侦测并写入——AdaptiveSplitNav 是子组件，其
+  // 形态翻转计划：必须在渲染期侦测并写入——Nav 是子组件，其
   // layout effect 先于本 hook 的执行，等 effect 再算就晚了。fromPage 取
   // 本轮渲染的栈顶（翻转提交前满屏显示的那页）。
   const prevFormRef = useRef<boolean | undefined>(undefined)
-  const switchPlanRef = useRef<AdaptiveSplitNavSwitchPlan | undefined>(undefined)
+  const switchPlanRef = useRef<NavSwitchPlan | undefined>(undefined)
   const [morphing, setMorphing] = useState(false)
-  const [morphKind, setMorphKind] = useState<AdaptiveSplitNavMorphKind | undefined>(
+  const [morphKind, setMorphKind] = useState<NavMorphKind | undefined>(
     undefined,
   )
   const [morphEpoch, setMorphEpoch] = useState(0)
   const morphingSetRef = useRef<
-    (next: boolean, kind?: AdaptiveSplitNavMorphKind) => void
+    (next: boolean, kind?: NavMorphKind) => void
   >(() => {})
   morphingSetRef.current = (next, kind) => {
     setMorphing(next)
@@ -283,14 +283,14 @@ export function useAdaptiveSplitNav(options: {
 }
 
 /** flat 引擎渲染页面时收到的 chrome 上下文（应用据此决定返回键等形态差异） */
-export type AdaptiveSplitNavPageContext = {
+export type NavPageContext = {
   narrowLayout: boolean
   morphing: boolean
-  morphKind?: AdaptiveSplitNavMorphKind
+  morphKind?: NavMorphKind
 }
 
-type AdaptiveSplitNavSharedProps = {
-  controller: AdaptiveSplitNavController
+type NavSharedProps = {
+  controller: NavController
   /** 帧栈全量重置键：变化时立即整体替换帧（不播动画），如选中条目身份切换 */
   framesResetKey?: string
   /** 附加条（应用自定内容）：分栏时在右栏底部、子页栈时在栈下方 */
@@ -304,7 +304,7 @@ type AdaptiveSplitNavSharedProps = {
   class?: string
 }
 
-export type ClassicAdaptiveSplitNavProps = AdaptiveSplitNavSharedProps & {
+export type ClassicNavProps = NavSharedProps & {
   /** 双份渲染引擎（缺省）：窄屏子页与分栏帧各渲染一份，形变靠交接对齐 */
   engine?: 'classic'
   /** 子页栈：渲染某个页，内容与外壳完全由应用定义（左栏根列表页也由此渲染） */
@@ -313,24 +313,24 @@ export type ClassicAdaptiveSplitNavProps = AdaptiveSplitNavSharedProps & {
    * 分栏右栏帧序列，从与子页同一份领域状态派生；顺序 = 叠放次序（末位最上）。
    * 每次渲染都会调用，活帧内容始终取最新（空数组表示详情区无内容）。
    */
-  renderWideFrames: () => AdaptiveFrameSpec[]
+  renderWideFrames: () => NavFrameSpec[]
 }
 
-export type FlatAdaptiveSplitNavProps = AdaptiveSplitNavSharedProps & {
+export type FlatNavProps = NavSharedProps & {
   /** 平铺单实例引擎：每页一个常驻 host，形态切换零重挂载、零交接、无双份 */
   engine: 'flat'
   /**
    * 按页 id 渲染页面实体（页 = 身份：pop 离场帧靠 id 稳定内容，无需快照）。
    * chrome 差异（返回键有无等）由 ctx 决定，一份内容服务两种形态。
    */
-  renderPage: (page: string, ctx: AdaptiveSplitNavPageContext) => ComponentChildren
+  renderPage: (page: string, ctx: NavPageContext) => ComponentChildren
   /** 分栏右栏帧序（页 id，末位最上）；与窄屏子页同一套 id 空间 */
   frames: string[]
 }
 
-export type AdaptiveSplitNavProps =
-  | ClassicAdaptiveSplitNavProps
-  | FlatAdaptiveSplitNavProps
+export type NavProps =
+  | ClassicNavProps
+  | FlatNavProps
 
 const DEFAULT_LIST_RATIO = 0.38
 const DEFAULT_FRAME_MS = 380
@@ -341,7 +341,7 @@ const SPLIT_FLIP_SETTLE_MS = 150
  * 紧凑分栏档：分栏宽度 ≤640（含）时左右栏固定 50/50，≥700 恢复 listRatio
  * 纯比例。纯比例没有绝对宽度下限——530px×0.38 仅 201px，扣掉行固定开销后
  * 文字区不足百 px；640 ≈ 38% 达 243px 的量级，退出阈值拉 60px 滞回对齐
- * 520/580 的防抖先例。档内 listRatio 不参与；档位只改写 --asn-list-ratio
+ * 520/580 的防抖先例。档内 listRatio 不参与；档位只改写 --nav-list-ratio
  * 的值，CSS 与形变数学消费同一份有效比例，缝隙恒等式两端天然同式。
  */
 const COMPACT_SPLIT_ENTER_WIDTH = 640
@@ -362,7 +362,7 @@ const MORPH_EASING = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
  * A/C 期间面板会向左越出详情栏盒子，必须放开该栏 overflow / contain，
  * 否则悬出被剪掉，视觉塌成「列表瞬现 + 内容从右挤入」。
  */
-type MorphKind = AdaptiveSplitNavMorphKind
+type MorphKind = NavMorphKind
 
 /** 一次进行中的形态形变：持有全部需要在收尾时清理/还原的资源 */
 type MorphGesture = {
@@ -404,14 +404,14 @@ function playMorphAnim(
 }
 
 /** 按引擎分发：classic（缺省，双份渲染 + 交接）与 flat（平铺单实例） */
-export function AdaptiveSplitNav(props: AdaptiveSplitNavProps) {
+export function Nav(props: NavProps) {
   if (props.engine === 'flat') {
     return <FlatSplitNavView {...props} />
   }
   return <ClassicSplitNavView {...props} />
 }
 
-function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
+function ClassicSplitNavView(props: ClassicNavProps) {
   const {
     controller,
     renderNarrowPage,
@@ -454,7 +454,7 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
   const liveSig = liveFrames.map((frame) => frame.id).join('\0')
 
   /** pop 离场的帧：保帧播完滑出动画后才移除，内容定格在退场开始那一刻 */
-  const [exiting, setExiting] = useState<AdaptiveFrameSpec[]>([])
+  const [exiting, setExiting] = useState<NavFrameSpec[]>([])
   const exitingRef = useRef(exiting)
   exitingRef.current = exiting
   const [wideIndex, setWideIndex] = useState(0)
@@ -462,7 +462,7 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
   const resetKeyRef = useRef(framesResetKey)
   // 上一帧视图（活帧 + 退场帧），供下一次 pop 捕获离场帧；
   // 由本文件最后一个 layout effect 更新（时序 effect 读到的是上一帧视图）
-  const lastViewRef = useRef<AdaptiveFrameSpec[]>([])
+  const lastViewRef = useRef<NavFrameSpec[]>([])
 
   // 帧转场窗口：右栏进/退子页的那一段时间（时长 = 帧动画时长）。窗口期
   // 容器改用页面栈同款拆盒（标题栏交叉淡移、正文整页滑、持续底色画在伪
@@ -540,7 +540,7 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
 
   // ── 宽窄形变：刚性面板滑轨 ──
   // 右栏帧容器作为「面板」参与滑轨，A 型时左栏列表作为刚性面板自左缘滑入，
-  // 两者同曲线联动（时长取同源的 --asn-frame-ms）。翻转统一在宽度停变
+  // 两者同曲线联动（时长取同源的 --nav-frame-ms）。翻转统一在宽度停变
   // （松手/一步跳变）后提交，到这里必有稳定的起止点；仅 reduced-motion 与
   // 「提交撞上拖拽态」的竞态装甲退化为即时切换。
   // 形变中途宿主再变尺寸则立即落定清理（RO 装甲，忽略首次回调）。
@@ -586,7 +586,7 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
       gesture.detailPane.style.overflow = ''
       gesture.detailPane.style.contain = ''
     }
-    rootRef.current?.classList.remove('adaptive-split-nav--morphing')
+    rootRef.current?.classList.remove('nav--morphing')
     morphRef.current = undefined
     pendingSlideRef.current = false
     controller.morphingSetRef.current(false)
@@ -675,7 +675,7 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
       finishMorphRef.current()
     })
     observer.observe(root)
-    root.classList.add('adaptive-split-nav--morphing')
+    root.classList.add('nav--morphing')
     const gesture: MorphGesture = {
       kind,
       toNarrow: !plan.toWide,
@@ -833,14 +833,14 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
   const active = Math.min(wideIndex, Math.max(0, view.length - 1))
 
   const styleVars = {
-    '--asn-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
-    '--asn-frame-ms': `${frameAnimationMs}ms`,
+    '--nav-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
+    '--nav-frame-ms': `${frameAnimationMs}ms`,
   } as Record<string, string>
 
   const renderFramesStack = () => {
     if (view.length === 0) {
       return (
-        <div class="adaptive-split-nav__detail-empty">
+        <div class="nav__detail-empty">
           {renderDetailEmpty ? renderDetailEmpty() : undefined}
         </div>
       )
@@ -852,15 +852,15 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
     return (
       <div
         ref={framesRef}
-        class={`adaptive-split-nav__frames${
-          frameNav ? ` adaptive-split-nav__frames--${frameNav}` : ''
+        class={`nav__frames${
+          frameNav ? ` nav__frames--${frameNav}` : ''
         }`}
       >
         {view.map((frame, index) => (
           <div
             key={frame.id}
             class={[
-              'adaptive-split-nav__frame',
+              'nav__frame',
               index === active ? 'is-active' : '',
               index === navUnder ? 'is-under' : '',
               index === navOver ? 'is-over' : '',
@@ -890,12 +890,12 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
         rootRef.current = node
         hostRef(node)
       }}
-      class={`adaptive-split-nav${className ? ` ${className}` : ''}`}
+      class={`nav${className ? ` ${className}` : ''}`}
       style={styleVars}
     >
-      <div class="adaptive-split-nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
-        <div class="adaptive-split-nav__list-pane">
-          <div ref={listTrackRef} class="adaptive-split-nav__list-track">
+      <div class="nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
+        <div class="nav__list-pane">
+          <div ref={listTrackRef} class="nav__list-track">
             <PageStack
               stack={controller.stackView.stack}
               page={displayPage}
@@ -905,17 +905,17 @@ function ClassicSplitNavView(props: ClassicAdaptiveSplitNavProps) {
             />
           </div>
           {narrowLayout && footer ? (
-            <div class="adaptive-split-nav__footer">{footer}</div>
+            <div class="nav__footer">{footer}</div>
           ) : undefined}
         </div>
         <div
           ref={detailPaneRef}
-          class="adaptive-split-nav__detail-pane"
+          class="nav__detail-pane"
           aria-hidden={narrowLayout || undefined}
         >
           {renderFramesStack()}
           {!narrowLayout && footer ? (
-            <div class="adaptive-split-nav__footer">{footer}</div>
+            <div class="nav__footer">{footer}</div>
           ) : undefined}
         </div>
       </div>
@@ -948,7 +948,7 @@ type FlatMorphGesture = {
   done: boolean
 }
 
-function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
+function FlatSplitNavView(props: FlatNavProps) {
   const {
     controller,
     renderPage,
@@ -1098,7 +1098,7 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
     }
     const root = rootRef.current
     if (root) {
-      root.classList.remove('adaptive-split-nav--morphing')
+      root.classList.remove('nav--morphing')
       delete root.dataset.morphKind
     }
     morphRef.current = undefined
@@ -1187,7 +1187,7 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
       finishMorphRef.current()
     })
     observer.observe(root)
-    root.classList.add('adaptive-split-nav--morphing')
+    root.classList.add('nav--morphing')
     root.dataset.morphKind = kind
     const gesture: FlatMorphGesture = {
       kind,
@@ -1404,14 +1404,14 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
     return frameIdSet.has(id) ? 'detail' : 'parked'
   }
 
-  const pageCtx: AdaptiveSplitNavPageContext = {
+  const pageCtx: NavPageContext = {
     narrowLayout,
     morphing,
     morphKind: controller.morphKind,
   }
   const styleVars = {
-    '--asn-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
-    '--asn-frame-ms': `${frameAnimationMs}ms`,
+    '--nav-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
+    '--nav-frame-ms': `${frameAnimationMs}ms`,
   } as Record<string, string>
 
   return (
@@ -1420,7 +1420,7 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
         rootRef.current = node
         hostRef(node)
       }}
-      class={`adaptive-split-nav adaptive-split-nav--flat${className ? ` ${className}` : ''}`}
+      class={`nav nav--flat${className ? ` ${className}` : ''}`}
       style={styleVars}
       data-stack-transition={transition ? transition.direction : undefined}
       data-frame-nav={frameNav}
@@ -1449,7 +1449,7 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
         controller.stackView.handleMotionEnd(event)
       }}
     >
-      <div class="adaptive-split-nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
+      <div class="nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
         {hostIds.map((id) => {
           const exiting = !frameIdSet.has(id) && exitingSet.has(id)
           const pos: FlatHostPos = exiting ? 'detail' : roleOf(id)
@@ -1461,7 +1461,7 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
             (transition !== undefined && id === overId) ||
             (frameNav !== undefined && hitsNavFrameIndex(fi, navOver))
           const cls = [
-            'adaptive-split-nav__host',
+            'nav__host',
             isUnder ? 'is-under' : '',
             isOver ? 'is-over' : '',
           ]
@@ -1502,18 +1502,18 @@ function FlatSplitNavView(props: FlatAdaptiveSplitNavProps) {
                   : undefined
               }
             >
-              <div class="adaptive-split-nav__host-slider" style={slideStyle}>
+              <div class="nav__host-slider" style={slideStyle}>
                 {renderPage(id, pageCtx)}
               </div>
             </div>
           )
         })}
         {!narrowLayout && viewIds.length === 0 ? (
-          <div class="adaptive-split-nav__flat-empty">
+          <div class="nav__flat-empty">
             {renderDetailEmpty ? renderDetailEmpty() : undefined}
           </div>
         ) : undefined}
-        {footer ? <div class="adaptive-split-nav__flat-footer">{footer}</div> : undefined}
+        {footer ? <div class="nav__flat-footer">{footer}</div> : undefined}
       </div>
     </div>
   )

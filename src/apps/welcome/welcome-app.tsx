@@ -18,10 +18,10 @@ import type { BuiltinAppId } from '../../os/types.ts'
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
 import {
-  AdaptiveSplitNav,
-  useAdaptiveSplitNav,
-  type AdaptiveFrameSpec,
-} from '../../ui/adaptive-split-nav.tsx'
+  Nav,
+  useNav,
+  type NavFrameSpec,
+} from '../../ui/nav.tsx'
 import { Button } from '../../ui/button.tsx'
 import '../settings/settings.css'
 import './welcome.css'
@@ -206,7 +206,7 @@ export function WelcomeApp() {
   // selectedId 恒有值 → 宽→窄翻转恒落详情页、播 C 型（面板扩张），不再有
   // 「点过才算进详情」的人工门控（服务/磁盘工具靠载入自动选中达到同效果）。
   // 窄屏首页例外见下方挂载 effect。
-  const nav = useAdaptiveSplitNav({
+  const nav = useNav({
     split: true,
     narrowPageForState: () => (selectedId ? 'detail' : 'list'),
     listPage: 'list',
@@ -317,7 +317,7 @@ export function WelcomeApp() {
   // 分栏帧：hero 帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
   // 先挂着返回随滑轨淡出。
   const keepDetailBack = nav.morphing && nav.morphKind === 'A'
-  const renderWideFrames = (): AdaptiveFrameSpec[] => [
+  const renderWideFrames = (): NavFrameSpec[] => [
     {
       id: 'detail',
       content: (
@@ -343,7 +343,7 @@ export function WelcomeApp() {
   ]
 
   return (
-    <AdaptiveSplitNav
+    <Nav
       controller={nav}
       class={
         nav.narrowLayout ? 'welcome-app welcome-app--narrow' : 'welcome-app welcome-app--wide'

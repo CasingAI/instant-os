@@ -1,9 +1,9 @@
 /**
  * 宽屏帧转场窗口的下标匹配：-1 是「没有这一侧」，不是「查不到」。
- * 运行：node --experimental-strip-types src/ui/adaptive-split-nav-model.test.ts
+ * 运行：node --experimental-strip-types src/ui/nav-model.test.ts
  */
 import assert from 'node:assert/strict'
-import { hitsNavFrameIndex, wideNavFrameIndices } from './adaptive-split-nav-model.ts'
+import { hitsNavFrameIndex, wideNavFrameIndices } from './nav-model.ts'
 
 // 从列表点进首个子页：只有一帧（active=0），push 的 under 侧下标是 -1。
 // 左栏列表 host 的 indexOf 也是 -1，绝不允许因此命中 under。
@@ -47,4 +47,4 @@ import { hitsNavFrameIndex, wideNavFrameIndices } from './adaptive-split-nav-mod
   assert.equal(hitsNavFrameIndex(1, navOver), false)
 }
 
-console.log('adaptive-split-nav-model: ok')
+console.log('nav-model: ok')

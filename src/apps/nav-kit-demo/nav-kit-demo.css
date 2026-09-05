@@ -87,11 +87,11 @@
  * 书页「书架」返回：只在窄形态有、分栏静置没有。
  * 形变 A（窄→宽）先挂着再随滑轨淡出；C（宽→窄）面板不带返回，
  * 返回键等落定交棒给子页栈后才出现。
- * 时长/曲线取分栏根上的 --asn-frame-ms，与面板滑轨同拍。
+ * 时长/曲线取分栏根上的 --nav-frame-ms，与面板滑轨同拍。
  */
 .nav-kit-demo__back-fade-out .page-back-button {
   pointer-events: none;
-  animation: nav-kit-demo-back-out var(--asn-frame-ms, 380ms)
+  animation: nav-kit-demo-back-out var(--nav-frame-ms, 380ms)
     cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 

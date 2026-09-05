@@ -2,10 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
 import {
-  AdaptiveSplitNav,
-  useAdaptiveSplitNav,
-  type AdaptiveFrameSpec,
-} from '../../ui/adaptive-split-nav.tsx'
+  Nav,
+  useNav,
+  type NavFrameSpec,
+} from '../../ui/nav.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { Button } from '../../ui/button.tsx'
 import { ForwardIcon } from '../../icons/app-icons.tsx'
@@ -798,7 +798,7 @@ export function RegistryApp() {
 
   // 单一真源是 selectedAppId + drill：窄屏子页（root/keys/b:N/edit）与
   // 分栏右栏帧栈都从它派生，分栏切回子页栈的落点也由它推导。
-  const nav = useAdaptiveSplitNav({
+  const nav = useNav({
     split: true,
     narrowPageForState: () => currentNarrowPage(selectedAppId, drill),
     listPage: PAGE_ROOT,
@@ -1554,7 +1554,7 @@ export function RegistryApp() {
     return renderEditorPane(entry, frame.path)
   }
 
-  const renderWideFrames = (): AdaptiveFrameSpec[] =>
+  const renderWideFrames = (): NavFrameSpec[] =>
     liveFrames.map((frame) => ({ id: frame.id, content: renderWideFrame(frame) }))
 
   const pathCrumbs = buildPathCrumbs(selectedAppId, drill, selectedEntry)
@@ -1564,7 +1564,7 @@ export function RegistryApp() {
     ) : undefined
 
   return (
-    <AdaptiveSplitNav
+    <Nav
       controller={nav}
       class={narrowLayout ? 'registry registry--narrow' : 'registry registry--wide'}
       renderNarrowPage={renderNarrowPage}

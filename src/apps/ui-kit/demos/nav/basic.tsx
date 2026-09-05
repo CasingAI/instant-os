@@ -1,7 +1,7 @@
 import { useOs } from '../../../../os/os-context.tsx'
 import { Button } from '../../../../ui/button.tsx'
 
-export default function AdaptiveSplitNavDemo() {
+export default function NavDemo() {
   const { openApp } = useOs()
   return (
     <div class="ui-kit-demo__app-launch">

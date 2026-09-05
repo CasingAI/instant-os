@@ -1,4 +1,4 @@
-/* 服务 — AdaptiveSplitNav 布局原语（宽屏分栏 / 窄屏子页栈） */
+/* 服务 — Nav 布局原语（宽屏分栏 / 窄屏子页栈） */
 
 /* 内容样式随 settings 样式表分发，但 token 定义在 .settings 上；换系统壳
    （Page/.page）后在此补齐用到的 token（nav-kit-demo 同款做法） */
@@ -26,7 +26,7 @@
    C 型（宽→窄）落定交棒后才出现——短淡入代替硬蹦（nav-kit-demo 同款） */
 .services__back-fade-out .page-back-button {
   pointer-events: none;
-  animation: services-back-out var(--asn-frame-ms, 380ms)
+  animation: services-back-out var(--nav-frame-ms, 380ms)
     cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 

@@ -23,10 +23,10 @@ import {
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
 import {
-  AdaptiveSplitNav,
-  useAdaptiveSplitNav,
-  type AdaptiveFrameSpec,
-} from '../../ui/adaptive-split-nav.tsx'
+  Nav,
+  useNav,
+  type NavFrameSpec,
+} from '../../ui/nav.tsx'
 import { Button } from '../../ui/button.tsx'
 import { List } from '../../ui/list.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -72,7 +72,7 @@ export function ServicesApp() {
 
   // 单一真源是选中的服务：窄屏子页与分栏详情帧都从它派生，
   // 分栏切回子页栈的落点也由它推导。
-  const nav = useAdaptiveSplitNav({
+  const nav = useNav({
     split: true,
     narrowPageForState: () => (selectedId ? 'detail' : 'list'),
     listPage: 'list',
@@ -354,7 +354,7 @@ export function ServicesApp() {
   // 先挂着返回随滑轨淡出。
   const keepDetailBack = nav.morphing && nav.morphKind === 'A' && selected !== undefined
 
-  const renderWideFrames = (): AdaptiveFrameSpec[] => [
+  const renderWideFrames = (): NavFrameSpec[] => [
     {
       id: 'detail',
       content: renderDetailPage(
@@ -365,7 +365,7 @@ export function ServicesApp() {
   ]
 
   return (
-    <AdaptiveSplitNav
+    <Nav
       controller={nav}
       class="services-host"
       renderNarrowPage={renderNarrowPage}

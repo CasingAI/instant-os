@@ -1,5 +1,5 @@
-/* 自适应分栏导航 · flat 引擎（平铺单实例）：host 角色与滑轨。
- * 与 classic（adaptive-split-nav.css）互补：每页一个常驻 host（stage 的
+/* 导航 · flat 引擎（平铺单实例）：host 角色与滑轨。
+ * 与 classic（nav.css）互补：每页一个常驻 host（stage 的
  * 绝对定位子节点），data-pos 表达角色——窄/宽只是同一骨架下 host 盒子的
  * 两种角色状态，页面内容从不换手。host 盒子的几何归 tsx 形变编排
  * （WAAPI 动 left/width/transform），这里只定义静置角色、进退转场窗口
@@ -16,17 +16,17 @@
  * （标题一行、正文一行），滑出右栏的部分由 host 裁掉，列表始终是完整
  * 左栏盒子、不参与转场。 */
 
-.adaptive-split-nav--flat .adaptive-split-nav__stage {
+.nav--flat .nav__stage {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  /* 覆盖自 adaptive-split-nav.css 的 flex 列布局：宿主以绝对定位叠放，
+  /* 覆盖自 nav.css 的 flex 列布局：宿主以绝对定位叠放，
    * 留在 flex 流里会被并排排成多列（宽屏进子页的并排卡片 bug） */
   display: block;
 }
 
 /* host 基底：绝对定位盒子，内容由应用渲染（单一根元素撑满，如 .page） */
-.adaptive-split-nav--flat .adaptive-split-nav__host {
+.nav--flat .nav__host {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -36,35 +36,35 @@
 
 /* host 内两层：slider 是常驻位移层（叠放位移全落在它身上，host 盒子与
  * 裁切边界恒不动），页根是应用的单一根元素。两层都撑满 host。 */
-.adaptive-split-nav--flat .adaptive-split-nav__host > *,
-.adaptive-split-nav--flat
-  .adaptive-split-nav__host
-  > .adaptive-split-nav__host-slider
+.nav--flat .nav__host > *,
+.nav--flat
+  .nav__host
+  > .nav__host-slider
   > * {
   width: 100%;
   height: 100%;
   min-height: 0;
 }
 
-.adaptive-split-nav--flat .adaptive-split-nav__host-slider {
-  transition: transform var(--asn-frame-ms, 380ms) ease-in-out;
+.nav--flat .nav__host-slider {
+  transition: transform var(--nav-frame-ms, 380ms) ease-in-out;
 }
 
 /*
  * 角色 · current / under（窄屏子页栈）：占满整窗。current 在上；under
  * 隐藏挂载（keep-alive，转场窗口期由窗口规则接管显示）。
  */
-.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='current'],
-.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='under'] {
+.nav--flat .nav__host[data-pos='current'],
+.nav--flat .nav__host[data-pos='under'] {
   left: 0;
   width: 100%;
 }
 
-.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='current'] {
+.nav--flat .nav__host[data-pos='current'] {
   z-index: 2;
 }
 
-.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='under'] {
+.nav--flat .nav__host[data-pos='under'] {
   display: none;
   transform: translateX(-30%);
   z-index: 1;
@@ -74,8 +74,8 @@
  * 角色 · parked：不在当前视图的挂载页（宽形态下的窄屏残留栈层等）。
  * 排到右缘外待命，stage 的 overflow: hidden 裁掉。
  */
-.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='parked'] {
-  left: var(--asn-list-ratio, 38%);
+.nav--flat .nav__host[data-pos='parked'] {
+  left: var(--nav-list-ratio, 38%);
   right: 0;
   transform: translateX(100%);
   z-index: 9;
@@ -87,19 +87,19 @@
  * 由 tsx 内联钉宽整体滑入（刚性面板免逐帧重排），届时 morphing 规则关掉
  * 这条过渡（见文件尾）。
  */
-.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='list'] {
+.nav--flat .nav__host[data-pos='list'] {
   left: 0;
-  width: var(--asn-list-w, var(--asn-list-ratio, 38%));
+  width: var(--nav-list-w, var(--nav-list-ratio, 38%));
   z-index: 2;
   border-right: 1px solid rgba(0, 0, 0, 0.18);
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
-  transition: width var(--asn-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: width var(--nav-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* 子页栈形态贴边显示，不画分栏分隔线 */
-.adaptive-split-nav--flat
-  .adaptive-split-nav__stage[data-form='stack']
-  .adaptive-split-nav__host[data-pos='list'] {
+.nav--flat
+  .nav__stage[data-form='stack']
+  .nav__host[data-pos='list'] {
   border-right: 0;
   box-shadow: none;
 }
@@ -108,15 +108,15 @@
  * 理论上已被 host 的 overflow:hidden 裁死，这里再保证即便有漏网的绘制
  * 也压在左栏之下。形变期必须让位：C 型面板要扩张盖过左栏，A 型面板与
  * 列表滑轨共舞，层序归滑轨编排。 */
-.adaptive-split-nav--flat:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__stage[data-form='split']
-  .adaptive-split-nav__host[data-pos='list'] {
+.nav--flat:not(.nav--morphing)
+  .nav__stage[data-form='split']
+  .nav__host[data-pos='list'] {
   z-index: 30;
 }
 
-.adaptive-split-nav--flat:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__stage[data-form='split']
-  .adaptive-split-nav__flat-footer {
+.nav--flat:not(.nav--morphing)
+  .nav__stage[data-form='split']
+  .nav__flat-footer {
   z-index: 31;
 }
 
@@ -126,23 +126,23 @@
  * 责裁切；叠放位移由 tsx 按状态写在内联 slider 上（active 就位、底层
  * -30% 露边、待入 100%），过渡在 slider 上（形变期由 morphing 规则关闭）。
  */
-.adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='detail'] {
-  left: var(--asn-list-ratio, 38%);
+.nav--flat .nav__host[data-pos='detail'] {
+  left: var(--nav-list-ratio, 38%);
   right: 0;
   z-index: 10;
 }
 
 /*
- * 紧凑分栏档翻转只改写 --asn-list-ratio 的值（无形态形变、无滑轨）：detail
+ * 紧凑分栏档翻转只改写 --nav-list-ratio 的值（无形态形变、无滑轨）：detail
  * 与空态的 left 必须和 list 的 width 过渡（上方角色规则）同曲线同拍滑动，
  * 否则左缘瞬跳、右缘缓行，过渡期两栏出缝/叠压。形变期关掉——盒身从不动，
  * morph 编排不掺属性过渡（与文件内其他 :not(--morphing) 守卫同一理由）。
  */
-.adaptive-split-nav--flat:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'],
-.adaptive-split-nav--flat:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__flat-empty {
-  transition: left var(--asn-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
+.nav--flat:not(.nav--morphing)
+  .nav__host[data-pos='detail'],
+.nav--flat:not(.nav--morphing)
+  .nav__flat-empty {
+  transition: left var(--nav-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /*
@@ -152,16 +152,16 @@
  * 正文整页滑、持续底色画在 stage 伪元素上）。morphing 期间不开窗口
  * （那是另一套滑轨编排）；窗口要独占 stage 布局。
  */
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__stage {
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
 }
 
 /* 持续底色：窗口期两页标题栏透明，底色由 stage 伪元素一力承担 */
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__stage::before {
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__stage::before {
   content: '';
   grid-row: 1;
   grid-column: 1;
@@ -171,49 +171,49 @@
 }
 
 /* 参与拆盒的两页：盒模型逐层打平进网格（host → slider → 页根） */
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under,
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over {
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under,
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over {
   display: contents;
   pointer-events: none;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under
-  > .adaptive-split-nav__host-slider,
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
-  > .adaptive-split-nav__host-slider {
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under
+  > .nav__host-slider,
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
+  > .nav__host-slider {
   display: contents;
 }
 
 /* 窗口期不拆非参与页（退守层/待入页/栈残留一律让位，classic 同款）。
  * 宽屏窗口共用这条：列表 host 豁免，保持完整左栏盒子。 */
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host:not(.is-under):not(.is-over),
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host:not(.is-under):not(.is-over):not([data-pos='list']) {
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host:not(.is-under):not(.is-over),
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host:not(.is-under):not(.is-over):not([data-pos='list']) {
   display: none !important;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under
-  > .adaptive-split-nav__host-slider
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under
+  > .nav__host-slider
   > .page,
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
-  > .adaptive-split-nav__host-slider
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
+  > .nav__host-slider
   > .page {
   display: contents;
   height: auto;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under
   .page-header,
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
   .page-header {
   grid-row: 1;
   grid-column: 1;
@@ -225,17 +225,17 @@
   border-bottom-color: transparent;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
   .page-header {
   z-index: 4;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under
   .page__body,
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
   .page__body {
   grid-row: 2;
   grid-column: 1;
@@ -244,57 +244,57 @@
   background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
   .page__body {
   z-index: 2;
 }
 
 /* 窄屏子页栈转场：0.35s 与 PageStack 同拍 */
-.adaptive-split-nav--flat[data-stack-transition='push']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under
+.nav--flat[data-stack-transition='push']:not(.nav--morphing)
+  .nav__host.is-under
   .page-header__bar {
   animation: page-nav-leave-push 0.35s ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-stack-transition='push']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
+.nav--flat[data-stack-transition='push']:not(.nav--morphing)
+  .nav__host.is-over
   .page-header__bar {
   animation: page-nav-enter-push 0.35s ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-stack-transition='pop']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
+.nav--flat[data-stack-transition='pop']:not(.nav--morphing)
+  .nav__host.is-over
   .page-header__bar {
   animation: page-nav-leave-pop 0.35s ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-stack-transition='pop']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under
+.nav--flat[data-stack-transition='pop']:not(.nav--morphing)
+  .nav__host.is-under
   .page-header__bar {
   animation: page-nav-enter-pop 0.35s ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under
   .page__body {
   animation: page-body-under-push 0.35s ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
   .page__body {
   animation: page-body-over-push 0.35s ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-stack-transition='pop']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-under
+.nav--flat[data-stack-transition='pop']:not(.nav--morphing)
+  .nav__host.is-under
   .page__body {
   animation: page-body-under-pop 0.35s ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-stack-transition='pop']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host.is-over
+.nav--flat[data-stack-transition='pop']:not(.nav--morphing)
+  .nav__host.is-over
   .page__body {
   animation: page-body-over-pop 0.35s ease-in-out both;
 }
@@ -308,18 +308,18 @@
  * 瞬间盖掉 under 侧正在淡出的标题栏，交叉淡移就没了——over 的透明标题
  * 栏透出的正是 under 侧的持续条带。
  */
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under,
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over {
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under,
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   pointer-events: none;
 }
 
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under::before {
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under::before {
   content: '';
   grid-row: 1;
   grid-column: 1;
@@ -329,29 +329,29 @@
 }
 
 /* 窗口期 slider 与页根打平，标题栏/正文成为 host 网格的单元格 */
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under
-  > .adaptive-split-nav__host-slider,
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
-  > .adaptive-split-nav__host-slider,
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under
-  > .adaptive-split-nav__host-slider
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
+  > .nav__host-slider,
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
+  > .nav__host-slider,
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
+  > .nav__host-slider
   > .page,
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
-  > .adaptive-split-nav__host-slider
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
+  > .nav__host-slider
   > .page {
   display: contents;
   height: auto;
 }
 
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
   .page-header,
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
   .page-header {
   grid-row: 1;
   grid-column: 1;
@@ -363,17 +363,17 @@
   border-bottom-color: transparent;
 }
 
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
   .page-header {
   z-index: 4;
 }
 
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
   .page__body,
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
   .page__body {
   grid-row: 2;
   grid-column: 1;
@@ -382,60 +382,60 @@
   background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
 }
 
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
   .page__body {
   z-index: 2;
 }
 
-/* 宽屏帧转场窗口：时长取 --asn-frame-ms 与帧位移同拍。全部限定详情角色：
+/* 宽屏帧转场窗口：时长取 --nav-frame-ms 与帧位移同拍。全部限定详情角色：
  * 列表即使被误标也不参与拆盒动画（它的标题栏/正文必须留在左栏盒子） */
-.adaptive-split-nav--flat[data-frame-nav='push']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under
+.nav--flat[data-frame-nav='push']:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
   .page-header__bar {
-  animation: page-nav-leave-push var(--asn-frame-ms, 380ms) ease-in-out both;
+  animation: page-nav-leave-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-frame-nav='push']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
+.nav--flat[data-frame-nav='push']:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
   .page-header__bar {
-  animation: page-nav-enter-push var(--asn-frame-ms, 380ms) ease-in-out both;
+  animation: page-nav-enter-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-frame-nav='pop']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
+.nav--flat[data-frame-nav='pop']:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
   .page-header__bar {
-  animation: page-nav-leave-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+  animation: page-nav-leave-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-frame-nav='pop']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under
+.nav--flat[data-frame-nav='pop']:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
   .page-header__bar {
-  animation: page-nav-enter-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+  animation: page-nav-enter-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
   .page__body {
-  animation: page-body-under-push var(--asn-frame-ms, 380ms) ease-in-out both;
+  animation: page-body-under-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
   .page__body {
-  animation: page-body-over-push var(--asn-frame-ms, 380ms) ease-in-out both;
+  animation: page-body-over-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-frame-nav='pop']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-under
+.nav--flat[data-frame-nav='pop']:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
   .page__body {
-  animation: page-body-under-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+  animation: page-body-under-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav--flat[data-frame-nav='pop']:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail'].is-over
+.nav--flat[data-frame-nav='pop']:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
   .page__body {
-  animation: page-body-over-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+  animation: page-body-over-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
 /*
@@ -444,14 +444,14 @@
  * 过渡（B/C/D 的列表宽度过渡是滑轨的一半，保留与面板同拍联动）。
  * 拆盒窗口同样保持关闭（:not(--morphing) 已全部门控在窗口规则上）。
  */
-.adaptive-split-nav--morphing
-  .adaptive-split-nav__host[data-pos='detail']
-  > .adaptive-split-nav__host-slider {
+.nav--morphing
+  .nav__host[data-pos='detail']
+  > .nav__host-slider {
   transition: none;
 }
 
-.adaptive-split-nav--morphing[data-morph-kind='A']
-  .adaptive-split-nav__host[data-pos='list'] {
+.nav--morphing[data-morph-kind='A']
+  .nav__host[data-pos='list'] {
   transition: none;
 }
 
@@ -472,11 +472,11 @@
  * 两引擎不对称是有意的）。
  */
 @media (prefers-reduced-motion: no-preference) {
-  .adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-    .adaptive-split-nav__host.is-over
+  .nav--flat[data-stack-transition]:not(.nav--morphing)
+    .nav__host.is-over
     .page__body,
-  .adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-    .adaptive-split-nav__host[data-pos='detail'].is-over
+  .nav--flat[data-frame-nav]:not(.nav--morphing)
+    .nav__host[data-pos='detail'].is-over
     .page__body {
     box-shadow:
       -1px 0 0 rgba(0, 0, 0, 0.18),
@@ -484,57 +484,57 @@
     clip-path: inset(0 0 0 -40px);
   }
 
-  .adaptive-split-nav--flat.adaptive-split-nav--morphing:not([data-morph-kind='A'])
-    .adaptive-split-nav__host[data-pos='detail'] {
+  .nav--flat.nav--morphing:not([data-morph-kind='A'])
+    .nav__host[data-pos='detail'] {
     box-shadow: -1px 0 0 rgba(0, 0, 0, 0.18);
   }
 }
 
 /* 页脚（可选）：随左栏列宽，与列表 host 的宽度过渡同拍 */
-.adaptive-split-nav--flat .adaptive-split-nav__flat-footer {
+.nav--flat .nav__flat-footer {
   position: absolute;
   bottom: 0;
   left: 0;
-  width: var(--asn-list-w, var(--asn-list-ratio, 38%));
+  width: var(--nav-list-w, var(--nav-list-ratio, 38%));
   z-index: 3;
-  transition: width var(--asn-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: width var(--nav-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* 分栏空态：中性占位（右栏无帧时），应用可经 renderDetailEmpty 自定内容 */
-.adaptive-split-nav--flat .adaptive-split-nav__flat-empty {
+.nav--flat .nav__flat-empty {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: var(--asn-list-ratio, 38%);
+  left: var(--nav-list-ratio, 38%);
   right: 0;
   overflow: hidden;
   z-index: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='list'],
-  .adaptive-split-nav--flat .adaptive-split-nav__host[data-pos='detail'],
-  .adaptive-split-nav--flat .adaptive-split-nav__host-slider,
-  .adaptive-split-nav--flat .adaptive-split-nav__flat-footer,
-  .adaptive-split-nav--flat:not(.adaptive-split-nav--morphing)
-    .adaptive-split-nav__host[data-pos='detail'],
-  .adaptive-split-nav--flat:not(.adaptive-split-nav--morphing)
-    .adaptive-split-nav__flat-empty {
+  .nav--flat .nav__host[data-pos='list'],
+  .nav--flat .nav__host[data-pos='detail'],
+  .nav--flat .nav__host-slider,
+  .nav--flat .nav__flat-footer,
+  .nav--flat:not(.nav--morphing)
+    .nav__host[data-pos='detail'],
+  .nav--flat:not(.nav--morphing)
+    .nav__flat-empty {
     transition: none;
   }
 
-  .adaptive-split-nav--flat[data-stack-transition] .page-header__bar,
-  .adaptive-split-nav--flat[data-stack-transition] .page__body,
-  .adaptive-split-nav--flat[data-frame-nav] .page-header__bar,
-  .adaptive-split-nav--flat[data-frame-nav] .page__body {
+  .nav--flat[data-stack-transition] .page-header__bar,
+  .nav--flat[data-stack-transition] .page__body,
+  .nav--flat[data-frame-nav] .page-header__bar,
+  .nav--flat[data-frame-nav] .page__body {
     animation: none !important;
     transform: none !important;
     opacity: 1 !important;
   }
 
-  .adaptive-split-nav--flat[data-stack-transition] .adaptive-split-nav__stage::before,
-  .adaptive-split-nav--flat[data-frame-nav]
-    .adaptive-split-nav__host[data-pos='detail'].is-under::before {
+  .nav--flat[data-stack-transition] .nav__stage::before,
+  .nav--flat[data-frame-nav]
+    .nav__host[data-pos='detail'].is-under::before {
     content: none;
   }
 }

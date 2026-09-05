@@ -298,7 +298,7 @@
   background: var(--settings-page-bg);
 }
 
-.vscode__settings > .adaptive-split-nav {
+.vscode__settings > .nav {
   flex: 1;
   min-height: 0;
   height: 100%;
@@ -306,10 +306,10 @@
 
 /* 分栏 pane 的返回键只在窄形态有：A 型形变（窄→宽）随滑轨淡出，C 型
    （宽→窄）落定交棒后才出现——短淡入代替硬蹦（services 同款，时长吃
-   AdaptiveSplitNav 的 --asn-frame-ms） */
+   Nav 的 --nav-frame-ms） */
 .vscode__back-fade-out .page-back-button {
   pointer-events: none;
-  animation: vscode-back-out var(--asn-frame-ms, 380ms)
+  animation: vscode-back-out var(--nav-frame-ms, 380ms)
     cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 

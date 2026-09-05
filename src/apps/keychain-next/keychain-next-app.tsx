@@ -15,10 +15,10 @@ import { List, ListAddRow } from '../../ui/list.tsx'
 import { ListItem } from '../../ui/list-item.tsx'
 import { PageStack, usePageStack } from '../../ui/page-stack.tsx'
 import {
-  AdaptiveSplitNav,
-  useAdaptiveSplitNav,
-  type AdaptiveSplitNavPageContext,
-} from '../../ui/adaptive-split-nav.tsx'
+  Nav,
+  useNav,
+  type NavPageContext,
+} from '../../ui/nav.tsx'
 import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
@@ -419,7 +419,7 @@ export function KeychainNextApp() {
   const chainRef = useRef(chain)
   chainRef.current = chain
 
-  const nav = useAdaptiveSplitNav({
+  const nav = useNav({
     split: true,
     narrowPageForState: () =>
       chainRef.current[chainRef.current.length - 1] ?? 'root',
@@ -966,7 +966,7 @@ export function KeychainNextApp() {
     chainRef.current.length > 0 && chainRef.current[0] === target
   const showPaneBack = (
     target: Screen,
-    ctx: AdaptiveSplitNavPageContext,
+    ctx: NavPageContext,
   ): boolean => {
     if (ctx.narrowLayout) {
       return !(ctx.morphing && ctx.morphKind === 'C')
@@ -976,7 +976,7 @@ export function KeychainNextApp() {
   }
   const paneBackFadeClass = (
     target: Screen,
-    ctx: AdaptiveSplitNavPageContext,
+    ctx: NavPageContext,
   ): string | undefined => {
     if (ctx.narrowLayout) {
       return backFadeEpoch > 0 &&
@@ -993,7 +993,7 @@ export function KeychainNextApp() {
       : undefined
   }
 
-  const renderScreen = (target: Screen, ctx: AdaptiveSplitNavPageContext) => {
+  const renderScreen = (target: Screen, ctx: NavPageContext) => {
     if (target === 'add-model' && editingEntry) {
       return (
         // key 按编辑会话：flat 引擎的页 host 常驻，重开时强制重挂载，
@@ -1318,7 +1318,7 @@ export function KeychainNextApp() {
   }
 
   return (
-    <AdaptiveSplitNav
+    <Nav
       class="keychain-app"
       controller={nav}
       engine="flat"

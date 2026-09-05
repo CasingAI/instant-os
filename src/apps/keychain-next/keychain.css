@@ -130,31 +130,31 @@
   --settings-nav-heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-/* ── AdaptiveSplitNav（flat 引擎）转场桥接 ──
+/* ── Nav（flat 引擎）转场桥接 ──
  * 顶层导航已换 flat 引擎：窄屏进退走 data-stack-transition 窗口（stage 级
  * 拆盒），宽屏帧进退走 data-frame-nav 窗口（详情 host 内拆盒）。引擎只认
  * .page-header/.page__body 结构；flow 页（模型设置/添加模型，页根内嵌
  * idle 子栈）在此打平子栈，让内层表单页的 header/正文参与外层拆盒
  * （page-stack.css 同款三板斧）。 */
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host:is(.is-under, .is-over)
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--']),
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail']:is(.is-under, .is-over)
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail']:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--']) {
   display: contents;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host:is(.is-under, .is-over)
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--'])
   > .page-stack__layer,
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail']:is(.is-under, .is-over)
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail']:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--'])
   > .page-stack__layer {
@@ -163,14 +163,14 @@
   inset: auto;
 }
 
-.adaptive-split-nav--flat[data-stack-transition]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host:is(.is-under, .is-over)
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--'])
   > .page-stack__layer
   > .page,
-.adaptive-split-nav--flat[data-frame-nav]:not(.adaptive-split-nav--morphing)
-  .adaptive-split-nav__host[data-pos='detail']:is(.is-under, .is-over)
+.nav--flat[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail']:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--'])
   > .page-stack__layer
@@ -186,7 +186,7 @@
 
 .keychain__back-fade-out .page-back-button {
   pointer-events: none;
-  animation: keychain-back-out var(--asn-frame-ms, 380ms)
+  animation: keychain-back-out var(--nav-frame-ms, 380ms)
     cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 

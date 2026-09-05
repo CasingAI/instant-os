@@ -15,10 +15,10 @@ import { PageActionButton } from '../../ui/page-action-button.tsx'
 import { Icon } from '../../ui/icon.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import {
-  AdaptiveSplitNav,
-  useAdaptiveSplitNav,
-  type AdaptiveSplitNavPageContext,
-} from '../../ui/adaptive-split-nav.tsx'
+  Nav,
+  useNav,
+  type NavPageContext,
+} from '../../ui/nav.tsx'
 import { NAV_KIT_DEMO_BOOKS, totalChapters, totalSections } from './nav-kit-demo-content.ts'
 import './nav-kit-demo.css'
 // SettingsNavRow 的行样式随 settings 应用样式表分发（ui-kit 组件 demo 同款用法）
@@ -136,7 +136,7 @@ export function NavKitDemoApp() {
   const [favorites, setFavorites] = useState<ReadonlySet<string>>(new Set())
   const [readChapters, setReadChapters] = useState<ReadonlySet<string>>(new Set())
 
-  const nav = useAdaptiveSplitNav({
+  const nav = useNav({
     split: true,
     narrowPageForState: () => posPageId(pos),
     // 分栏左栏显示的根列表页（书架）——与窄屏根页同一份渲染
@@ -455,7 +455,7 @@ export function NavKitDemoApp() {
   const frames = framePath.map(posPageId)
   const topFrameId = frames.length > 0 ? frames[frames.length - 1] : ''
 
-  const renderPage = (target: DemoPageId, ctx: AdaptiveSplitNavPageContext) => {
+  const renderPage = (target: DemoPageId, ctx: NavPageContext) => {
     const bookIdx = parseBook(target)
     if (bookIdx !== null) {
       // 「书架」返回只有书页处在子页栈角色（窄屏）里才有：分栏静置的书帧
@@ -495,7 +495,7 @@ export function NavKitDemoApp() {
   }
 
   return (
-    <AdaptiveSplitNav
+    <Nav
       controller={nav}
       engine="flat"
       frames={frames}

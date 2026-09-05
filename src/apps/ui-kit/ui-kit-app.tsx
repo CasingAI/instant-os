@@ -7,10 +7,10 @@ import pageCurlSource from './page-curl-demo.tsx?raw'
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
 import {
-  AdaptiveSplitNav,
-  useAdaptiveSplitNav,
-  type AdaptiveFrameSpec,
-} from '../../ui/adaptive-split-nav.tsx'
+  Nav,
+  useNav,
+  type NavFrameSpec,
+} from '../../ui/nav.tsx'
 import { List, ListSection } from '../../ui/list.tsx'
 import { ListItem } from '../../ui/list-item.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
@@ -313,7 +313,7 @@ export function UiKitApp() {
   // 分栏切回子页栈的落点也由它推导。
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
 
-  const nav = useAdaptiveSplitNav({
+  const nav = useNav({
     split: true,
     narrowPageForState: () => (selectedId ? 'detail' : 'list'),
     listPage: 'list',
@@ -442,7 +442,7 @@ export function UiKitApp() {
   // 先挂着返回随滑轨淡出。
   const keepDetailBack = nav.morphing && nav.morphKind === 'A' && selectedComponent !== undefined
 
-  const renderWideFrames = (): AdaptiveFrameSpec[] => [
+  const renderWideFrames = (): NavFrameSpec[] => [
     {
       id: 'detail',
       content: renderDetailPage(
@@ -453,7 +453,7 @@ export function UiKitApp() {
   ]
 
   return (
-    <AdaptiveSplitNav
+    <Nav
       controller={nav}
       class={`ui-kit${narrowLayout ? ' ui-kit--narrow' : ''}`}
       renderNarrowPage={renderNarrowPage}

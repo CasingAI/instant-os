@@ -1,4 +1,4 @@
-/* 自适应分栏导航（自包含）：布局与形变原语。
+/* 导航（自包含）：布局与形变原语。
  * 统一骨架常驻——左栏（PageStack）与详情栏（帧栈）都是持久层，宽/窄只是
  * data-form 切换的同一骨架的两个变量状态。宽窄形变 = 刚性面板滑轨：左栏
  * 宽度同曲线过渡，右栏帧容器作为「面板」以最终/满屏宽度参与滑轨（滑入/
@@ -7,26 +7,26 @@
  * Header（返回/操作）与全部正文内容由应用自行渲染。帧进/退子页的转场
  * 窗口见文件尾：与 PageStack 同款拆盒，标题栏交叉淡移、正文整页滑。 */
 
-.adaptive-split-nav {
+.nav {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
 }
 
-.adaptive-split-nav__stage {
+.nav__stage {
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
 /* 两种形态 = 同一骨架的两个状态：左栏宽度形变，右栏由 flex 逐帧跟随 */
-.adaptive-split-nav__stage[data-form='stack'] {
-  --asn-list-w: 100%;
+.nav__stage[data-form='stack'] {
+  --nav-list-w: 100%;
 }
 
-.adaptive-split-nav__stage[data-form='split'] {
-  --asn-list-w: var(--asn-list-ratio, 38%);
+.nav__stage[data-form='split'] {
+  --nav-list-w: var(--nav-list-ratio, 38%);
 }
 
 /*
@@ -34,22 +34,22 @@
  * 内容随宽度逐帧重排；右栏由 flex 布局自动从左栏实际右缘排起，
  * 两栏在任何窗口宽度都严丝合缝、永不重叠。
  */
-.adaptive-split-nav__list-pane {
+.nav__list-pane {
   flex: 0 0 auto;
-  width: var(--asn-list-w);
+  width: var(--nav-list-w);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-right: 1px solid rgba(0, 0, 0, 0.18);
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
   z-index: 2;
-  /* 时长取 --asn-frame-ms 与 tsx 面板 WAAPI 同源：缝隙恒等式要求两边
+  /* 时长取 --nav-frame-ms 与 tsx 面板 WAAPI 同源：缝隙恒等式要求两边
    * 时长+曲线严格一致 */
-  transition: width var(--asn-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: width var(--nav-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* 子页栈形态贴边显示，不画分栏分隔线 */
-.adaptive-split-nav__stage[data-form='stack'] .adaptive-split-nav__list-pane {
+.nav__stage[data-form='stack'] .nav__list-pane {
   border-right: 0;
   box-shadow: none;
 }
@@ -59,7 +59,7 @@
  * 内联钉住终宽并 translateX(-L→0)，让列表作为刚性面板自左缘滑入（左缘
  * 溢出由左栏 overflow: hidden 裁掉，即抽屉效果），避免内容随宽度逐帧重排。
  */
-.adaptive-split-nav__list-track {
+.nav__list-track {
   flex: 1;
   min-height: 0;
   min-width: 0;
@@ -67,12 +67,12 @@
   flex-direction: column;
 }
 
-.adaptive-split-nav__list-track > .page-stack {
+.nav__list-track > .page-stack {
   flex: 1;
   min-height: 0;
 }
 
-.adaptive-split-nav__list-pane > .adaptive-split-nav__footer {
+.nav__list-pane > .nav__footer {
   flex-shrink: 0;
   min-width: 0;
 }
@@ -83,7 +83,7 @@
  * position:relative 供形变期帧容器（面板）absolute 锚右缘参与滑轨；
  * 常态面板回到流内（见 tsx 收尾还原）。
  */
-.adaptive-split-nav__detail-pane {
+.nav__detail-pane {
   position: relative;
   flex: 1 1 0;
   min-width: 0;
@@ -95,21 +95,21 @@
   z-index: 1;
 }
 
-.adaptive-split-nav__detail-pane > .adaptive-split-nav__frames,
-.adaptive-split-nav__detail-pane > .adaptive-split-nav__detail-empty {
+.nav__detail-pane > .nav__frames,
+.nav__detail-pane > .nav__detail-empty {
   flex: 1;
   min-width: 0;
   min-height: 0;
   width: 100%;
 }
 
-.adaptive-split-nav__detail-pane > .adaptive-split-nav__footer {
+.nav__detail-pane > .nav__footer {
   flex: 0 0 auto;
   min-width: 0;
 }
 
 /* 分栏帧栈空态：中性占位，应用可经 renderDetailEmpty 自定内容 */
-.adaptive-split-nav__detail-empty {
+.nav__detail-empty {
   position: relative;
   overflow: hidden;
 }
@@ -119,43 +119,43 @@
  * translateX(-30%) 露边做层次，右侧帧排在 translateX(100%) 待入。
  * pointer-events 只给 active，动画期间其余帧不接交互。
  */
-.adaptive-split-nav__frames {
+.nav__frames {
   position: relative;
   overflow: hidden;
   isolation: isolate;
 }
 
-.adaptive-split-nav__frame {
+.nav__frame {
   position: absolute;
   inset: 0;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   pointer-events: none;
-  transition: transform var(--asn-frame-ms, 380ms) ease-in-out;
+  transition: transform var(--nav-frame-ms, 380ms) ease-in-out;
 }
 
-.adaptive-split-nav__frame.is-active {
+.nav__frame.is-active {
   pointer-events: auto;
 }
 
 /* 形变期只让面板滑轨动：帧自身的位移过渡会把顶帧从右侧滑入，
  * 盖过「子页留在原位、列表从左边揭开」的方向。 */
-.adaptive-split-nav--morphing .adaptive-split-nav__frame {
+.nav--morphing .nav__frame {
   transition: none;
 }
 
 /* 帧内容由应用定义：单一根元素撑满（如 .page 自带内部滚动） */
-.adaptive-split-nav__frame > * {
+.nav__frame > * {
   width: 100%;
   height: 100%;
   min-height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .adaptive-split-nav__list-pane,
-  .adaptive-split-nav__detail-pane,
-  .adaptive-split-nav__frame {
+  .nav__list-pane,
+  .nav__detail-pane,
+  .nav__frame {
     transition: none;
   }
 }
@@ -164,18 +164,18 @@
  * 帧转场窗口（右栏进/退子页）：与 PageStack 同款拆盒——两帧的标题栏叠在
  * 同一栏、正文叠在同一正文区。持续底色画在伪元素上（两页标题栏在窗口期
  * 都透明），交叉淡移只动栏内一排元素，正文整页滑入/滑出；方向 keyframes
- * 复用 page-stack.css（同一打包单元必然已加载），时长取 --asn-frame-ms
+ * 复用 page-stack.css（同一打包单元必然已加载），时长取 --nav-frame-ms
  * 与帧位移同拍。未参与转场的帧窗口内不渲染。
  */
-.adaptive-split-nav__frames--push,
-.adaptive-split-nav__frames--pop {
+.nav__frames--push,
+.nav__frames--pop {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.adaptive-split-nav__frames--push::before,
-.adaptive-split-nav__frames--pop::before {
+.nav__frames--push::before,
+.nav__frames--pop::before {
   content: '';
   grid-row: 1;
   grid-column: 1;
@@ -184,24 +184,24 @@
   border-bottom: var(--page-header-border, 1px solid rgba(0, 0, 0, 0.14));
 }
 
-.adaptive-split-nav__frames--push > .adaptive-split-nav__frame,
-.adaptive-split-nav__frames--pop > .adaptive-split-nav__frame {
+.nav__frames--push > .nav__frame,
+.nav__frames--pop > .nav__frame {
   display: contents;
 }
 
-.adaptive-split-nav__frames--push > .adaptive-split-nav__frame:not(.is-under):not(.is-over),
-.adaptive-split-nav__frames--pop > .adaptive-split-nav__frame:not(.is-under):not(.is-over) {
+.nav__frames--push > .nav__frame:not(.is-under):not(.is-over),
+.nav__frames--pop > .nav__frame:not(.is-under):not(.is-over) {
   display: none !important;
 }
 
-.adaptive-split-nav__frames--push > .adaptive-split-nav__frame > .page,
-.adaptive-split-nav__frames--pop > .adaptive-split-nav__frame > .page {
+.nav__frames--push > .nav__frame > .page,
+.nav__frames--pop > .nav__frame > .page {
   display: contents;
   height: auto;
 }
 
-.adaptive-split-nav__frames--push .page-header,
-.adaptive-split-nav__frames--pop .page-header {
+.nav__frames--push .page-header,
+.nav__frames--pop .page-header {
   grid-row: 1;
   grid-column: 1;
   position: relative;
@@ -212,29 +212,29 @@
   border-bottom-color: transparent;
 }
 
-.adaptive-split-nav__frames--push .is-over .page-header,
-.adaptive-split-nav__frames--pop .is-under .page-header {
+.nav__frames--push .is-over .page-header,
+.nav__frames--pop .is-under .page-header {
   z-index: 4;
 }
 
-.adaptive-split-nav__frames--push .is-under .page-header__bar {
-  animation: page-nav-leave-push var(--asn-frame-ms, 380ms) ease-in-out both;
+.nav__frames--push .is-under .page-header__bar {
+  animation: page-nav-leave-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav__frames--push .is-over .page-header__bar {
-  animation: page-nav-enter-push var(--asn-frame-ms, 380ms) ease-in-out both;
+.nav__frames--push .is-over .page-header__bar {
+  animation: page-nav-enter-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav__frames--pop .is-over .page-header__bar {
-  animation: page-nav-leave-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+.nav__frames--pop .is-over .page-header__bar {
+  animation: page-nav-leave-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav__frames--pop .is-under .page-header__bar {
-  animation: page-nav-enter-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+.nav__frames--pop .is-under .page-header__bar {
+  animation: page-nav-enter-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav__frames--push .page__body,
-.adaptive-split-nav__frames--pop .page__body {
+.nav__frames--push .page__body,
+.nav__frames--pop .page__body {
   grid-row: 2;
   grid-column: 1;
   position: relative;
@@ -242,21 +242,21 @@
   background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
 }
 
-.adaptive-split-nav__frames--push .is-under .page__body {
-  animation: page-body-under-push var(--asn-frame-ms, 380ms) ease-in-out both;
+.nav__frames--push .is-under .page__body {
+  animation: page-body-under-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav__frames--push .is-over .page__body {
-  animation: page-body-over-push var(--asn-frame-ms, 380ms) ease-in-out both;
+.nav__frames--push .is-over .page__body {
+  animation: page-body-over-push var(--nav-frame-ms, 380ms) ease-in-out both;
   z-index: 2;
 }
 
-.adaptive-split-nav__frames--pop .is-under .page__body {
-  animation: page-body-under-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+.nav__frames--pop .is-under .page__body {
+  animation: page-body-under-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
-.adaptive-split-nav__frames--pop .is-over .page__body {
-  animation: page-body-over-pop var(--asn-frame-ms, 380ms) ease-in-out both;
+.nav__frames--pop .is-over .page__body {
+  animation: page-body-over-pop var(--nav-frame-ms, 380ms) ease-in-out both;
   z-index: 2;
 }
 
@@ -270,8 +270,8 @@
  * reduced-motion 下动画被禁、页停在原位，不加线避免缝隙处常驻叠线。
  */
 @media (prefers-reduced-motion: no-preference) {
-  .adaptive-split-nav__frames--push .is-over .page__body,
-  .adaptive-split-nav__frames--pop .is-over .page__body {
+  .nav__frames--push .is-over .page__body,
+  .nav__frames--pop .is-over .page__body {
     box-shadow:
       -1px 0 0 rgba(0, 0, 0, 0.18),
       -12px 0 28px rgba(0, 0, 0, 0.18);
@@ -287,21 +287,21 @@
    * 不画软投影：投影随 morphing 类瞬现瞬失太突兀，淡入也救不回来，按设计
    * 决定整个去掉。reduced-motion 下整条不画。
    */
-  .adaptive-split-nav--morphing .adaptive-split-nav__frames {
+  .nav--morphing .nav__frames {
     box-shadow: -1px 0 0 rgba(0, 0, 0, 0.18);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .adaptive-split-nav__frames--push::before,
-  .adaptive-split-nav__frames--pop::before {
+  .nav__frames--push::before,
+  .nav__frames--pop::before {
     content: none;
   }
 
-  .adaptive-split-nav__frames--push .page-header__bar,
-  .adaptive-split-nav__frames--pop .page-header__bar,
-  .adaptive-split-nav__frames--push .page__body,
-  .adaptive-split-nav__frames--pop .page__body {
+  .nav__frames--push .page-header__bar,
+  .nav__frames--pop .page-header__bar,
+  .nav__frames--push .page__body,
+  .nav__frames--pop .page__body {
     animation: none !important;
     transform: none !important;
     opacity: 1 !important;

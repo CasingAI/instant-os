@@ -5,10 +5,10 @@ import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
 import { Button } from '../../ui/button.tsx'
 import {
-  AdaptiveSplitNav,
-  useAdaptiveSplitNav,
-  type AdaptiveFrameSpec,
-} from '../../ui/adaptive-split-nav.tsx'
+  Nav,
+  useNav,
+  type NavFrameSpec,
+} from '../../ui/nav.tsx'
 import { TreeView } from '../../ui/tree-view.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { requestFilesReveal } from '../files/files-reveal-request.ts'
@@ -607,7 +607,7 @@ export function DiskUtilityApp() {
 
   // 单一真源是领域状态（选中节点 + 分区视图根）：窄屏子页与分栏帧都从它派生，
   // 分栏切回子页栈的落点也由它推导。
-  const nav = useAdaptiveSplitNav({
+  const nav = useNav({
     split: true,
     narrowPageForState: () =>
       partitionViewRootId ? 'partition' : selectedId ? 'detail' : 'list',
@@ -1157,8 +1157,8 @@ export function DiskUtilityApp() {
   const keepDetailBack =
     nav.morphing && nav.morphKind === 'A' && !partitionViewRootId && selectedId !== undefined
 
-  const renderWideFrames = (): AdaptiveFrameSpec[] => {
-    const frames: AdaptiveFrameSpec[] = [
+  const renderWideFrames = (): NavFrameSpec[] => {
+    const frames: NavFrameSpec[] = [
       {
         id: 'detail',
         content: renderDetailPage(
@@ -1180,7 +1180,7 @@ export function DiskUtilityApp() {
 
   return (
     <>
-      <AdaptiveSplitNav
+      <Nav
         controller={nav}
         class="disk-utility"
         renderNarrowPage={renderNarrowPage}

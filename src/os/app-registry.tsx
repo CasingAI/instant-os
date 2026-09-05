@@ -339,7 +339,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: false,
     desktop: false,
   }),
-  // 平行验证期的新版钥匙串（AdaptiveSplitNav-flat + 系统 List）；验证通过后替换
+  // 平行验证期的新版钥匙串（Nav-flat + 系统 List）；验证通过后替换
   // apps/keychain/ 内容，此条目与 loaders 条目一并移除。
   {
     id: 'keychain-next',
@@ -413,7 +413,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: true,
     iconDecoration: DEV_SLEEVE,
   }),
-  // 组件演示应用：不上桌面（Dock 保留），从 ui-kit 组件库的 AdaptiveSplitNav 卡片打开
+  // 组件演示应用：不上桌面（Dock 保留），从 ui-kit 组件库的 Nav 卡片打开
   withAbout({
     id: 'nav-kit-demo',
     name: BUILTIN_APP_DISPLAY_NAMES['nav-kit-demo'],

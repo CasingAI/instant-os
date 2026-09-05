@@ -9,10 +9,10 @@ import {
 } from 'preact/hooks'
 import { PlusIcon } from '../../icons/app-icons.tsx'
 import {
-  AdaptiveSplitNav,
-  useAdaptiveSplitNav,
-  type AdaptiveFrameSpec,
-} from '../../ui/adaptive-split-nav.tsx'
+  Nav,
+  useNav,
+  type NavFrameSpec,
+} from '../../ui/nav.tsx'
 import { Page } from '../../ui/page.tsx'
 import { PageHeader } from '../../ui/page-header.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -241,7 +241,7 @@ export function VscodeSettingsPanel({
   const chainRef = useRef(chain)
   chainRef.current = chain
 
-  const nav = useAdaptiveSplitNav({
+  const nav = useNav({
     split: true,
     narrowPageForState: () =>
       chainRef.current[chainRef.current.length - 1] ?? 'root',
@@ -1310,7 +1310,7 @@ export function VscodeSettingsPanel({
   // 随滑轨淡出；深度 ≥2 保留返回（pop 上一级或跨级祖先）。
   const keepDepth1FrameBack =
     nav.morphing && nav.morphKind === 'A' && chain.length === 1
-  const renderWideFrames = (): AdaptiveFrameSpec[] =>
+  const renderWideFrames = (): NavFrameSpec[] =>
     chain.map((id, index) => {
       const depth1 = index === 0
       const keepBack = depth1 && keepDepth1FrameBack
@@ -1339,7 +1339,7 @@ export function VscodeSettingsPanel({
       class={`settings vscode__settings${dark ? ' settings--dark' : ''}`}
       data-theme={dark ? 'dark' : undefined}
     >
-      <AdaptiveSplitNav
+      <Nav
         controller={nav}
         renderNarrowPage={renderNarrowPage}
         renderWideFrames={renderWideFrames}

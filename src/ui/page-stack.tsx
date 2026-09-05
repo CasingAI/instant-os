@@ -84,7 +84,7 @@ export function usePageStack<T extends string>(initial: T) {
       const stackEl = event.currentTarget
       if (!(stackEl instanceof HTMLElement)) return
       // 转场根可以用类名（PageStack 组件）或 data-stack-transition 属性
-      // （AdaptiveSplitNav flat 引擎等自管渲染层的消费方）标记
+      // （Nav flat 引擎等自管渲染层的消费方）标记
       const isTransitionRoot =
         stackEl.classList.contains('page-stack--push') ||
         stackEl.classList.contains('page-stack--pop') ||
