@@ -15,7 +15,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.85),
     0 1px 0 rgba(255, 255, 255, 0.35);
   --ios-button-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.12);
-  --ios-button-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --ios-button-text-shadow: 0 -0.5px 0 #555;
   --ios-button-height: 28px;
   --ios-button-padding: 0 8px;
   --ios-button-font-size: 12px;
@@ -26,7 +26,7 @@
   --ios-button-disabled-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.65),
     0 1px 0 rgba(255, 255, 255, 0.2);
-  --ios-button-disabled-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --ios-button-disabled-text-shadow: 0 -0.5px 0 #555;
   --ios-button-disabled-opacity: 1;
 
   --ios-button-primary-color: #fff;
@@ -37,7 +37,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
     0 1px 0 rgba(255, 255, 255, 0.25);
   --ios-button-primary-shadow-active: inset 0 1px 3px rgba(0, 0, 0, 0.25);
-  --ios-button-primary-text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  --ios-button-primary-text-shadow: 0 -1px 0 #555;
   --ios-button-primary-disabled-color: rgba(255, 255, 255, 0.92);
   --ios-button-primary-disabled-bg: linear-gradient(180deg, #d8ebfc 0%, #b3d7f8 55%, #9ecbf5 100%);
   --ios-button-primary-disabled-border-color: #a8cff0;
@@ -54,7 +54,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     0 1px 0 rgba(255, 255, 255, 0.2);
   --ios-button-danger-shadow-active: inset 0 1px 3px rgba(0, 0, 0, 0.28);
-  --ios-button-danger-text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.3);
+  --ios-button-danger-text-shadow: 0 -1px 0 #555;
   --ios-button-danger-disabled-opacity: 0.55;
 
   /* borderless 变体：裸文字/图标单一类型，固定白字（tone 传入不生效）；glow 为按下时垫于内容之下的纯白光晕（::after 填充整段 background） */
@@ -66,7 +66,7 @@
     rgba(255, 255, 255, 0.55) 38%,
     rgba(255, 255, 255, 0) 68%
   );
-  --ios-button-borderless-text-shadow-active: 0 1px 0 #000;
+  --ios-button-borderless-text-shadow-active: 0 -0.5px 0 #555;
 }
 
 .ios-button {
@@ -85,6 +85,8 @@
   font-weight: 400;
   line-height: 1;
   cursor: pointer;
+  /* 按钮文字不可选中：双击/拖选不应选中按钮文案 */
+  user-select: none;
   color: var(--ios-button-color);
   background: var(--ios-button-bg);
   box-shadow: var(--ios-button-shadow);
@@ -162,7 +164,7 @@
 /*
  * borderless 变体：裸文字/图标单一类型——无底无边无影，固定白字（tone 传入不生效）；
  * 按下时一团纯白光晕（::after，z-index:-1 垫在内容之下，径向渐变无形状边界）点亮，松手即熄；
- * 文字同刻补一道纯黑 1px 投影——用 borderless 专属变量，不随 filled 换肤的 --ios-button-text-shadow 白浮雕走。
+ * 文字同刻补一道深灰投影（0 -0.5px 0 #555，不带透明度）——用 borderless 专属变量，不随 filled 换肤的 --ios-button-text-shadow 走。
  * 本体 isolation:isolate 自成上下文，负 z-index 的光晕不会沉到按钮所在页面背景之下。
  * 光晕时序：点亮无入场动画瞬显（active 态 transition:none 特异性高于常态规则）、松手 0.5s 淡出（常态规则挂 transition）；
  * reduced-motion 下整段无过渡直接显隐。
