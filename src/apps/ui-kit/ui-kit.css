@@ -1,7 +1,5 @@
 .ui-kit {
-  display: flex;
-  height: 100%;
-  min-height: 0;
+  /* AdaptiveSplitNav 宿主类：只管根级外观，布局归 adaptive-split-nav.css */
   background: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
   color: #000;
   font-size: 12px;
@@ -9,29 +7,23 @@
   -webkit-user-select: text;
 }
 
-/* ── 侧栏：系统 IosTextField 搜索 + 系统 List 组件清单 ── */
+/* ── 根列表页：搜索 + 系统 List 分类清单 ── */
 
-.ui-kit__sidebar {
-  flex: 0 0 200px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px 10px 10px;
-  border-right: 1px solid rgba(0, 0, 0, 0.18);
-  background: linear-gradient(180deg, #e4e4e4 0%, #d2d2d2 100%);
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
+.ui-kit__list {
+  padding: 10px 12px 16px;
 }
 
 .ui-kit__search {
   margin-bottom: 8px;
 }
 
-/* IosTextField 自带内凹外观，这里只保证撑满侧栏宽 */
+/* IosTextField 自带内凹外观，这里只保证撑满栏宽 */
 .ui-kit__search-input {
   box-sizing: border-box;
   width: 100%;
 }
 
-.ui-kit__sidebar-empty {
+.ui-kit__list-empty {
   margin: 0;
   padding: 12px 2px;
   font-size: 12px;
@@ -39,24 +31,31 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
-/* ── 内容区 ── */
+/* ── 页内锚点目录（antd 式）：组件页内部的吸附列，窄屏隐藏 ── */
 
-.ui-kit__content {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
+.ui-kit__page-shell {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   padding: 14px 18px 20px;
 }
 
-/* ── 页内锚点目录（antd 式）：跟随当前组件页，窄屏隐藏 ── */
+.ui-kit__page-shell--empty {
+  color: #777;
+  font-style: italic;
+}
+
+.ui-kit__page {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 980px;
+}
 
 .ui-kit__toc {
   flex: 0 0 148px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 18px 12px 20px 14px;
-  border-left: 1px solid rgba(0, 0, 0, 0.18);
+  position: sticky;
+  top: 14px;
+  padding: 2px 0 20px 10px;
 }
 
 .ui-kit__toc-item {
@@ -87,21 +86,8 @@
 
 /* ── 组件页 ── */
 
-.ui-kit__page {
-  max-width: 980px;
-}
-
 .ui-kit__page-header {
   margin-bottom: 18px;
-}
-
-.ui-kit__page-title {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #222;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .ui-kit__page-desc {
@@ -838,27 +824,57 @@
   color: #cfc9bf;
 }
 
-/* ── 窄屏模式：侧栏收成顶部面板（搜索 + 分组清单纵向滚动） ── */
+/* ── 窄屏（子页栈形态）：页面内边距收窄，锚点目录让位 ── */
 
-.ui-kit--narrow {
-  flex-direction: column;
+.ui-kit--narrow .ui-kit__page-shell {
+  padding: 10px 12px 16px;
 }
 
-.ui-kit--narrow .ui-kit__sidebar {
-  flex: 0 0 auto;
-  max-height: 42%;
-  border-right: none;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
-  background: linear-gradient(180deg, #eaeaea 0%, #dcdcdc 100%);
-  box-shadow:
-    inset 0 -1px 0 rgba(255, 255, 255, 0.5),
-    0 1px 4px rgba(0, 0, 0, 0.08);
-}
-
-.ui-kit--narrow .ui-kit__content {
+.ui-kit--narrow .ui-kit__list {
   padding: 10px 12px 16px;
 }
 
 .ui-kit--narrow .ui-kit__toc {
   display: none;
+}
+
+/* ── 详情页/详情帧返回键的形变对齐（services 同款）：A 型（窄→宽）随滑轨
+   淡出，C 型（宽→窄）落定交棒后短淡入，代替硬蹦 ── */
+
+.ui-kit__back-fade-out .page-back-button {
+  pointer-events: none;
+  animation: ui-kit-back-out var(--asn-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes ui-kit-back-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+.ui-kit__back-fade-in-0 .page-back-button,
+.ui-kit__back-fade-in-1 .page-back-button {
+  animation: ui-kit-back-in 240ms ease-out both;
+}
+
+@keyframes ui-kit-back-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-kit__back-fade-out .page-back-button,
+  .ui-kit__back-fade-in-0 .page-back-button,
+  .ui-kit__back-fade-in-1 .page-back-button {
+    animation: none;
+  }
 }

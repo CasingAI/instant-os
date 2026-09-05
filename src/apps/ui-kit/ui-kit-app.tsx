@@ -1,14 +1,20 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { UI_COMPONENTS, COMPONENT_CATEGORIES } from './ui-kit-components.ts'
 import type { ComponentDemo, ComponentDemoBlock } from './ui-kit-components.ts'
 import { PageCurlDemo } from './page-curl-demo.tsx'
 import pageCurlSource from './page-curl-demo.tsx?raw'
+import { Page } from '../../ui/page.tsx'
+import { PageHeader } from '../../ui/page-header.tsx'
+import {
+  AdaptiveSplitNav,
+  useAdaptiveSplitNav,
+  type AdaptiveFrameSpec,
+} from '../../ui/adaptive-split-nav.tsx'
 import { List, ListSection } from '../../ui/list.tsx'
 import { ListItem } from '../../ui/list-item.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { Button } from '../../ui/button.tsx'
-import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import '../settings/settings.css'
 import '../../ui/ios-nav-back.css'
 import './ui-kit.css'
@@ -137,6 +143,13 @@ function DemoBlock({ component, demo }: { component: ComponentDemo; demo: Compon
 }
 
 function ComponentPage({ component }: { component: ComponentDemo }) {
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  // 锚点量测的滚动容器是 Page 的正文（.page__body）；从页面壳向上取，
+  // 避免依赖调用时 DOM 是否已插入
+  const getScrollContainer = useCallback(
+    () => (shellRef.current?.closest('.page__body') as HTMLElement | null) ?? null,
+    [],
+  )
   const [copiedImport, setCopiedImport] = useState(false)
 
   const handleCopyImport = () => {
@@ -147,55 +160,58 @@ function ComponentPage({ component }: { component: ComponentDemo }) {
   }
 
   return (
-    <article class="ui-kit__page">
-      <header class="ui-kit__page-header">
-        <h2 class="ui-kit__page-title">{component.name}</h2>
-        <p class="ui-kit__page-desc">{component.description}</p>
-        <div class="ui-kit__page-import">
-          <code class="ui-kit__page-import-path">{component.importPath}</code>
-          <Button onClick={handleCopyImport} disabled={copiedImport}>
-            {copiedImport ? '已复制' : '复制'}
-          </Button>
-        </div>
-      </header>
+    <div class="ui-kit__page-shell" ref={shellRef}>
+      <article class="ui-kit__page">
+        <header class="ui-kit__page-header">
+          <p class="ui-kit__page-desc">{component.description}</p>
+          <div class="ui-kit__page-import">
+            <code class="ui-kit__page-import-path">{component.importPath}</code>
+            <Button onClick={handleCopyImport} disabled={copiedImport}>
+              {copiedImport ? '已复制' : '复制'}
+            </Button>
+          </div>
+        </header>
 
-      <section class="ui-kit__section">
-        <h3 class="ui-kit__section-title">代码演示</h3>
-        <div class="ui-kit__demo-list">
-          {component.demos.map((demo) => (
-            <DemoBlock key={demo.id} component={component} demo={demo} />
-          ))}
-        </div>
-      </section>
-
-      {component.props.length > 0 && (
-        <section class="ui-kit__section" id="api">
-          <h3 class="ui-kit__section-title">API</h3>
-          <div class="ui-kit__api">
-            <table class="ui-kit__api-table">
-              <thead>
-                <tr>
-                  <th>属性</th>
-                  <th>说明</th>
-                  <th>类型</th>
-                  <th>默认值</th>
-                </tr>
-              </thead>
-              <tbody>
-                {component.props.map((prop) => (
-                  <tr key={prop.name}>
-                    <td class="ui-kit__api-name">{prop.name}</td>
-                    <td class="ui-kit__api-desc">{prop.description}</td>
-                    <td class="ui-kit__api-type">{prop.type}</td>
-                    <td class="ui-kit__api-default">{prop.defaultValue}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <section class="ui-kit__section">
+          <h3 class="ui-kit__section-title">代码演示</h3>
+          <div class="ui-kit__demo-list">
+            {component.demos.map((demo) => (
+              <DemoBlock key={demo.id} component={component} demo={demo} />
+            ))}
           </div>
         </section>
-      )}
-    </article>
+
+        {component.props.length > 0 && (
+          <section class="ui-kit__section" id="api">
+            <h3 class="ui-kit__section-title">API</h3>
+            <div class="ui-kit__api">
+              <table class="ui-kit__api-table">
+                <thead>
+                  <tr>
+                    <th>属性</th>
+                    <th>说明</th>
+                    <th>类型</th>
+                    <th>默认值</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {component.props.map((prop) => (
+                    <tr key={prop.name}>
+                      <td class="ui-kit__api-name">{prop.name}</td>
+                      <td class="ui-kit__api-desc">{prop.description}</td>
+                      <td class="ui-kit__api-type">{prop.type}</td>
+                      <td class="ui-kit__api-default">{prop.defaultValue}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+      </article>
+
+      <AnchorNav component={component} getContainer={getScrollContainer} />
+    </div>
   )
 }
 
@@ -207,10 +223,10 @@ const ANCHOR_SCROLL_OFFSET = 20
 
 function AnchorNav({
   component,
-  containerRef,
+  getContainer,
 }: {
   component: ComponentDemo
-  containerRef: { current: HTMLElement | null }
+  getContainer: () => HTMLElement | null
 }) {
   const entries = useMemo<AnchorEntry[]>(
     () => [
@@ -226,7 +242,7 @@ function AnchorNav({
 
   // 每次滚动实时量位置：示例懒加载、代码展开收起改变高度后天然正确
   useEffect(() => {
-    const container = containerRef.current
+    const container = getContainer()
     if (!container || entries.length === 0) return
     const measure = () => {
       const containerTop = container.getBoundingClientRect().top
@@ -257,10 +273,10 @@ function AnchorNav({
       container.removeEventListener('scroll', onScroll)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [containerRef, entries])
+  }, [getContainer, entries])
 
   const handleJump = (entry: AnchorEntry) => {
-    const container = containerRef.current
+    const container = getContainer()
     const el = document.getElementById(entry.id)
     if (!container || !el) return
     const top =
@@ -291,16 +307,26 @@ function AnchorNav({
 }
 
 export function UiKitApp() {
-  const appId = 'ui-kit'
-  // 窄屏检测走系统 hook（进入 ≤600 / 退出 >660 滞回），与其它应用同一惯例
-  const { hostRef, narrowLayout } = useAppNarrowLayout({ enterWidth: 600, exitWidth: 660 })
-  const contentRef = useRef<HTMLElement>(null)
+  useAppMenuBar('ui-kit', [])
   const [query, setQuery] = useState('')
+  // 单一真源是选中的组件：窄屏子页与分栏详情帧都从它派生，
+  // 分栏切回子页栈的落点也由它推导。
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
+
+  const nav = useAdaptiveSplitNav({
+    split: true,
+    narrowPageForState: () => (selectedId ? 'detail' : 'list'),
+    listPage: 'list',
+  })
+  const { narrowLayout } = nav
+
+  // 宽屏详情帧要有内容：未选中时自动选首个组件（services 同款）。窄屏首屏
+  // 仍停在列表页——初始页在挂载时已由 narrowPageForState 定为 list。
+  useEffect(() => {
+    setSelectedId((current) => current ?? UI_COMPONENTS[0]?.id)
+  }, [])
 
   const sections = useMemo(() => buildCategorySections(), [])
-  const [activeComponentId, setActiveComponentId] = useState(
-    () => sections[0]?.components[0]?.id ?? '',
-  )
 
   const filteredSections = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -316,18 +342,39 @@ export function UiKitApp() {
       .filter((section) => section.components.length > 0)
   }, [sections, query])
 
-  const activeComponent =
-    UI_COMPONENTS.find((comp) => comp.id === activeComponentId) ?? UI_COMPONENTS[0]
+  const selectedComponent = selectedId
+    ? UI_COMPONENTS.find((comp) => comp.id === selectedId)
+    : undefined
 
-  useAppMenuBar(appId, [])
+  const handleSelect = (id: string): void => {
+    setSelectedId(id)
+    if (nav.narrowLayout && nav.page === 'list') {
+      nav.navigate('detail', 'push')
+    }
+  }
 
+  // ── 形变期返回键对齐（services/nav-kit-demo 同款）：详情页/详情帧的返回
+  // 键只在窄形态有、分栏静置没有。A 型（窄→宽）先挂着随滑轨淡出；C 型
+  // （宽→窄）落定交棒后才出现，给一次透明度 0→1 的短淡入代替硬蹦。
+  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
+  const backFadeTimerRef = useRef(0)
+  const prevMorphingRef = useRef(false)
   useLayoutEffect(() => {
-    contentRef.current?.scrollTo({ top: 0 })
-  }, [activeComponentId])
+    const was = prevMorphingRef.current
+    prevMorphingRef.current = nav.morphing
+    if (was === nav.morphing) return
+    if (nav.morphing || !nav.narrowLayout || !selectedId) return
+    window.clearTimeout(backFadeTimerRef.current)
+    setBackFadeEpoch((epoch) => epoch + 1)
+    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
+  }, [nav.morphing, nav.narrowLayout, selectedId])
+  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
 
-  return (
-    <div ref={hostRef} class={`ui-kit${narrowLayout ? ' ui-kit--narrow' : ''}`}>
-      <nav class="ui-kit__sidebar" aria-label="组件导航">
+  // ── 页面渲染：同一份内容同时供给窄屏子页与分栏帧（返回键按形态挂/摘）──
+
+  const renderListPage = () => (
+    <Page header={<PageHeader title="组件库" />}>
+      <div class="ui-kit__list">
         <div class="ui-kit__search">
           <IosTextField
             type="search"
@@ -339,7 +386,7 @@ export function UiKitApp() {
           />
         </div>
         {filteredSections.length > 0 ? (
-          <List selectedId={activeComponentId} onSelect={setActiveComponentId}>
+          <List selectedId={selectedId} onSelect={handleSelect}>
             {filteredSections.map((section) => (
               <ListSection key={section.id} id={section.id} title={section.name}>
                 {section.components.map((comp) => (
@@ -349,15 +396,69 @@ export function UiKitApp() {
             ))}
           </List>
         ) : (
-          <p class="ui-kit__sidebar-empty">无匹配组件</p>
+          <p class="ui-kit__list-empty">无匹配组件</p>
         )}
-      </nav>
+      </div>
+    </Page>
+  )
 
-      <main class="ui-kit__content" ref={contentRef}>
-        {activeComponent && <ComponentPage key={activeComponent.id} component={activeComponent} />}
-      </main>
+  const renderDetailPage = (showBack: boolean, headerClass?: string) => {
+    if (!selectedComponent) {
+      return (
+        <Page header={<PageHeader title="组件库" />}>
+          <div class="ui-kit__page-shell ui-kit__page-shell--empty">选择一个组件查看文档。</div>
+        </Page>
+      )
+    }
+    return (
+      <Page
+        header={
+          <PageHeader
+            class={headerClass}
+            title={selectedComponent.name}
+            backLabel={showBack ? '组件库' : undefined}
+            onBack={showBack ? () => nav.navigate('list', 'pop') : undefined}
+          />
+        }
+      >
+        <ComponentPage key={selectedComponent.id} component={selectedComponent} />
+      </Page>
+    )
+  }
 
-      {activeComponent && <AnchorNav component={activeComponent} containerRef={contentRef} />}
-    </div>
+  const renderNarrowPage = (target: string) => {
+    if (target === 'detail') {
+      return renderDetailPage(
+        true,
+        backFadeEpoch > 0 && target === nav.page
+          ? `ui-kit__back-fade-in-${backFadeEpoch % 2}`
+          : undefined,
+      )
+    }
+    return renderListPage()
+  }
+
+  // 分栏帧：详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
+  // 先挂着返回随滑轨淡出。
+  const keepDetailBack = nav.morphing && nav.morphKind === 'A' && selectedComponent !== undefined
+
+  const renderWideFrames = (): AdaptiveFrameSpec[] => [
+    {
+      id: 'detail',
+      content: renderDetailPage(
+        keepDetailBack,
+        keepDetailBack ? 'ui-kit__back-fade-out' : undefined,
+      ),
+    },
+  ]
+
+  return (
+    <AdaptiveSplitNav
+      controller={nav}
+      class={`ui-kit${narrowLayout ? ' ui-kit--narrow' : ''}`}
+      renderNarrowPage={renderNarrowPage}
+      renderWideFrames={renderWideFrames}
+      listRatio={0.34}
+    />
   )
 }
