@@ -99,6 +99,21 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  /* 图标与按钮等高：容器撑满按钮高，字号跟到等高——字符图标与未传 size 的 Icon 靠继承生效 */
+  height: var(--ios-button-height);
+  font-size: var(--ios-button-height);
+}
+
+/* 显式传过 size 的 Icon 带行内 font-size，一并拉到等高；自绘转圈改跟随容器边长 */
+.ios-button__icon > .material-symbols-outlined,
+.ios-button__icon > .material-symbols-rounded,
+.ios-button__icon > .material-symbols-sharp {
+  font-size: inherit !important;
+}
+
+.ios-button__icon > .icon-activity-indicator {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* 文字截断：flex item 被块化后 ellipsis 生效，overflow 非 visible 使自动最小尺寸归 0、允许被压窄 */
