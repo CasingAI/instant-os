@@ -32,12 +32,109 @@ export function BrowserIcon({ size = 64 }: IconProps) {
   )
 }
 
+/** 信封身：圆角矩形 43×30，几何中心约 (32, 31)。 */
+const ENVELOPE_BODY_PATH = [
+  'M 13.7 16',
+  'H 50.3',
+  'A 3.2 3.2 0 0 1 53.5 19.2',
+  'V 42.8',
+  'A 3.2 3.2 0 0 1 50.3 46',
+  'H 13.7',
+  'A 3.2 3.2 0 0 1 10.5 42.8',
+  'V 19.2',
+  'A 3.2 3.2 0 0 1 13.7 16',
+  'Z',
+].join(' ')
+
+/** 信封盖：盖满信封顶部，两道斜边插到中心。 */
+const ENVELOPE_FLAP_PATH = 'M 10.5 16 H 53.5 V 19 L 32 34.8 L 10.5 19 Z'
+
+/** 信封盖下缘折线。 */
+const ENVELOPE_FLAP_EDGE_PATH = 'M 10.5 19 L 32 34.8 L 53.5 19'
+
 export function MailIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#2b8fd9" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        📧
-      </span>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <filter id="mail-icon-shadow" x="-40%" y="-25%" width="180%" height="170%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="1.2" result="blur" />
+            <feOffset dx="0.8" dy="1.9" result="off" />
+            <feFlood flood-color="#0a2c50" flood-opacity="0.42" result="color" />
+            <feComposite in="color" in2="off" operator="in" result="drop" />
+            <feMerge>
+              <feMergeNode in="drop" />
+            </feMerge>
+          </filter>
+          <linearGradient id="mail-icon-body" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#ffffff" />
+            <stop offset="60%" stop-color="#f5f8fb" />
+            <stop offset="100%" stop-color="#dde6ef" />
+          </linearGradient>
+          <linearGradient id="mail-icon-side" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#c6d4e2" />
+            <stop offset="100%" stop-color="#96aec5" />
+          </linearGradient>
+          <linearGradient id="mail-icon-flap" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#ecf2f8" />
+            <stop offset="100%" stop-color="#d2deea" />
+          </linearGradient>
+          <clipPath id="mail-icon-clip">
+            <path d={ENVELOPE_BODY_PATH} />
+          </clipPath>
+          <clipPath id="mail-icon-flap-clip">
+            <path d={ENVELOPE_FLAP_PATH} />
+          </clipPath>
+        </defs>
+        <g transform="translate(0 1)">
+          {/* 落地软影 */}
+          <g filter="url(#mail-icon-shadow)">
+            <path d={ENVELOPE_BODY_PATH} fill="#0a2c50" />
+          </g>
+          {/* 侧壁：整只信封往右下错一截，露出的下边条是纸的厚度 */}
+          <path d={ENVELOPE_BODY_PATH} fill="url(#mail-icon-side)" transform="translate(0.5 1.7)" />
+          {/* 正面：上白下灰蓝，受光在上 */}
+          <path d={ENVELOPE_BODY_PATH} fill="url(#mail-icon-body)" />
+          <g clip-path="url(#mail-icon-clip)">
+            {/* 底部两角的上折痕：暗线 + 右下错位的亮线，刻出凹痕 */}
+            <g fill="none" stroke-linecap="round">
+              <g stroke="rgba(96,128,162,0.28)" stroke-width="0.8">
+                <path d="M 11.4 45 L 29.2 33.8" />
+                <path d="M 52.6 45 L 34.8 33.8" />
+              </g>
+              <g stroke="rgba(255,255,255,0.55)" stroke-width="0.6" transform="translate(0.6 0.7)">
+                <path d="M 11.4 45 L 29.2 33.8" />
+                <path d="M 52.6 45 L 34.8 33.8" />
+              </g>
+            </g>
+            {/* 盖沿下方的落影，被信封盖压住上半，露出贴身的一条 */}
+            <path
+              d={ENVELOPE_FLAP_EDGE_PATH}
+              fill="none"
+              stroke="rgba(58,90,128,0.32)"
+              stroke-width="1.6"
+              transform="translate(0 1.4)"
+            />
+            <path d={ENVELOPE_FLAP_PATH} fill="url(#mail-icon-flap)" />
+            {/* 盖沿折线（暗）+ 盖面贴折线上方的高光（亮），一暗一亮出浮雕 */}
+            <path
+              d={ENVELOPE_FLAP_EDGE_PATH}
+              fill="none"
+              stroke="rgba(84,116,150,0.45)"
+              stroke-width="0.7"
+            />
+            <g clip-path="url(#mail-icon-flap-clip)">
+              <path
+                d={ENVELOPE_FLAP_EDGE_PATH}
+                fill="none"
+                stroke="rgba(255,255,255,0.8)"
+                stroke-width="1.1"
+                transform="translate(0 -1.05)"
+              />
+            </g>
+          </g>
+        </g>
+      </svg>
     </AppIconTile>
   )
 }
