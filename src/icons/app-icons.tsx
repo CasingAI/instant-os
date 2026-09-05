@@ -1085,10 +1085,48 @@ export function DownloaderIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#3a7bd5" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <circle cx="32" cy="26" r="12" fill="none" stroke="#fff" stroke-width="3" />
-        <path d="M32 16 V30" stroke="#fff" stroke-width="3" stroke-linecap="round" />
-        <path d="M26 24 L32 30 L38 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-        <rect x="14" y="42" width="36" height="6" rx="1.5" fill="#fff" opacity="0.85" />
+        {/* 底座阴影 */}
+        <ellipse cx="32" cy="54.2" rx="20.5" ry="3.5" fill="rgba(0,0,0,0.2)" />
+        {/* 金属外环：几何中心约 32,31，略上抬给阴影留空 */}
+        <circle cx="32" cy="31" r="24" fill="#76839a" />
+        <circle cx="32" cy="30.2" r="23.1" fill="#f4f7fb" />
+        <circle cx="32" cy="31.6" r="21.7" fill="#c7d0dd" />
+        {/* 环内缘暗槽，衔接内盘 */}
+        <circle cx="32" cy="31.4" r="19.7" fill="#8f9cb2" />
+        {/* 内盘：上缘露出深边，做出凹沿 */}
+        <circle cx="32" cy="31" r="18.8" fill="#2c62ac" />
+        <circle cx="32" cy="31.8" r="18" fill="#4f8fdc" />
+        {/* 顶部高光 */}
+        <ellipse cx="32" cy="22" rx="12" ry="6.5" fill="rgba(255,255,255,0.5)" />
+        {/* 内盘内阴影 */}
+        <circle
+          cx="32"
+          cy="31"
+          r="18"
+          fill="none"
+          stroke="rgba(12,42,86,0.28)"
+          stroke-width="1.5"
+        />
+        {/* 下载箭头与托盘：深色投影层 + 白色主体，两层错位出浮雕 */}
+        <g transform="translate(0 1)">
+          <g
+            fill="none"
+            stroke="rgba(9,30,64,0.38)"
+            stroke-width="4.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            transform="translate(0.9 1.1)"
+          >
+            <path d="M32 18.5 V32.5" />
+            <path d="M25 26 L32 33 L39 26" />
+            <path d="M21.5 36 V38.6 Q21.5 41.5 24.4 41.5 H39.6 Q42.5 41.5 42.5 38.6 V36" />
+          </g>
+          <g fill="none" stroke="#fff" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M32 18.5 V32.5" />
+            <path d="M25 26 L32 33 L39 26" />
+            <path d="M21.5 36 V38.6 Q21.5 41.5 24.4 41.5 H39.6 Q42.5 41.5 42.5 38.6 V36" />
+          </g>
+        </g>
       </svg>
     </AppIconTile>
   )
