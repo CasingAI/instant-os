@@ -67,11 +67,16 @@
   text-justify: none;
 }
 
+/* 节标题照 grouped 分组条的观感画：灰底渐变 + 下边框 + 白投影，墨水/底色同
+   list.css 硬编码；下边框走本文件 token，保住「换肤只覆盖 --plain-list-*」入口 */
 .plain-list-section__title {
-  padding: 4px 12px 2px;
+  padding: 3px 12px 2px;
+  border-bottom: 1px solid var(--plain-list-row-border, #e0e0e4);
+  background: linear-gradient(180deg, #f3f3f3 0%, #e4e4e4 100%);
   font-size: 11px;
   font-weight: 600;
-  color: var(--plain-list-secondary-ink, #888);
+  color: #555;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 /* ── 行 ── */

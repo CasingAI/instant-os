@@ -13,7 +13,6 @@ import {
 } from '../../ui/nav.tsx'
 import { List, ListSection } from '../../ui/list.tsx'
 import { ListItem } from '../../ui/list-item.tsx'
-import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { Button } from '../../ui/button.tsx'
 import '../settings/settings.css'
 import '../../ui/ios-nav-back.css'
@@ -308,7 +307,6 @@ function AnchorNav({
 
 export function UiKitApp() {
   useAppMenuBar('ui-kit', [])
-  const [query, setQuery] = useState('')
   // 单一真源是选中的组件：窄屏子页与分栏详情帧都从它派生，
   // 分栏切回子页栈的落点也由它推导。
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
@@ -327,20 +325,6 @@ export function UiKitApp() {
   }, [])
 
   const sections = useMemo(() => buildCategorySections(), [])
-
-  const filteredSections = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return sections
-    return sections
-      .map((section) => ({
-        ...section,
-        components: section.components.filter(
-          (comp) =>
-            comp.name.toLowerCase().includes(q) || comp.description.toLowerCase().includes(q),
-        ),
-      }))
-      .filter((section) => section.components.length > 0)
-  }, [sections, query])
 
   const selectedComponent = selectedId
     ? UI_COMPONENTS.find((comp) => comp.id === selectedId)
@@ -375,29 +359,15 @@ export function UiKitApp() {
   const renderListPage = () => (
     <Page header={<PageHeader title="组件库" />}>
       <div class="ui-kit__list">
-        <div class="ui-kit__search">
-          <IosTextField
-            type="search"
-            class="ui-kit__search-input"
-            placeholder="搜索组件…"
-            aria-label="搜索组件"
-            value={query}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-          />
-        </div>
-        {filteredSections.length > 0 ? (
-          <List selectedId={selectedId} onSelect={handleSelect}>
-            {filteredSections.map((section) => (
-              <ListSection key={section.id} id={section.id} title={section.name}>
-                {section.components.map((comp) => (
-                  <ListItem key={comp.id} id={comp.id} label={comp.name} />
-                ))}
-              </ListSection>
-            ))}
-          </List>
-        ) : (
-          <p class="ui-kit__list-empty">无匹配组件</p>
-        )}
+        <List variant="plain" selectedId={selectedId} onSelect={handleSelect}>
+          {sections.map((section) => (
+            <ListSection key={section.id} id={section.id} title={section.name}>
+              {section.components.map((comp) => (
+                <ListItem key={comp.id} id={comp.id} label={comp.name} />
+              ))}
+            </ListSection>
+          ))}
+        </List>
       </div>
     </Page>
   )
