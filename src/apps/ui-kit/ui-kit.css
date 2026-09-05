@@ -9,61 +9,34 @@
   -webkit-user-select: text;
 }
 
-/* ── 侧栏 ── */
+/* ── 侧栏：系统 IosTextField 搜索 + 系统 List 组件清单 ── */
 
 .ui-kit__sidebar {
-  flex: 0 0 168px;
+  flex: 0 0 200px;
   min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px 10px;
   border-right: 1px solid rgba(0, 0, 0, 0.18);
   background: linear-gradient(180deg, #e4e4e4 0%, #d2d2d2 100%);
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.45);
 }
 
-.ui-kit__nav {
-  list-style: none;
-  margin: 0;
-  padding: 6px 0;
+.ui-kit__search {
+  margin-bottom: 8px;
 }
 
-.ui-kit__nav-item {
-  display: block;
+/* IosTextField 自带内凹外观，这里只保证撑满侧栏宽 */
+.ui-kit__search-input {
+  box-sizing: border-box;
   width: 100%;
-  padding: 3px 12px 3px 20px;
-  border: none;
-  border-radius: 0;
+}
+
+.ui-kit__sidebar-empty {
+  margin: 0;
+  padding: 12px 2px;
   font-size: 12px;
-  line-height: 1.55;
-  color: #000;
-  text-align: left;
-  background: transparent;
+  color: #888;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
-  cursor: default;
-  transition: none;
-}
-
-.ui-kit__nav-item:hover {
-  background: rgba(0, 0, 0, 0.06);
-}
-
-.ui-kit__nav-item:active {
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.ui-kit__nav-item--active {
-  color: #fff;
-  background: linear-gradient(180deg, #4488d4 0%, #3676c2 100%);
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.15),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
-}
-
-.ui-kit__nav-item--active:hover {
-  background: linear-gradient(180deg, #4f95e0 0%, #3d82cc 100%);
-}
-
-.ui-kit__nav-item--active:active {
-  background: linear-gradient(180deg, #3676c2 0%, #4488d4 100%);
 }
 
 /* ── 内容区 ── */
@@ -76,36 +49,81 @@
   padding: 14px 18px 20px;
 }
 
-.ui-kit__content-header {
-  margin-bottom: 16px;
+/* ── 组件页 ── */
+
+.ui-kit__page {
+  max-width: 980px;
 }
 
-.ui-kit__content-title {
+.ui-kit__page-header {
+  margin-bottom: 18px;
+}
+
+.ui-kit__page-title {
   margin: 0 0 4px;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   color: #222;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-.ui-kit__content-desc {
+.ui-kit__page-desc {
   margin: 0;
   font-size: 12px;
-  color: #666;
+  color: #555;
+  line-height: 1.7;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
-/* ── 组件卡片网格 ── */
+.ui-kit__page-import {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 8px 6px 10px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
 
-.ui-kit__cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+.ui-kit__page-import-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #5856d6;
+}
+
+/* ── 组件页分节 ── */
+
+.ui-kit__section {
+  margin: 0 0 28px;
+}
+
+.ui-kit__section-title {
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.ui-kit__demo-list {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
 }
 
-/* ── 组件卡片 ── */
+/* ── 示例块 ── */
 
-.ui-kit__card {
+.ui-kit__demo-block {
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 8px;
@@ -113,99 +131,56 @@
   overflow: hidden;
 }
 
-.ui-kit__card--wide {
-  grid-column: 1 / -1;
+.ui-kit__demo-block-header {
+  padding: 12px 16px 10px;
 }
 
-.ui-kit__card-header {
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid #e5e5e5;
-  background: linear-gradient(180deg, #fafafa 0%, #f5f5f5 100%);
-}
-
-.ui-kit__card-title {
-  margin: 0 0 4px;
-  font-size: 14px;
+.ui-kit__demo-block-title {
+  margin: 0 0 2px;
+  font-size: 13px;
   font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #5856d6;
+  color: #333;
 }
 
-.ui-kit__card-desc {
+.ui-kit__demo-block-desc {
   margin: 0;
   font-size: 12px;
-  color: #666;
+  color: #888;
   line-height: 1.5;
 }
 
-/* ── Demo 区域 ── */
-
-.ui-kit__card-demo {
-  padding: 20px 16px;
+.ui-kit__demo-block-render {
+  padding: 16px;
   min-height: 80px;
   display: flex;
   align-items: flex-start;
   justify-content: stretch;
   background: #fafafa;
+  border-top: 1px solid #e5e5e5;
   border-bottom: 1px solid #e5e5e5;
 }
 
-.ui-kit__card-demo-placeholder {
+.ui-kit__demo-placeholder {
   color: #999;
   font-size: 12px;
   font-style: italic;
 }
 
-/* ── 操作按钮 ── */
-
-.ui-kit__card-actions {
+.ui-kit__demo-block-footer {
   display: flex;
-  gap: 1px;
-  background: #e5e5e5;
-  padding: 0;
-}
-
-.ui-kit__card-toggle {
-  flex: 1;
-  padding: 8px 12px;
-  border: none;
+  justify-content: flex-end;
+  padding: 5px 10px;
   background: #fff;
-  color: #5856d6;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.ui-kit__card-toggle:hover {
-  background: #f5f5f5;
-}
-
-.ui-kit__card-toggle:active {
-  background: #efefef;
-}
-
-.ui-kit__card-toggle--active {
-  background: #5856d6;
-  color: #fff;
-}
-
-.ui-kit__card-toggle--active:hover {
-  background: #6c6add;
-}
-
-.ui-kit__card-toggle--active:active {
-  background: #4d4cc4;
 }
 
 /* ── 代码区域 ── */
 
-.ui-kit__card-code {
+.ui-kit__code {
   border-top: 1px solid #e5e5e5;
   background: #1e1e1e;
 }
 
-.ui-kit__card-code-header {
+.ui-kit__code-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -214,43 +189,13 @@
   background: #252525;
 }
 
-.ui-kit__card-code-lang {
+.ui-kit__code-file {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
-  font-weight: 500;
   color: #999;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
-.ui-kit__card-code-copy {
-  padding: 4px 10px;
-  border: 1px solid #444;
-  border-radius: 4px;
-  background: #2d2d2d;
-  color: #ddd;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.ui-kit__card-code-copy:hover {
-  background: #3a3a3a;
-  border-color: #555;
-}
-
-.ui-kit__card-code-copy:active {
-  background: #222;
-}
-
-.ui-kit__card-code-copy:disabled {
-  background: #4a4a4a;
-  color: #8c8;
-  border-color: #555;
-  cursor: default;
-}
-
-.ui-kit__card-code-block {
+.ui-kit__code-block {
   margin: 0;
   padding: 14px 12px;
   overflow-x: auto;
@@ -261,30 +206,29 @@
   background: #1e1e1e;
 }
 
-.ui-kit__card-code-block code {
+.ui-kit__code-block code {
   display: block;
 }
 
-/* ── Props 表格 ── */
+/* ── API 表格 ── */
 
-.ui-kit__card-props {
-  border-top: 1px solid #e5e5e5;
+.ui-kit__api {
   overflow-x: auto;
 }
 
-.ui-kit__card-props-table {
+.ui-kit__api-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
   background: #fafafa;
 }
 
-.ui-kit__card-props-table thead {
+.ui-kit__api-table thead {
   background: #f0f0f0;
   border-bottom: 2px solid #ddd;
 }
 
-.ui-kit__card-props-table th {
+.ui-kit__api-table th {
   padding: 8px 12px;
   text-align: left;
   font-weight: 600;
@@ -292,29 +236,36 @@
   white-space: nowrap;
 }
 
-.ui-kit__card-props-table td {
+.ui-kit__api-table td {
   padding: 8px 12px;
   border-top: 1px solid #e5e5e5;
   vertical-align: top;
 }
 
-.ui-kit__card-props-name {
+.ui-kit__api-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   color: #5856d6;
   font-weight: 500;
   white-space: nowrap;
 }
 
-.ui-kit__card-props-type {
+.ui-kit__api-desc {
+  color: #444;
+  line-height: 1.5;
+  min-width: 180px;
+}
+
+.ui-kit__api-type {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   color: #666;
   font-size: 10px;
   white-space: nowrap;
 }
 
-.ui-kit__card-props-desc {
-  color: #444;
-  line-height: 1.5;
+.ui-kit__api-default {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #888;
+  white-space: nowrap;
 }
 
 /* ── Demo 特殊样式 ── */
@@ -605,44 +556,6 @@
   font-size: 12px;
 }
 
-/* ── 窄屏模式 ── */
-
-.ui-kit--narrow {
-  flex-direction: column;
-}
-
-.ui-kit--narrow .ui-kit__sidebar {
-  flex: 0 0 auto;
-  border-right: none;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
-  background: linear-gradient(180deg, #eaeaea 0%, #dcdcdc 100%);
-  box-shadow:
-    inset 0 -1px 0 rgba(255, 255, 255, 0.5),
-    0 1px 4px rgba(0, 0, 0, 0.08);
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.ui-kit--narrow .ui-kit__nav {
-  display: flex;
-  padding: 4px 8px;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.ui-kit--narrow .ui-kit__nav-item {
-  flex: 0 0 auto;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #444;
-}
-
-.ui-kit--narrow .ui-kit__cards {
-  grid-template-columns: 1fr;
-}
-
 /* ── Icon demo ── */
 
 .ui-kit-demo__icon-panel {
@@ -887,4 +800,25 @@
     inset 0 -1px 0 rgba(0, 0, 0, 0.45),
     0 1px 2px rgba(0, 0, 0, 0.4);
   color: #cfc9bf;
+}
+
+/* ── 窄屏模式：侧栏收成顶部面板（搜索 + 分组清单纵向滚动） ── */
+
+.ui-kit--narrow {
+  flex-direction: column;
+}
+
+.ui-kit--narrow .ui-kit__sidebar {
+  flex: 0 0 auto;
+  max-height: 42%;
+  border-right: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+  background: linear-gradient(180deg, #eaeaea 0%, #dcdcdc 100%);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.5),
+    0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.ui-kit--narrow .ui-kit__content {
+  padding: 10px 12px 16px;
 }

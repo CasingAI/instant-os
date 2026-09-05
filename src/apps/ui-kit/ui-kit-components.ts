@@ -2,18 +2,26 @@ export type ComponentProp = {
   name: string
   type: string
   description: string
+  defaultValue: string
+}
+
+/** 单个示例块：源码文件按约定位于 ./demos/<组件id>/<示例id>.tsx，源码即文件本身 */
+export type ComponentDemoBlock = {
+  id: string
+  title: string
+  description?: string
 }
 
 export type ComponentDemo = {
   id: string
   name: string
   description: string
-  category: 'list-showcase' | 'form' | 'icons' | 'settings' | 'navigation' | 'tree' | 'picker' | 'other' | 'window' | 'page-curl'
-  /** 卡片占满整行（grid-column: 1 / -1），给 Icon 图标库这种宽内容用 */
-  wide?: boolean
+  category: 'data-display' | 'form' | 'icons' | 'settings' | 'navigation' | 'picker' | 'other' | 'window' | 'page-curl'
   importPath: string
+  /** 何时使用（antd 式）：空则组件页不渲染该节 */
+  whenToUse?: string
+  demos: ComponentDemoBlock[]
   props: ComponentProp[]
-  codeExample: string
 }
 
 export const UI_COMPONENTS: ComponentDemo[] = [
@@ -23,16 +31,14 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: 'iOS 6 风格 ON/OFF 滑块开关；可单独使用，也可嵌在设置行里',
     category: 'form',
     importPath: "import { IosSwitch } from '../../ui/ios-switch.tsx'",
-    props: [
-      { name: 'checked', type: 'boolean', description: '开关状态' },
-      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
-      { name: 'label', type: 'string', description: '无障碍标签' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '受控开关：点按切换 ON / OFF，label 兼作无障碍标签' },
     ],
-    codeExample: `<IosSwitch
-  checked={enabled}
-  onChange={setEnabled}
-  label="启用功能"
-/>`,
+    props: [
+      { name: 'checked', type: 'boolean', description: '开关状态', defaultValue: '—' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调', defaultValue: '—' },
+      { name: 'label', type: 'string', description: '无障碍标签', defaultValue: '—' },
+    ],
   },
   {
     id: 'ios-check-toggle',
@@ -40,19 +46,16 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: 'iOS 风格复选框；支持 default / small 尺寸与 disabled',
     category: 'form',
     importPath: "import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'",
-    props: [
-      { name: 'checked', type: 'boolean', description: '选中状态' },
-      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
-      { name: 'label', type: 'string', description: '无障碍标签' },
-      { name: 'size', type: "'default' | 'small'", description: '尺寸' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: 'default / small 两种尺寸与禁用态' },
     ],
-    codeExample: `<IosCheckToggle
-  checked={agreed}
-  onChange={setAgreed}
-  label="同意条款"
-  size="small"
-/>`,
+    props: [
+      { name: 'checked', type: 'boolean', description: '选中状态', defaultValue: '—' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调', defaultValue: '—' },
+      { name: 'label', type: 'string', description: '无障碍标签', defaultValue: '—' },
+      { name: 'size', type: "'default' | 'small'", description: '尺寸', defaultValue: "'default'" },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+    ],
   },
   {
     id: 'checkbox',
@@ -61,18 +64,16 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       'macOS Aqua 风格方形勾选框；勾选态固定系统蓝，用于窗口弹窗等 Mac 风格界面（如重名冲突的「应用到全部」）',
     category: 'form',
     importPath: "import { Checkbox } from '../../ui/checkbox.tsx'",
-    props: [
-      { name: 'checked', type: 'boolean', description: '勾选状态' },
-      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
-      { name: 'label', type: 'string?', description: '可见文字，兼作无障碍标签' },
-      { name: 'ariaLabel', type: 'string?', description: '无可见文字时的无障碍标签' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '未选 / 已选与禁用态；勾选态固定系统蓝' },
     ],
-    codeExample: `<Checkbox
-  checked={applyToAll}
-  onChange={setApplyToAll}
-  label="应用到全部"
-/>`,
+    props: [
+      { name: 'checked', type: 'boolean', description: '勾选状态', defaultValue: '—' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调', defaultValue: '—' },
+      { name: 'label', type: 'string?', description: '可见文字，兼作无障碍标签', defaultValue: '—' },
+      { name: 'ariaLabel', type: 'string?', description: '无可见文字时的无障碍标签', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+    ],
   },
   {
     id: 'button',
@@ -81,24 +82,20 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标（无底无边，按住时一团亮白光晕叠在内容上方，松手即熄，tone 只改文字色）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
-    props: [
-      { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary' },
-      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 裸内容，按下亮白光晕叠于内容上方' },
-      { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名' },
-      { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
-      { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type' },
-      { name: 'aria-label', type: 'string?', description: '无障碍标签' },
-      { name: 'onClick', type: '() => void', description: '点击回调' },
+    demos: [
+      { id: 'basic', title: '基础形态', description: 'filled 三种色调、borderless 裸内容（按住看光晕）、图标钮与 icon+文字受控例外' },
+      { id: 'theme', title: 'CSS 变量换肤', description: '父级覆盖 --ios-button-* 变量整体换皮' },
     ],
-    codeExample: `<Button tone="primary" onClick={handleSave}>保存</Button>
-<Button>取消</Button>
-{/* borderless 裸形态：无底无边，按住看光晕叠在内容上方 */}
-<Button variant="borderless" tone="primary">完成</Button>
-{/* 父级设置 --ios-button-color / --ios-button-bg 等即可换皮 */}
-<div style={{ '--ios-button-color': '#c77400' }}>
-  <Button>书城</Button>
-</div>`,
+    props: [
+      { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary', defaultValue: "'secondary'" },
+      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 裸内容，按下亮白光晕叠于内容上方', defaultValue: "'filled'" },
+      { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名', defaultValue: '—' },
+      { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传', defaultValue: 'false' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+      { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type', defaultValue: "'button'" },
+      { name: 'aria-label', type: 'string?', description: '无障碍标签', defaultValue: '—' },
+      { name: 'onClick', type: '() => void', description: '点击回调', defaultValue: '—' },
+    ],
   },
   {
     id: 'page-button-group',
@@ -108,21 +105,20 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     category: 'form',
     importPath:
       "import { PageButtonGroup } from '../../ui/page-button-group.tsx'\nimport { PageActionButton } from '../../ui/page-action-button.tsx'",
-    props: [
-      { name: 'children', type: 'ComponentChildren', description: 'PageButtonGroup：组内放置 PageActionButton' },
-      { name: 'tone', type: "'plain' | 'default' | 'danger'", description: 'PageActionButton 色调，默认 plain' },
-      { name: 'activated', type: 'boolean?', description: '持久选中态（如「已收藏」），蓝底白字' },
-      { name: 'icon', type: 'ComponentChildren?', description: '仅 icon → 方钮（组内 28→20 收缩）；icon+文字 → 双态按钮：宽时文字、组内放不下整钮退化为方钮' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
-      { name: 'busy', type: 'boolean?', description: '提交中：文字前显示转圈' },
-      { name: 'aria-label', type: 'string?', description: '无障碍标签' },
-      { name: 'onClick', type: '() => void', description: '点击回调' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '成组、色调、激活态、busy 与图标方钮' },
+      { id: 'sandbox', title: '挤压沙盒', description: '拖滑杆收窄容器，看多级解压：图标方钮收缩 → 双态退化为图标 → 文字压扁' },
     ],
-    codeExample: `<PageButtonGroup>
-  <PageActionButton activated={isFav} onClick={toggleFav}>收藏</PageActionButton>
-  <PageActionButton>标记已读</PageActionButton>
-  <PageActionButton tone="danger">删除</PageActionButton>
-</PageButtonGroup>`,
+    props: [
+      { name: 'children', type: 'ComponentChildren', description: 'PageButtonGroup：组内放置 PageActionButton', defaultValue: '—' },
+      { name: 'tone', type: "'plain' | 'default' | 'danger'", description: 'PageActionButton 色调，默认 plain', defaultValue: "'plain'" },
+      { name: 'activated', type: 'boolean?', description: '持久选中态（如「已收藏」），蓝底白字', defaultValue: 'false' },
+      { name: 'icon', type: 'ComponentChildren?', description: '仅 icon → 方钮（组内 28→20 收缩）；icon+文字 → 双态按钮：宽时文字、组内放不下整钮退化为方钮', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+      { name: 'busy', type: 'boolean?', description: '提交中：文字前显示转圈', defaultValue: 'false' },
+      { name: 'aria-label', type: 'string?', description: '无障碍标签', defaultValue: '—' },
+      { name: 'onClick', type: '() => void', description: '点击回调', defaultValue: '—' },
+    ],
   },
   {
     id: 'ios-text-field',
@@ -131,28 +127,22 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       'iOS 6 内凹文本输入框；属性与原生 input 一致。开启「语音实验室」后可长按空格语音听写',
     category: 'form',
     importPath: "import { IosTextField } from '../../ui/ios-text-field.tsx'",
+    demos: [
+      { id: 'basic', title: '基础用法', description: '输入、禁用与语音听写（需开启开发者选项 → 语音实验室）' },
+    ],
     props: [
-      { name: 'value', type: 'string', description: '输入值' },
-      { name: 'placeholder', type: 'string?', description: '占位文案' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
-      { name: 'onInput', type: '(event) => void', description: '输入回调' },
+      { name: 'value', type: 'string', description: '输入值', defaultValue: '—' },
+      { name: 'placeholder', type: 'string?', description: '占位文案', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+      { name: 'onInput', type: '(event) => void', description: '输入回调', defaultValue: '—' },
       {
         name: 'voiceDictation',
         type: 'boolean?',
         description:
           '长按空格语音听写；undefined 跟随开发者选项「语音实验室」，false 强制关闭',
+        defaultValue: '跟随开发者选项「语音实验室」',
       },
     ],
-    codeExample: `<IosTextField
-  value={query}
-  placeholder="搜索…"
-  onInput={(event) => setQuery(event.currentTarget.value)}
-/>
-{/* 长按空格说话，松手插入（需开启语音实验室） */}
-<IosTextField
-  value={query}
-  onInput={(event) => setQuery(event.currentTarget.value)}
-/>`,
   },
   {
     id: 'ios-range-slider',
@@ -160,32 +150,21 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: 'iOS 风格数值滑块；左侧数字输入，右侧水平拖块，支持刻度点、标签与单位后缀',
     category: 'form',
     importPath: "import { IosRangeSlider, type IosRangeSliderMark } from '../../ui/ios-range-slider.tsx'",
-    props: [
-      { name: 'value', type: 'number', description: '当前值' },
-      { name: 'min', type: 'number', description: '最小值' },
-      { name: 'max', type: 'number', description: '最大值' },
-      { name: 'step', type: 'number', description: '步进，值会按 step 吸附' },
-      { name: 'label', type: 'string?', description: '左侧标签' },
-      { name: 'suffix', type: 'string?', description: '数值后缀，如 MB / %' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
-      { name: 'marks', type: 'IosRangeSliderMark[]?', description: '刻度点；value 在范围内即可，会被自动吸附到 step' },
-      { name: 'onChange', type: '(value: number) => void', description: '值变化回调' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '拖块 + 数字输入、标签后缀与刻度、禁用' },
+      { id: 'scenarios', title: '业务场景', description: '虚拟机内存与新建空盘容量：非 0 起点的大范围刻度' },
     ],
-    codeExample: `const marks: IosRangeSliderMark[] = [
-  { value: 0, label: '0%' },
-  { value: 50, label: '50%' },
-  { value: 100, label: '100%' },
-]
-
-<IosRangeSlider
-  value={volume}
-  min={0}
-  max={100}
-  step={1}
-  suffix="%"
-  marks={marks}
-  onChange={setVolume}
-/>`,
+    props: [
+      { name: 'value', type: 'number', description: '当前值', defaultValue: '—' },
+      { name: 'min', type: 'number', description: '最小值', defaultValue: '—' },
+      { name: 'max', type: 'number', description: '最大值', defaultValue: '—' },
+      { name: 'step', type: 'number', description: '步进，值会按 step 吸附', defaultValue: '—' },
+      { name: 'label', type: 'string?', description: '左侧标签', defaultValue: '—' },
+      { name: 'suffix', type: 'string?', description: '数值后缀，如 MB / %', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+      { name: 'marks', type: 'IosRangeSliderMark[]?', description: '刻度点；value 在范围内即可，会被自动吸附到 step', defaultValue: '—' },
+      { name: 'onChange', type: '(value: number) => void', description: '值变化回调', defaultValue: '—' },
+    ],
   },
   {
     id: 'segmented-control',
@@ -193,21 +172,15 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: '分段选择器；支持徽章数量与脏状态小橙点。分段最小宽度随自身文字，富余空间才均分，容器放不下时整条让位换行，不出省略号',
     category: 'form',
     importPath: "import { SegmentedControl } from '../../ui/segmented-control.tsx'",
-    props: [
-      { name: 'value', type: 'string', description: '当前选中值' },
-      { name: 'items', type: 'SegmentedControlItem[]', description: '选项列表' },
-      { name: 'onChange', type: '(id: string) => void', description: '选择变化回调' },
-      { name: 'ariaLabel', type: 'string', description: '无障碍标签' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '分段切换、徽章与脏状态小橙点、四段' },
     ],
-    codeExample: `<SegmentedControl
-  value={tab}
-  items={[
-    { id: 'all', label: '全部', badge: 5 },
-    { id: 'unread', label: '未读', dirty: true }
-  ]}
-  onChange={setTab}
-  ariaLabel="消息分类"
-/>`,
+    props: [
+      { name: 'value', type: 'string', description: '当前选中值', defaultValue: '—' },
+      { name: 'items', type: 'SegmentedControlItem[]', description: '选项列表', defaultValue: '—' },
+      { name: 'onChange', type: '(id: string) => void', description: '选择变化回调', defaultValue: '—' },
+      { name: 'ariaLabel', type: 'string', description: '无障碍标签', defaultValue: '—' },
+    ],
   },
   {
     id: 'settings-choice-field',
@@ -215,35 +188,20 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: '设置选项字段；form / list 内置触发器，或 children 自定义；支持宽窄屏与 dark',
     category: 'settings',
     importPath: "import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'",
-    props: [
-      { name: 'label', type: 'string', description: '字段标签' },
-      { name: 'value', type: 'string', description: '当前值' },
-      { name: 'options', type: 'SettingsChoiceOption[]', description: '选项列表' },
-      { name: 'onChange', type: '(value: string) => void', description: '变化回调' },
-      { name: 'wideLayout', type: 'boolean', description: '是否宽屏布局' },
-      { name: 'presentation', type: "'form' | 'list'", description: '内置触发器样式' },
-      { name: 'dark', type: 'boolean?', description: '深色弹出菜单' },
-      { name: 'children', type: '(props: SettingsChoiceTriggerProps) => VNode', description: '自定义 trigger 渲染' },
+    demos: [
+      { id: 'basic', title: '内置触发器', description: 'form / list 两种内置触发器与窄屏布局' },
+      { id: 'custom', title: '自定义触发器', description: 'children 完全接管触发器，可配 dark 深色弹出菜单' },
     ],
-    codeExample: `// 内置 form
-<SettingsChoiceField
-  label="主题" value={theme}
-  options={[...]} onChange={setTheme}
-  wideLayout presentation="form"
-/>
-
-// 自定义 trigger + dark
-<SettingsChoiceField
-  label="排序" value={sort}
-  options={[...]} onChange={setSort}
-  wideLayout dark
->
-  {({ open, setOpen, triggerRef, displayValue }) => (
-    <button ref={triggerRef} onClick={() => setOpen(!open)}>
-      {displayValue}
-    </button>
-  )}
-</SettingsChoiceField>`,
+    props: [
+      { name: 'label', type: 'string', description: '字段标签', defaultValue: '—' },
+      { name: 'value', type: 'string', description: '当前值', defaultValue: '—' },
+      { name: 'options', type: 'SettingsChoiceOption[]', description: '选项列表', defaultValue: '—' },
+      { name: 'onChange', type: '(value: string) => void', description: '变化回调', defaultValue: '—' },
+      { name: 'wideLayout', type: 'boolean', description: '是否宽屏布局', defaultValue: '—' },
+      { name: 'presentation', type: "'form' | 'list'", description: '内置触发器样式', defaultValue: '—' },
+      { name: 'dark', type: 'boolean?', description: '深色弹出菜单', defaultValue: 'false' },
+      { name: 'children', type: '(props: SettingsChoiceTriggerProps) => VNode', description: '自定义 trigger 渲染', defaultValue: '—' },
+    ],
   },
   {
     id: 'settings-nav-row',
@@ -251,25 +209,16 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: '设置导航行；右侧值、密钥圆点掩码、禁用态',
     category: 'settings',
     importPath: "import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'",
-    props: [
-      { name: 'label', type: 'string', description: '左侧标签' },
-      { name: 'value', type: 'string', description: '右侧显示值' },
-      { name: 'onClick', type: '() => void', description: '点击回调' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
-      { name: 'secretLength', type: 'number?', description: '密钥长度；有值时显示圆点掩码' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '导航行、密钥圆点掩码与禁用态' },
     ],
-    codeExample: `<SettingsNavRow
-  label="账号设置"
-  value="user@example.com"
-  onClick={() => navigate('account')}
-/>
-
-<SettingsNavRow
-  label="API Key"
-  value=""
-  secretLength={24}
-  onClick={openSecretEditor}
-/>`,
+    props: [
+      { name: 'label', type: 'string', description: '左侧标签', defaultValue: '—' },
+      { name: 'value', type: 'string', description: '右侧显示值', defaultValue: '—' },
+      { name: 'onClick', type: '() => void', description: '点击回调', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+      { name: 'secretLength', type: 'number?', description: '密钥长度；有值时显示圆点掩码', defaultValue: '—' },
+    ],
   },
   {
     id: 'settings-switch-row',
@@ -277,16 +226,14 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: '设置开关行；标签 + IosSwitch 组合，常成组出现',
     category: 'settings',
     importPath: "import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'",
-    props: [
-      { name: 'label', type: 'string', description: '标签文本' },
-      { name: 'checked', type: 'boolean', description: '开关状态' },
-      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '标签 + 开关成组' },
     ],
-    codeExample: `<SettingsSwitchRow
-  label="启用通知"
-  checked={notificationsEnabled}
-  onChange={setNotificationsEnabled}
-/>`,
+    props: [
+      { name: 'label', type: 'string', description: '标签文本', defaultValue: '—' },
+      { name: 'checked', type: 'boolean', description: '开关状态', defaultValue: '—' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调', defaultValue: '—' },
+    ],
   },
   {
     id: 'settings-stepper-row',
@@ -294,24 +241,20 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: '设置数字行；点击弹出模态，在模态内用 [−] / 输入 / [+] 调节',
     category: 'settings',
     importPath: "import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'",
-    props: [
-      { name: 'label', type: 'string', description: '左侧标签' },
-      { name: 'value', type: 'number', description: '当前值' },
-      { name: 'onChange', type: '(value: number) => void', description: '值变化回调' },
-      { name: 'min', type: 'number?', description: '最小值' },
-      { name: 'max', type: 'number?', description: '最大值' },
-      { name: 'step', type: 'number?', description: '步进，默认 1' },
-      { name: 'unit', type: 'string?', description: '单位，显示在右侧当前值旁' },
-      { name: 'editable', type: 'boolean?', description: '模态内是否允许直接输入，默认 true' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '点击行弹出步进模态' },
     ],
-    codeExample: `<SettingsStepperRow
-  label="字号"
-  value={fontSize}
-  min={10}
-  max={24}
-  onChange={setFontSize}
-/>`,
+    props: [
+      { name: 'label', type: 'string', description: '左侧标签', defaultValue: '—' },
+      { name: 'value', type: 'number', description: '当前值', defaultValue: '—' },
+      { name: 'onChange', type: '(value: number) => void', description: '值变化回调', defaultValue: '—' },
+      { name: 'min', type: 'number?', description: '最小值', defaultValue: '—' },
+      { name: 'max', type: 'number?', description: '最大值', defaultValue: '—' },
+      { name: 'step', type: 'number?', description: '步进', defaultValue: '1' },
+      { name: 'unit', type: 'string?', description: '单位，显示在右侧当前值旁', defaultValue: '—' },
+      { name: 'editable', type: 'boolean?', description: '模态内是否允许直接输入', defaultValue: 'true' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+    ],
   },
   {
     id: 'settings-check-row',
@@ -319,24 +262,15 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: '设置勾选行；左侧标签、右侧无边框勾，整行点按切换；禁用态灰底灰字',
     category: 'settings',
     importPath: "import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'",
-    props: [
-      { name: 'label', type: 'string', description: '标签文本' },
-      { name: 'checked', type: 'boolean', description: '选中状态' },
-      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用（锁定项）' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '整行点按切换与禁用锁定' },
     ],
-    codeExample: `<SettingsCheckRow
-  label="图像识别"
-  checked={supportsVision}
-  onChange={setSupportsVision}
-/>
-
-<SettingsCheckRow
-  label="文本"
-  checked
-  disabled
-  onChange={() => undefined}
-/>`,
+    props: [
+      { name: 'label', type: 'string', description: '标签文本', defaultValue: '—' },
+      { name: 'checked', type: 'boolean', description: '选中状态', defaultValue: '—' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用（锁定项）', defaultValue: 'false' },
+    ],
   },
   {
     id: 'settings-inline-input-row',
@@ -344,232 +278,78 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     description: '设置内联输入行；文本 / URL / 密码',
     category: 'settings',
     importPath: "import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'",
-    props: [
-      { name: 'label', type: 'string', description: '左侧标签' },
-      { name: 'value', type: 'string', description: '输入值' },
-      { name: 'onChange', type: '(value: string) => void', description: '变化回调' },
-      { name: 'type', type: "'text' | 'password' | 'url'", description: '输入类型' },
-      { name: 'placeholder', type: 'string?', description: '占位文案' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '文本 / URL / 密码三种输入类型' },
     ],
-    codeExample: `<SettingsInlineInputRow
-  label="服务地址"
-  value={url}
-  onChange={setUrl}
-  type="url"
-  placeholder="https://"
-/>`,
+    props: [
+      { name: 'label', type: 'string', description: '左侧标签', defaultValue: '—' },
+      { name: 'value', type: 'string', description: '输入值', defaultValue: '—' },
+      { name: 'onChange', type: '(value: string) => void', description: '变化回调', defaultValue: '—' },
+      { name: 'type', type: "'text' | 'password' | 'url'", description: '输入类型', defaultValue: "'text'" },
+      { name: 'placeholder', type: 'string?', description: '占位文案', defaultValue: '—' },
+    ],
   },
   {
     id: 'list',
     name: 'List',
     description:
       '设置风格分组列表容器；行内容放 ListItem，支持节标题/脚注、表头滚动区、快速索引条（三档自动显示）与 iOS 6 编辑模式（减号删除 + 把手排序）；scrollable 滚动体内分节标题 sticky 悬停（滚到顶钉住、被下一节顶走）；样式完全自有（--list-* token）；行触达四态同 iOS 6 原版，且反馈只属于可点行（有 onClick / 受 onSelect 管）——hover 淡灰、按下蓝渐变反白硬切、点闪保持 0.5s 后淡出（deselectRow 式）、选中持久蓝底（编辑模式暂停）；variant="plain" 切换为邮件/短信式通栏列表（独立 plain-list.css，选中/编辑/重排机制共用）',
-    category: 'list-showcase',
+    category: 'data-display',
     importPath: "import { List, ListSection } from '../../ui/list.tsx'",
-    props: [
-      { name: 'children', type: 'ComponentChildren', description: '列表行（ListItem / ListSection / 行组件）' },
-      { name: 'class', type: 'string?', description: '追加到容器的修饰类' },
-      { name: 'title', type: 'ComponentChildren?', description: '节标题（盒子外上方）' },
-      { name: 'footnote', type: 'ComponentChildren?', description: '节脚注（盒子外下方）' },
-      { name: 'head', type: 'ComponentChildren?', description: '表头单元格（span 序列），有值时渲染表头行' },
-      { name: 'headClass', type: 'string?', description: '追加到表头的附加类' },
-      { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区（max-height 280 + overflow auto）' },
-      { name: 'bodyClass', type: 'string?', description: '追加到滚动体的附加类；配合 scrollable 使用' },
-      { name: 'indexBar', type: 'boolean?', description: '右缘快速索引条；自动收集子级 ListSection，点击/沿条拖动跳节；条上文字三档自动切换——节少（≤12）显示标题首字、节多降为拼音首字母、槽位放不下再隔位采样。排序契约：组件不排序，节的条上标签须沿列表非降序——数据侧用 groupByIndexLetter 分组排序，dev 下逆序告警' },
-      { name: 'variant', type: "'grouped' | 'plain'?", description: '变体：grouped（默认）为设置分组盒；plain 为邮件/短信式通栏列表（行多行槽 trailing/preview/unread 生效，样式在 plain-list.css）' },
-      { name: 'editing', type: 'boolean?', description: '编辑模式：行出现减号删除钮与拖拽排序把手' },
-      { name: 'selectedId', type: 'string?', description: '受控单选：配合 ListItem 的 id' },
-      { name: 'onSelect', type: '(id: string) => void?', description: 'ListItem 点击上报选中' },
-      { name: 'onDelete', type: '(id: string) => void?', description: '编辑模式：确认删除某行' },
-      { name: 'onReorder', type: '(fromId: string, toId: string) => void?', description: '编辑模式：拖拽重排落定' },
+    demos: [
+      { id: 'basic', title: '节标题与滚动区', description: '节标题/脚注、表头限高滚动区；可点行有触达反馈，信息行零反馈' },
+      { id: 'selection', title: '受控单选', description: 'selectedId/onSelect，点击自动上报、蓝底高亮、accessory 勾随选中' },
+      { id: 'controls', title: '控件行', description: 'control 槽放 IosSwitch / IosTextField（点控件不触发行）；纯勾选行用整行点按切换' },
+      { id: 'index', title: '快速索引条', description: '条上文字三档自动：标题首字 → 拼音首字母 → 隔位采样；含姓氏模式与乱序告警演示' },
+      { id: 'editing', title: '编辑模式', description: '「编辑」进出：减号删除、把手重排' },
+      { id: 'plain-variant', title: 'plain 变体换装', description: '同一组件同一份数据，传参即换装：grouped ↔ plain 现场切换' },
+      { id: 'plain-editing', title: 'plain 编辑模式', description: 'plain 分支与 grouped 共用同一套编辑机制' },
     ],
-    codeExample: `<List
-  title="通用"
-  footnote="重置网络设置将清除已保存的 Wi-Fi 密码。"
-  indexBar
-  editing={editing}
-  onDelete={(id) => remove(id)}
-  onReorder={(from, to) => reorder(from, to)}
->
-  <ListSection id="A" title="A">
-    <ListItem id="a1" label="阿福" accessory="disclosure" />
-  </ListSection>
-</List>`,
+    props: [
+      { name: 'children', type: 'ComponentChildren', description: '列表行（ListItem / ListSection / 行组件）', defaultValue: '—' },
+      { name: 'class', type: 'string?', description: '追加到容器的修饰类', defaultValue: '—' },
+      { name: 'title', type: 'ComponentChildren?', description: '节标题（盒子外上方）', defaultValue: '—' },
+      { name: 'footnote', type: 'ComponentChildren?', description: '节脚注（盒子外下方）', defaultValue: '—' },
+      { name: 'head', type: 'ComponentChildren?', description: '表头单元格（span 序列），有值时渲染表头行', defaultValue: '—' },
+      { name: 'headClass', type: 'string?', description: '追加到表头的附加类', defaultValue: '—' },
+      { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区（max-height 280 + overflow auto）', defaultValue: 'false' },
+      { name: 'bodyClass', type: 'string?', description: '追加到滚动体的附加类；配合 scrollable 使用', defaultValue: '—' },
+      { name: 'indexBar', type: 'boolean?', description: '右缘快速索引条；自动收集子级 ListSection，点击/沿条拖动跳节；条上文字三档自动切换——节少（≤12）显示标题首字、节多降为拼音首字母、槽位放不下再隔位采样。排序契约：组件不排序，节的条上标签须沿列表非降序——数据侧用 groupByIndexLetter 分组排序，dev 下逆序告警', defaultValue: 'false' },
+      { name: 'variant', type: "'grouped' | 'plain'?", description: '变体：grouped（默认）为设置分组盒；plain 为邮件/短信式通栏列表（行多行槽 trailing/preview/unread 生效，样式在 plain-list.css）', defaultValue: "'grouped'" },
+      { name: 'editing', type: 'boolean?', description: '编辑模式：行出现减号删除钮与拖拽排序把手', defaultValue: 'false' },
+      { name: 'selectedId', type: 'string?', description: '受控单选：配合 ListItem 的 id', defaultValue: '—' },
+      { name: 'onSelect', type: '(id: string) => void?', description: 'ListItem 点击上报选中', defaultValue: '—' },
+      { name: 'onDelete', type: '(id: string) => void?', description: '编辑模式：确认删除某行', defaultValue: '—' },
+      { name: 'onReorder', type: '(fromId: string, toId: string) => void?', description: '编辑模式：拖拽重排落定', defaultValue: '—' },
+    ],
   },
   {
     id: 'list-item',
     name: 'ListItem',
     description:
       'List 的组合行，同一组件双分支渲染：grouped（默认）为单行 flex 槽位（AntD List.Item 风格）label/subtitle/leading/value/extra/control 自由拼装；plain 为邮件式多行骨架（trailing/preview/unread 专属槽，grouped 忽略）；accessory 配件（箭头/选中勾/蓝 ⓘ）；带 id 即与 List 受控单选、编辑模式结合',
-    category: 'list-showcase',
+    category: 'data-display',
     importPath: "import { ListItem } from '../../ui/list-item.tsx'",
-    props: [
-      { name: 'id', type: 'string?', description: '稳定 id：参与 List 受控单选与编辑模式' },
-      { name: 'label', type: 'ComponentChildren?', description: '左侧主标题' },
-      { name: 'subtitle', type: 'ComponentChildren?', description: '灰色第二行副标题' },
-      { name: 'leading', type: 'ComponentChildren?', description: '左侧图标/头像位' },
-      { name: 'trailing', type: 'ComponentChildren?', description: 'plain 专属：首行右上角落位（日期/时间）；grouped 忽略' },
-      { name: 'preview', type: 'ComponentChildren?', description: 'plain 专属：末行灰色摘要；grouped 忽略' },
-      { name: 'unread', type: 'boolean?', description: 'plain 专属：未读态，标题/副标题置粗；grouped 忽略' },
-      { name: 'value', type: 'ComponentChildren?', description: '右侧值文本（与 extra 二选一）' },
-      { name: 'extra', type: 'ComponentChildren?', description: '右侧自定义内容（与 value 二选一）' },
-      { name: 'control', type: 'ComponentChildren?', description: '控件槽（IosSwitch 等）；点击不触发行选中' },
-      { name: 'accessory', type: "'none' | 'disclosure' | 'check' | 'detail'?", description: '右侧配件；check 跟随选中态' },
-      { name: 'badge', type: 'string?', description: '名称旁徽章文本' },
-      { name: 'selected', type: 'boolean?', description: '强制选中态；缺省由 List selectedId + id 推导' },
-      { name: 'disabled', type: 'boolean?', description: '禁用' },
-      { name: 'onClick', type: '() => void?', description: '有则渲染为 button，否则渲染为 div' },
+    demos: [
+      { id: 'basic', title: '行槽位与配件', description: 'value/subtitle/leading/badge/extra 自由拼装；ⓘ 配件点击不触发行' },
     ],
-    codeExample: `// 展示行 + 副标题 + ⓘ
-<ListItem label="iCloud 云盘" subtitle="跨设备同步文档" value="已开启" accessory="detail" />
-
-// 与 List 受控单选结合：点击自动上报、勾随选中
-<List selectedId={id} onSelect={setId}>
-  <ListItem id="a" label="iCloud" accessory="check" />
-  <ListItem id="b" label="Exchange" accessory="check" />
-</List>
-
-// 控件槽：开关行
-<ListItem label="Wi-Fi" control={<IosSwitch checked={on} onChange={setOn} label="Wi-Fi" />} />`,
-  },
-  {
-    id: 'list-selection',
-    name: 'List 受控单选',
-    description: 'List 给 selectedId/onSelect，ListItem 带 id 即结合：点击自动上报、蓝底高亮、accessory 勾随选中',
-    category: 'list-showcase',
-    importPath: "import { List } from '../../ui/list.tsx'\nimport { ListItem } from '../../ui/list-item.tsx'",
     props: [
-      { name: 'selectedId', type: 'string?', description: 'List 受控选中的行 id' },
-      { name: 'onSelect', type: '(id: string) => void?', description: '行点击上报' },
-      { name: 'id', type: 'string?', description: 'ListItem 的稳定 id' },
-      { name: 'accessory', type: "'check'?", description: '勾随选中态出现' },
+      { name: 'id', type: 'string?', description: '稳定 id：参与 List 受控单选与编辑模式', defaultValue: '—' },
+      { name: 'label', type: 'ComponentChildren?', description: '左侧主标题', defaultValue: '—' },
+      { name: 'subtitle', type: 'ComponentChildren?', description: '灰色第二行副标题', defaultValue: '—' },
+      { name: 'leading', type: 'ComponentChildren?', description: '左侧图标/头像位', defaultValue: '—' },
+      { name: 'trailing', type: 'ComponentChildren?', description: 'plain 专属：首行右上角落位（日期/时间）；grouped 忽略', defaultValue: '—' },
+      { name: 'preview', type: 'ComponentChildren?', description: 'plain 专属：末行灰色摘要；grouped 忽略', defaultValue: '—' },
+      { name: 'unread', type: 'boolean?', description: 'plain 专属：未读态，标题/副标题置粗；grouped 忽略', defaultValue: 'false' },
+      { name: 'value', type: 'ComponentChildren?', description: '右侧值文本（与 extra 二选一）', defaultValue: '—' },
+      { name: 'extra', type: 'ComponentChildren?', description: '右侧自定义内容（与 value 二选一）', defaultValue: '—' },
+      { name: 'control', type: 'ComponentChildren?', description: '控件槽（IosSwitch 等）；点击不触发行选中', defaultValue: '—' },
+      { name: 'accessory', type: "'none' | 'disclosure' | 'check' | 'detail'?", description: '右侧配件；check 跟随选中态', defaultValue: "'none'" },
+      { name: 'badge', type: 'string?', description: '名称旁徽章文本', defaultValue: '—' },
+      { name: 'selected', type: 'boolean?', description: '强制选中态；缺省由 List selectedId + id 推导', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '禁用', defaultValue: 'false' },
+      { name: 'onClick', type: '() => void?', description: '有则渲染为 button，否则渲染为 div', defaultValue: '—' },
     ],
-    codeExample: `const [id, setId] = useState('icloud')
-
-<List selectedId={id} onSelect={setId}>
-  <ListItem id="icloud" label="iCloud" value="john@example.com" accessory="check" />
-  <ListItem id="gmail" label="Gmail" value="john@gmail.com" accessory="check" />
-</List>`,
-  },
-  {
-    id: 'list-controls',
-    name: 'List 控件行',
-    description: 'ListItem 的 control 槽放 IosSwitch / IosTextField（点控件不触发行）；纯勾选行用整行点按切换',
-    category: 'list-showcase',
-    importPath: "import { ListItem } from '../../ui/list-item.tsx'",
-    props: [
-      { name: 'control', type: 'ComponentChildren?', description: '控件槽；点击不冒泡到行' },
-      { name: 'value', type: 'ComponentChildren?', description: '右侧值文本' },
-      { name: 'selected', type: 'boolean?', description: '强制选中态（配合 accessory="check"）' },
-      { name: 'onClick', type: '() => void?', description: '整行点按（如勾选切换）' },
-    ],
-    codeExample: `<ListItem label="Wi-Fi" control={<IosSwitch checked={on} onChange={setOn} label="Wi-Fi" />} />
-<ListItem label="自动下载" selected={auto} accessory="check" onClick={() => setAuto(!auto)} />`,
-  },
-  {
-    id: 'list-index',
-    name: 'List 快速索引条',
-    description: 'ListSection 出分组，List 的 indexBar 出右缘快速索引条——条上文字由节标题自动派生且随节数分三档：节少（≤12）显示标题首字（水果类→水，更易扫读）、节多降为拼音首字母（水果类→S）、槽位放不下再隔位采样（触点按全节等比映射，显示与触点不同步）；点字母或沿条拖动跳节。排序契约：组件不排序，启用即承诺节标签沿列表非降序（数据侧用 groupByIndexLetter 归组排序，dev 下逆序告警）',
-    category: 'list-showcase',
-    importPath: "import { List, ListSection } from '../../ui/list.tsx'\nimport { groupByIndexLetter } from '../../ui/list-index.ts'",
-    props: [
-      { name: 'indexBar', type: 'boolean?', description: '渲染右缘快速索引条；条上文字三档自动：≤12 节显示标题首字、13+ 节降为拼音首字母、槽位放不下时隔位采样稀疏显示' },
-      { name: 'id', type: 'string', description: 'ListSection 的跳转锚点，须唯一；不出现在索引条上' },
-      { name: 'title', type: 'string', description: 'ListSection 的节标题（可为词组）；条上文字缺省由它派生（首字档取标题首字「水」、字母档取拼音首字母「S」）' },
-      { name: 'indexLabel', type: 'string?', description: 'ListSection 的条上文字显式覆盖，任何档位原样显示；派生不准（冷僻姓氏/词典外词）时用它兜底' },
-      { name: 'scrollable', type: 'boolean?', description: 'children 包进限高滚动区，索引跳转需要滚动容器' },
-    ],
-    codeExample: `// 平铺名单自动归组排序（A-Z 升序、# 沉底、组内按全拼）；姓氏模式修多音姓
-const groups = groupByIndexLetter(names, (name) => name, { surname: true })
-
-<List indexBar scrollable>
-  {groups.map((g) => (
-    <ListSection key={g.label} id={g.label} title={g.label}>
-      {g.items.map((name) => (
-        <ListItem key={name} label={name} accessory="disclosure" />
-      ))}
-    </ListSection>
-  ))}
-</List>
-
-// 词组节标题：节少自动显示首字「水」「蔬」，节多自动降为拼音首字母；indexLabel 显式值任何档位原样上条
-<ListSection id="fruit" title="水果类" />
-<ListSection id="veg" title="蔬菜类" indexLabel="蔬" />`,
-  },
-  {
-    id: 'list-editing',
-    name: 'List 编辑模式',
-    description: 'editing 进编辑态：减号/把手淡入、行内容两侧平滑内收，点减号红删除钮滑入滑出，拖右缘把手重排（拖动行浮起、其余让位），onDelete/onReorder 落数据',
-    category: 'list-showcase',
-    importPath: "import { List } from '../../ui/list.tsx'",
-    props: [
-      { name: 'editing', type: 'boolean?', description: '是否处于编辑态' },
-      { name: 'onDelete', type: '(id: string) => void?', description: '确认删除某行' },
-      { name: 'onReorder', type: '(fromId: string, toId: string) => void?', description: '拖拽重排落定' },
-    ],
-    codeExample: `const [editing, setEditing] = useState(false)
-
-<Button onClick={() => setEditing(!editing)}>{editing ? '完成' : '编辑'}</Button>
-<List class={tokens} editing={editing}
-  onDelete={(id) => remove(id)}
-  onReorder={(from, to) => reorder(from, to)}
->
-  {items.map((it) => <ListItem key={it.id} id={it.id} label={it.label} value={it.qty} />)}
-</List>`,
-  },
-  {
-    id: 'list-plain-variant',
-    name: 'List plain 变体',
-    description: 'variant="plain" 切换为 iOS 6 邮件/短信式通栏列表：行发丝线、选中蓝底白字、未读加粗；plain 专属槽 trailing（首行右上角日期）/preview（灰色摘要）/unread。同一组件同一份属性面，传参即换装——机制（选中/编辑/重排）与 grouped 共用一份',
-    category: 'list-showcase',
-    importPath: "import { List } from '../../ui/list.tsx'\nimport { ListItem } from '../../ui/list-item.tsx'",
-    props: [
-      { name: 'variant', type: "'grouped' | 'plain'?", description: 'grouped（默认）设置分组盒 / plain 通栏列表' },
-      { name: 'trailing', type: 'ComponentChildren?', description: 'ListItem plain 专属：首行右上角落位' },
-      { name: 'preview', type: 'ComponentChildren?', description: 'ListItem plain 专属：末行灰色摘要' },
-      { name: 'unread', type: 'boolean?', description: 'ListItem plain 专属：未读置粗' },
-      { name: 'selectedId', type: 'string?', description: '受控单选（机制与 grouped 相同）' },
-    ],
-    codeExample: `const [variant, setVariant] = useState<'grouped' | 'plain'>('plain')
-
-<SegmentedControl
-  ariaLabel="List 变体"
-  value={variant}
-  onChange={setVariant}
-  items={[
-    { id: 'grouped', label: 'grouped 设置' },
-    { id: 'plain', label: 'plain 邮件' },
-  ]}
-/>
-<List variant={variant} selectedId={id} onSelect={setId}>
-  <ListItem id="t1" label="设计组" trailing="10:24"
-    subtitle="Q3 视觉规范终稿" preview="打印样张已经寄出……" unread />
-</List>`,
-  },
-  {
-    id: 'list-plain-editing',
-    name: 'List plain 编辑模式',
-    description: 'plain 分支的编辑模式与 grouped 同一套机制：减号/把手淡入、行内容两侧平滑内收，点减号红删除钮滑入滑出，拖把手重排（拖动行浮起、其余让位），onDelete/onReorder 落数据；样式在 plain-list.css',
-    category: 'list-showcase',
-    importPath: "import { List } from '../../ui/list.tsx'\nimport { ListItem } from '../../ui/list-item.tsx'",
-    props: [
-      { name: 'variant', type: "'plain'", description: '通栏列表变体' },
-      { name: 'editing', type: 'boolean?', description: '是否处于编辑态' },
-      { name: 'onDelete', type: '(id: string) => void?', description: '确认删除某行' },
-      { name: 'onReorder', type: '(fromId: string, toId: string) => void?', description: '拖拽重排落定' },
-    ],
-    codeExample: `const [editing, setEditing] = useState(false)
-
-<Button onClick={() => setEditing(!editing)}>{editing ? '完成' : '编辑'}</Button>
-<List variant="plain" editing={editing}
-  onDelete={(id) => remove(id)}
-  onReorder={(from, to) => reorder(from, to)}
->
-  {threads.map((it) => (
-    <ListItem key={it.id} id={it.id} label={it.label} trailing={it.date}
-      subtitle={it.subject} preview={it.snippet} />
-  ))}
-</List>`,
   },
   {
     id: 'adaptive-split-nav',
@@ -577,28 +357,18 @@ const groups = groupByIndexLetter(names, (name) => name, { surname: true })
     description: '自适应分栏导航：宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接。分栏宽度 ≤640 时进入紧凑档（左右固定 50/50，listRatio 不参与），≥700 恢复比例。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
     category: 'navigation',
     importPath: "import { AdaptiveSplitNav, useAdaptiveSplitNav } from '../../ui/adaptive-split-nav.tsx'",
-    props: [
-      { name: 'controller', type: 'AdaptiveSplitNavController', description: 'useAdaptiveSplitNav() 返回的控制器' },
-      { name: 'renderNarrowPage', type: '(page: string) => ComponentChildren', description: '窄屏子页栈页面渲染' },
-      { name: 'renderWideFrames', type: '() => AdaptiveFrameSpec[]', description: '分栏右栏帧序列（从领域状态派生，末位最上）' },
-      { name: 'framesResetKey', type: 'string?', description: '帧栈全量重置键（选中条目身份切换时整体替换）' },
-      { name: 'narrowPageForState', type: '() => string', description: 'useAdaptiveSplitNav：由领域状态推导当前子页 id' },
-      { name: 'listPage', type: 'string?', description: 'useAdaptiveSplitNav：分栏左栏根列表页 id' },
-      { name: 'frameAnimationMs', type: 'number?', description: '形变/帧动画时长，默认 380' },
+    demos: [
+      { id: 'basic', title: '整应用演示', description: '布局原语需整应用承载，点按钮打开「导航组件演示」应用' },
     ],
-    codeExample: `const nav = useAdaptiveSplitNav({
-  // 由领域状态推导窄屏应处的子页 id
-  narrowPageForState: () => posPageId(pos),
-  split: true,
-  // 分栏左栏显示的根列表页
-  listPage: ROOT,
-})
-
-<AdaptiveSplitNav
-  controller={nav}
-  renderNarrowPage={renderNarrowPage}
-  renderWideFrames={renderWideFrames}
-/>`,
+    props: [
+      { name: 'controller', type: 'AdaptiveSplitNavController', description: 'useAdaptiveSplitNav() 返回的控制器', defaultValue: '—' },
+      { name: 'renderNarrowPage', type: '(page: string) => ComponentChildren', description: '窄屏子页栈页面渲染', defaultValue: '—' },
+      { name: 'renderWideFrames', type: '() => AdaptiveFrameSpec[]', description: '分栏右栏帧序列（从领域状态派生，末位最上）', defaultValue: '—' },
+      { name: 'framesResetKey', type: 'string?', description: '帧栈全量重置键（选中条目身份切换时整体替换）', defaultValue: '—' },
+      { name: 'narrowPageForState', type: '() => string', description: 'useAdaptiveSplitNav：由领域状态推导当前子页 id', defaultValue: '—' },
+      { name: 'listPage', type: 'string?', description: 'useAdaptiveSplitNav：分栏左栏根列表页 id', defaultValue: '—' },
+      { name: 'frameAnimationMs', type: 'number?', description: '形变/帧动画时长', defaultValue: '380' },
+    ],
   },
   {
     id: 'document-tab-bar',
@@ -606,20 +376,16 @@ const groups = groupByIndexLetter(names, (name) => name, { surname: true })
     description: '文档标签栏；脏状态、关闭动画、拥挤时悬停加宽、minTabsToShow',
     category: 'navigation',
     importPath: "import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'",
-    props: [
-      { name: 'tabs', type: 'DocumentTabItem[]', description: '标签列表' },
-      { name: 'activeTabId', type: 'string | undefined', description: '当前激活标签' },
-      { name: 'onActivate', type: '(tabId: string) => void', description: '激活回调' },
-      { name: 'onClose', type: '(tabId: string) => void', description: '关闭回调' },
-      { name: 'minTabsToShow', type: 'number?', description: '低于此数量时隐藏标签栏，默认 2' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '脏状态、关闭动画、长标题与最小数量收起' },
     ],
-    codeExample: `<DocumentTabBar
-  tabs={openFiles}
-  activeTabId={currentFile}
-  onActivate={openFile}
-  onClose={closeFile}
-  minTabsToShow={2}
-/>`,
+    props: [
+      { name: 'tabs', type: 'DocumentTabItem[]', description: '标签列表', defaultValue: '—' },
+      { name: 'activeTabId', type: 'string | undefined', description: '当前激活标签', defaultValue: '—' },
+      { name: 'onActivate', type: '(tabId: string) => void', description: '激活回调', defaultValue: '—' },
+      { name: 'onClose', type: '(tabId: string) => void', description: '关闭回调', defaultValue: '—' },
+      { name: 'minTabsToShow', type: 'number?', description: '低于此数量时隐藏标签栏', defaultValue: '2' },
+    ],
   },
   {
     id: 'adaptive-action-menu',
@@ -627,23 +393,17 @@ const groups = groupByIndexLetter(names, (name) => name, { surname: true })
     description: '自适应操作菜单；宽屏下拉，窄屏底部面板',
     category: 'navigation',
     importPath: "import { AdaptiveActionMenu } from '../../ui/adaptive-action-menu.tsx'",
-    props: [
-      { name: 'open', type: 'boolean', description: '是否打开' },
-      { name: 'title', type: 'string', description: '菜单标题' },
-      { name: 'items', type: 'AdaptiveActionMenuItem[]', description: '菜单项列表' },
-      { name: 'narrowLayout', type: 'boolean', description: '是否窄屏布局' },
-      { name: 'onClose', type: '() => void', description: '关闭回调' },
-      { name: 'mount', type: "'contained' | 'portal'", description: '挂载方式' },
+    demos: [
+      { id: 'basic', title: '宽窄两种形态', description: '宽屏下拉与窄屏底部面板' },
     ],
-    codeExample: `<AdaptiveActionMenu
-  open={menuOpen}
-  title="操作"
-  items={[
-    { type: 'action', label: '删除', onClick: handleDelete }
-  ]}
-  narrowLayout={narrow}
-  onClose={() => setMenuOpen(false)}
-/>`,
+    props: [
+      { name: 'open', type: 'boolean', description: '是否打开', defaultValue: '—' },
+      { name: 'title', type: 'string', description: '菜单标题', defaultValue: '—' },
+      { name: 'items', type: 'AdaptiveActionMenuItem[]', description: '菜单项列表', defaultValue: '—' },
+      { name: 'narrowLayout', type: 'boolean', description: '是否窄屏布局', defaultValue: '—' },
+      { name: 'onClose', type: '() => void', description: '关闭回调', defaultValue: '—' },
+      { name: 'mount', type: "'contained' | 'portal'", description: '挂载方式', defaultValue: "'contained'" },
+    ],
   },
   {
     id: 'ios-nav-back-button',
@@ -651,16 +411,15 @@ const groups = groupByIndexLetter(names, (name) => name, { surname: true })
     description: 'iOS 风格返回按钮；用于子页标题栏',
     category: 'navigation',
     importPath: "import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'",
-    props: [
-      { name: 'label', type: 'string', description: '返回目标名称' },
-      { name: 'onClick', type: '(event) => void', description: '点击回调' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
-      { name: 'iconSize', type: 'number?', description: '箭头图标尺寸，默认 13' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '子页返回导航与禁用态' },
     ],
-    codeExample: `<IosNavBackButton
-  label="设置"
-  onClick={() => navigateBack()}
-/>`,
+    props: [
+      { name: 'label', type: 'string', description: '返回目标名称', defaultValue: '—' },
+      { name: 'onClick', type: '(event) => void', description: '点击回调', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+      { name: 'iconSize', type: 'number?', description: '箭头图标尺寸', defaultValue: '13' },
+    ],
   },
   {
     id: 'tree-view',
@@ -668,136 +427,24 @@ const groups = groupByIndexLetter(names, (name) => name, { surname: true })
     description: '通用折叠树：递归子级、展开/折叠带滑出/滑入动画、增删行带高度展开/收起动画、单选高亮；行内容经 renderNode 注入。支持双击展开/收起与键盘导航（↑/↓ 选中、→/← 展开收起、Home/End/Enter）',
     category: 'navigation',
     importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
-    props: [
-      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表（T 需含 id 与 children）' },
-      { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合' },
-      { name: 'selectedId', type: 'string?', description: '受控选中节点 id' },
-      { name: 'removalSelection', type: `'none' | 'prefer-previous' | 'prefer-next'?`, description: '选中节点被移除后的自动补选：none 不自动选中（默认）；prefer-previous / prefer-next 按「上一轮可见序」优先向前 / 向后选相邻幸存行，一侧到底后反向兜底，经 onSelect 通知宿主' },
-      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调' },
-      { name: 'onExpandedChange', type: '(node: T, expanded: boolean) => void?', description: '展开/折叠变化回调（供懒加载）' },
-      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（图标/标签/附加列）' },
-      { name: 'indent', type: 'number?', description: '每级缩进像素，默认 28' },
-      { name: 'className', type: 'string?', description: '透传到容器（宿主滚动/尺寸样式）' },
-      { name: 'ariaLabel', type: 'string?', description: '容器无障碍标签' },
+    demos: [
+      { id: 'basic', title: '展开折叠与选中', description: '滑出/滑入动画、单选高亮；双击展开收起与键盘导航' },
+      { id: 'interactive', title: '增删动效', description: '上方/下方/子级插入与删除选中；removalSelection 补选相邻行' },
+      { id: 'lazy-load', title: '异步加载', description: '展开先出「加载中…」行，数据返回后替换为真实子级' },
+      { id: 'big-data', title: '大数据量', description: '165 行全展开大树里增删依旧流畅' },
     ],
-    codeExample: `<TreeView
-  nodes={folders}
-  defaultExpandedIds={['docs']}
-  selectedId={selectedId}
-  onSelect={(node) => setSelectedId(node.id)}
-  renderNode={(node, ctx) => (
-    <>
-      <span class="ui-kit-demo__tree-label">{node.label}</span>
-      <span class="ui-kit-demo__tree-size">{formatStorageSize(node.size)}</span>
-    </>
-  )}
-/>`,
-  },
-  {
-    id: 'tree-view-interactive',
-    name: 'TreeView 增删动效',
-    description:
-      'TreeView 动态增删演示：可在选中行上方/下方插入兄弟节点、插入为选中项子级，或删除选中行——插入带高度展开 + 淡入、删除带高度收起 + 淡出，与展开/折叠动画同一套视觉语言；删除选中行后按 removalSelection 自动补选相邻行（优先向前/向后，反向兜底）。增删均由数据驱动（派生新 nodes 数组），TreeView 内部 diff 触发对应行动画。',
-    category: 'tree',
-    importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
     props: [
-      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表；增删即传派生新数组，行动画由 TreeView 内部 diff 触发' },
-      { name: 'selectedId', type: 'string?', description: '受控选中节点 id（「上方/下方插入、删除选中」都基于它）' },
-      { name: 'removalSelection', type: `'none' | 'prefer-previous' | 'prefer-next'?`, description: '删除选中行后的补选策略：默认不自动选中；prefer-previous / prefer-next 优先选上一行 / 下一行（可见序），另一侧兜底' },
-      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调，更新选中态；补选结果也经它回流宿主' },
-      { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合' },
-      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（图标/标签/附加列）' },
+      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表（T 需含 id 与 children）', defaultValue: '—' },
+      { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合', defaultValue: '—' },
+      { name: 'selectedId', type: 'string?', description: '受控选中节点 id', defaultValue: '—' },
+      { name: 'removalSelection', type: `'none' | 'prefer-previous' | 'prefer-next'?`, description: '选中节点被移除后的自动补选：none 不自动选中（默认）；prefer-previous / prefer-next 按「上一轮可见序」优先向前 / 向后选相邻幸存行，一侧到底后反向兜底，经 onSelect 通知宿主', defaultValue: "'none'" },
+      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调', defaultValue: '—' },
+      { name: 'onExpandedChange', type: '(node: T, expanded: boolean) => void?', description: '展开/折叠变化回调（供懒加载）', defaultValue: '—' },
+      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（图标/标签/附加列）', defaultValue: '—' },
+      { name: 'indent', type: 'number?', description: '每级缩进像素', defaultValue: '28' },
+      { name: 'className', type: 'string?', description: '透传到容器（宿主滚动/尺寸样式）', defaultValue: '—' },
+      { name: 'ariaLabel', type: 'string?', description: '容器无障碍标签', defaultValue: '—' },
     ],
-    codeExample: `const insertAbove = () => {
-  const node = { id: \`new-\${++seq.current}\`, label: \`新项目 \${seq.current}\` }
-  setNodes((prev) => insertSibling(prev, selectedId, node, -1)) // 选中行上方插入兄弟
-  setSelectedId(node.id)
-}
-
-const insertBelow = () => {
-  const node = { id: \`new-\${++seq.current}\`, label: \`新项目 \${seq.current}\` }
-  setNodes((prev) => insertSibling(prev, selectedId, node, 1)) // 选中行下方插入兄弟
-  setSelectedId(node.id)
-}
-
-const deleteSelected = () => {
-  if (!selectedId) return
-  // 只删数据；补选相邻行由 TreeView 的 removalSelection 负责，经 onSelect 回流
-  setNodes((prev) => removeNode(prev, selectedId))
-}
-
-return (
-  <TreeView
-    nodes={nodes}
-    selectedId={selectedId}
-    removalSelection="prefer-next"
-    onSelect={(node) => setSelectedId(node.id)}
-    renderNode={(node) => <span class="ui-kit-demo__tree-label">{node.label}</span>}
-  />
-)`,
-  },
-  {
-    id: 'tree-view-lazy-load',
-    name: 'TreeView 异步加载',
-    description:
-      '懒加载演示：展开带 lazy 标记的分支先注入「加载中…」行（进场动画）占位，模拟异步返回后整批替换为真实子级（再次触发进场动画）；展开/折叠状态由 TreeView 内部管理，onExpandedChange 只负责取数，无需受控 expandedIds。',
-    category: 'tree',
-    importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
-    props: [
-      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表；子级为空且带 lazy 标记的分支展开时触发加载' },
-      { name: 'onExpandedChange', type: '(node: T, expanded: boolean) => void?', description: '展开/折叠回调——懒加载在这里注入「加载中…」行并在异步返回后替换为真实子级' },
-      { name: 'selectedId', type: 'string?', description: '受控选中节点 id' },
-      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调' },
-      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容；「加载中…」行可按 id 前缀特判' },
-    ],
-    codeExample: `const handleExpandedChange = (node: DemoTreeNode, expanded: boolean) => {
-  if (!expanded || node.lazy !== true || node.children?.length) return
-  setNodes((prev) => setChildren(prev, node.id, [loadingRow(node.id)])) // 先注入「加载中…」
-  setTimeout(() => {
-    setNodes((prev) => setChildren(prev, node.id, awaitChildren(node))) // 异步返回真实子级
-  }, 600)
-}
-
-return (
-  <TreeView
-    nodes={nodes}
-    onExpandedChange={handleExpandedChange}
-    renderNode={(node) => <span class="ui-kit-demo__tree-label">{node.label}</span>}
-  />
-)`,
-  },
-  {
-    id: 'tree-view-big-data',
-    name: 'TreeView 大数据量',
-    description:
-      '大数据量演示：165 行（15 文件夹 × 10 文件）全展开的大树里上方/下方插入、删除选中仍流畅——增删高度动画每帧只做单元素 block 布局（一次测高后纯 px 过渡），成本不随节点数增长；树高固定，超出部分卡片内部滚动。',
-    category: 'tree',
-    importPath: "import { TreeView } from '../../ui/tree-view.tsx'",
-    props: [
-      { name: 'nodes', type: 'readonly T[]', description: '多根节点列表；大数据量下增删 diff 依旧只动增量行' },
-      { name: 'defaultExpandedIds', type: 'Iterable<string>?', description: '初始展开的节点 id 集合（本演示全展开）' },
-      { name: 'selectedId', type: 'string?', description: '受控选中节点 id' },
-      { name: 'onSelect', type: '(node: T) => void?', description: '行点击回调' },
-      { name: 'renderNode', type: '(node: T, ctx: TreeViewRowContext<T>) => ComponentChildren', description: '渲染行业务内容（标签/附加列）' },
-    ],
-    codeExample: `const folders = Array.from({ length: 15 }, (_, f) => ({
-  id: \`folder-\${f + 1}\`,
-  label: \`文件夹 \${f + 1}\`,
-  children: Array.from({ length: 10 }, (_, i) => ({
-    id: \`folder-\${f + 1}-file-\${i + 1}\`,
-    label: \`文件 \${f + 1}-\${i + 1}.txt\`,
-  })),
-}))
-
-return (
-  <TreeView
-    nodes={folders}
-    defaultExpandedIds={folders.map((n) => n.id)}
-    selectedId={selectedId}
-    onSelect={(node) => setSelectedId(node.id)}
-    renderNode={(node) => <span class="ui-kit-demo__tree-label">{node.label}</span>}
-  />
-)`,
   },
   {
     id: 'emoji-picker-popover',
@@ -805,18 +452,16 @@ return (
     description: '表情选择弹出层；默认触发器或自定义 children 内容',
     category: 'picker',
     importPath: "import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'",
-    props: [
-      { name: 'value', type: 'string', description: '当前表情' },
-      { name: 'onChange', type: '(emoji: string) => void', description: '选择回调' },
-      { name: 'triggerLabel', type: 'string?', description: '默认触发器文案' },
-      { name: 'children', type: 'ComponentChildren?', description: '自定义触发器内容' },
-      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '默认触发器与自定义触发器内容' },
     ],
-    codeExample: `<EmojiPickerPopover
-  value={emoji}
-  onChange={setEmoji}
-  triggerLabel="选择图标"
-/>`,
+    props: [
+      { name: 'value', type: 'string', description: '当前表情', defaultValue: '—' },
+      { name: 'onChange', type: '(emoji: string) => void', description: '选择回调', defaultValue: '—' },
+      { name: 'triggerLabel', type: 'string?', description: '默认触发器文案', defaultValue: '—' },
+      { name: 'children', type: 'ComponentChildren?', description: '自定义触发器内容', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+    ],
   },
   {
     id: 'ai-model-capability-tags',
@@ -824,16 +469,14 @@ return (
     description: 'AI 模型能力标签；视觉能力可切换编辑',
     category: 'other',
     importPath: "import { AiModelCapabilityTags } from '../../ui/ai-model-capability-tags.tsx'",
-    props: [
-      { name: 'capabilities', type: 'readonly AiModelCapability[]', description: '已启用能力' },
-      { name: 'visionEditable', type: 'boolean?', description: '是否允许切换视觉能力' },
-      { name: 'onVisionChange', type: '(supportsVision: boolean) => void?', description: '视觉能力变化回调' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '只读展示与可编辑视觉能力' },
     ],
-    codeExample: `<AiModelCapabilityTags
-  capabilities={['text', 'vision']}
-  visionEditable
-  onVisionChange={setSupportsVision}
-/>`,
+    props: [
+      { name: 'capabilities', type: 'readonly AiModelCapability[]', description: '已启用能力', defaultValue: '—' },
+      { name: 'visionEditable', type: 'boolean?', description: '是否允许切换视觉能力', defaultValue: 'false' },
+      { name: 'onVisionChange', type: '(supportsVision: boolean) => void?', description: '视觉能力变化回调', defaultValue: '—' },
+    ],
   },
   {
     id: 'popover',
@@ -842,21 +485,17 @@ return (
       '通用锚定气泡；箭头自动跟随锚点，靠近视口底部向上翻、超出视口夹紧；宿主窗口宽 ≤520px 时自动退化为居中模态对话框（「好」按钮关闭）',
     category: 'other',
     importPath: "import { Popover } from '../../ui/popover.tsx'",
-    props: [
-      { name: 'open', type: 'boolean', description: '是否打开' },
-      { name: 'anchorRef', type: 'RefObject<HTMLElement>', description: '锚点元素；箭头指向它，窄屏判定也以它所在的窗口为准' },
-      { name: 'onClose', type: '() => void', description: '关闭回调（外部点按 / Esc / 窄屏按钮）' },
-      { name: 'children', type: 'ComponentChildren', description: '气泡内容' },
-      { name: 'ariaLabel', type: 'string?', description: '无障碍标签' },
-      { name: 'dismissLabel', type: 'string?', description: '窄屏模态关闭按钮文案，默认「好」' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '锚定气泡：箭头跟随、越界翻转夹紧；窗口拖窄退化为居中模态' },
     ],
-    codeExample: `const [open, setOpen] = useState(false)
-const buttonRef = useRef(null)
-
-<button ref={buttonRef} onClick={() => setOpen(!open)}>说明</button>
-<Popover open={open} anchorRef={buttonRef} onClose={() => setOpen(false)}>
-  这里是帮助说明文字。
-</Popover>`,
+    props: [
+      { name: 'open', type: 'boolean', description: '是否打开', defaultValue: '—' },
+      { name: 'anchorRef', type: 'RefObject<HTMLElement>', description: '锚点元素；箭头指向它，窄屏判定也以它所在的窗口为准', defaultValue: '—' },
+      { name: 'onClose', type: '() => void', description: '关闭回调（外部点按 / Esc / 窄屏按钮）', defaultValue: '—' },
+      { name: 'children', type: 'ComponentChildren', description: '气泡内容', defaultValue: '—' },
+      { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
+      { name: 'dismissLabel', type: 'string?', description: '窄屏模态关闭按钮文案', defaultValue: "'好'" },
+    ],
   },
   {
     id: 'help-hint',
@@ -865,14 +504,13 @@ const buttonRef = useRef(null)
       '帮助提示按钮；SVG 矢量「？」圆形按钮，点按经 Popover 弹出说明气泡（带指向箭头；宿主窗口很窄时变居中模态）',
     category: 'other',
     importPath: "import { HelpHint } from '../../ui/help-hint.tsx'",
-    props: [
-      { name: 'text', type: 'string', description: '说明内容，展示在弹出气泡里' },
-      { name: 'label', type: 'string?', description: '无障碍标签，缺省用「说明」' },
+    demos: [
+      { id: 'basic', title: '基础用法', description: '行内「？」按钮弹出说明气泡；长文案验证视口边缘定位' },
     ],
-    codeExample: `<HelpHint
-  text="开启后尽量以稀疏分块存储：缺席的全零块不落库，写入全零自动打洞"
-  label="机会压缩说明"
-/>`,
+    props: [
+      { name: 'text', type: 'string', description: '说明内容，展示在弹出气泡里', defaultValue: '—' },
+      { name: 'label', type: 'string?', description: '无障碍标签', defaultValue: "'说明'" },
+    ],
   },
   {
     id: 'window-modal',
@@ -880,32 +518,23 @@ const buttonRef = useRef(null)
     description: '窗口模态对话框；primary / secondary / danger 按钮，支持 wide / scrollBody、标题对齐、副标题与关闭钮',
     category: 'window',
     importPath: "import { WindowModal } from '../../window/window-modal.tsx'",
-    props: [
-      { name: 'open', type: 'boolean', description: '是否打开' },
-      { name: 'title', type: 'string', description: '对话框标题' },
-      { name: 'subtitle', type: 'string?', description: '主标题下方的辅助说明' },
-      { name: 'titleAlign', type: "'center' | 'left'?", description: '标题对齐方式，默认居中' },
-      { name: 'showCloseButton', type: 'boolean?', description: '在标题栏右上角显示关闭按钮' },
-      { name: 'onClose', type: '() => void', description: '关闭回调' },
-      { name: 'actions', type: 'WindowModalAction[]?', description: '操作按钮列表' },
-      { name: 'headerActions', type: 'WindowModalAction[]?', description: '标题栏右侧操作按钮' },
-      { name: 'wide', type: 'boolean?', description: '宽对话框' },
-      { name: 'scrollBody', type: 'boolean?', description: '内容区可滚动' },
-      { name: 'children', type: 'ComponentChildren', description: '内容区域' },
+    demos: [
+      { id: 'basic', title: '确认与危险操作', description: '标准确认框与 alertdialog 危险确认' },
+      { id: 'wide', title: '宽对话框与标题栏', description: 'wide + scrollBody、左对齐标题、副标题与关闭钮' },
     ],
-    codeExample: `<WindowModal
-  open={dialogOpen}
-  title="历史记录"
-  subtitle="72 个页面"
-  titleAlign="left"
-  showCloseButton
-  onClose={handleClose}
-  actions={[
-    { label: '清空历史记录', tone: 'danger', onClick: handleClear }
-  ]}
->
-  <p>内容区域</p>
-</WindowModal>`,
+    props: [
+      { name: 'open', type: 'boolean', description: '是否打开', defaultValue: '—' },
+      { name: 'title', type: 'string', description: '对话框标题', defaultValue: '—' },
+      { name: 'subtitle', type: 'string?', description: '主标题下方的辅助说明', defaultValue: '—' },
+      { name: 'titleAlign', type: "'center' | 'left'?", description: '标题对齐方式', defaultValue: "'center'" },
+      { name: 'showCloseButton', type: 'boolean?', description: '在标题栏右上角显示关闭按钮', defaultValue: 'false' },
+      { name: 'onClose', type: '() => void', description: '关闭回调', defaultValue: '—' },
+      { name: 'actions', type: 'WindowModalAction[]?', description: '操作按钮列表', defaultValue: '—' },
+      { name: 'headerActions', type: 'WindowModalAction[]?', description: '标题栏右侧操作按钮', defaultValue: '—' },
+      { name: 'wide', type: 'boolean?', description: '宽对话框', defaultValue: 'false' },
+      { name: 'scrollBody', type: 'boolean?', description: '内容区可滚动', defaultValue: 'false' },
+      { name: 'children', type: 'ComponentChildren', description: '内容区域', defaultValue: '—' },
+    ],
   },
   {
     id: 'mini-window',
@@ -914,18 +543,13 @@ const buttonRef = useRef(null)
       "系统迷你窗（chromeKind='mini'）：尺寸完全由内容撑起，仅关闭键；不可缩放、拖到屏幕边不吸附、双击标题栏不最大化，最小尺寸只保标题栏可显示。文件复制/解压的进度窗即此窗型",
     category: 'window',
     importPath: "openApp('files-op-progress', { documentId, chromeKind: 'mini' })",
-    props: [
-      { name: 'chromeKind', type: "'mini'", description: '迷你窗形态：内容撑起尺寸，仅关闭键' },
-      { name: 'documentId', type: 'string?', description: '会话标识；同 documentId 重复打开会聚焦既有窗' },
+    demos: [
+      { id: 'basic', title: '打开真实迷你窗', description: '点按钮打开一扇真实迷你窗（进度应用空态），看内容撑起尺寸' },
     ],
-    codeExample: `const { openApp } = useOs()
-
-<Button
-  tone="primary"
-  onClick={() => openApp('files-op-progress', { chromeKind: 'mini' })}
->
-  打开迷你窗
-</Button>`,
+    props: [
+      { name: 'chromeKind', type: "'mini'", description: '迷你窗形态：内容撑起尺寸，仅关闭键', defaultValue: '—' },
+      { name: 'documentId', type: 'string?', description: '会话标识；同 documentId 重复打开会聚焦既有窗', defaultValue: '—' },
+    ],
   },
   {
     id: 'icon',
@@ -933,65 +557,21 @@ const buttonRef = useRef(null)
     description:
       'Material Symbols 图标浏览器：搜索、字体族、填充开关和字重与左侧类目、右侧网格同卡；侧栏只列出当前字体族下有图标的类目。目录按题材分类（安卓是其中一类，不是整库限定平台），网格虚拟滚动，点击格复制名字',
     category: 'icons',
-    wide: true,
     importPath: "import { Icon } from '../../ui/icon.tsx'",
-    props: [
-      { name: 'name', type: 'string', description: 'ligature 名，如 "delete"；全目录见 fonts.google.com/icons' },
-      { name: 'family', type: "'outlined' | 'rounded' | 'sharp'", description: '字体族轮廓风格，默认 rounded' },
-      { name: 'fill', type: 'boolean?', description: 'FILL 轴：描边（默认）/ 填充实心' },
-      { name: 'weight', type: 'number?', description: 'wght 轴 100–700，默认 400' },
-      { name: 'grade', type: 'number?', description: 'GRAD 轴 -25–200，默认 0' },
-      { name: 'size', type: 'number?', description: 'font-size 像素值，默认 24' },
-      { name: 'label', type: 'string?', description: '语义化标签；缺省时 aria-hidden 仅作装饰' },
+    demos: [
+      { id: 'basic', title: '图标库浏览器', description: '搜索、字体族、填充/字重、类目侧栏与虚拟滚动网格；点击格复制名字' },
+      { id: 'combo', title: '与组件组合', description: 'Button 图标钮、icon+文字受控例外、List leading 槽；顶部滑杆统一调字重' },
+      { id: 'inset', title: '内凹两种画法', description: 'SVG 滤镜真·内阴影 vs 渐变明暗模拟；深度/浓度/字重滑杆联动' },
     ],
-    codeExample: `<Icon name="delete" />
-<Icon name="add" family="sharp" fill weight={600} size={18} />
-{/* icon 与文字互斥：传了 icon 只显示图标（方钮），文字转作无障碍名 */}
-<Button icon={<Icon name="add" size={13} />}>新建</Button>
-<Button icon={<Icon name="close" size={13} />} aria-label="关闭" />`,
-  },
-  {
-    id: 'icon-combo',
-    name: 'Icon × 组件组合',
-    description:
-      'Icon 与 kit 组件的组合示范：Button 仅传 icon（无文字），showBothIconAndText 时 icon+文字同显（受控例外，未经用户要求一般不启用）、List 的 leading 槽放图标；图标颜色随容器文字色（currentColor），顶部滑杆可统一调整套卡图标字重',
-    category: 'icons',
-    importPath: "import { Icon } from '../../ui/icon.tsx'",
     props: [
-      { name: 'Button · icon', type: 'ComponentChildren', description: '图标内容；仅传图标（无文字）即只渲染图标' },
-      { name: 'ListItem · leading', type: 'ComponentChildren', description: '行首图标/头像位' },
+      { name: 'name', type: 'string', description: 'ligature 名，如 "delete"；全目录见 fonts.google.com/icons', defaultValue: '—' },
+      { name: 'family', type: "'outlined' | 'rounded' | 'sharp'", description: '字体族轮廓风格', defaultValue: "'rounded'" },
+      { name: 'fill', type: 'boolean?', description: 'FILL 轴：描边（默认）/ 填充实心', defaultValue: 'false' },
+      { name: 'weight', type: 'number?', description: 'wght 轴 100–700', defaultValue: '400' },
+      { name: 'grade', type: 'number?', description: 'GRAD 轴 -25–200', defaultValue: '0' },
+      { name: 'size', type: 'number?', description: 'font-size 像素值', defaultValue: '24' },
+      { name: 'label', type: 'string?', description: '语义化标签；缺省时 aria-hidden 仅作装饰', defaultValue: '—' },
     ],
-    codeExample: `<Button icon={<Icon name="add" size={14} />} aria-label="新建" />
-<Button icon={<Icon name="close" size={13} />} aria-label="关闭" />
-<ListItem leading={<Icon name="cloud" size={17} />} label="iCloud 云盘" value="已开启" accessory="disclosure" />`,
-  },
-  {
-    id: 'icon-inset',
-    name: 'Icon 内凹效果',
-    description:
-      '实验卡片：Material Symbols 是连字文本，CSS 没有原生文字内阴影（text-shadow 只有外阴影，box-shadow inset 只作用于盒子），对比两种画法——SVG 滤镜在字形 alpha 上错位相减挖出顶/底缘月牙环填色叠回，是真·内阴影，凹坑感最强；background-clip: text 塞渐变只是上暗下亮的明暗模拟。深度/浓度/字重滑杆联动全部变体，深色键帽验证滤镜可直接反色复用',
-    category: 'icons',
-    importPath: "import { Icon } from '../../ui/icon.tsx'",
-    props: [
-      { name: 'style · filter', type: 'JSX.CSSProperties', description: "filter: url(#滤镜id) 挂 SVG 内阴影滤镜，需页面里有对应 <filter> 定义" },
-      { name: 'style · 渐变模拟', type: 'JSX.CSSProperties', description: 'background 渐变 + WebkitBackgroundClip/backgroundClip: text + color: transparent，零滤镜开销' },
-    ],
-    codeExample: `{/* 真·内阴影：字形 alpha 经滤镜挖缘环，滤镜 id 见演示卡里的 <filter> 定义 */}
-<Icon
-  name="favorite"
-  style={{ filter: 'url(#ui-kit-icon-inset)' }}
-/>
-
-{/* 模拟：渐变透过字形，上暗下亮 */}
-<Icon
-  name="favorite"
-  style={{
-    background: 'linear-gradient(180deg, rgba(0,0,0,.6), rgba(0,0,0,.2) 40%, rgba(255,255,255,.85))',
-    WebkitBackgroundClip: 'text',
-    backgroundClip: 'text',
-    color: 'transparent',
-  }}
-/>`,
   },
   {
     id: 'page-curl',
@@ -999,26 +579,27 @@ const buttonRef = useRef(null)
     description:
       'iOS 6 地图右下角卷页（page curl）的网页复刻对比：同一场景——假地图页从右下角卷起、露出底下设置页——三种实现各跑一遍，纯 CSS 3D 折叠（每帧只写 transform/clip-path，全走合成器）、纯 2D 裁剪镜像（clip-path + matrix 反射 + 假光源，零 3D 零 WebGL）、WebGL 连续卷曲（柱面卷曲网格，每帧只更新一个 uniform，最接近原版观感）。支持拖住右下角跟手卷页、松手弹簧回弹、点击折角开合与自动演示；每档说明写明每帧成本与保真度',
     category: 'page-curl',
-    wide: true,
     importPath: "import { PageCurlDemo } from './page-curl-demo.tsx'",
+    demos: [
+      { id: 'basic', title: '三种实现对比', description: 'css3d / clip2d / webgl 三档切换；拖右下角跟手卷页、松手弹簧回弹、点击折角开合与自动演示' },
+    ],
     props: [
       {
         name: 'initialVariant',
         type: "'css3d' | 'clip2d' | 'webgl'",
         description: '初始展示的实现方案；默认 css3d，运行中用顶部分段器切换',
+        defaultValue: "'css3d'",
       },
     ],
-    codeExample: `<PageCurlDemo initialVariant="webgl" />`,
   },
 ]
 
 export const COMPONENT_CATEGORIES = [
-  { id: 'list-showcase', name: 'List 实战' },
+  { id: 'data-display', name: '数据展示' },
   { id: 'form', name: '表单控件' },
   { id: 'icons', name: '图标' },
   { id: 'settings', name: '设置组件' },
   { id: 'navigation', name: '导航交互' },
-  { id: 'tree', name: '树动效' },
   { id: 'page-curl', name: '卷页动画' },
   { id: 'picker', name: '选择器' },
   { id: 'other', name: '其他' },

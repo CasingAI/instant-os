@@ -1,0 +1,279 @@
+/* 卷页动画演示——跟随 ui-kit 的 iOS 6 拟物质感：灰渐变底、inset 高光、小圆角。 */
+
+.page-curl {
+  --page-curl-paper: linear-gradient(135deg, #faf7ee 0%, #efe9d8 55%, #ddd5c0 100%);
+  --page-curl-link-blue: #1b51c8;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.page-curl__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── 舞台 ── */
+
+.page-curl__stage {
+  position: relative;
+  height: 380px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 8px;
+  background: #e7e8ea;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+/* ── 底层设置页（卷页揭示的内容）── */
+
+.page-curl__underlay {
+  position: absolute;
+  inset: 0;
+  padding: 24px 16px 16px;
+  background: repeating-linear-gradient(0deg, #e9eaec 0 3px, #e3e4e7 3px 6px);
+}
+
+.page-curl__underlay-links {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  margin-bottom: 16px;
+}
+
+.page-curl__underlay-link {
+  color: var(--page-curl-link-blue);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+  text-decoration: underline;
+}
+
+.page-curl__viewtoggle {
+  display: flex;
+  width: min(320px, 92%);
+  margin: 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f0f0f2 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.page-curl__viewtoggle-btn {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  border-right: 1px solid rgba(0, 0, 0, 0.13);
+  background: transparent;
+  font-size: 12px;
+  color: #222;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  cursor: default;
+}
+
+.page-curl__viewtoggle-btn:last-child {
+  border-right: none;
+}
+
+.page-curl__viewtoggle-btn--active {
+  color: #fff;
+  background: linear-gradient(180deg, #4d90dc 0%, #3572c4 100%);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.page-curl__underlay-rows {
+  list-style: none;
+  width: min(320px, 92%);
+  margin: 14px auto 0;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fdfdfe 0%, #f5f5f7 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.page-curl__underlay-rows li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  color: #222;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.page-curl__underlay-rows li:last-child {
+  border-bottom: none;
+}
+
+.page-curl__underlay-more {
+  color: rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* ── 投影与地图页 ── */
+
+.page-curl__shadow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 120ms linear;
+}
+
+.page-curl__page {
+  position: absolute;
+  inset: 0;
+}
+
+.page-curl__map-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.page-curl__face-shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ── 方案一：CSS 3D 折叠 ── */
+
+.page-curl__flap3d {
+  position: absolute;
+  inset: 0;
+  perspective: 1100px;
+  pointer-events: none;
+}
+
+.page-curl__flap-rotor {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+.page-curl__face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* 背面预旋转轴必须与转子一致（折线方向 (1,-1,0)），transform-origin 由内联钉在同一条折线上 */
+.page-curl__face--back {
+  background: var(--page-curl-paper);
+  transform: rotate3d(1, -1, 0, 180deg);
+}
+
+/* ── 方案二：2D 镜像 ── */
+
+.page-curl__flap2d {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.page-curl__paper {
+  position: absolute;
+  inset: 0;
+  background: var(--page-curl-paper);
+}
+
+/* ── 方案三：WebGL ── */
+
+.page-curl__gl {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.page-curl__gl-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  background: #f0f0f2;
+}
+
+/* ── 折角热区（静止在两端时亮出"请翻我"贴纸）──
+   热区本身永远可交互（弹簧途中也能抓住），贴纸在卷动中淡出让位给真几何。 */
+
+.page-curl__hit {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 120px;
+  height: 120px;
+  cursor: pointer;
+  touch-action: none;
+  outline-offset: -2px;
+}
+
+/* 折痕阴影 + 掀起的纸角：贴在舞台右下角 */
+.page-curl__hit::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 58px;
+  height: 58px;
+  background: linear-gradient(
+    to top left,
+    transparent 0 44%,
+    rgba(0, 0, 0, 0.28) 50%,
+    transparent 62%
+  );
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.page-curl__hit::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 54px;
+  height: 54px;
+  border-bottom-right-radius: 7px;
+  background: linear-gradient(to top left, var(--page-curl-paper) 0 49%, transparent 50%);
+  box-shadow: -2px -2px 5px rgba(0, 0, 0, 0.14);
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.page-curl__hit--resting::before,
+.page-curl__hit--resting::after {
+  opacity: 1;
+}
+
+.page-curl__hit--resting:hover::after {
+  filter: brightness(1.04);
+}
+
+/* ── 说明行 ── */
+
+.page-curl__note {
+  margin: 0;
+  color: #555;
+  line-height: 1.55;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.page-curl__note-hint {
+  display: block;
+  margin-bottom: 2px;
+  color: #8a7a55;
+}
