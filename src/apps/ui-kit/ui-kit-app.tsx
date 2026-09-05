@@ -120,7 +120,7 @@ function DemoBlock({ component, demo }: { component: ComponentDemo; demo: Compon
         <DemoRenderer componentId={component.id} demoId={demo.id} />
       </div>
       <div class="ui-kit__demo-block-footer">
-        <Button variant="borderless" onClick={() => setShowCode(!showCode)}>
+        <Button onClick={() => setShowCode(!showCode)}>
           {showCode ? '收起代码' : '查看代码'}
         </Button>
       </div>
