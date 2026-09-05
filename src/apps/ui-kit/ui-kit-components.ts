@@ -79,7 +79,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'button',
     name: 'Button',
     description:
-      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标（无底无边，按住时一团亮白光晕叠在内容上方，松手即熄，tone 只改文字色）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标（无底无边，按住时一团亮白光晕垫在内容之下，松手即熄，tone 只改文字色）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     demos: [
@@ -88,7 +88,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
     props: [
       { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary', defaultValue: "'secondary'" },
-      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 裸内容，按下亮白光晕叠于内容上方', defaultValue: "'filled'" },
+      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 裸内容，按下亮白光晕垫于内容之下', defaultValue: "'filled'" },
       { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名', defaultValue: '—' },
       { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传', defaultValue: 'false' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
@@ -523,7 +523,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       '几秒内短操作的进行中/刚完成反馈，不打断、不需要回应。要用户决策的用 WindowModal；可能超时、可取消的长任务用进度窗（如文件 App 的迷你进度窗），不要拿 HUD 长时间盖住窗口',
     demos: [
       { id: 'basic', title: '模拟保存', description: 'show 转圈「保存中…」2 秒 → 对勾「已保存」→ 自动收；期间本窗口点不动' },
-      { id: 'modes', title: '五种形态', description: '转圈/纯文字/成功/失败各弹 1.2 秒；进度模式滑杆调 percent、开关收放' },
+      { id: 'modes', title: '五种形态', description: '转圈/纯文字/成功/失败各弹 1.2 秒；进度模式点「模拟下载」跑条到 100% 自动收（途中原地替换内容）' },
       { id: 'background', title: '后台任务完成', description: '任务跑完才 show：无论当时焦点在哪，都弹在自己窗口' },
       { id: 'local', title: '局部遮罩', description: 'containerRef 只盖指定盒子，盒外照常可点' },
     ],

@@ -91,19 +91,8 @@ export function fitFloatingWindowBounds(
 }
 
 export function clampFloatingPosition(x: number, y: number, width: number, height: number) {
-  if (isNarrowWorkArea()) {
-    const fitted = fitFloatingWindowBounds(x, y, width, height)
-    return { x: fitted.x, y: fitted.y }
-  }
-
-  const minVisible = 48
-  const maxX = window.innerWidth - minVisible
-  const maxY = window.innerHeight - minVisible
-  const minX = minVisible - width
-  const minY = STATUS_BAR_HEIGHT
-
-  return {
-    x: Math.max(minX, Math.min(x, maxX)),
-    y: Math.max(minY, Math.min(y, maxY)),
-  }
+  // 拖拽/弹窗落点一律把整窗收进工作区：窗口悬出工作区（Dock 带以下/屏外）时，
+  // 盖满窗口的 HUD 等遮罩会把盒子落进不可见区，看起来像渲染越界
+  const fitted = fitFloatingWindowBounds(x, y, width, height)
+  return { x: fitted.x, y: fitted.y }
 }
