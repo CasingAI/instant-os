@@ -66,7 +66,7 @@
     rgba(255, 255, 255, 0.55) 38%,
     rgba(255, 255, 255, 0) 68%
   );
-  --ios-button-borderless-text-shadow-active: 0 -0.5px 0 #555;
+  --ios-button-borderless-text-shadow-active: 0 -1px 0 #555;
 }
 
 .ios-button {
@@ -164,7 +164,7 @@
 /*
  * borderless 变体：裸文字/图标单一类型——无底无边无影，固定白字（tone 传入不生效）；
  * 按下时一团纯白光晕（::after，z-index:-1 垫在内容之下，径向渐变无形状边界）点亮，松手即熄；
- * 文字同刻补一道深灰投影（0 -0.5px 0 #555，不带透明度）——用 borderless 专属变量，不随 filled 换肤的 --ios-button-text-shadow 走。
+ * 文字同刻补一道深灰投影（0 -1px 0 #555，不带透明度，与主要/危险同款）——用 borderless 专属变量，不随 filled 换肤的 --ios-button-text-shadow 走。
  * 本体 isolation:isolate 自成上下文，负 z-index 的光晕不会沉到按钮所在页面背景之下。
  * 光晕时序：点亮无入场动画瞬显（active 态 transition:none 特异性高于常态规则）、松手 0.5s 淡出（常态规则挂 transition）；
  * reduced-motion 下整段无过渡直接显隐。
