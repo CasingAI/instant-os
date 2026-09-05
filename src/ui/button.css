@@ -19,7 +19,7 @@
   --ios-button-height: 28px;
   --ios-button-padding: 0 8px;
   --ios-button-font-size: 12px;
-  --ios-button-min-width: 48px;
+  --ios-button-min-width: 28px;
   --ios-button-disabled-color: #999;
   --ios-button-disabled-bg: linear-gradient(180deg, #ececec 0%, #dcdcdc 55%, #d0d0d0 100%);
   --ios-button-disabled-border: 1px solid #b8b8b8;
@@ -57,17 +57,16 @@
   --ios-button-danger-text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.3);
   --ios-button-danger-disabled-opacity: 0.55;
 
-  /* borderless 变体：裸文字/图标，识别靠 tint 色；glow 为按下时叠于内容上方的亮白光晕（::after 填充整段 background） */
-  --ios-button-borderless-color: #333;
-  --ios-button-borderless-primary-color: #1f6ec7;
-  --ios-button-borderless-danger-color: #c9302a;
+  /* borderless 变体：裸文字/图标单一类型，固定白字（tone 传入不生效）；glow 为按下时垫于内容之下的纯白光晕（::after 填充整段 background） */
+  --ios-button-borderless-color: #fff;
   --ios-button-borderless-disabled-color: #999;
   --ios-button-borderless-glow: radial-gradient(
     circle,
     rgba(255, 255, 255, 0.95) 0%,
-    rgba(214, 233, 255, 0.55) 38%,
-    rgba(214, 233, 255, 0) 68%
+    rgba(255, 255, 255, 0.55) 38%,
+    rgba(255, 255, 255, 0) 68%
   );
+  --ios-button-borderless-text-shadow-active: 0 1px 0 #000;
 }
 
 .ios-button {
@@ -76,6 +75,7 @@
   justify-content: center;
   gap: 6px;
   min-width: var(--ios-button-min-width);
+  max-width: 100%;
   height: var(--ios-button-height);
   padding: var(--ios-button-padding);
   border-radius: var(--ios-button-radius);
@@ -96,6 +96,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 文字截断：flex item 被块化后 ellipsis 生效，overflow 非 visible 使自动最小尺寸归 0、允许被压窄 */
+.ios-button__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ios-button__spinner {
@@ -152,14 +160,17 @@
 }
 
 /*
- * borderless 变体：裸文字/图标——无底无边无影，静止时仅靠 tint 色识别；
- * 按下时一团亮白光晕（::after，z-index 盖在内容上方，径向渐变无形状边界）点亮，松手即熄。
+ * borderless 变体：裸文字/图标单一类型——无底无边无影，固定白字（tone 传入不生效）；
+ * 按下时一团纯白光晕（::after，z-index:-1 垫在内容之下，径向渐变无形状边界）点亮，松手即熄；
+ * 文字同刻补一道纯黑 1px 投影——用 borderless 专属变量，不随 filled 换肤的 --ios-button-text-shadow 白浮雕走。
+ * 本体 isolation:isolate 自成上下文，负 z-index 的光晕不会沉到按钮所在页面背景之下。
  * 光晕时序：点亮无入场动画瞬显（active 态 transition:none 特异性高于常态规则）、松手 0.5s 淡出（常态规则挂 transition）；
  * reduced-motion 下整段无过渡直接显隐。
  * 按下不换底不内凹：tone 的 :active 换深渐变规则与此处特异性相同，靠源序压回 none。
  */
 .ios-button--borderless {
   position: relative;
+  isolation: isolate;
   min-width: 0;
   background: none;
   border-color: transparent;
@@ -168,17 +179,12 @@
   color: var(--ios-button-borderless-color);
 }
 
-.ios-button--borderless.ios-button--primary {
-  color: var(--ios-button-borderless-primary-color);
-}
-
-.ios-button--borderless.ios-button--danger {
-  color: var(--ios-button-borderless-danger-color);
-}
-
 .ios-button--borderless:active:not(:disabled) {
+  /* color 一并钉住：secondary tone 的 :active 换深字色规则特异性相同，靠源序压回白字 */
+  color: var(--ios-button-borderless-color);
   background: none;
   box-shadow: none;
+  text-shadow: var(--ios-button-borderless-text-shadow-active);
 }
 
 .ios-button--borderless::after {
@@ -188,7 +194,9 @@
   background: var(--ios-button-borderless-glow);
   opacity: 0;
   pointer-events: none;
-  z-index: 2;
+  z-index: -1;
+  /* 光晕整体放大到 1.5 倍：围绕自身中心缩放，盒尺寸与渐变半径同步变大 */
+  transform: scale(1.5);
 }
 
 .ios-button--borderless:active:not(:disabled)::after {

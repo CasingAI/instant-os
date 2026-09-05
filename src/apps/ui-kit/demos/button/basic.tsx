@@ -11,15 +11,10 @@ export default function ButtonBasicDemo() {
           <Button tone="danger">危险</Button>
         </div>
       </DemoVariant>
-      <DemoVariant label="borderless · 按住看光晕叠在内容上方" wide>
+      <DemoVariant label="borderless · 纯文字 / 图标（按住看光晕）" wide textured>
         <div class="ui-kit-demo__row">
-          <Button variant="borderless">次要</Button>
-          <Button variant="borderless" tone="primary">主要</Button>
-          <Button variant="borderless" tone="danger">危险</Button>
+          <Button variant="borderless">按钮</Button>
           <Button variant="borderless" icon="←" title="后退" />
-          <Button variant="borderless" disabled>
-            禁用
-          </Button>
         </div>
       </DemoVariant>
       <DemoVariant label="图标 / icon+文字">

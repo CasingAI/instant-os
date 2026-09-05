@@ -79,16 +79,16 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'button',
     name: 'Button',
     description:
-      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标（无底无边，按住时一团亮白光晕垫在内容之下，松手即熄，tone 只改文字色）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标单一类型（无底无边固定白字，tone 传入不生效，按住时一团纯白光晕垫在内容之下，松手即熄）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     demos: [
-      { id: 'basic', title: '基础形态', description: 'filled 三种色调、borderless 裸内容（按住看光晕）、图标钮与 icon+文字受控例外' },
+      { id: 'basic', title: '基础形态', description: 'filled 三种色调、borderless 白字纯文字/图标（按住看光晕）、图标钮与 icon+文字受控例外' },
       { id: 'theme', title: 'CSS 变量换肤', description: '父级覆盖 --ios-button-* 变量整体换皮' },
     ],
     props: [
-      { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary', defaultValue: "'secondary'" },
-      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 裸内容，按下亮白光晕垫于内容之下', defaultValue: "'filled'" },
+      { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调（仅 filled 生效；borderless 传入不生效），默认 secondary', defaultValue: "'secondary'" },
+      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 单一类型裸内容固定白字（tone 不生效），按下纯白光晕垫于内容之下', defaultValue: "'filled'" },
       { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名', defaultValue: '—' },
       { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传', defaultValue: 'false' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
@@ -361,9 +361,9 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     whenToUse:
       '要在限高区域里摆大量等高格子（相册宫格、文件缩略图墙、色块卡片）时；需要瀑布流、分节标题或一节横着滑时暂不适用（二期）',
     demos: [
-      { id: 'basic', title: '基础用法', description: '固定 4 列色块网格、点按计数响应；清空/装满演示空态兜底' },
-      { id: 'auto-columns', title: '自适应列数', description: '不给 columns，每格最小宽跟滑杆走（或拖窄窗口），列数随之变化' },
-      { id: 'virtualized', title: '万条虚拟滚动', description: '1 万条只挂可见行；「跳到第 N 项」验证 scrollToIndex' },
+      { id: 'basic', title: '基础用法', description: 'iOS 主屏式 App 宫格：固定 4 列、按压缩放、点按打开反馈；搜索过滤，无结果走空态兜底' },
+      { id: 'auto-columns', title: '自适应列数', description: 'Finder 图标视图式文件网格：滑杆调格子尺寸（或拖窄窗口），列数随之变化；点选高亮' },
+      { id: 'virtualized', title: '万条虚拟滚动', description: '万张照片墙只挂可见行；卡片点按收藏、按钮跳到任意一项验证 scrollToIndex' },
     ],
     props: [
       { name: 'items', type: 'readonly T[]', description: '条目数据', defaultValue: '—' },

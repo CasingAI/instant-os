@@ -10,13 +10,18 @@ export function DemoVariant({
   label,
   children,
   wide,
+  textured,
 }: {
   label: string
   children: preact.ComponentChildren
   wide?: boolean
+  /** 电路板纹理底（壁纸「电路板」同源值）：给 borderless 这类透明内容当背景 */
+  textured?: boolean
 }) {
   return (
-    <div class={`ui-kit-demo__variant${wide ? ' ui-kit-demo__variant--wide' : ''}`}>
+    <div
+      class={`ui-kit-demo__variant${wide ? ' ui-kit-demo__variant--wide' : ''}${textured ? ' ui-kit-demo__variant--textured' : ''}`}
+    >
       <div class="ui-kit-demo__variant-label">{label}</div>
       {children}
     </div>

@@ -6,8 +6,9 @@ export type ButtonVariant = 'filled' | 'borderless'
 
 export type ButtonProps = {
   children?: ComponentChildren
+  /** 按钮色调（仅 filled 生效；borderless 固定白字，传入不生效） */
   tone?: ButtonTone
-  /** 形态：filled 实体按钮（默认，渐变底+边框）；borderless 裸文字/图标——无底无边，按下时一团亮白光晕叠于内容上方，松手即熄 */
+  /** 形态：filled 实体按钮（默认，渐变底+边框）；borderless 单一类型裸文字/图标——无底无边固定白字，按下时一团纯白光晕垫于内容之下，松手即熄 */
   variant?: ButtonVariant
   /** 图标内容（元素或字符）；与文字互斥——传入即只渲染图标（不渲染 children），children 转作无障碍名回退；例外见 showBothIconAndText */
   icon?: ComponentChildren
@@ -24,7 +25,7 @@ export type ButtonProps = {
   onClick?: JSX.MouseEventHandler<HTMLButtonElement>
 }
 
-/** iOS 6 拟物按钮：灰底 / 蓝主按钮 / 危险红，另有 borderless 裸形态（裸文字/图标 + 按下光晕叠于内容上方）；可通过 --ios-button-* CSS 变量换皮 */
+/** iOS 6 拟物按钮：灰底 / 蓝主按钮 / 危险红，另有 borderless 裸形态（单一白字裸按钮 + 按下光晕垫于内容之下）；可通过 --ios-button-* CSS 变量换皮 */
 export function Button({
   children,
   tone = 'secondary',
@@ -66,7 +67,7 @@ export function Button({
       ) : (
         <>
           {icon ? <span class="ios-button__icon">{icon}</span> : undefined}
-          {iconOnly ? undefined : children}
+          {iconOnly ? undefined : <span class="ios-button__label">{children}</span>}
         </>
       )}
     </button>
