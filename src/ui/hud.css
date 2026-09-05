@@ -93,6 +93,14 @@
   color: #fff;
 }
 
+/* 图标槽固定高：转圈 56 / 对勾叉 60 盒高不一，不定槽会让文字随形态上下跳 */
+.hud__icon-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+}
+
 @keyframes hud-fade-in {
   from {
     opacity: 0;

@@ -124,9 +124,21 @@ function Hud({
           aria-label={ariaLabel ?? text}
         >
           <div class="hud__box">
-            {mode === 'spinner' && <Icon name="activity-indicator" size={56} class="hud__spinner" />}
-            {mode === 'success' && <Icon name="check" size={60} class="hud__glyph" />}
-            {mode === 'error' && <Icon name="close" size={60} class="hud__glyph" />}
+            {mode === 'spinner' && (
+              <div class="hud__icon-slot">
+                <Icon name="activity-indicator" size={56} class="hud__spinner" />
+              </div>
+            )}
+            {mode === 'success' && (
+              <div class="hud__icon-slot">
+                <Icon name="check" size={60} class="hud__glyph" />
+              </div>
+            )}
+            {mode === 'error' && (
+              <div class="hud__icon-slot">
+                <Icon name="close" size={60} class="hud__glyph" />
+              </div>
+            )}
             {mode === 'progress' && (
               <>
                 <div
