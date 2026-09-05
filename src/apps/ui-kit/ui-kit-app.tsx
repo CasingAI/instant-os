@@ -106,7 +106,7 @@ function DemoBlock({ component, demo }: { component: ComponentDemo; demo: Compon
   }
 
   return (
-    <article class="ui-kit__demo-block">
+    <article class="ui-kit__demo-block" id={`demo-${component.id}-${demo.id}`}>
       <header class="ui-kit__demo-block-header">
         <h3 class="ui-kit__demo-block-title">{demo.title}</h3>
         {demo.description && <p class="ui-kit__demo-block-desc">{demo.description}</p>}
@@ -169,7 +169,7 @@ function ComponentPage({ component }: { component: ComponentDemo }) {
       </section>
 
       {component.props.length > 0 && (
-        <section class="ui-kit__section">
+        <section class="ui-kit__section" id="api">
           <h3 class="ui-kit__section-title">API</h3>
           <div class="ui-kit__api">
             <table class="ui-kit__api-table">
@@ -196,6 +196,97 @@ function ComponentPage({ component }: { component: ComponentDemo }) {
         </section>
       )}
     </article>
+  )
+}
+
+type AnchorEntry = { id: string; label: string }
+
+/** 锚点越过容器顶部的判定余量与跳转落点的顶部呼吸空间 */
+const ANCHOR_TOP_THRESHOLD = 80
+const ANCHOR_SCROLL_OFFSET = 20
+
+function AnchorNav({
+  component,
+  containerRef,
+}: {
+  component: ComponentDemo
+  containerRef: { current: HTMLElement | null }
+}) {
+  const entries = useMemo<AnchorEntry[]>(
+    () => [
+      ...component.demos.map((demo) => ({
+        id: `demo-${component.id}-${demo.id}`,
+        label: demo.title,
+      })),
+      ...(component.props.length > 0 ? [{ id: 'api', label: 'API' }] : []),
+    ],
+    [component],
+  )
+  const [activeId, setActiveId] = useState(entries[0]?.id ?? '')
+
+  // 每次滚动实时量位置：示例懒加载、代码展开收起改变高度后天然正确
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || entries.length === 0) return
+    const measure = () => {
+      const containerTop = container.getBoundingClientRect().top
+      let current = entries[0].id
+      for (const entry of entries) {
+        const el = document.getElementById(entry.id)
+        if (el && el.getBoundingClientRect().top - containerTop <= ANCHOR_TOP_THRESHOLD) {
+          current = entry.id
+        }
+      }
+      // 卷到底时强制点亮最后一条，兜住末尾小节永远够不到阈值的情况
+      if (container.scrollTop + container.clientHeight >= container.scrollHeight - 1) {
+        current = entries[entries.length - 1].id
+      }
+      setActiveId(current)
+    }
+    let raf = 0
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        measure()
+      })
+    }
+    measure()
+    container.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      container.removeEventListener('scroll', onScroll)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [containerRef, entries])
+
+  const handleJump = (entry: AnchorEntry) => {
+    const container = containerRef.current
+    const el = document.getElementById(entry.id)
+    if (!container || !el) return
+    const top =
+      el.getBoundingClientRect().top -
+      container.getBoundingClientRect().top +
+      container.scrollTop -
+      ANCHOR_SCROLL_OFFSET
+    container.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
+  }
+
+  return (
+    <aside class="ui-kit__toc" aria-label="页内导航">
+      {entries.map((entry) => (
+        <a
+          key={entry.id}
+          class={`ui-kit__toc-item${activeId === entry.id ? ' ui-kit__toc-item--active' : ''}`}
+          href={`#${entry.id}`}
+          onClick={(event) => {
+            event.preventDefault()
+            handleJump(entry)
+          }}
+        >
+          {entry.label}
+        </a>
+      ))}
+    </aside>
   )
 }
 
@@ -265,6 +356,8 @@ export function UiKitApp() {
       <main class="ui-kit__content" ref={contentRef}>
         {activeComponent && <ComponentPage key={activeComponent.id} component={activeComponent} />}
       </main>
+
+      {activeComponent && <AnchorNav component={activeComponent} containerRef={contentRef} />}
     </div>
   )
 }
