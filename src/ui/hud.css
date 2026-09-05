@@ -1,6 +1,7 @@
-/* iOS 6 / MBProgressHUD 风格 HUD：深色半透明圆角块浮在所在窗口内容之上，
+/* iOS 6 / MBProgressHUD 风格 HUD：深色半透明圆角块浮在所在窗口内容区之上，
    淡入淡出 + 轻微缩放；盖住范围不接受点击（短操作期间的模态语义）。
-   挂在窗口框架内（absolute，圆角对齐窗口 8px）或指定容器内（absolute）。 */
+   挂在所在窗口的浮层根（window-modal-overlay-root，只盖内容区、标题栏在外）
+   或指定容器内（absolute）。 */
 .hud {
   --hud-backdrop: rgba(0, 0, 0, 0.35);
   --hud-box-bg: rgba(0, 0, 0, 0.85);
@@ -11,7 +12,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  /* 浮层根本身 pointer-events:none，遮罩要显式接管点击才能挡住底层 */
+  pointer-events: auto;
   background: var(--hud-backdrop);
   color: #fff;
   animation: hud-fade-in 0.18s ease-out both;

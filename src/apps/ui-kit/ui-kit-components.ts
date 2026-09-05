@@ -352,6 +352,34 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
+    id: 'collection-view',
+    name: 'CollectionView',
+    description:
+      'UICollectionView 定位的集合容器（一期：网格摆法 + 虚拟滚动）：数据驱动 items/renderItem，列数可固定也可按容器宽度自适应（网格 宫格 九宫格 缩略图墙）；只挂可见行，上万条流畅滚动，支持 scrollToIndex；高度由外部容器给（flex 子元素或固定高）。瀑布流（高度由数据给）、分节标题、横滚小节在二期',
+    category: 'data-display',
+    importPath: "import { CollectionView } from '../../ui/collection-view.tsx'",
+    whenToUse:
+      '要在限高区域里摆大量等高格子（相册宫格、文件缩略图墙、色块卡片）时；需要瀑布流、分节标题或一节横着滑时暂不适用（二期）',
+    demos: [
+      { id: 'basic', title: '基础用法', description: '固定 4 列色块网格、点按计数响应；清空/装满演示空态兜底' },
+      { id: 'auto-columns', title: '自适应列数', description: '不给 columns，每格最小宽跟滑杆走（或拖窄窗口），列数随之变化' },
+      { id: 'virtualized', title: '万条虚拟滚动', description: '1 万条只挂可见行；「跳到第 N 项」验证 scrollToIndex' },
+    ],
+    props: [
+      { name: 'items', type: 'readonly T[]', description: '条目数据', defaultValue: '—' },
+      { name: 'itemKey', type: '(item: T, index: number) => string', description: '条目稳定 key', defaultValue: '—' },
+      { name: 'renderItem', type: '(item: T, index: number) => ComponentChildren', description: '单格内容渲染', defaultValue: '—' },
+      { name: 'itemHeight', type: 'number?', description: '每格高度 px；行距 = itemHeight + gap', defaultValue: '96' },
+      { name: 'columns', type: 'number?', description: '列数；不给则按容器宽度与 minItemWidth 自适应', defaultValue: '自适应' },
+      { name: 'minItemWidth', type: 'number?', description: '自适应时每格最小宽度 px', defaultValue: '88' },
+      { name: 'gap', type: 'number?', description: '格间距 px：横向行内 grid 列间距，纵向计入行距', defaultValue: '8' },
+      { name: 'overscan', type: 'number?', description: '视口外多渲染几行', defaultValue: '3' },
+      { name: 'scrollToIndex', type: 'number?', description: '变化时滚动到该条目（视口外就近滚入）', defaultValue: '—' },
+      { name: 'empty', type: 'ComponentChildren?', description: 'items 为空时渲染的兜底内容', defaultValue: '—' },
+      { name: 'className', type: 'string?', description: '追加到容器的修饰类', defaultValue: '—' },
+    ],
+  },
+  {
     id: 'nav',
     name: 'Nav',
     description: '导航：宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接。分栏宽度 ≤640 时进入紧凑档（左右固定 50/50，listRatio 不参与），≥700 恢复比例。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
@@ -516,7 +544,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'hud',
     name: 'Hud',
     description:
-      'iOS 6 风格 HUD 浮层：深色半透明圆角块 + 转圈/对勾/叉/横条进度与白字，几秒内短操作的进行中/刚完成反馈。useHud() 命令式调用：hud.view 放进组件树任意位置（位置就此定死在所在窗口），hud.show()/hide() 随时收放，连续 show 原地替换内容；默认盖整个窗口（含标题栏，期间不接受点击），show 传 containerRef 可只盖指定容器；没有全屏形态，窗口/容器都解析不到就不弹',
+      'iOS 6 风格 HUD 浮层：深色半透明圆角块 + 转圈/对勾/叉/横条进度与白字，几秒内短操作的进行中/刚完成反馈。useHud() 命令式调用：hud.view 放进组件树任意位置（位置就此定死在所在窗口），hud.show()/hide() 随时收放，连续 show 原地替换内容；默认盖所在窗口的内容区（走 WindowModal 同款浮层根，标题栏不受影响，期间不接受点击），show 传 containerRef 可只盖指定容器；没有全屏形态，浮层根/容器都解析不到就不弹',
     category: 'other',
     importPath: "import { useHud } from '../../ui/hud.tsx'",
     whenToUse:

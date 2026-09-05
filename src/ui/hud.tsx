@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren, RefObject } from 'preact'
 import { createPortal } from 'preact/compat'
+import { WindowModalOverlayContext } from '../window/window-modal.tsx'
 import { Icon } from './icon.tsx'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './hud.css'
@@ -20,7 +21,7 @@ export type HudShowOptions = {
   dimBackground?: boolean
   /** 最短显示毫秒：提前 hide 也补满时长再播退出，防「已保存」一闪而过 */
   minVisibleMs?: number
-  /** 只盖指定容器（容器需非 static 定位）；缺省盖 view 所在的整个窗口 */
+  /** 只盖指定容器（容器需非 static 定位）；缺省盖 view 所在窗口的内容区（同 WindowModal 浮层根，标题栏在外） */
   containerRef?: RefObject<HTMLElement>
   /** 无障碍标签；缺省用 text */
   ariaLabel?: string
@@ -38,8 +39,8 @@ function clampPercent(value: number): number {
 
 /**
  * 内部构件（不导出）：useHud 的 view 就是它。
- * 位置在挂载时一次定死：containerRef 盖容器 > 自身树内位置就近的 .window-frame 盖整窗；
- * 两者都落空就不渲染——不存在全屏形态，运行期没有任何位置猜测。
+ * 位置在挂载时一次定死：containerRef 盖容器 > 所在窗口的浮层根（WindowModalOverlayContext，
+ * 与 WindowModal 同源，只盖内容区、标题栏在外）；都拿不到就不渲染——不存在全屏形态，运行期没有任何位置猜测。
  */
 function Hud({
   open,
@@ -52,6 +53,7 @@ function Hud({
   containerRef,
   ariaLabel,
 }: HudProps) {
+  const overlayRoot = useContext(WindowModalOverlayContext)
   // 隐形锚点：真实节点，渲染进谁的窗口就属于谁的窗口
   const anchorRef = useRef<HTMLSpanElement>(null)
   const holdTimerRef = useRef<number | undefined>(undefined)
@@ -93,17 +95,16 @@ function Hud({
       setMount(explicit)
       return
     }
-    const frame = anchorRef.current?.closest('.window-frame')
-    if (frame instanceof HTMLElement) {
-      setMount(frame)
+    if (overlayRoot) {
+      setMount(overlayRoot)
       return
     }
-    // 没有窗口可盖：宁可不出也不越界，绝不退到全屏
+    // 没有浮层根可盖：宁可不出也不越界，绝不退到全屏
     setMount(null)
     console.warn(
-      '[hud] 未找到所在窗口，HUD 未显示；请把 useHud 的 view 放进窗口内的组件树，或用 containerRef 指定容器',
+      '[hud] 未找到所在窗口的浮层根，HUD 未显示；请把 useHud 的 view 放进窗口内的组件树（WindowModalProvider 内），或用 containerRef 指定容器',
     )
-  }, [heldOpen, containerRef])
+  }, [heldOpen, containerRef, overlayRoot])
 
   if (!mounted || !mount) {
     return <span ref={anchorRef} style={{ display: 'none' }} aria-hidden="true" />
