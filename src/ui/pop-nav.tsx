@@ -16,6 +16,7 @@ import {
 } from './compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
 import { Nav, type NavProps } from './nav.tsx'
+import { DarkMode } from './theme.tsx'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './pop-nav.css'
 
@@ -314,23 +315,29 @@ export function PopNav({
       <PopNavTriggerContext.Provider value={triggerApi}>
         {children}
         {createPortal(
-          <div
-            class={`pop-nav-modal__backdrop${exiting ? ' pop-nav-modal__backdrop--exiting' : ''}${
-              hidden ? ' pop-nav-modal__backdrop--hidden' : ''
-            }`}
-            onClick={onClose}
-          >
+          // 内部固定暗色（暂不提供对外配置）：DarkMode 壳包住面板整体——
+          // 面板 chrome 与内部 Nav 页面吃同一套暗色 token。壳在 Nav 组件
+          // 外侧，不进 assertNavPage 页元素校验；portal 挂在浮层根、脱离
+          // 调用方组件树，外层包 DarkMode 作用不到这里，只能自带作用域。
+          <DarkMode>
             <div
-              ref={modalRef}
-              class={`pop-nav-modal${exiting ? ' pop-nav-modal--exiting' : ''}`}
-              role="dialog"
-              aria-modal="true"
-              aria-label={ariaLabel}
-              onClick={(event) => event.stopPropagation()}
+              class={`pop-nav-modal__backdrop${exiting ? ' pop-nav-modal__backdrop--exiting' : ''}${
+                hidden ? ' pop-nav-modal__backdrop--hidden' : ''
+              }`}
+              onClick={onClose}
             >
-              <div class="pop-nav__content">{content}</div>
+              <div
+                ref={modalRef}
+                class={`pop-nav-modal${exiting ? ' pop-nav-modal--exiting' : ''}`}
+                role="dialog"
+                aria-modal="true"
+                aria-label={ariaLabel}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div class="pop-nav__content">{content}</div>
+              </div>
             </div>
-          </div>,
+          </DarkMode>,
           getFloatingOverlayRoot(),
         )}
       </PopNavTriggerContext.Provider>
@@ -341,23 +348,27 @@ export function PopNav({
     <PopNavTriggerContext.Provider value={triggerApi}>
       {children}
       {createPortal(
-        <div
-          ref={panelRef}
-          class={`pop-nav pop-nav--${placement}${centered ? ' pop-nav--center' : ''}${
-            exiting ? ' pop-nav--exiting' : ''
-          }${hidden ? ' pop-nav--hidden' : ''}`}
-          role="dialog"
-          aria-label={ariaLabel}
-          style={{
-            top: `${position.top}px`,
-            left: `${position.left}px`,
-            width: `${size.width}px`,
-            height: `${size.height}px`,
-            '--pop-nav-arrow-x': `${arrowX}px`,
-          }}
-        >
-          <div class="pop-nav__content">{content}</div>
-        </div>,
+        // 内部固定暗色（暂不提供对外配置）：同窄屏模态，DarkMode 壳包住
+        // 面板整体，面板 chrome 与内部 Nav 页面吃同一套暗色 token。
+        <DarkMode>
+          <div
+            ref={panelRef}
+            class={`pop-nav pop-nav--${placement}${centered ? ' pop-nav--center' : ''}${
+              exiting ? ' pop-nav--exiting' : ''
+            }${hidden ? ' pop-nav--hidden' : ''}`}
+            role="dialog"
+            aria-label={ariaLabel}
+            style={{
+              top: `${position.top}px`,
+              left: `${position.left}px`,
+              width: `${size.width}px`,
+              height: `${size.height}px`,
+              '--pop-nav-arrow-x': `${arrowX}px`,
+            }}
+          >
+            <div class="pop-nav__content">{content}</div>
+          </div>
+        </DarkMode>,
         getFloatingOverlayRoot(),
       )}
     </PopNavTriggerContext.Provider>
