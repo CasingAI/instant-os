@@ -23,12 +23,12 @@ export default function ButtonBasicDemo() {
           <Button tone="danger">危险</Button>
         </div>
       </DemoVariant>
-      <DemoVariant label="borderless · 纯文字 / 图标（按住看光晕）" wide textured={!hexagons} hexagons={hexagons}>
+      <DemoVariant label="borderless · 纯文字 / 图标（切背景看 darkMode，按住看光晕）" wide textured={!hexagons} hexagons={hexagons}>
         <div class="ui-kit-demo__row">
-          <Button variant="borderless">按钮</Button>
-          <Button variant="borderless" icon={<Icon name="arrow_back" />} title="后退" />
-          <Button variant="borderless" disabled>禁用</Button>
-          <button type="button" class="ui-kit-demo__ghost-btn" onClick={() => setHexagons(!hexagons)}>切换背景</button>
+          <Button variant="borderless" darkMode={!hexagons}>按钮</Button>
+          <Button variant="borderless" darkMode={!hexagons} icon={<Icon name="arrow_back" />} title="后退" />
+          <Button variant="borderless" darkMode={!hexagons} disabled>禁用</Button>
+          <Button variant="borderless" darkMode={!hexagons} onClick={() => setHexagons(!hexagons)}>切换背景</Button>
         </div>
       </DemoVariant>
       <DemoVariant label="图标 / icon+文字">

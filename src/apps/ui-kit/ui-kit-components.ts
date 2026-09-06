@@ -79,16 +79,17 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'button',
     name: 'Button',
     description:
-      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标单一类型（无底无边固定白字，tone 传入不生效，按住时一团纯白光晕垫在内容之下，松手即熄）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标单一类型（无底无边，darkMode 控暗底白字/浅底深字两形态，tone 传入不生效，按住时一团光晕垫在内容之下，松手即熄）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     demos: [
-      { id: 'basic', title: '基础形态', description: 'filled 三种色调、borderless 白字纯文字/图标（按住看光晕）、图标钮与 icon+文字受控例外、busy 加载态' },
+      { id: 'basic', title: '基础形态', description: 'filled 三种色调、borderless 明暗两形态纯文字/图标（切背景看 darkMode、按住看光晕）、图标钮与 icon+文字受控例外、busy 加载态' },
       { id: 'theme', title: 'CSS 变量换肤', description: '父级覆盖 --ios-button-* 变量整体换皮' },
     ],
     props: [
       { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调（仅 filled 生效；borderless 传入不生效），默认 secondary', defaultValue: "'secondary'" },
-      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 单一类型裸内容固定白字（tone 不生效），按下纯白光晕垫于内容之下', defaultValue: "'filled'" },
+      { name: 'variant', type: "'filled' | 'borderless'?", description: '形态：filled 实体按钮（默认）；borderless 单一类型裸内容（明暗两形态见 darkMode，tone 不生效），按下光晕垫于内容之下', defaultValue: "'filled'" },
+      { name: 'darkMode', type: 'boolean?', description: '仅 borderless 生效：暗底白字形态（默认）；false 翻浅底深字，光晕与按下投影同步翻转', defaultValue: 'true' },
       { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名', defaultValue: '—' },
       { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传', defaultValue: 'false' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
@@ -533,7 +534,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'pop-nav',
     name: 'PopNav',
     description:
-      '强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面；锚定形态箭头指向触发器、宿主窗口内钳制不越界，无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留；宿主窗口宽 ≤520px 时退化成居中模态',
+      '强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面；锚定形态箭头指向触发器、宿主窗口内钳制不越界，无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留；宿主窗口宽 ≤520px 时退化成居中模态。内部固定暗色——面板与箭头为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项',
     category: 'other',
     importPath: "import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'",
     demos: [

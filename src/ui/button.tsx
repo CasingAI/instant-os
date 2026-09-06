@@ -7,10 +7,12 @@ export type ButtonVariant = 'filled' | 'borderless'
 
 export type ButtonProps = {
   children?: ComponentChildren
-  /** 按钮色调（仅 filled 生效；borderless 固定白字，传入不生效） */
+  /** 按钮色调（仅 filled 生效；borderless 走 darkMode 明暗两形态，传入不生效） */
   tone?: ButtonTone
-  /** 形态：filled 实体按钮（默认，渐变底+边框）；borderless 单一类型裸文字/图标——无底无边固定白字，按下时一团纯白光晕垫于内容之下，松手即熄 */
+  /** 形态：filled 实体按钮（默认，渐变底+边框）；borderless 单一类型裸文字/图标——无底无边，明暗两形态见 darkMode，按下时一团光晕垫于内容之下，松手即熄 */
   variant?: ButtonVariant
+  /** 仅 borderless 生效：暗底白字形态（默认）；false 翻浅底深字，光晕与按下投影同步翻转 */
+  darkMode?: boolean
   /** 图标内容；与文字互斥——传入即只渲染图标（不渲染 children），children 转作无障碍名回退；例外见 showBothIconAndText */
   icon?: ComponentChildren
   /** 受控例外：icon 与文字并排同显。仅当用户明确要求按钮带图标时才启用；
@@ -28,11 +30,12 @@ export type ButtonProps = {
   onClick?: JSX.MouseEventHandler<HTMLButtonElement>
 }
 
-/** iOS 6 拟物按钮：灰底 / 蓝主按钮 / 危险红，另有 borderless 裸形态（单一白字裸按钮 + 按下光晕垫于内容之下）；可通过 --ios-button-* CSS 变量换皮 */
+/** iOS 6 拟物按钮：灰底 / 蓝主按钮 / 危险红，另有 borderless 裸形态（无底无边裸按钮，darkMode 控暗底白字/浅底深字，按下光晕垫于内容之下）；可通过 --ios-button-* CSS 变量换皮 */
 export function Button({
   children,
   tone = 'secondary',
   variant = 'filled',
+  darkMode = true,
   icon,
   showBothIconAndText = false,
   busy = false,
@@ -49,6 +52,7 @@ export function Button({
     'ios-button',
     `ios-button--${tone}`,
     variant === 'borderless' ? 'ios-button--borderless' : undefined,
+    variant === 'borderless' && !darkMode ? 'ios-button--borderless-light' : undefined,
     iconOnly ? 'ios-button--icon' : undefined,
     icon && showBothIconAndText ? 'ios-button--icon-text' : undefined,
     busy ? 'ios-button--busy' : undefined,

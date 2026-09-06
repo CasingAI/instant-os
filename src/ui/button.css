@@ -57,7 +57,8 @@
   --ios-button-danger-text-shadow: 0 -1px 0 #555;
   --ios-button-danger-disabled-opacity: 0.55;
 
-  /* borderless 变体：裸文字/图标单一类型，固定白字（tone 传入不生效）；glow 为按下时垫于内容之下的纯白光晕（::after 填充整段 background） */
+  /* borderless 变体：裸文字/图标单一类型，明暗两形态（tone 传入不生效）；glow 为按下时垫于内容之下的光晕（::after 填充整段 background）；
+     默认暗底白字，light 组为浅底深字形态（darkMode=false 翻入），disabled 灰字两形态共用 */
   --ios-button-borderless-color: #fff;
   --ios-button-borderless-disabled-color: #999;
   --ios-button-borderless-glow: radial-gradient(
@@ -67,6 +68,14 @@
     rgba(255, 255, 255, 0) 68%
   );
   --ios-button-borderless-text-shadow-active: 0 -1px 0 #555;
+  --ios-button-borderless-light-color: #333;
+  --ios-button-borderless-light-glow: radial-gradient(
+    circle,
+    rgba(0, 0, 0, 0.45) 0%,
+    rgba(0, 0, 0, 0.2) 38%,
+    rgba(0, 0, 0, 0) 68%
+  );
+  --ios-button-borderless-light-text-shadow-active: 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .ios-button {
@@ -200,8 +209,8 @@
 }
 
 /*
- * borderless 变体：裸文字/图标单一类型——无底无边无影，固定白字（tone 传入不生效）；
- * 适合摆在有复杂纹理或图片的背景之上：白字直接浮于内容，无底色遮挡，按下光晕在花哨底子上也更醒目；
+ * borderless 变体：裸文字/图标单一类型——无底无边无影，明暗两形态（tone 传入不生效，darkMode=false 翻入下方 light 组）；
+ * 默认暗底白字，适合摆在有复杂纹理或图片的背景之上：白字直接浮于内容，无底色遮挡，按下光晕在花哨底子上也更醒目；
  * 按下时一团纯白光晕（::after，z-index:-1 垫在内容之下，径向渐变无形状边界）点亮，松手即熄；
  * 文字同刻补一道深灰投影（0 -1px 0 #555，不带透明度，与主要/危险同款）——用 borderless 专属变量，不随 filled 换肤的 --ios-button-text-shadow 走。
  * 本体 isolation:isolate 自成上下文，负 z-index 的光晕不会沉到按钮所在页面背景之下。
@@ -249,6 +258,21 @@
   .ios-button--borderless::after {
     transition: opacity 0.5s ease-out;
   }
+}
+
+/* 浅底形态（darkMode=false）：深字、光晕翻黑灰、按下投影翻白（深字浮雕方向倒转为白色下投影）；
+   三条与基础 borderless 规则同特异性，靠源序覆盖 */
+.ios-button--borderless-light {
+  color: var(--ios-button-borderless-light-color);
+}
+
+.ios-button--borderless-light:active:not(:disabled) {
+  color: var(--ios-button-borderless-light-color);
+  text-shadow: var(--ios-button-borderless-light-text-shadow-active);
+}
+
+.ios-button--borderless-light::after {
+  background: var(--ios-button-borderless-light-glow);
 }
 
 .ios-button:disabled {
