@@ -69,18 +69,18 @@ export function Button({
       onClick={onClick}
     >
       {/* busy：原内容照常渲染参与排版（CSS visibility 隐形占位，宽度不变），菊花绝对定位盖在正中；
-          size 显式传给 Icon（14/24，与 button.css 的 spinner 尺寸一致）以触发小尺寸紧凑画法 */}
+          size 显式传给 Icon（14/20，与 button.css 的 spinner 尺寸一致）以触发小尺寸紧凑画法 */}
       {icon ? <span class="ios-button__icon">{icon}</span> : undefined}
       {iconOnly ? undefined : <span class="ios-button__label">{children}</span>}
       {busy ? (
-        <Icon name="activity-indicator" size={iconOnly ? 24 : 14} class="ios-button__spinner" />
+        <Icon name="activity-indicator" size={iconOnly ? 20 : 14} class="ios-button__spinner" />
       ) : undefined}
     </button>
   )
 }
 
 // icon-only 由「传了 icon 且未开 showBothIconAndText」直接推断，挂 .ios-button--icon 类；
-// 纯图标钮默认几何：左右 padding 0（配 min-width 28px 成 28×28 方钮）、图标 24px、字重 400（见 button.css），
+// 纯图标钮默认几何：左右 padding 0（配 min-width 28px 成 28×28 方钮）、图标 20px、字重 400（见 button.css），
 // 类名同时保留作外部应用覆盖几何的钩子；
 // 图标与文字默认互斥：icon 存在时文字不渲染，屏幕阅读器名从 children 回退（见下方 extractText）；
 // 唯一例外是 showBothIconAndText——图标文字并排同显（挂 .ios-button--icon-text，左内边距归零，见 button.css），
