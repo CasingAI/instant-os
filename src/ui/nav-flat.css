@@ -104,6 +104,13 @@
   box-shadow: none;
 }
 
+/* 暗色页壳：分栏线压成深蓝调，与 --page-shell-bg 的壳底同拍（同
+ * nav.css 的暗色规则；stack 形态的「无线」规则特异度更高，不受影响） */
+[data-theme='dark'] .nav--flat .nav__host[data-pos='list'] {
+  border-right-color: rgba(0, 0, 0, 0.45);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
 /* 裁切双保险：非形变期左栏（含页脚）叠层高于全部详情宿主——详情内容
  * 理论上已被 host 的 overflow:hidden 裁死，这里再保证即便有漏网的绘制
  * 也压在左栏之下。形变期必须让位：C 型面板要扩张盖过左栏，A 型面板与

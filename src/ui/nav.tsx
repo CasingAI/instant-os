@@ -310,6 +310,8 @@ export type NavPageProps = {
   actions?: ComponentChildren
   /** 附加到 .page 根上的类（应用级布局微调） */
   class?: string
+  /** 页根主题作用域（透传 Page dataTheme）：整页亮暗切换等场景用 */
+  dataTheme?: 'dark' | 'light'
   /** 正文（.page__body 滚动区内） */
   children?: ComponentChildren
 }
@@ -435,11 +437,13 @@ function NavPageImpl({
   onBack,
   actions,
   class: className,
+  dataTheme,
   children,
 }: NavPageProps) {
   return (
     <Page
       class={className}
+      dataTheme={dataTheme}
       header={
         <NavHeaderImpl
           title={title}

@@ -54,6 +54,13 @@
   box-shadow: none;
 }
 
+/* 暗色页壳：分栏线压成深蓝调，与 --page-shell-bg 的壳底同拍（只改色，
+ * 宽度与 stack 形态的「无线」规则不受影响——它们的特异度更高） */
+[data-theme='dark'] .nav__list-pane {
+  border-right-color: rgba(0, 0, 0, 0.45);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
 /*
  * 左栏轨道：PageStack 的常驻包装层。常态随左栏撑满；A 型形变时由 tsx
  * 内联钉住终宽并 translateX(-L→0)，让列表作为刚性面板自左缘滑入（左缘

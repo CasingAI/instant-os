@@ -7,15 +7,19 @@ export type PageProps = {
   header?: ComponentChildren
   children: ComponentChildren
   class?: string
+  /** 页根携带主题作用域：主题壳无法包住页元素时（Nav.Page 的外壳由
+   * Nav 强制），把 data-theme 直接钉在 .page 根上，标题栏与正文整页
+   * 随作用域取色，页面内外的布局结构不受影响 */
+  dataTheme?: 'dark' | 'light'
 }
 
 /**
  * 页面根：头部 + 可滚动正文。
  * .page__body 同时是静止态与转场态的滚动容器（层保活，scrollTop 自动保留）。
  */
-export function Page({ header, children, class: className }: PageProps) {
+export function Page({ header, children, class: className, dataTheme }: PageProps) {
   return (
-    <div class={`page${className ? ` ${className}` : ''}`}>
+    <div class={`page${className ? ` ${className}` : ''}`} data-theme={dataTheme}>
       {header}
       <div class="page__body">{children}</div>
     </div>

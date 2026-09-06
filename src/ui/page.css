@@ -16,3 +16,25 @@
   overscroll-behavior: contain;
   background: var(--page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
 }
+
+/*
+ * 暗色页壳（老 iOS 弹窗式双层）：壳底色（--page-shell-bg，深蓝）从
+ * body 四周露出来形成粗边框；body 本身浅色底（暗色块的 --page-bg）、
+ * 收进框内，上缘一道压进来的内阴影 + 下缘一丝反光做出凹嵌在壳里的
+ * 感觉。标题栏渐变底端与壳底同色、无分割线（见 theme.css 暗色块），
+ * 标题栏、粗边框、内凹内容连成一个整体。
+ */
+/* 页根本身挂作用域时（Page dataTheme）同色：属性在 .page 上，后代选择器
+   匹配不到自身，补自匹配 */
+[data-theme='dark'] .page,
+.page[data-theme='dark'] {
+  background: var(--page-shell-bg, #161d2b);
+}
+
+[data-theme='dark'] .page__body {
+  margin: 8px;
+  border-radius: 5px;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+}

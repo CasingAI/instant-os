@@ -49,6 +49,28 @@
   --list-hover-bottom: #323238;
 }
 
+/* 暗色页壳的浅色内容区：theme.css 暗色块把 --page-bg 翻成浅色，
+ * .page__body 是一块凹在深蓝壳里的亮色面板（见 page.css 暗色规则），
+ * 面板里的列表得跟面板走亮色。上面暗色块把 token 直接定义在 .list
+ * 元素上、赢过继承链，这里用更高特异度（0,3,0）把它在内容区内
+ * 拉回亮色默认值（值与上方亮色默认块一致）。 */
+[data-theme='dark'] .page__body .list {
+  --list-bg: #fff;
+  --list-border: #a8a8a8;
+  --list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  --list-row-border: #ececec;
+  --list-value-ink: #666;
+  --list-disclosure: #b4b4b4;
+  --list-title-ink: #555;
+  --list-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --list-footnote-ink: #666;
+  --list-footnote-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --list-index-bg: rgba(0, 0, 0, 0.05);
+  --list-index-pressed-bg: rgba(0, 0, 0, 0.11);
+  --list-hover-top: #fbfbfd;
+  --list-hover-bottom: #ececf0;
+}
+
 /* ── 容器盒 ── */
 
 .list {

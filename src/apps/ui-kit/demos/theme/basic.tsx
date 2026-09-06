@@ -15,12 +15,12 @@ const ITEMS = [
 
 type ItemId = (typeof ITEMS)[number]['id']
 
-/** 正文文字随最近的主题作用域翻转：--page-header-title-color 在
- * :root / dark / light 三处都有定义，暗底上是浅色字 */
+/** 正文文字：暗色页壳下内容区是浅色内凹面板（见 theme.css 暗色块），
+ * 面板上的字色保持深色不随壳翻转；翻转的是壳（标题栏/粗边框/返回键） */
 const BODY_TEXT_STYLE = {
   padding: '16px 20px',
   lineHeight: 1.7,
-  color: 'var(--page-header-title-color, #222)',
+  color: '#333',
 } as const
 
 /** 基础用法：真实 Nav 演示整页主题强制切换——顶部切换器把整个页面
@@ -52,13 +52,13 @@ export default function ThemeBasicDemo() {
       )
     }
     return (
-      <Nav.Page title="设置">
-        <div
-          style={{
-            padding: '12px 16px',
-            color: 'var(--page-header-title-color, #222)',
-          }}
-        >
+        <Nav.Page title="设置">
+          <div
+            style={{
+              padding: '12px 16px',
+              color: '#333',
+            }}
+          >
           <List>
             {ITEMS.map((item) => (
               <ListItem
