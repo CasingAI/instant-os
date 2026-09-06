@@ -353,12 +353,12 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
-    id: 'collection-view',
-    name: 'CollectionView',
+    id: 'waterfall',
+    name: '瀑布流',
     description:
-      'UICollectionView 定位的集合容器（一期：网格摆法 + 虚拟滚动）：数据驱动 items/renderItem，列数可固定也可按容器宽度自适应（网格 宫格 九宫格 缩略图墙）；只挂可见行，上万条流畅滚动，支持 scrollToIndex；高度由外部容器给（flex 子元素或固定高）。瀑布流（高度由数据给）、分节标题、横滚小节在二期',
+      '数据驱动的网格集合容器（一期：网格摆法 + 虚拟滚动）：数据驱动 items/renderItem，列数可固定也可按容器宽度自适应（网格 宫格 九宫格 缩略图墙）；只挂可见行，上万条流畅滚动，支持 scrollToIndex；高度由外部容器给（flex 子元素或固定高）。瀑布流（高度由数据给）、分节标题、横滚小节在二期',
     category: 'data-display',
-    importPath: "import { CollectionView } from '../../ui/collection-view.tsx'",
+    importPath: "import { Waterfall } from '../../ui/waterfall.tsx'",
     whenToUse:
       '要在限高区域里摆大量等高格子（相册宫格、文件缩略图墙、色块卡片）时；需要瀑布流、分节标题或一节横着滑时暂不适用（二期）',
     demos: [
@@ -663,16 +663,17 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'theme',
     name: 'DarkMode',
     description:
-      '暗色主题作用域壳：包住谁，谁里面的系统页面组件（Page / PageHeader / PageStack 转场 / Nav，均消费同一套 --page-* 变量）整体按暗色渲染，包外不受影响。实现为 display:contents 的 div——不占布局、不打乱调用方的 flex/grid 子项关系，只向子树贡献 data-theme="dark" 属性，暗色变量经 DOM 树继承生效，无任何 JS 运行时。没有对称的亮色作用域：亮色即 :root 默认值，所以暗里嵌不出亮色块',
+      '主题强制作用域壳：包住谁，谁里面的系统页面组件（Page / PageHeader / PageStack 转场 / Nav，均消费同一套 --page-* 变量）整体按指定主题渲染，包外不受影响。缺省强制暗色，disabled 强制亮色——亮色有对称作用域（theme.css 的 [data-theme=\'light\']），暗色祖先里也能抠出亮色块，一壳双向。实现为 display:contents 的 div——不占布局、不打乱调用方的 flex/grid 子项关系，只向子树贡献一个 data-theme 属性，变量经 DOM 树继承生效，无任何 JS 运行时',
     category: 'other',
     importPath: "import { DarkMode } from '../../ui/theme.tsx'",
     whenToUse:
-      '需要局部暗色的场合：应用根节点整体切暗、暗色窗口里放一块亮色系统页面之外的反向场景不存在（亮色无作用域）；组件自包含引入 theme.css，调用方无须关心加载顺序。组件里要在 JS 读主题（isDark）的场景当前不支持',
+      '需要局部强制主题的场合：亮色应用里放一块暗色页面；暗色应用里放一块亮色页面（disabled）。同一组件可嵌套出任意深度的主题切换（最近的祖先定义生效）。组件里要在 JS 读主题（isDark）的场景当前不支持',
     demos: [
-      { id: 'basic', title: '亮暗并排对比', description: '同一组系统页面组件渲染两份：裸放一份保持亮色，包在 <DarkMode> 里的一份自动变暗，直观对照「包住即生效、包外不受影响」' },
+      { id: 'basic', title: '整页亮暗切换', description: '真实 Nav（split 自适应窄屏子页栈）：顶部切换器把整页（列表页、详情帧、返回键全部标准件）在亮暗间强制切换；列表点进子页，返回键与宽窄形变照常工作' },
     ],
     props: [
-      { name: 'children', type: 'ComponentChildren', description: '作用域内的内容：系统页面组件整体按暗色渲染', defaultValue: '—' },
+      { name: 'children', type: 'ComponentChildren', description: '作用域内的内容：系统页面组件整体按指定主题渲染', defaultValue: '—' },
+      { name: 'disabled', type: 'boolean?', description: '强制亮色（data-theme="light"）；缺省 false = 强制暗色', defaultValue: 'false' },
     ],
   },
   {

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { CollectionView } from '../../../../ui/collection-view.tsx'
+import { Waterfall } from '../../../../ui/waterfall.tsx'
 import { Icon } from '../../../../ui/icon.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
@@ -31,7 +31,7 @@ const JUMP_TARGETS = [
 ]
 
 /** 虚拟滚动：1 万张照片只挂可见行；卡片点按收藏、按钮跳到任意一项 */
-export default function CollectionViewVirtualizedDemo() {
+export default function WaterfallVirtualizedDemo() {
   const [favs, setFavs] = useState<ReadonlySet<string>>(new Set())
   const [scrollToIndex, setScrollToIndex] = useState<number | undefined>(undefined)
 
@@ -47,7 +47,7 @@ export default function CollectionViewVirtualizedDemo() {
   return (
     <DemoVariants>
       <DemoVariant label={`照片墙 · ${PHOTO_COUNT.toLocaleString()} 张 · 已收藏 ${favs.size} 张`} wide>
-        <div class="ui-kit-demo__cv-toolbar">
+        <div class="ui-kit-demo__wf-toolbar">
           {JUMP_TARGETS.map((target) => (
             <button
               key={target.index}
@@ -60,8 +60,8 @@ export default function CollectionViewVirtualizedDemo() {
           ))}
           <span class="ui-kit-demo__status">点卡片右上角收藏</span>
         </div>
-        <div style={{ height: 360 }} class="ui-kit-demo__cv-frame">
-          <CollectionView
+        <div style={{ height: 360 }} class="ui-kit-demo__wf-frame">
+          <Waterfall
             items={PHOTOS}
             itemKey={(photo) => photo.id}
             columns={4}
@@ -71,16 +71,16 @@ export default function CollectionViewVirtualizedDemo() {
             renderItem={(photo) => (
               <button
                 type="button"
-                class="ui-kit-demo__cv-photo"
+                class="ui-kit-demo__wf-photo"
                 style={{ background: photo.gradient }}
                 onClick={() => toggleFav(photo.id)}
               >
-                <span class="ui-kit-demo__cv-photo-heart" style={{ color: favs.has(photo.id) ? '#ff3b30' : '#fff' }}>
+                <span class="ui-kit-demo__wf-photo-heart" style={{ color: favs.has(photo.id) ? '#ff3b30' : '#fff' }}>
                   <Icon name="favorite" size={14} fill={favs.has(photo.id)} />
                 </span>
-                <span class="ui-kit-demo__cv-photo-caption">
-                  <span class="ui-kit-demo__cv-photo-place">{photo.place}</span>
-                  <span class="ui-kit-demo__cv-photo-date">{photo.date}</span>
+                <span class="ui-kit-demo__wf-photo-caption">
+                  <span class="ui-kit-demo__wf-photo-place">{photo.place}</span>
+                  <span class="ui-kit-demo__wf-photo-date">{photo.date}</span>
                 </span>
               </button>
             )}

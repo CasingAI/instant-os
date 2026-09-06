@@ -827,9 +827,9 @@
   display: none;
 }
 
-/* ===== CollectionView 示例：壁纸宫格 / 图文卡片墙 / 照片墙 ===== */
+/* ===== Waterfall（瀑布流）示例：壁纸宫格 / 图文卡片墙 / 照片墙 ===== */
 
-.ui-kit-demo__cv-toolbar {
+.ui-kit-demo__wf-toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -837,7 +837,7 @@
   margin-bottom: 8px;
 }
 
-.ui-kit-demo__cv-frame {
+.ui-kit-demo__wf-frame {
   height: 100%;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 6px;
@@ -846,7 +846,7 @@
 
 /* 壁纸选择宫格 */
 
-.ui-kit-demo__cv-wall {
+.ui-kit-demo__wf-wall {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -863,7 +863,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.ui-kit-demo__cv-wall-thumb {
+.ui-kit-demo__wf-wall-thumb {
   position: relative;
   display: block;
   width: 100%;
@@ -873,15 +873,15 @@
   transition: box-shadow 120ms ease, transform 120ms ease;
 }
 
-.ui-kit-demo__cv-wall:active .ui-kit-demo__cv-wall-thumb {
+.ui-kit-demo__wf-wall:active .ui-kit-demo__wf-wall-thumb {
   transform: scale(0.97);
 }
 
-.ui-kit-demo__cv-wall-thumb--selected {
+.ui-kit-demo__wf-wall-thumb--selected {
   box-shadow: 0 0 0 2.5px #0a84ff;
 }
 
-.ui-kit-demo__cv-wall-check {
+.ui-kit-demo__wf-wall-check {
   position: absolute;
   top: 6px;
   right: 6px;
@@ -894,7 +894,7 @@
   color: #fff;
 }
 
-.ui-kit-demo__cv-wall-name {
+.ui-kit-demo__wf-wall-name {
   max-width: 100%;
   overflow: hidden;
   font-size: 11px;
@@ -906,7 +906,7 @@
 
 /* 图文卡片墙 */
 
-.ui-kit-demo__cv-card {
+.ui-kit-demo__wf-card {
   display: block;
   width: 100%;
   height: 100%;
@@ -921,11 +921,11 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.ui-kit-demo__cv-card:active {
+.ui-kit-demo__wf-card:active {
   transform: scale(0.98);
 }
 
-.ui-kit-demo__cv-card-art {
+.ui-kit-demo__wf-card-art {
   position: relative;
   display: block;
   height: 96px;
@@ -933,7 +933,7 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
-.ui-kit-demo__cv-card-badge {
+.ui-kit-demo__wf-card-badge {
   position: absolute;
   top: 6px;
   left: 6px;
@@ -945,7 +945,7 @@
   color: #a05a00;
 }
 
-.ui-kit-demo__cv-card-title {
+.ui-kit-demo__wf-card-title {
   display: block;
   margin-top: 7px;
   overflow: hidden;
@@ -957,7 +957,7 @@
   white-space: nowrap;
 }
 
-.ui-kit-demo__cv-card-sub {
+.ui-kit-demo__wf-card-sub {
   display: block;
   margin-top: 2px;
   overflow: hidden;
@@ -970,7 +970,7 @@
 
 /* 照片墙 */
 
-.ui-kit-demo__cv-photo {
+.ui-kit-demo__wf-photo {
   position: relative;
   display: block;
   width: 100%;
@@ -987,11 +987,11 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.ui-kit-demo__cv-photo:active {
+.ui-kit-demo__wf-photo:active {
   transform: scale(0.97);
 }
 
-.ui-kit-demo__cv-photo-heart {
+.ui-kit-demo__wf-photo-heart {
   position: absolute;
   top: 6px;
   right: 6px;
@@ -1003,7 +1003,7 @@
   background: rgba(0, 0, 0, 0.25);
 }
 
-.ui-kit-demo__cv-photo-caption {
+.ui-kit-demo__wf-photo-caption {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -1013,14 +1013,14 @@
   color: #fff;
 }
 
-.ui-kit-demo__cv-photo-place {
+.ui-kit-demo__wf-photo-place {
   display: block;
   font-size: 11px;
   font-weight: 600;
   line-height: 1.3;
 }
 
-.ui-kit-demo__cv-photo-date {
+.ui-kit-demo__wf-photo-date {
   display: block;
   font-size: 10px;
   line-height: 1.3;

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { CollectionView } from '../../../../ui/collection-view.tsx'
+import { Waterfall } from '../../../../ui/waterfall.tsx'
 import { IosRangeSlider } from '../../../../ui/ios-range-slider.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
@@ -19,7 +19,7 @@ const CARDS: FeatureCard[] = [
 ]
 
 /** 自适应列数：不给 columns，滑杆改卡片最小宽（或拖窄窗口），列数随之变化；点按打开 */
-export default function CollectionViewAutoColumnsDemo() {
+export default function WaterfallAutoColumnsDemo() {
   const [minItemWidth, setMinItemWidth] = useState(220)
   const [opened, setOpened] = useState<string | null>(null)
 
@@ -31,7 +31,7 @@ export default function CollectionViewAutoColumnsDemo() {
   return (
     <DemoVariants>
       <DemoVariant label="图文卡片墙 · 卡片最小宽跟滑杆走">
-        <div class="ui-kit-demo__cv-toolbar">
+        <div class="ui-kit-demo__wf-toolbar">
           <span class="ui-kit-demo__status" style={{ whiteSpace: 'nowrap' }}>
             卡片最小宽 {minItemWidth}px
           </span>
@@ -40,23 +40,23 @@ export default function CollectionViewAutoColumnsDemo() {
           </div>
           <span class="ui-kit-demo__status">{opened ? `已打开「${opened}」` : '点按打开'}</span>
         </div>
-        <div style={{ height: 340 }} class="ui-kit-demo__cv-frame">
-          <CollectionView
+        <div style={{ height: 340 }} class="ui-kit-demo__wf-frame">
+          <Waterfall
             items={CARDS}
             itemKey={(card) => card.id}
             minItemWidth={minItemWidth}
             itemHeight={150}
             gap={10}
             renderItem={(card) => (
-              <button type="button" class="ui-kit-demo__cv-card" onClick={() => open(card.title)}>
+              <button type="button" class="ui-kit-demo__wf-card" onClick={() => open(card.title)}>
                 <span
-                  class="ui-kit-demo__cv-card-art"
+                  class="ui-kit-demo__wf-card-art"
                   style={{ background: `linear-gradient(150deg, ${card.from}, ${card.to})` }}
                 >
-                  <span class="ui-kit-demo__cv-card-badge">{card.badge}</span>
+                  <span class="ui-kit-demo__wf-card-badge">{card.badge}</span>
                 </span>
-                <span class="ui-kit-demo__cv-card-title">{card.title}</span>
-                <span class="ui-kit-demo__cv-card-sub">{card.sub}</span>
+                <span class="ui-kit-demo__wf-card-title">{card.title}</span>
+                <span class="ui-kit-demo__wf-card-sub">{card.sub}</span>
               </button>
             )}
           />

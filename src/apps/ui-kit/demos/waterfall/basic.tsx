@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { CollectionView } from '../../../../ui/collection-view.tsx'
+import { Waterfall } from '../../../../ui/waterfall.tsx'
 import { Icon } from '../../../../ui/icon.tsx'
 import { SegmentedControl } from '../../../../ui/segmented-control.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
@@ -35,7 +35,7 @@ const CATEGORY_ITEMS = [
 type CategoryId = (typeof CATEGORY_ITEMS)[number]['id']
 
 /** 基础用法：iOS 设置式壁纸选择宫格——固定 3 列、分类切换、点选蓝勾随选择迁移 */
-export default function CollectionViewBasicDemo() {
+export default function WaterfallBasicDemo() {
   const [category, setCategory] = useState<CategoryId>('featured')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -46,12 +46,12 @@ export default function CollectionViewBasicDemo() {
   return (
     <DemoVariants>
       <DemoVariant label={`壁纸选择 · 固定 3 列 · ${categoryLabel} ${filtered.length} 张`} wide>
-        <div class="ui-kit-demo__cv-toolbar">
+        <div class="ui-kit-demo__wf-toolbar">
           <SegmentedControl value={category} items={CATEGORY_ITEMS} onChange={setCategory} ariaLabel="墙纸分类" />
           <span class="ui-kit-demo__status">{selected ? `已选：${selected.name}` : '选一张做墙纸'}</span>
         </div>
-        <div style={{ height: 300 }} class="ui-kit-demo__cv-frame">
-          <CollectionView
+        <div style={{ height: 300 }} class="ui-kit-demo__wf-frame">
+          <Waterfall
             items={filtered}
             itemKey={(wallpaper) => wallpaper.id}
             columns={3}
@@ -60,22 +60,22 @@ export default function CollectionViewBasicDemo() {
             renderItem={(wallpaper) => (
               <button
                 type="button"
-                class="ui-kit-demo__cv-wall"
+                class="ui-kit-demo__wf-wall"
                 onClick={() => setSelectedId(wallpaper.id)}
               >
                 <span
-                  class={`ui-kit-demo__cv-wall-thumb${
-                    wallpaper.id === selectedId ? ' ui-kit-demo__cv-wall-thumb--selected' : ''
+                  class={`ui-kit-demo__wf-wall-thumb${
+                    wallpaper.id === selectedId ? ' ui-kit-demo__wf-wall-thumb--selected' : ''
                   }`}
                   style={{ background: wallpaper.background }}
                 >
                   {wallpaper.id === selectedId ? (
-                    <span class="ui-kit-demo__cv-wall-check">
+                    <span class="ui-kit-demo__wf-wall-check">
                       <Icon name="check" size={14} />
                     </span>
                   ) : undefined}
                 </span>
-                <span class="ui-kit-demo__cv-wall-name">{wallpaper.name}</span>
+                <span class="ui-kit-demo__wf-wall-name">{wallpaper.name}</span>
               </button>
             )}
           />

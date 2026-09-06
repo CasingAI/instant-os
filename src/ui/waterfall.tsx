@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { FixedRowVirtualList } from './fixed-row-virtual-list.tsx'
-import './collection-view.css'
+import './waterfall.css'
 
 const DEFAULT_ITEM_HEIGHT = 96
 const DEFAULT_MIN_ITEM_WIDTH = 88
 const DEFAULT_GAP = 8
 const DEFAULT_OVERSCAN = 3
 
-export type CollectionViewProps<T> = {
+export type WaterfallProps<T> = {
   items: readonly T[]
   itemKey: (item: T, index: number) => string
   renderItem: (item: T, index: number) => ComponentChildren
@@ -31,11 +31,11 @@ export type CollectionViewProps<T> = {
 }
 
 /**
- * 数据驱动的网格集合视图（UICollectionView 定位，一期网格摆法）：
+ * 数据驱动的网格集合视图（一期网格摆法）：
  * 量容器宽度定列数 → 条目按列数切行 → 行交给 FixedRowVirtualList 虚拟滚动，行内 CSS grid 摆格。
  * 高度由外部容器给（flex 子元素或固定高），与 FixedRowVirtualList 同一约定。
  */
-export function CollectionView<T>({
+export function Waterfall<T>({
   items,
   itemKey,
   renderItem,
@@ -47,7 +47,7 @@ export function CollectionView<T>({
   scrollToIndex,
   empty,
   className,
-}: CollectionViewProps<T>) {
+}: WaterfallProps<T>) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
 
@@ -82,7 +82,7 @@ export function CollectionView<T>({
   } else {
     content = (
       <FixedRowVirtualList
-        className="fixed-row-virtual-list collection-view__scroller"
+        className="fixed-row-virtual-list waterfall__scroller"
         items={rows}
         rowHeight={itemHeight + gap}
         overscan={overscan}
@@ -92,7 +92,7 @@ export function CollectionView<T>({
         }
         renderItem={(row, rowIndex) => (
           <div
-            class="collection-view__row"
+            class="waterfall__row"
             style={{
               gridTemplateColumns: `repeat(${resolvedColumns}, 1fr)`,
               columnGap: `${gap}px`,
@@ -101,7 +101,7 @@ export function CollectionView<T>({
             {row.map((item, i) => {
               const index = rowIndex * resolvedColumns + i
               return (
-                <div key={itemKey(item, index)} class="collection-view__cell" style={{ height: `${itemHeight}px` }}>
+                <div key={itemKey(item, index)} class="waterfall__cell" style={{ height: `${itemHeight}px` }}>
                   {renderItem(item, index)}
                 </div>
               )
@@ -113,7 +113,7 @@ export function CollectionView<T>({
   }
 
   return (
-    <div ref={wrapRef} class={`collection-view${className ? ` ${className}` : ''}`}>
+    <div ref={wrapRef} class={`waterfall${className ? ` ${className}` : ''}`}>
       {content}
     </div>
   )
