@@ -493,6 +493,9 @@ type NavSharedProps = {
   listRatio?: number
   /** 分栏帧动画时长（ms），默认 380 */
   frameAnimationMs?: number
+  /** 安全区高度（px，如刘海/小白条预留）：大于 0 时顶部与底部各保留该空间，
+   * 顶部由各页标题栏材质自身向上延伸无缝占满，底部由与页面材质同色的条带延续 */
+  safeArea?: number
   class?: string
 }
 
@@ -629,6 +632,7 @@ function ClassicSplitNavView(props: ClassicNavProps) {
     renderDetailEmpty,
     listRatio = DEFAULT_LIST_RATIO,
     frameAnimationMs = DEFAULT_FRAME_MS,
+    safeArea = 0,
     class: className,
   } = props
   const { narrowLayout, layoutReady, hostRef } = controller
@@ -1043,6 +1047,8 @@ function ClassicSplitNavView(props: ClassicNavProps) {
   const styleVars = {
     '--nav-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
     '--nav-frame-ms': `${frameAnimationMs}ms`,
+    '--nav-safe-top': `${safeArea}px`,
+    '--nav-safe-bottom': `${safeArea}px`,
   } as Record<string, string>
 
   // 页级 chrome 作用域：栈页走窄形态规则（深度 = 栈内位置，栈顶为当前页），
@@ -1120,7 +1126,7 @@ function ClassicSplitNavView(props: ClassicNavProps) {
         rootRef.current = node
         hostRef(node)
       }}
-      class={`nav${className ? ` ${className}` : ''}`}
+      class={`nav${safeArea > 0 ? ' nav--safe' : ''}${className ? ` ${className}` : ''}`}
       style={styleVars}
     >
       <div class="nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
@@ -1192,6 +1198,7 @@ function FlatSplitNavView(props: FlatNavProps) {
     renderDetailEmpty,
     listRatio = DEFAULT_LIST_RATIO,
     frameAnimationMs = DEFAULT_FRAME_MS,
+    safeArea = 0,
     class: className,
   } = props
   const { narrowLayout, layoutReady, hostRef } = controller
@@ -1667,6 +1674,8 @@ function FlatSplitNavView(props: FlatNavProps) {
   const styleVars = {
     '--nav-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
     '--nav-frame-ms': `${frameAnimationMs}ms`,
+    '--nav-safe-top': `${safeArea}px`,
+    '--nav-safe-bottom': `${safeArea}px`,
   } as Record<string, string>
 
   return (
@@ -1675,7 +1684,7 @@ function FlatSplitNavView(props: FlatNavProps) {
         rootRef.current = node
         hostRef(node)
       }}
-      class={`nav nav--flat${className ? ` ${className}` : ''}`}
+      class={`nav nav--flat${safeArea > 0 ? ' nav--safe' : ''}${className ? ` ${className}` : ''}`}
       style={styleVars}
       data-stack-transition={transition ? transition.direction : undefined}
       data-frame-nav={frameNav}

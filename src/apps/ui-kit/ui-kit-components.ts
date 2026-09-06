@@ -401,6 +401,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'narrowPageForState', type: '() => string', description: 'useNav：由领域状态推导当前子页 id', defaultValue: '—' },
       { name: 'listPage', type: 'string?', description: 'useNav：分栏左栏根列表页 id', defaultValue: '—' },
       { name: 'frameAnimationMs', type: 'number?', description: '形变/帧动画时长', defaultValue: '380' },
+      { name: 'safeArea', type: 'number?', description: '安全区高度（px）：大于 0 时顶部与底部各保留该空间，顶部由标题栏材质向上延伸无缝占满，底部由与页面材质同色的条带延续', defaultValue: '—' },
     ],
   },
   {

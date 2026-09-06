@@ -123,6 +123,12 @@ export function NavKitDemoApp() {
   const [pos, setPos] = useState<Pos>({ kind: 'shelf' })
   const [favorites, setFavorites] = useState<ReadonlySet<string>>(new Set())
   const [readChapters, setReadChapters] = useState<ReadonlySet<string>>(new Set())
+  // 安全区演示：点书架页标题栏的「安全区」钮循环调档（0 = 关），34 档模拟
+  // 真机底部小白条预留高度
+  const SAFE_AREA_PRESETS = [0, 12, 24, 34, 47]
+  const [safeAreaPx, setSafeAreaPx] = useState(0)
+  const cycleSafeArea = () =>
+    setSafeAreaPx((px) => SAFE_AREA_PRESETS[(SAFE_AREA_PRESETS.indexOf(px) + 1) % SAFE_AREA_PRESETS.length])
 
   const nav = useNav({
     split: true,
@@ -182,7 +188,17 @@ export function NavKitDemoApp() {
   // Nav 统一编排（书页 = 深度 1：分栏静置无返回、A 型顶帧挂回淡出、落窄
   // 淡入；其余层级恒有返回）。──
   const renderShelf = () => (
-    <Nav.Page title="书架">
+    <Nav.Page
+      title="书架"
+      actions={
+        <PageActionButton
+          activated={safeAreaPx > 0}
+          onClick={cycleSafeArea}
+        >
+          {safeAreaPx > 0 ? `安全区 ${safeAreaPx}` : '安全区'}
+        </PageActionButton>
+      }
+    >
       <div class="nav-kit-demo__rows">
         <div class="settings__list">
           {NAV_KIT_DEMO_BOOKS.map((book, b) => (
@@ -416,6 +432,7 @@ export function NavKitDemoApp() {
       frames={frames}
       renderPage={renderPage}
       framesResetKey={pos.kind === 'shelf' ? 'shelf' : `b:${pos.b}`}
+      safeArea={safeAreaPx}
     />
   )
 }

@@ -30,6 +30,57 @@
 }
 
 /*
+ * 安全区（safeArea > 0 时挂 nav--safe）：顶部/底部各保留 --nav-safe-* 高度。
+ * 顶部由各页标题栏自身 padding-top 长高一截——材质是铺满整个盒子的渐变，
+ * 延伸天然无缝；转场窗口期标题栏摆进 grid 第一行、持续条带同为第一行格子项
+ * 随行高拉伸，自动盖满含安全区的整行，三条转场路径无需另改规则。
+ * 底部留白加在 .nav 根：stage 与全部转场根都在 padding 之内，窗口期拆盒打
+ * 不平它，形变滑轨的 WAAPI 几何也全锚在 stage 内部不受干扰。
+ */
+.nav--safe {
+  position: relative;
+  padding-bottom: var(--nav-safe-bottom, 0px);
+}
+
+.nav--safe .page-header {
+  padding-top: calc(6px + var(--nav-safe-top, 0px));
+}
+
+/* 基底/条带两层都画在 .nav 自己的伪元素上，盖不住任何 stage 内容（分栏
+ * 面板 z-index 1/2、页面根 position:relative，均在后、在其上） */
+.nav--safe::before,
+.nav--safe::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+/* 顶部基底层：只给无标题栏的角落兜底（如分栏右栏空态），常态被不透明
+ * 标题栏/转场条带完全盖住 */
+.nav--safe::before {
+  top: 0;
+  height: var(--nav-safe-top, 0px);
+  background: var(--page-header-bg, linear-gradient(180deg, #ececec 0%, #e0e0e0 100%));
+}
+
+/*
+ * 底部条带：延续正文材质到底。亮色取 .page__body 渐变末端色（与 page.css
+ * 内联 fallback 同一惯例）——与正文底边同色衔接；暗色换壳底色，正文四周
+ * 的壳粗边自然延伸进安全区。
+ */
+.nav--safe::after {
+  bottom: 0;
+  height: var(--nav-safe-bottom, 0px);
+  background: #d8d8d8;
+}
+
+[data-theme='dark'] .nav--safe::after {
+  background: var(--page-shell-bg, #161d2b);
+}
+
+/*
  * 左栏：窄形态占满整宽（子页栈整页显示），宽形态收窄为列表列。
  * 内容随宽度逐帧重排；右栏由 flex 布局自动从左栏实际右缘排起，
  * 两栏在任何窗口宽度都严丝合缝、永不重叠。
@@ -228,6 +279,27 @@
 [data-theme='dark'] .nav__frames--push .page__body-shell::after,
 [data-theme='dark'] .nav__frames--pop .page__body-shell::after {
   content: none;
+}
+
+/*
+ * 转场窗口暗色内衬覆盖层：滑动的两页正文被裁剪在 .nav__frames 的溢出边
+ * （= 面板内框边缘），不是正文井往里 8px 的边——under 页左滑把左侧 8px
+ * 壳内衬滑出裁剪线，over 页落位前顶住右侧裁剪线，浅色正文贴到面板 1px
+ * 边框上，切换期间左右粗边看起来消失。margin 做不回这个内衬（裁剪边不
+ * 随 margin 动），只能画回来：一圈 8px 壳色 inset 阴影浮在正文之上，恰
+ * 好盖回被吃掉的位置。窗口类摘掉即消失；正文 margin 8px 与覆盖层同值同
+ * 位，首尾帧与静止态逐像素一致（与 page.css 壳 ::after 内凹覆盖层同一
+ * 套路）。reduced-motion 下动画被禁、正文停在原位，覆盖层与 margin 同色
+ * 同位无副作用。
+ */
+[data-theme='dark'] .nav__frames--push::after,
+[data-theme='dark'] .nav__frames--pop::after {
+  content: '';
+  grid-row: 2;
+  grid-column: 1;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 8px var(--page-shell-bg, #161d2b);
 }
 
 .nav__frames--push .page-header,
