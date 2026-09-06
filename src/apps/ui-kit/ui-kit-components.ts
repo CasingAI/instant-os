@@ -660,6 +660,22 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
+    id: 'theme',
+    name: 'DarkMode',
+    description:
+      '暗色主题作用域壳：包住谁，谁里面的系统页面组件（Page / PageHeader / PageStack 转场 / Nav，均消费同一套 --page-* 变量）整体按暗色渲染，包外不受影响。实现为 display:contents 的 div——不占布局、不打乱调用方的 flex/grid 子项关系，只向子树贡献 data-theme="dark" 属性，暗色变量经 DOM 树继承生效，无任何 JS 运行时。没有对称的亮色作用域：亮色即 :root 默认值，所以暗里嵌不出亮色块',
+    category: 'other',
+    importPath: "import { DarkMode } from '../../ui/theme.tsx'",
+    whenToUse:
+      '需要局部暗色的场合：应用根节点整体切暗、暗色窗口里放一块亮色系统页面之外的反向场景不存在（亮色无作用域）；组件自包含引入 theme.css，调用方无须关心加载顺序。组件里要在 JS 读主题（isDark）的场景当前不支持',
+    demos: [
+      { id: 'basic', title: '亮暗并排对比', description: '同一组系统页面组件渲染两份：裸放一份保持亮色，包在 <DarkMode> 里的一份自动变暗，直观对照「包住即生效、包外不受影响」' },
+    ],
+    props: [
+      { name: 'children', type: 'ComponentChildren', description: '作用域内的内容：系统页面组件整体按暗色渲染', defaultValue: '—' },
+    ],
+  },
+  {
     id: 'page-curl',
     name: '地图卷页 Page Curl',
     description:
