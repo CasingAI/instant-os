@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { UI_COMPONENTS, COMPONENT_CATEGORIES } from './ui-kit-components.ts'
 import type { ComponentDemo, ComponentDemoBlock } from './ui-kit-components.ts'
 import { PageCurlDemo } from './page-curl-demo.tsx'
 import pageCurlSource from './page-curl-demo.tsx?raw'
-import { Page } from '../../ui/page.tsx'
-import { PageHeader } from '../../ui/page-header.tsx'
 import {
   Nav,
   useNav,
@@ -337,27 +335,11 @@ export function UiKitApp() {
     }
   }
 
-  // ── 形变期返回键对齐（services/nav-kit-demo 同款）：详情页/详情帧的返回
-  // 键只在窄形态有、分栏静置没有。A 型（窄→宽）先挂着随滑轨淡出；C 型
-  // （宽→窄）落定交棒后才出现，给一次透明度 0→1 的短淡入代替硬蹦。
-  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
-  const backFadeTimerRef = useRef(0)
-  const prevMorphingRef = useRef(false)
-  useLayoutEffect(() => {
-    const was = prevMorphingRef.current
-    prevMorphingRef.current = nav.morphing
-    if (was === nav.morphing) return
-    if (nav.morphing || !nav.narrowLayout || !selectedId) return
-    window.clearTimeout(backFadeTimerRef.current)
-    setBackFadeEpoch((epoch) => epoch + 1)
-    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
-  }, [nav.morphing, nav.narrowLayout, selectedId])
-  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
-
-  // ── 页面渲染：同一份内容同时供给窄屏子页与分栏帧（返回键按形态挂/摘）──
+  // ── 页面渲染：外壳统一由 <Nav.Page> 绘制，返回键显隐与形变淡入淡出由
+  // Nav 统一编排（应用只声明域事实：详情页有上一级「组件库」）──
 
   const renderListPage = () => (
-    <Page header={<PageHeader title="组件库" />}>
+    <Nav.Page title="组件库">
       <div class="ui-kit__list">
         <List variant="plain" selectedId={selectedId} onSelect={handleSelect}>
           {sections.map((section) => (
@@ -369,56 +351,41 @@ export function UiKitApp() {
           ))}
         </List>
       </div>
-    </Page>
+    </Nav.Page>
   )
 
-  const renderDetailPage = (showBack: boolean, headerClass?: string) => {
+  const renderDetailPage = () => {
     if (!selectedComponent) {
       return (
-        <Page header={<PageHeader title="组件库" />}>
+        <Nav.Page title="组件库">
           <div class="ui-kit__page-shell ui-kit__page-shell--empty">选择一个组件查看文档。</div>
-        </Page>
+        </Nav.Page>
       )
     }
     return (
-      <Page
-        header={
-          <PageHeader
-            class={headerClass}
-            title={selectedComponent.name}
-            backLabel={showBack ? '组件库' : undefined}
-            onBack={showBack ? () => nav.navigate('list', 'pop') : undefined}
-          />
-        }
+      <Nav.Page
+        title={selectedComponent.name}
+        backLabel="组件库"
+        onBack={() => nav.navigate('list', 'pop')}
       >
         <ComponentPage key={selectedComponent.id} component={selectedComponent} />
-      </Page>
+      </Nav.Page>
     )
   }
 
   const renderNarrowPage = (target: string) => {
     if (target === 'detail') {
-      return renderDetailPage(
-        true,
-        backFadeEpoch > 0 && target === nav.page
-          ? `ui-kit__back-fade-in-${backFadeEpoch % 2}`
-          : undefined,
-      )
+      return renderDetailPage()
     }
     return renderListPage()
   }
 
   // 分栏帧：详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
-  // 先挂着返回随滑轨淡出。
-  const keepDetailBack = nav.morphing && nav.morphKind === 'A' && selectedComponent !== undefined
-
+  // 顶帧临时挂回随滑轨淡出——由 Nav 统一编排。
   const renderWideFrames = (): NavFrameSpec[] => [
     {
       id: 'detail',
-      content: renderDetailPage(
-        keepDetailBack,
-        keepDetailBack ? 'ui-kit__back-fade-out' : undefined,
-      ),
+      content: renderDetailPage(),
     },
   ]
 

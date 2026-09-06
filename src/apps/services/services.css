@@ -22,47 +22,6 @@
   }
 }
 
-/* 详情页/详情帧的返回键只在窄形态有：A 型形变（窄→宽）随滑轨淡出，
-   C 型（宽→窄）落定交棒后才出现——短淡入代替硬蹦（nav-kit-demo 同款） */
-.services__back-fade-out .page-back-button {
-  pointer-events: none;
-  animation: services-back-out var(--nav-frame-ms, 380ms)
-    cubic-bezier(0.22, 0.61, 0.36, 1) both;
-}
-
-@keyframes services-back-out {
-  from {
-    opacity: 1;
-  }
-
-  to {
-    opacity: 0;
-  }
-}
-
-.services__back-fade-in-0 .page-back-button,
-.services__back-fade-in-1 .page-back-button {
-  animation: services-back-in 240ms ease-out both;
-}
-
-@keyframes services-back-in {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .services__back-fade-out .page-back-button,
-  .services__back-fade-in-0 .page-back-button,
-  .services__back-fade-in-1 .page-back-button {
-    animation: none;
-  }
-}
-
 /* 宽屏列表选中行：不用 settings__row--button，避免导航行 hover 白字 */
 .services__pick-row {
   display: grid;

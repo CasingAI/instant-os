@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { Page } from '../../ui/page.tsx'
-import { PageHeader } from '../../ui/page-header.tsx'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   Nav,
   useNav,
@@ -488,7 +486,7 @@ function RegistryRootPane({
   onSelect,
 }: RegistryRootPaneProps) {
   return (
-    <Page header={<PageHeader title="注册表管理" />}>
+    <Nav.Page title="注册表管理">
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <p class="settings__section-subtitle">
@@ -513,7 +511,7 @@ function RegistryRootPane({
           <p class="settings__section-footnote">{footnote}</p>
         </section>
       </div>
-    </Page>
+    </Nav.Page>
   )
 }
 
@@ -524,9 +522,7 @@ type RegistryDetailPaneProps = {
   entriesLoading: boolean
   deletingKey: string | undefined
   clearing: boolean
-  showBack: boolean
-  headerClass?: string
-  onBack?: () => void
+  onBack: () => void
   onOpenKey: (key: string) => void
   onDeleteKey: (key: string) => void
   onConfirmClear: () => void
@@ -539,33 +535,26 @@ function RegistryDetailPane({
   entriesLoading,
   deletingKey,
   clearing,
-  showBack,
-  headerClass,
   onBack,
   onOpenKey,
   onDeleteKey,
   onConfirmClear,
 }: RegistryDetailPaneProps) {
   return (
-    <Page
-      header={
-        <PageHeader
-          class={headerClass}
-          title={appLabel(selectedAppId)}
-          backLabel={showBack ? '注册表管理' : undefined}
-          onBack={showBack ? onBack : undefined}
-          actions={
-            entries.length > 0 ? (
-              <Button
-                tone="danger"
-                busy={clearing}
-                onClick={onConfirmClear}
-              >
-                清空
-              </Button>
-            ) : undefined
-          }
-        />
+    <Nav.Page
+      title={appLabel(selectedAppId)}
+      backLabel="注册表管理"
+      onBack={onBack}
+      actions={
+        entries.length > 0 ? (
+          <Button
+            tone="danger"
+            busy={clearing}
+            onClick={onConfirmClear}
+          >
+            清空
+          </Button>
+        ) : undefined
       }
     >
       <div class="settings__content settings__content--compact">
@@ -606,17 +595,17 @@ function RegistryDetailPane({
           </p>
         </section>
       </div>
-    </Page>
+    </Nav.Page>
   )
 }
 
 function RegistryDetailEmpty() {
   return (
-    <Page header={<PageHeader title="注册表管理" />}>
+    <Nav.Page title="注册表管理">
       <div class="settings__content settings__content--compact">
         <div class="settings__box settings__empty">选择左侧应用以查看注册表键</div>
       </div>
-    </Page>
+    </Nav.Page>
   )
 }
 
@@ -640,18 +629,14 @@ function RegistryBrowsePane({
   onEditJson,
 }: RegistryBrowsePaneProps) {
   return (
-    <Page
-      header={
-        <PageHeader
-          title={title}
-          backLabel={backLabel}
-          onBack={onBack}
-          actions={
-            <Button tone="primary" onClick={onEditJson}>
-              编辑 JSON
-            </Button>
-          }
-        />
+    <Nav.Page
+      title={title}
+      backLabel={backLabel}
+      onBack={onBack}
+      actions={
+        <Button tone="primary" onClick={onEditJson}>
+          编辑 JSON
+        </Button>
       }
     >
       <div class="settings__content settings__content--compact">
@@ -693,7 +678,7 @@ function RegistryBrowsePane({
           )}
         </section>
       </div>
-    </Page>
+    </Nav.Page>
   )
 }
 
@@ -741,23 +726,19 @@ function RegistryValuePane({
   }, [draft, initial, onDirtyChange])
 
   return (
-    <Page
-      header={
-        <PageHeader
-          title={title}
-          backLabel={backLabel}
-          onBack={onBack}
-          actions={
-            <Button
-              tone="primary"
-              disabled={!canSave}
-              busy={saving}
-              onClick={() => void onSave(draft)}
-            >
-              保存
-            </Button>
-          }
-        />
+    <Nav.Page
+      title={title}
+      backLabel={backLabel}
+      onBack={onBack}
+      actions={
+        <Button
+          tone="primary"
+          disabled={!canSave}
+          busy={saving}
+          onClick={() => void onSave(draft)}
+        >
+          保存
+        </Button>
       }
     >
       <div class="settings__content settings__content--compact registry__value-content">
@@ -772,7 +753,7 @@ function RegistryValuePane({
           onInput={(event) => setDraft((event.currentTarget as HTMLTextAreaElement).value)}
         />
       </div>
-    </Page>
+    </Nav.Page>
   )
 }
 
@@ -1354,25 +1335,6 @@ export function RegistryApp() {
     [displayedAppId, drill, selectedEntry],
   )
 
-  // ── 形变期返回键对齐（nav-kit-demo 同款）：keys 页/keys 帧的返回键只在窄
-  // 形态有、分栏静置没有。A 型（窄→宽）先挂着随滑轨淡出；C 型（宽→窄）
-  // 落定交棒后才出现，给一次透明度 0→1 的短淡入代替硬蹦。
-  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
-  const backFadeTimerRef = useRef(0)
-  const prevMorphingRef = useRef(false)
-  useLayoutEffect(() => {
-    const was = prevMorphingRef.current
-    prevMorphingRef.current = nav.morphing
-    if (was === nav.morphing) return
-    if (nav.morphing || !narrowLayout) return
-    // 落定页是 keys 页（唯一返回键有形态差的页）才淡入
-    if (!selectedAppId || drill.selectedKey) return
-    window.clearTimeout(backFadeTimerRef.current)
-    setBackFadeEpoch((epoch) => epoch + 1)
-    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
-  }, [nav.morphing, narrowLayout, selectedAppId, drill.selectedKey])
-  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
-
   const findEntry = (appId: string, key: string): RegistryEntry | undefined => {
     if (appId === displayedAppId) {
       return displayedEntries.find((item) => item.key === key) ?? selectedEntry
@@ -1406,7 +1368,7 @@ export function RegistryApp() {
     return pathTitle(entry.key, path.slice(0, -1), root)
   }
 
-  const renderDetailPane = (appId: string, showBack: boolean, headerClass?: string) => (
+  const renderDetailPane = (appId: string) => (
     <RegistryDetailPane
       selectedAppId={appId}
       namespace={appId === selectedAppId ? selectedNamespace : displayedNamespace}
@@ -1414,9 +1376,7 @@ export function RegistryApp() {
       entriesLoading={displayedLoading}
       deletingKey={deletingKey}
       clearing={clearing}
-      showBack={showBack}
-      headerClass={headerClass}
-      onBack={showBack ? closeDetail : undefined}
+      onBack={closeDetail}
       onOpenKey={openEntry}
       onDeleteKey={(key) => void handleDeleteKey(key)}
       onConfirmClear={() => void handleConfirmClear()}
@@ -1446,15 +1406,11 @@ export function RegistryApp() {
     const resolved = resolveEditor(entry, path)
     if (resolved === 'invalid-path') {
       return (
-        <Page
-          header={
-            <PageHeader title={entry.key} backLabel="返回" onBack={() => void goBackFromDrill()} />
-          }
-        >
+        <Nav.Page title={entry.key} backLabel="返回" onBack={() => void goBackFromDrill()}>
           <div class="settings__content settings__content--compact">
             <div class="settings__box settings__empty">该路径已不存在</div>
           </div>
-        </Page>
+        </Nav.Page>
       )
     }
     const kindLabel =
@@ -1479,15 +1435,16 @@ export function RegistryApp() {
 
   const renderBrowseAtDepth = (depth: number) => {
     if (!selectedAppId || !selectedEntry) {
-      return null
+      return <Nav.Page title="注册表管理" />
     }
     return renderBrowsePane(selectedEntry, drill.jsonPath.slice(0, depth))
   }
 
   const renderNarrowPage = (target: string) => {
     if (target === PAGE_EDIT) {
+      // 兜底：edit 页必有选中键，缺失时给一个统一外壳的空页（类型不允许裸 null）
       if (!selectedEntry) {
-        return null
+        return <Nav.Page title="注册表管理" />
       }
       return renderEditorPane(selectedEntry, drill.jsonPath)
     }
@@ -1499,15 +1456,9 @@ export function RegistryApp() {
 
     if (target === PAGE_KEYS) {
       if (!selectedAppId) {
-        return null
+        return <Nav.Page title="注册表管理" />
       }
-      return renderDetailPane(
-        selectedAppId,
-        true,
-        backFadeEpoch > 0 && target === screen
-          ? `registry__back-fade-in-${backFadeEpoch % 2}`
-          : undefined,
-      )
+      return renderDetailPane(selectedAppId)
     }
 
     return (
@@ -1526,26 +1477,20 @@ export function RegistryApp() {
   }
 
   // 分栏帧栈：keys 帧静置不带返回（左栏即它的上级），A 型形变（窄→宽）
-  // 先挂着返回随滑轨淡出；browse/edit 帧两种形态都带返回。
-  const keepKeysBack =
-    nav.morphing && nav.morphKind === 'A' && selectedAppId !== undefined && !drill.selectedKey
-
+  // 顶帧临时挂回随滑轨淡出；browse/edit 帧（帧深 ≥2）恒带返回——均由 Nav
+  // 统一编排。
   const renderWideFrame = (frame: WideFrame) => {
     if (frame.kind === 'keys') {
-      return renderDetailPane(
-        frame.appId,
-        false,
-        keepKeysBack ? 'registry__back-fade-out' : undefined,
-      )
+      return renderDetailPane(frame.appId)
     }
     const entry = findEntry(frame.appId, frame.key)
     if (!entry) {
       return (
-        <Page>
+        <Nav.Page>
           <div class="settings__content settings__content--compact">
             <div class="settings__box settings__empty">该键已不存在</div>
           </div>
-        </Page>
+        </Nav.Page>
       )
     }
     if (frame.kind === 'browse') {

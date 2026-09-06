@@ -1,26 +1,16 @@
 import { useCallback, useState } from 'preact/hooks'
 import { Button } from '../../../../ui/button.tsx'
+import { List } from '../../../../ui/list.tsx'
+import { ListItem } from '../../../../ui/list-item.tsx'
 import { PopNav, PopNavTrigger } from '../../../../ui/pop-nav.tsx'
-import { useNav } from '../../../../ui/nav.tsx'
+import { Nav, useNav } from '../../../../ui/nav.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
 const LIST_ITEMS = [
   { id: 'item-1', title: '列表项一', detail: '第一项的详情内容：PopNav 的内容只能是 Nav 页面，从列表推入详情、返回键退回。' },
-  { id: 'item-2', title: '列表项二', detail: '第二项的详情内容：关窗（点外面 / Esc / 右上角 ×）只是隐藏，再开还在原页。' },
-  { id: 'item-3', title: '列表项三', detail: '第三项的详情内容：面板固定 320×480，超出宿主窗口时自动钳回窗口内。' },
+  { id: 'item-2', title: '列表项二', detail: '第二项的详情内容：关窗（点外面 / Esc）只是隐藏，再开还在原页。' },
+  { id: 'item-3', title: '列表项三', detail: '第三项的详情内容：面板固定 320×280，超出宿主窗口时自动钳回窗口内。' },
 ]
-
-const rowStyle = {
-  display: 'block',
-  width: '100%',
-  padding: '10px 16px',
-  border: 'none',
-  borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
-  background: 'none',
-  textAlign: 'left',
-  fontSize: '13px',
-  cursor: 'pointer',
-}
 
 type DemoNav = {
   page: string
@@ -47,34 +37,31 @@ function useDemoNav(): DemoNav & { controller: ReturnType<typeof useNav> } {
   return { controller: nav, page, selected, openItem, goBack }
 }
 
+/** 页面外壳由 <Nav.Page> 统一绘制（标题栏 + 返回键），与全系统导航一个长相 */
 function renderDemoPages(page: string, demo: DemoNav) {
   if (page === 'detail') {
     const item = LIST_ITEMS[demo.selected]
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ padding: '6px 8px' }}>
-          <Button variant="borderless" onClick={demo.goBack}>
-            ‹ 返回
-          </Button>
-        </div>
-        <div style={{ padding: '4px 16px 16px', overflow: 'auto' }}>
-          <h3 style={{ margin: '8px 0', fontSize: 15 }}>{item.title}</h3>
-          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: '#444' }}>{item.detail}</p>
-        </div>
-      </div>
+      <Nav.Page title={item.title} backLabel="示例列表" onBack={demo.goBack}>
+        <p style={{ margin: 0, padding: '4px 16px 16px', fontSize: 13, lineHeight: 1.6, color: '#444' }}>
+          {item.detail}
+        </p>
+      </Nav.Page>
     )
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '12px 16px 8px', fontSize: 13, fontWeight: 600 }}>示例列表</div>
-      <div style={{ flex: 1, overflow: 'auto' }}>
+    <Nav.Page title="示例列表">
+      <List variant="plain">
         {LIST_ITEMS.map((item, index) => (
-          <button key={item.id} style={rowStyle} onClick={() => demo.openItem(index)}>
-            {item.title}
-          </button>
+          <ListItem
+            key={item.id}
+            label={item.title}
+            accessory="disclosure"
+            onClick={() => demo.openItem(index)}
+          />
         ))}
-      </div>
-    </div>
+      </List>
+    </Nav.Page>
   )
 }
 

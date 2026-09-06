@@ -1,24 +1,12 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'preact/hooks'
+import { useCallback, useEffect, useState } from 'preact/hooks'
 import { useOs } from '../../os/os-context.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
-import { Page } from '../../ui/page.tsx'
-import { PageHeader } from '../../ui/page-header.tsx'
 import { Button } from '../../ui/button.tsx'
 import { PageButtonGroup } from '../../ui/page-button-group.tsx'
 import { PageActionButton } from '../../ui/page-action-button.tsx'
 import { Icon } from '../../ui/icon.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
-import {
-  Nav,
-  useNav,
-  type NavPageContext,
-} from '../../ui/nav.tsx'
+import { Nav, useNav } from '../../ui/nav.tsx'
 import { NAV_KIT_DEMO_BOOKS, totalChapters, totalSections } from './nav-kit-demo-content.ts'
 import './nav-kit-demo.css'
 // SettingsNavRow 的行样式随 settings 应用样式表分发（ui-kit 组件 demo 同款用法）
@@ -190,32 +178,11 @@ export function NavKitDemoApp() {
     nav.navigate(posPageId(parent), 'pop', () => setPos(parent))
   }, [nav, pos])
 
-  // 宽→窄形变落定交棒：窄屏书页的「书架」返回此刻才无中生有（分栏没有
-  // 这颗键），给一次透明度 0→1 的短淡入代替硬蹦；只挂落定时栈顶那页，
-  // 播完即撤，不影响之后的正常进退。拖拽即时切同样走这里：翻转当帧
-  // morphing 被标亮又被即时路径收掉，监听到同样的真→假。reduced-motion
-  // 下 morphing 恒为假，淡入天然不触发。必须用 layout effect：类要在面板
-  // 移除的同一帧 paint 前挂上，否则返回键先硬蹦一帧再从 0 重淡入。
-  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
-  const backFadeTimerRef = useRef(0)
-  const prevMorphingRef = useRef(false)
-  useLayoutEffect(() => {
-    const was = prevMorphingRef.current
-    prevMorphingRef.current = nav.morphing
-    if (was === nav.morphing) return
-    if (nav.morphing || !nav.narrowLayout || pos.kind !== 'book') return
-    window.clearTimeout(backFadeTimerRef.current)
-    // epoch 递增 + 双类名交替：320ms 内背靠背再触发也能重播动画
-    setBackFadeEpoch((epoch) => epoch + 1)
-    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
-  }, [nav.morphing, nav.narrowLayout, pos.kind])
-  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
-
-  // ── 内容渲染：同一份 pane 同时供给窄屏子页与分栏帧（showBack 控制返回键）──
+  // ── 内容渲染：外壳统一由 <Nav.Page> 绘制，返回键显隐与形变淡入淡出由
+  // Nav 统一编排（书页 = 深度 1：分栏静置无返回、A 型顶帧挂回淡出、落窄
+  // 淡入；其余层级恒有返回）。──
   const renderShelf = () => (
-    <Page
-      header={<PageHeader title="书架" />}
-    >
+    <Nav.Page title="书架">
       <div class="nav-kit-demo__rows">
         <div class="settings__list">
           {NAV_KIT_DEMO_BOOKS.map((book, b) => (
@@ -228,31 +195,26 @@ export function NavKitDemoApp() {
           ))}
         </div>
       </div>
-    </Page>
+    </Nav.Page>
   )
 
-  const renderBook = (b: number, showBack: boolean, headerClass?: string) => {
+  const renderBook = (b: number) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const favKey = `book:${book.id}`
     const isFav = favorites.has(favKey)
     return (
-      <Page
-        header={
-          <PageHeader
-            class={headerClass}
-            title={book.title}
-            backLabel={showBack ? '书架' : undefined}
-            onBack={showBack ? backPos : undefined}
-            actions={
-              <Button
-                tone={isFav ? 'primary' : 'secondary'}
-                onClick={() => toggleFavorite(favKey)}
-              >
-                收藏
-              </Button>
-            }
-          />
+      <Nav.Page
+        title={book.title}
+        backLabel="书架"
+        onBack={backPos}
+        actions={
+          <Button
+            tone={isFav ? 'primary' : 'secondary'}
+            onClick={() => toggleFavorite(favKey)}
+          >
+            收藏
+          </Button>
         }
       >
         <p class="nav-kit-demo__intro">{book.intro}</p>
@@ -285,24 +247,16 @@ export function NavKitDemoApp() {
             />
           </div>
         </div>
-      </Page>
+      </Nav.Page>
     )
   }
 
-  const renderVolume = (b: number, v: number, showBack: boolean) => {
+  const renderVolume = (b: number, v: number) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     const volume = book?.volumes?.[v]
     if (!book || !volume) return renderShelf()
     return (
-      <Page
-        header={
-          <PageHeader
-            title={volume.title}
-            backLabel={showBack ? book.title : undefined}
-            onBack={showBack ? backPos : undefined}
-          />
-        }
-      >
+      <Nav.Page title={volume.title} backLabel={book.title} onBack={backPos}>
         <div class="nav-kit-demo__rows">
           <div class="settings__list">
             {volume.chapters.map((chapter, c) => (
@@ -315,11 +269,11 @@ export function NavKitDemoApp() {
             ))}
           </div>
         </div>
-      </Page>
+      </Nav.Page>
     )
   }
 
-  const renderChapter = (b: number, v: number | null, c: number, showBack: boolean) => {
+  const renderChapter = (b: number, v: number | null, c: number) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const chapter = v === null ? book.chapters[c] : book.volumes?.[v]?.chapters[c]
@@ -330,14 +284,12 @@ export function NavKitDemoApp() {
     const isFav = favorites.has(favKey)
     const isRead = readChapters.has(readKey)
     return (
-      <Page
-        header={
-          <PageHeader
-            title={chapter.title}
-            backLabel={showBack ? parentLabel : undefined}
-            onBack={showBack ? backPos : undefined}
-            actions={
-              <PageButtonGroup>
+      <Nav.Page
+        title={chapter.title}
+        backLabel={parentLabel}
+        onBack={backPos}
+        actions={
+          <PageButtonGroup>
                 <PageActionButton
                   icon={<Icon name="favorite" size={13} />}
                   activated={isFav}
@@ -349,10 +301,8 @@ export function NavKitDemoApp() {
                   标记已读
                 </PageActionButton>
                 <PageActionButton icon={<Icon name="share" size={13} />}>分享</PageActionButton>
-                <PageActionButton>导出备份</PageActionButton>
-              </PageButtonGroup>
-            }
-          />
+            <PageActionButton>导出备份</PageActionButton>
+          </PageButtonGroup>
         }
       >
         <div class="nav-kit-demo__rows">
@@ -367,26 +317,18 @@ export function NavKitDemoApp() {
             ))}
           </div>
         </div>
-      </Page>
+      </Nav.Page>
     )
   }
 
-  const renderSection = (b: number, v: number | null, c: number, s: number, showBack: boolean) => {
+  const renderSection = (b: number, v: number | null, c: number, s: number) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const chapter = v === null ? book.chapters[c] : book.volumes?.[v]?.chapters[c]
     const section = chapter?.sections[s]
     if (!chapter || !section) return renderShelf()
     return (
-      <Page
-        header={
-          <PageHeader
-            title={section.title}
-            backLabel={showBack ? chapter.title : undefined}
-            onBack={showBack ? backPos : undefined}
-          />
-        }
-      >
+      <Nav.Page title={section.title} backLabel={chapter.title} onBack={backPos}>
         <p class="nav-kit-demo__intro">{book.title} · {chapter.title}</p>
         {section.paragraphs.map((paragraph, i) => (
           <p key={i} class="nav-kit-demo__paragraph">
@@ -398,11 +340,11 @@ export function NavKitDemoApp() {
             <li key={i}>{bullet}</li>
           ))}
         </ul>
-      </Page>
+      </Nav.Page>
     )
   }
 
-  const renderAbout = (b: number, showBack: boolean) => {
+  const renderAbout = (b: number) => {
     const book = NAV_KIT_DEMO_BOOKS[b]
     if (!book) return renderShelf()
     const favKey = `book:${book.id}`
@@ -410,14 +352,12 @@ export function NavKitDemoApp() {
     const isFav = favorites.has(favKey)
     const isRead = readChapters.has(readKey)
     return (
-      <Page
-        header={
-          <PageHeader
-            /* 无标题页面：三槽只剩返回与操作，标题位留空 */
-            backLabel={showBack ? book.title : undefined}
-            onBack={showBack ? backPos : undefined}
-            actions={
-              <PageButtonGroup>
+      /* 无标题页面：三槽只剩返回与操作，标题位留空 */
+      <Nav.Page
+        backLabel={book.title}
+        onBack={backPos}
+        actions={
+          <PageButtonGroup>
                 <PageActionButton
                   icon={<Icon name="favorite" size={13} />}
                   activated={isFav}
@@ -429,11 +369,9 @@ export function NavKitDemoApp() {
                   标记已读
                 </PageActionButton>
                 <PageActionButton icon={<Icon name="share" size={13} />}>分享</PageActionButton>
-                <PageActionButton>导出备份</PageActionButton>
-              </PageButtonGroup>
-            }
-          />
-        }
+          <PageActionButton>导出备份</PageActionButton>
+        </PageButtonGroup>
+      }
       >
         <p class="nav-kit-demo__intro">{book.intro}</p>
         <ul class="nav-kit-demo__meta">
@@ -445,52 +383,29 @@ export function NavKitDemoApp() {
           <li>版本　1.0</li>
           <li>书号　{book.id.toUpperCase()}-DEMO-001</li>
         </ul>
-      </Page>
+      </Nav.Page>
     )
   }
 
   // flat 引擎：每页 id 只有一个常驻 host，窄屏子页与分栏帧是同一实例的
-  // 两种角色——渲染分发只有一份，chrome 按 ctx（形态 + 形变分型）现场决定。
+  // 两种角色；返回键 chrome 由 Nav 统一编排（深度 1 的书页：分栏静置无
+  // 返回、A 型顶帧挂回淡出、落窄淡入；其余层级恒有返回）。
   const framePath = framePositions(pos)
   const frames = framePath.map(posPageId)
-  const topFrameId = frames.length > 0 ? frames[frames.length - 1] : ''
 
-  const renderPage = (target: DemoPageId, ctx: NavPageContext) => {
+  const renderPage = (target: DemoPageId) => {
     const bookIdx = parseBook(target)
     if (bookIdx !== null) {
-      // 「书架」返回只有书页处在子页栈角色（窄屏）里才有：分栏静置的书帧
-      // 没有——它的上级书架是左栏。形变盖住画面的是这一份实例，chrome 按
-      // 起始形态画：A 型（窄→宽）滑轨的顶帧挂着返回随滑轨淡出（滑轨的退出
-      // 方向就是这颗键的消失方向）；C 型（宽→窄）面板不带返回——书架由
-      // 滑轨盖过去，返回键等形变落定、交棒给子页栈后才由 backFadeEpoch
-      // 淡入。其余层级两种形态都有返回，恒挂。
-      const showBack = !ctx.narrowLayout
-        ? ctx.morphing &&
-          ctx.morphKind === 'A' &&
-          target === topFrameId &&
-          pos.kind === 'book'
-        : !(ctx.morphing && ctx.morphKind === 'C')
-      const fadingOut = !ctx.narrowLayout && showBack
-      const fadingIn =
-        ctx.narrowLayout && backFadeEpoch > 0 && target === nav.page
-      return renderBook(
-        bookIdx,
-        showBack,
-        fadingOut
-          ? 'nav-kit-demo__back-fade-out'
-          : fadingIn
-            ? `nav-kit-demo__back-fade-in-${backFadeEpoch % 2}`
-            : undefined,
-      )
+      return renderBook(bookIdx)
     }
     const vol = parseVolume(target)
-    if (vol) return renderVolume(vol[0], vol[1], true)
+    if (vol) return renderVolume(vol[0], vol[1])
     const chap = parseChapter(target)
-    if (chap) return renderChapter(chap[0], chap[1], chap[2], true)
+    if (chap) return renderChapter(chap[0], chap[1], chap[2])
     const sec = parseSection(target)
-    if (sec) return renderSection(sec[0], sec[1], sec[2], sec[3], true)
+    if (sec) return renderSection(sec[0], sec[1], sec[2], sec[3])
     const about = parseAbout(target)
-    if (about !== null) return renderAbout(about, true)
+    if (about !== null) return renderAbout(about)
     return renderShelf()
   }
 

@@ -83,7 +83,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     demos: [
-      { id: 'basic', title: '基础形态', description: 'filled 三种色调、borderless 白字纯文字/图标（按住看光晕）、图标钮与 icon+文字受控例外' },
+      { id: 'basic', title: '基础形态', description: 'filled 三种色调、borderless 白字纯文字/图标（按住看光晕）、图标钮与 icon+文字受控例外、busy 加载态' },
       { id: 'theme', title: 'CSS 变量换肤', description: '父级覆盖 --ios-button-* 变量整体换皮' },
     ],
     props: [
@@ -92,6 +92,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名', defaultValue: '—' },
       { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传', defaultValue: 'false' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
+      { name: 'busy', type: 'boolean?', description: '异步进行中：转圈替换文案并标记 aria-busy，无障碍名从 children 回退', defaultValue: 'false' },
       { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type', defaultValue: "'button'" },
       { name: 'aria-label', type: 'string?', description: '无障碍标签', defaultValue: '—' },
       { name: 'onClick', type: '() => void', description: '点击回调', defaultValue: '—' },
@@ -382,7 +383,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'nav',
     name: 'Nav',
-    description: '导航：宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接。分栏宽度 ≤640 时进入紧凑档（左右固定 50/50，listRatio 不参与），≥700 恢复比例。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
+    description: '导航家族：Nav 本体（宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接）+ Nav.Page（强制页单位：统一标题栏外壳由组件绘制，返回键显隐与形变淡入淡出全系统一份实现）+ Nav.Header / Nav.Flow。分栏宽度 ≤640 时进入紧凑档。页面必须是 <Nav.Page>（运行时强制校验）——用 Nav 的地方外壳必然一个长相。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
     category: 'navigation',
     importPath: "import { Nav, useNav } from '../../ui/nav.tsx'",
     demos: [
@@ -390,8 +391,11 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
     props: [
       { name: 'controller', type: 'NavController', description: 'useNav() 返回的控制器', defaultValue: '—' },
-      { name: 'renderNarrowPage', type: '(page: string) => ComponentChildren', description: '窄屏子页栈页面渲染', defaultValue: '—' },
-      { name: 'renderWideFrames', type: '() => NavFrameSpec[]', description: '分栏右栏帧序列（从领域状态派生，末位最上）', defaultValue: '—' },
+      { name: 'renderNarrowPage', type: '(page: string) => <Nav.Page>', description: '窄屏子页栈页面渲染（必须返回 <Nav.Page>）', defaultValue: '—' },
+      { name: 'renderWideFrames', type: '() => NavFrameSpec[]', description: '分栏右栏帧序列（content 必须是 <Nav.Page>，末位最上）', defaultValue: '—' },
+      { name: '<Nav.Page>', type: '{ title?, backLabel?, onBack?, actions?, children }', description: '强制页单位：统一标题栏（返回/标题/操作区）+ 滚动正文；返回键随形态的显隐与淡入淡出由 Nav 编排', defaultValue: '—' },
+      { name: '<Nav.Header>', type: 'NavHeaderProps', description: '标题栏本体（无标题特殊页单独取用）', defaultValue: '—' },
+      { name: '<Nav.Flow>', type: '{ children }', description: '流程页出口：内嵌 PageStack 子栈的选择器/向导（外壳由子栈的标准件提供）', defaultValue: '—' },
       { name: 'framesResetKey', type: 'string?', description: '帧栈全量重置键（选中条目身份切换时整体替换）', defaultValue: '—' },
       { name: 'narrowPageForState', type: '() => string', description: 'useNav：由领域状态推导当前子页 id', defaultValue: '—' },
       { name: 'listPage', type: 'string?', description: 'useNav：分栏左栏根列表页 id', defaultValue: '—' },
@@ -529,7 +533,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'pop-nav',
     name: 'PopNav',
     description:
-      '强制 Nav 的大弹出窗：细长固定尺寸（320×480，不可调），内容只能是 Nav 页面；锚定形态箭头指向触发器、宿主窗口内钳制不越界，无锚点时视口居中；关闭（外点/Esc/右上角关闭钮）仅隐藏不销毁，Nav 状态保留；宿主窗口宽 ≤520px 时退化成居中模态',
+      '强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面；锚定形态箭头指向触发器、宿主窗口内钳制不越界，无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留；宿主窗口宽 ≤520px 时退化成居中模态',
     category: 'other',
     importPath: "import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'",
     demos: [
@@ -541,11 +545,11 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
     props: [
       { name: 'open', type: 'boolean', description: '是否打开', defaultValue: '—' },
-      { name: 'onClose', type: '() => void', description: '关闭通知（外部点按 / Esc / 右上角关闭钮）；面板仅隐藏不销毁', defaultValue: '—' },
+      { name: 'onClose', type: '() => void', description: '关闭通知（外部点按 / Esc）；面板仅隐藏不销毁', defaultValue: '—' },
       { name: 'onOpen', type: '() => void?', description: 'PopNavTrigger 点按时的开窗请求', defaultValue: '—' },
       { name: 'anchorRef', type: 'RefObject<HTMLElement>?', description: '逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）', defaultValue: '—' },
       { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
-      { name: '…NavProps', type: 'NavProps', description: "controller 与 renderNarrowPage/renderWideFrames（或 engine:'flat' 一套）原样透传给内部 Nav——内容只能是 Nav 页面，没有塞任意组件的口子", defaultValue: '—' },
+      { name: '…NavProps', type: 'NavProps', description: "controller 与 renderNarrowPage/renderWideFrames（或 engine:'flat' 一套）原样透传给内部 Nav——页面必须是 <Nav.Page>（统一标题栏外壳，运行时强制），没有塞任意组件的口子", defaultValue: '—' },
       { name: '<PopNavTrigger>', type: 'ComponentChildren', description: '触发器：包住按钮等元素，ref 与点按自动接好，箭头指向它；孩子须是原生元素或接 ref 的组件，否则退回透明壳', defaultValue: '—' },
     ],
   },

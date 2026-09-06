@@ -1,6 +1,8 @@
-import type { ComponentChildren } from 'preact'
+import { createContext } from 'preact'
+import type { ComponentChildren, VNode } from 'preact'
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -13,6 +15,8 @@ import {
   useAppNarrowLayout,
 } from './use-app-narrow-layout.ts'
 import { PageStack, usePageStack, type PageStackTransition } from './page-stack.tsx'
+import { Page } from './page.tsx'
+import { PageHeader } from './page-header.tsx'
 import { hitsNavFrameIndex, wideNavFrameIndices } from './nav-model.ts'
 import './nav.css'
 import './nav-flat.css'
@@ -45,7 +49,8 @@ import './theme.css'
 export type NavFrameSpec = {
   /** 帧稳定性键：结构变化（push/pop/重置）按 id 序列判定 */
   id: string
-  content: ComponentChildren
+  /** 帧内容：必须是 <Nav.Page>（统一外壳由组件强制，见 NavPageProps） */
+  content: VNode<NavPageProps>
 }
 
 /** 形态翻转计划：翻转那一帧渲染期写入，供组件编排面板形变与页面交接 */
@@ -289,6 +294,189 @@ export type NavPageContext = {
   morphKind?: NavMorphKind
 }
 
+/**
+ * Nav.Page 的属性：页 = 统一标题栏外壳（返回键/标题/操作区由组件绘制）+ 滚动正文。
+ * 返回键给不给、什么时候淡入淡出，由 Nav 按「形态 × 深度 × 形变分型」统一编排，
+ * 应用只声明域事实（有没有上一级、返回到哪）；正文 children 完全自由。
+ */
+export type NavPageProps = {
+  /** 居中标题；缺省时标题位留空（返回键与操作区仍占位，见 Nav.Header） */
+  title?: string
+  /** 返回键文案（域事实：有上一级才传）；是否显示由 Nav 按形态编排 */
+  backLabel?: string
+  /** 返回动作 */
+  onBack?: () => void
+  /** 右侧操作区（PageActionButton 等） */
+  actions?: ComponentChildren
+  /** 附加到 .page 根上的类（应用级布局微调） */
+  class?: string
+  /** 正文（.page__body 滚动区内） */
+  children?: ComponentChildren
+}
+
+/**
+ * Nav 标题栏：三槽（返回/标题/操作）的统一外壳本体。通常不直接用——
+ * <Nav.Page> 已内置；无标题、只要返回与操作的特殊页可单独取用。
+ * 返回键显隐与淡入淡出由 Nav 的页级上下文统一编排（见 NavChromeScope）。
+ */
+export type NavHeaderProps = {
+  title?: string
+  backLabel?: string
+  onBack?: () => void
+  actions?: ComponentChildren
+  class?: string
+}
+
+/**
+ * 页级 chrome 作用域：Nav 渲染每页/每帧时注入，Nav.Page / Nav.Header 消费。
+ * 应用不直接接触。
+ */
+type NavChromeScope = {
+  /** true = 子页栈侧（窄形态规则），false = 分栏帧侧（宽形态规则） */
+  narrow: boolean
+  morphing: boolean
+  morphKind: NavMorphKind | undefined
+  /** 导航深度：栈内根列表 = 0、其上逐层 +1；帧首层 = 1。0 = 无返回的根 */
+  depth: number
+  /** 是否当前显示中的顶层页（栈顶 / 顶帧）——形变编排只作用在顶层 */
+  isCurrent: boolean
+}
+
+const NavChromeContext = createContext<NavChromeScope | null>(null)
+
+/**
+ * 返回键统一编排（全系统唯一一份，替代此前各应用手抄的 showBack + fade）：
+ * - 窄屏栈：非根页恒有返回；C 型形变（面板扩张交棒）期间先隐，落定后
+ *   短淡入（epoch 递增 + 双类名交替，背靠背再触发也能重播）；
+ * - 宽屏帧：帧深 ≥2 恒有返回；帧深 1 静置无返回、A 型形变期仅顶帧临时
+ *   挂回并随滑轨淡出。
+ * 淡入用 layout effect 挂类：类要在面板移除的同一帧 paint 前挂上。
+ */
+function useChromeBack(
+  backLabel: string | undefined,
+  onBack: (() => void) | undefined,
+): { backLabel?: string; onBack?: () => void; fadeClass?: string } {
+  const scope = useContext(NavChromeContext)
+  const hasBack = !!(backLabel && onBack)
+  const [fadeEpoch, setFadeEpoch] = useState(0)
+  const fadeTimerRef = useRef(0)
+  const prevMorphingRef = useRef(false)
+  const morphing = scope?.morphing ?? false
+  const narrow = scope?.narrow ?? true
+  useLayoutEffect(() => {
+    const was = prevMorphingRef.current
+    prevMorphingRef.current = morphing
+    if (was === morphing) return
+    if (!was || morphing || !narrow) return
+    if (!scope || scope.depth === 0 || !scope.isCurrent) return
+    window.clearTimeout(fadeTimerRef.current)
+    setFadeEpoch((epoch) => epoch + 1)
+    // 240ms 动画播完即摘类，背靠背形变靠 epoch%2 双类名交替重触发
+    fadeTimerRef.current = window.setTimeout(() => setFadeEpoch(0), 320)
+  }, [morphing, narrow, scope?.depth, scope?.isCurrent])
+  useEffect(() => () => window.clearTimeout(fadeTimerRef.current), [])
+
+  if (!hasBack) {
+    return {}
+  }
+  if (!scope) {
+    // 游离使用（不在 Nav 内）：域事实说有上一级就给返回键
+    return { backLabel: backLabel!, onBack }
+  }
+  const { depth, isCurrent } = scope
+  // C 型形变（宽→窄面板扩张交棒）期间，落点页与帧一律先隐返回键——
+  // 落定交棒后才由淡入「无中生有」，两种侧别规则一致
+  if (morphing && scope.morphKind === 'C') {
+    return {}
+  }
+  if (scope.narrow) {
+    if (depth === 0) {
+      return {}
+    }
+    return {
+      backLabel: backLabel!,
+      onBack,
+      fadeClass:
+        fadeEpoch > 0 && isCurrent ? `nav__back-fade-in-${fadeEpoch % 2}` : undefined,
+    }
+  }
+  if (depth >= 2) {
+    return { backLabel: backLabel!, onBack }
+  }
+  if (morphing && scope.morphKind === 'A' && isCurrent) {
+    return { backLabel: backLabel!, onBack, fadeClass: 'nav__back-fade-out' }
+  }
+  return {}
+}
+
+function NavHeaderImpl({
+  title,
+  backLabel,
+  onBack,
+  actions,
+  class: className,
+}: NavHeaderProps) {
+  const back = useChromeBack(backLabel, onBack)
+  const classes = [className, back.fadeClass].filter(Boolean).join(' ')
+  return (
+    <PageHeader
+      title={title}
+      backLabel={back.backLabel}
+      onBack={back.onBack}
+      actions={actions}
+      class={classes || undefined}
+    />
+  )
+}
+
+function NavPageImpl({
+  title,
+  backLabel,
+  onBack,
+  actions,
+  class: className,
+  children,
+}: NavPageProps) {
+  return (
+    <Page
+      class={className}
+      header={
+        <NavHeaderImpl
+          title={title}
+          backLabel={backLabel}
+          onBack={onBack}
+          actions={actions}
+        />
+      }
+    >
+      {children}
+    </Page>
+  )
+}
+
+/** 流程页：不带 Nav 标题栏的页元素——专供内嵌 PageStack 子栈的流程
+ * （选择器/向导），外壳由子栈内的 Page+PageHeader 标准件提供。 */
+function NavFlowImpl({ children }: { children?: ComponentChildren }) {
+  return <>{children}</>
+}
+
+/**
+ * 运行时强制：页面元素必须是 <Nav.Page>（统一标题栏外壳）或 <Nav.Flow>
+ * （内嵌 PageStack 子栈的流程页——外壳由子栈内的 Page+PageHeader 标准件
+ * 提供，避免双标题栏）。其余自拼外壳的写法当场抛错。
+ */
+function assertNavPage(
+  element: VNode<NavPageProps>,
+  where: string,
+): VNode<NavPageProps> {
+  if (element.type !== NavPageImpl && element.type !== NavFlowImpl) {
+    throw new Error(
+      `[Nav] ${where} 必须返回 <Nav.Page>（流程页用 <Nav.Flow>；统一标题栏外壳由组件强制，别用 Page/PageHeader 自拼）`,
+    )
+  }
+  return element
+}
+
 type NavSharedProps = {
   controller: NavController
   /** 帧栈全量重置键：变化时立即整体替换帧（不播动画），如选中条目身份切换 */
@@ -296,7 +484,7 @@ type NavSharedProps = {
   /** 附加条（应用自定内容）：分栏时在右栏底部、子页栈时在栈下方 */
   footer?: ComponentChildren
   /** 分栏帧序列为空时的占位，应用全权定义；缺省渲染中性空白 */
-  renderDetailEmpty?: () => ComponentChildren
+  renderDetailEmpty?: () => VNode<NavPageProps>
   /** 左栏占分栏总宽比例（0~1），默认 0.38 */
   listRatio?: number
   /** 分栏帧动画时长（ms），默认 380 */
@@ -307,8 +495,11 @@ type NavSharedProps = {
 export type ClassicNavProps = NavSharedProps & {
   /** 双份渲染引擎（缺省）：窄屏子页与分栏帧各渲染一份，形变靠交接对齐 */
   engine?: 'classic'
-  /** 子页栈：渲染某个页，内容与外壳完全由应用定义（左栏根列表页也由此渲染） */
-  renderNarrowPage: (page: string) => ComponentChildren
+  /**
+   * 子页栈：渲染某个页。必须返回 <Nav.Page>——统一标题栏外壳由组件强制，
+   * 返回键的显隐与形变淡入淡出也由组件统一编排，应用只声明域事实。
+   */
+  renderNarrowPage: (page: string) => VNode<NavPageProps>
   /**
    * 分栏右栏帧序列，从与子页同一份领域状态派生；顺序 = 叠放次序（末位最上）。
    * 每次渲染都会调用，活帧内容始终取最新（空数组表示详情区无内容）。
@@ -321,9 +512,10 @@ export type FlatNavProps = NavSharedProps & {
   engine: 'flat'
   /**
    * 按页 id 渲染页面实体（页 = 身份：pop 离场帧靠 id 稳定内容，无需快照）。
-   * chrome 差异（返回键有无等）由 ctx 决定，一份内容服务两种形态。
+   * 必须返回 <Nav.Page>（统一外壳强制）；形态差异由 ctx 提供，一份内容服务
+   * 两种形态。
    */
-  renderPage: (page: string, ctx: NavPageContext) => ComponentChildren
+  renderPage: (page: string, ctx: NavPageContext) => VNode<NavPageProps>
   /** 分栏右栏帧序（页 id，末位最上）；与窄屏子页同一套 id 空间 */
   frames: string[]
 }
@@ -404,12 +596,24 @@ function playMorphAnim(
 }
 
 /** 按引擎分发：classic（缺省，双份渲染 + 交接）与 flat（平铺单实例） */
-export function Nav(props: NavProps) {
+function NavView(props: NavProps) {
   if (props.engine === 'flat') {
     return <FlatSplitNavView {...props} />
   }
   return <ClassicSplitNavView {...props} />
 }
+
+/**
+ * 导航组件家族：Nav 本体（页栈/分栏布局与形变）+ Nav.Page（强制页单位 =
+ * 统一标题栏外壳 + 滚动正文）+ Nav.Header（标题栏本体，无标题特殊页单独
+ * 取用）。页面只能经 <Nav.Page> 产出（渲染属性类型锁死），返回键编排全
+ * 系统一份实现——用 Nav 的地方外壳必然一个长相。
+ */
+export const Nav = Object.assign(NavView, {
+  Page: NavPageImpl,
+  Header: NavHeaderImpl,
+  Flow: NavFlowImpl,
+})
 
 function ClassicSplitNavView(props: ClassicNavProps) {
   const {
@@ -837,11 +1041,31 @@ function ClassicSplitNavView(props: ClassicNavProps) {
     '--nav-frame-ms': `${frameAnimationMs}ms`,
   } as Record<string, string>
 
+  // 页级 chrome 作用域：栈页走窄形态规则（深度 = 栈内位置，栈顶为当前页），
+  // 帧走宽形态规则（深度 = 帧位 +1，顶帧为当前帧）。Nav.Page 据此统一编排
+  // 返回键，应用不再自管 showBack / 淡入淡出。
+  const stackScope = (page: string): NavChromeScope => ({
+    narrow: true,
+    morphing: controller.morphing,
+    morphKind: controller.morphKind,
+    depth: Math.max(0, controller.stackView.stack.indexOf(page)),
+    isCurrent: page === controller.stackView.stack[controller.stackView.stack.length - 1],
+  })
+  const frameScope = (index: number): NavChromeScope => ({
+    narrow: false,
+    morphing: controller.morphing,
+    morphKind: controller.morphKind,
+    depth: index + 1,
+    isCurrent: index === active,
+  })
+
   const renderFramesStack = () => {
     if (view.length === 0) {
       return (
         <div class="nav__detail-empty">
-          {renderDetailEmpty ? renderDetailEmpty() : undefined}
+          {renderDetailEmpty
+            ? assertNavPage(renderDetailEmpty(), 'renderDetailEmpty')
+            : undefined}
         </div>
       )
     }
@@ -877,7 +1101,9 @@ function ClassicSplitNavView(props: ClassicNavProps) {
               zIndex: index,
             }}
           >
-            {frame.content}
+            <NavChromeContext.Provider value={frameScope(index)}>
+              {assertNavPage(frame.content, `帧「${frame.id}」的 content`)}
+            </NavChromeContext.Provider>
           </div>
         ))}
       </div>
@@ -901,7 +1127,11 @@ function ClassicSplitNavView(props: ClassicNavProps) {
               page={displayPage}
               transition={controller.stackView.transition}
               onMotionEnd={controller.stackView.handleMotionEnd}
-              renderPage={renderNarrowPage}
+              renderPage={(page) => (
+                <NavChromeContext.Provider value={stackScope(page)}>
+                  {assertNavPage(renderNarrowPage(page), `renderNarrowPage("${page}")`)}
+                </NavChromeContext.Provider>
+              )}
             />
           </div>
           {narrowLayout && footer ? (
@@ -1409,6 +1639,27 @@ function FlatSplitNavView(props: FlatNavProps) {
     morphing,
     morphKind: controller.morphKind,
   }
+  // 页级 chrome 作用域：窄形态静置按栈规则（落定页淡入返回键）；帧侧（含
+  // 形变期与退场帧）按宽形态规则；列表根与 parked 页深度 0（无返回）。
+  const hostScope = (id: string): NavChromeScope => {
+    if (narrowLayout && !morphing) {
+      return {
+        narrow: true,
+        morphing,
+        morphKind: controller.morphKind,
+        depth: Math.max(0, stack.indexOf(id)),
+        isCurrent: id === controller.page,
+      }
+    }
+    const fi = viewIds.indexOf(id)
+    return {
+      narrow: false,
+      morphing,
+      morphKind: controller.morphKind,
+      depth: fi + 1,
+      isCurrent: fi === active,
+    }
+  }
   const styleVars = {
     '--nav-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
     '--nav-frame-ms': `${frameAnimationMs}ms`,
@@ -1503,14 +1754,18 @@ function FlatSplitNavView(props: FlatNavProps) {
               }
             >
               <div class="nav__host-slider" style={slideStyle}>
-                {renderPage(id, pageCtx)}
+                <NavChromeContext.Provider value={hostScope(id)}>
+                  {assertNavPage(renderPage(id, pageCtx), `renderPage("${id}")`)}
+                </NavChromeContext.Provider>
               </div>
             </div>
           )
         })}
         {!narrowLayout && viewIds.length === 0 ? (
           <div class="nav__flat-empty">
-            {renderDetailEmpty ? renderDetailEmpty() : undefined}
+            {renderDetailEmpty
+              ? assertNavPage(renderDetailEmpty(), 'renderDetailEmpty')
+              : undefined}
           </div>
         ) : undefined}
         {footer ? <div class="nav__flat-footer">{footer}</div> : undefined}

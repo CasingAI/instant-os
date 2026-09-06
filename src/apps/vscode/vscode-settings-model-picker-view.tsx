@@ -2,8 +2,6 @@ import { useMemo, useState } from 'preact/hooks'
 import { supportsThinkingParam } from '../../ai/ai-thinking.ts'
 import type { FlatEnabledModel } from '../../ai/ai-providers.ts'
 import { SearchIcon } from '../../icons/app-icons.tsx'
-import { Page } from '../../ui/page.tsx'
-import { PageHeader } from '../../ui/page-header.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
@@ -44,8 +42,8 @@ import type {
 import '../settings/settings.css'
 
 type VscodeSettingsModelPickerViewProps = {
+  /** 列表的无障碍名；标题栏由调用方的 <Nav.Page> 提供 */
   title?: string
-  backLabel: string
   value: string
   models: readonly FlatEnabledModel[]
   selectionMode?: VscodeAiModelPickerSelectionMode
@@ -102,7 +100,6 @@ function ModelOptionRow({
 /** 设置栈内模型选择子页：搜索 + 能力钉 + Aqua 勾选列表。 */
 export function VscodeSettingsModelPickerView({
   title = '模型',
-  backLabel,
   value,
   models,
   selectionMode = 'agent',
@@ -138,11 +135,7 @@ export function VscodeSettingsModelPickerView({
   const empty = visiblePins.length === 0 && filteredModels.length === 0
 
   return (
-    <Page
-      header={
-        <PageHeader title={title} backLabel={backLabel} onBack={onBack} />
-      }
-    >
+    <>
       <div class="settings__search-bar">
         <div class="settings__search">
           <span class="settings__search-icon" aria-hidden="true">
@@ -212,7 +205,7 @@ export function VscodeSettingsModelPickerView({
           ) : undefined}
         </section>
       </div>
-    </Page>
+    </>
   )
 }
 
@@ -240,7 +233,6 @@ export function summaryForSettingsModelConfig(
 
 type ModelOptionsPageProps = {
   editModelKey: string
-  backLabel?: string
   models: readonly FlatEnabledModel[]
   aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange: (next: Record<string, VscodeAiModelOptionPrefs>) => void
@@ -253,14 +245,12 @@ type ModelOptionsPageProps = {
 
 export function VscodeSettingsModelOptionsView({
   editModelKey,
-  backLabel = '返回',
   models,
   aiModelOptions,
   onAiModelOptionsChange,
   onSelectModelKey,
   onOpenContext,
   onOpenThinking,
-  onBack,
 }: ModelOptionsPageProps) {
   const editModel = models.find(
     (model) =>
@@ -272,15 +262,9 @@ export function VscodeSettingsModelOptionsView({
 
   if (!editModel) {
     return (
-      <Page
-        header={
-          <PageHeader title="选项" backLabel={backLabel} onBack={onBack} />
-        }
-      >
-        <div class="settings__content settings__content--compact">
-          <div class="settings__box settings__empty">模型不可用</div>
-        </div>
-      </Page>
+      <div class="settings__content settings__content--compact">
+        <div class="settings__box settings__empty">模型不可用</div>
+      </div>
     )
   }
 
@@ -300,19 +284,13 @@ export function VscodeSettingsModelOptionsView({
     aiModelOptions,
   )
   const pair = resolveVscodeAiFastPair(editModel, models)
-  const title = labelForVscodeAiModel(editModel)
 
   return (
-    <Page
-      header={
-        <PageHeader title={title} backLabel={backLabel} onBack={onBack} />
-      }
-    >
-      <div class="settings__content settings__content--compact">
-        <section class="settings__section">
-          <div class="settings__list">
-            <div class="settings__row settings__row--static">
-              <span class="settings__row-name">供应商</span>
+    <div class="settings__content settings__content--compact">
+      <section class="settings__section">
+        <div class="settings__list">
+          <div class="settings__row settings__row--static">
+            <span class="settings__row-name">供应商</span>
               <span class="settings__row-size">
                 {labelForVscodeAiModelProvider(editModel)}
               </span>
@@ -360,16 +338,14 @@ export function VscodeSettingsModelOptionsView({
               )}
               onClick={onOpenContext}
             />
-          </div>
-        </section>
-      </div>
-    </Page>
+        </div>
+      </section>
+    </div>
   )
 }
 
 type ModelChoicePageProps = {
   title: string
-  backLabel?: string
   options: readonly { id: string; label: string }[]
   value: string
   onChange: (value: string) => void
@@ -379,32 +355,25 @@ type ModelChoicePageProps = {
 
 export function VscodeSettingsModelChoiceView({
   title,
-  backLabel = '选项',
   options,
   value,
   onChange,
   onBack,
 }: ModelChoicePageProps) {
   return (
-    <Page
-      header={
-        <PageHeader title={title} backLabel={backLabel} onBack={onBack} />
-      }
-    >
-      <div class="settings__content settings__content--compact">
-        <section class="settings__section">
-          <SettingsChoiceOptionList
-            options={options}
-            value={value}
-            onChange={(next) => {
-              onChange(next)
-              onBack?.()
-            }}
-            ariaLabel={title}
-          />
-        </section>
-      </div>
-    </Page>
+    <div class="settings__content settings__content--compact">
+      <section class="settings__section">
+        <SettingsChoiceOptionList
+          options={options}
+          value={value}
+          onChange={(next) => {
+            onChange(next)
+            onBack?.()
+          }}
+          ariaLabel={title}
+        />
+      </section>
+    </div>
   )
 }
 

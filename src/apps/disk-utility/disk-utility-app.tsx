@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
-import { Page } from '../../ui/page.tsx'
-import { PageHeader } from '../../ui/page-header.tsx'
 import { Button } from '../../ui/button.tsx'
 import {
   Nav,
@@ -1011,37 +1009,18 @@ export function DiskUtilityApp() {
 
   useAppMenuBar(APP_ID, [])
 
-  // ── 形变期返回键对齐（nav-kit-demo 同款）：详情页/详情帧的返回键只在窄
-  // 形态有、分栏静置没有。A 型（窄→宽）先挂着随滑轨淡出；C 型（宽→窄）
-  // 落定交棒给子页栈后才出现，给一次透明度 0→1 的短淡入代替硬蹦。epoch
-  // 递增 + 双类名交替，背靠背再触发也能重播；必须用 layout effect，类要在
-  // 面板移除的同一帧 paint 前挂上。
-  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
-  const backFadeTimerRef = useRef(0)
-  const prevMorphingRef = useRef(false)
-  useLayoutEffect(() => {
-    const was = prevMorphingRef.current
-    prevMorphingRef.current = nav.morphing
-    if (was === nav.morphing) return
-    if (nav.morphing || !nav.narrowLayout) return
-    // 落定页是详情页（唯一返回键有形态差的页）才淡入
-    if (partitionViewRootId || !selectedId) return
-    window.clearTimeout(backFadeTimerRef.current)
-    setBackFadeEpoch((epoch) => epoch + 1)
-    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
-  }, [nav.morphing, nav.narrowLayout, partitionViewRootId, selectedId])
-  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
-
   /** 退出分区视图回镜像详情：窄屏 pop 落定后提交状态，分栏即时提交（帧滑出） */
   const backToImageRoot = useCallback(() => {
     if (mapNode) setSelectedId(mapNode.id)
     nav.navigate('detail', 'pop', () => setPartitionViewRootId(undefined))
   }, [mapNode, nav])
 
-  // ── 页面渲染：同一份内容同时供给窄屏子页与分栏帧（返回键按形态挂/摘）──
+  // ── 页面渲染：外壳统一由 <Nav.Page> 绘制，返回键显隐与形变淡入淡出由
+  // Nav 统一编排（应用只声明域事实：详情上一级是「磁盘工具」、分区视图
+  // 上一级是镜像详情）──
 
   const renderListPage = () => (
-    <Page class="disk-utility__list-page" header={<PageHeader title="磁盘工具" />}>
+    <Nav.Page class="disk-utility__list-page" title="磁盘工具">
       <div class="disk-utility__sidebar">
         <TreeView
           className="disk-utility__tree"
@@ -1081,38 +1060,26 @@ export function DiskUtilityApp() {
             : '加载中…'}
         </p>
       </div>
-    </Page>
+    </Nav.Page>
   )
 
-  // 详情/分区页：返回键文案与行为随形态由调用方决定（分区视图回「返回镜像」，
-  // 详情窄屏回「磁盘工具」；分栏详情帧静置不带返回）。
+  // 详情/分区页：返回键文案与行为随视图由调用方声明（分区视图回「返回镜像」，
+  // 详情回「磁盘工具」）；分栏详情帧静置不带返回、分区帧（帧深 2）恒带返回，
+  // 都由 Nav 统一编排。
   const renderDetailPage = (
     inPartitionView: boolean,
-    showBack: boolean,
-    headerClass?: string,
     displayNode: TreeNode | undefined = selectedNode,
   ) => (
-    <Page
-      header={
-        <PageHeader
-          class={headerClass}
-          title={displayNode?.label ?? ''}
-          backLabel={showBack ? (inPartitionView ? '返回镜像' : '磁盘工具') : undefined}
-          onBack={
-            showBack
-              ? inPartitionView
-                ? backToImageRoot
-                : () => nav.navigate('list', 'pop')
-              : undefined
-          }
-          actions={
-            <DetailActionsBar
-              node={displayNode}
-              actions={detailActions}
-              partitionView={inPartitionView}
-              placement="header"
-            />
-          }
+    <Nav.Page
+      title={displayNode?.label ?? ''}
+      backLabel={inPartitionView ? '返回镜像' : '磁盘工具'}
+      onBack={inPartitionView ? backToImageRoot : () => nav.navigate('list', 'pop')}
+      actions={
+        <DetailActionsBar
+          node={displayNode}
+          actions={detailActions}
+          partitionView={inPartitionView}
+          placement="header"
         />
       }
     >
@@ -1135,44 +1102,30 @@ export function DiskUtilityApp() {
           />
         ) : undefined}
       </div>
-    </Page>
+    </Nav.Page>
   )
 
   const renderNarrowPage = (target: string) => {
     if (target === 'detail') {
-      return renderDetailPage(
-        false,
-        true,
-        backFadeEpoch > 0 && target === nav.page
-          ? `disk-utility__back-fade-in-${backFadeEpoch % 2}`
-          : undefined,
-      )
+      return renderDetailPage(false)
     }
-    if (target === 'partition') return renderDetailPage(true, true)
+    if (target === 'partition') return renderDetailPage(true)
     return renderListPage()
   }
 
   // 分栏帧：详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
-  // 先挂着返回随滑轨淡出；分区视图帧带「返回镜像」。
-  const keepDetailBack =
-    nav.morphing && nav.morphKind === 'A' && !partitionViewRootId && selectedId !== undefined
-
+  // 顶帧临时挂回随滑轨淡出；分区视图帧（帧深 2）恒带「返回镜像」。
   const renderWideFrames = (): NavFrameSpec[] => {
     const frames: NavFrameSpec[] = [
       {
         id: 'detail',
-        content: renderDetailPage(
-          false,
-          keepDetailBack,
-          keepDetailBack ? 'disk-utility__back-fade-out' : undefined,
-          mapNode ?? selectedNode,
-        ),
+        content: renderDetailPage(false, mapNode ?? selectedNode),
       },
     ]
     if (partitionView) {
       frames.push({
         id: 'partition',
-        content: renderDetailPage(true, true, undefined, selectedNode),
+        content: renderDetailPage(true, selectedNode),
       })
     }
     return frames

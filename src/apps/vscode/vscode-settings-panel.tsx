@@ -1,8 +1,5 @@
-import type { ComponentChildren } from 'preact'
 import {
   useCallback,
-  useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,8 +10,6 @@ import {
   useNav,
   type NavFrameSpec,
 } from '../../ui/nav.tsx'
-import { Page } from '../../ui/page.tsx'
-import { PageHeader } from '../../ui/page-header.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
@@ -25,6 +20,7 @@ import {
   decodeVscodeModelPickerValue,
   encodeVscodeModelPickerValue,
   formatVscodeAiModelRefKey,
+  labelForVscodeAiModel,
   labelForVscodeModelSource,
   resolveVscodeAiContextWindowPrefForModelKey,
   resolveVscodeAiThinkingEffortPrefForModelKey,
@@ -108,38 +104,6 @@ function slugifySubAgentId(raw: string): string {
     .replace(/[^a-z0-9_-]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 48)
-}
-
-function SettingsPageShell({
-  title,
-  backLabel,
-  onBack,
-  trailing,
-  headerClass,
-  children,
-}: {
-  title: string
-  backLabel?: string
-  onBack?: () => void
-  trailing?: ComponentChildren
-  headerClass?: string
-  children: ComponentChildren
-}) {
-  return (
-    <Page
-      header={
-        <PageHeader
-          title={title}
-          backLabel={onBack ? (backLabel ?? '设置') : undefined}
-          onBack={onBack}
-          actions={trailing}
-          class={headerClass}
-        />
-      }
-    >
-      <div class="settings__content settings__content--compact">{children}</div>
-    </Page>
-  )
 }
 
 function builtinSummary(
@@ -270,23 +234,6 @@ export function VscodeSettingsPanel({
     },
     [nav],
   )
-
-  // 分栏 pane 的返回键只在窄形态有：A 型形变（窄→宽）随滑轨淡出，C 型
-  // （宽→窄）落定交棒后才出现——短淡入代替硬蹦（services 同款）。
-  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
-  const backFadeTimerRef = useRef(0)
-  const prevMorphingRef = useRef(false)
-  useLayoutEffect(() => {
-    const was = prevMorphingRef.current
-    prevMorphingRef.current = nav.morphing
-    if (was === nav.morphing) return
-    // 只有落点是「列表直推页」（chain 深度 1，宽形态无返回键）才需要淡入
-    if (nav.morphing || !nav.narrowLayout || chainRef.current.length !== 1) return
-    window.clearTimeout(backFadeTimerRef.current)
-    setBackFadeEpoch((epoch) => epoch + 1)
-    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
-  }, [nav.morphing, nav.narrowLayout])
-  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
 
   const [draftId, setDraftId] = useState('')
   const [draftDescription, setDraftDescription] = useState('')
@@ -512,20 +459,18 @@ export function VscodeSettingsPanel({
     ? `已开启 · 并发 ${prefs.subAgentsMaxConcurrent}`
     : '已关闭'
 
-  // frame 上下文：分栏右栏帧里「列表直推页」（深度 1）不挂返回键——左栏
-  // 列表即父级；形变 A 型期随滑轨淡出挂回。窄形态一律有返回键。
-  const renderScreen = (
-    target: VscodeSettingsScreen,
-    opts?: { showBack?: boolean; headerClass?: string },
-  ) => {
-    const showBack = opts?.showBack !== false
-    const headerClass = opts?.headerClass
-    const back = (to: VscodeSettingsScreen, onSettled?: () => void) =>
-      showBack ? () => popToScreen(to, onSettled) : undefined
+  // 页面外壳统一由 <Nav.Page> 绘制：返回键显隐与形变淡入淡出由 Nav 统一
+  // 编排，这里只声明域事实（每页的上一级与标题）。
+  const renderScreen = (target: VscodeSettingsScreen) => {
+    const back =
+      (to: VscodeSettingsScreen, onSettled?: () => void) =>
+      () =>
+        popToScreen(to, onSettled)
 
     if (target === 'root') {
       return (
-        <SettingsPageShell title="设置">
+        <Nav.Page title="设置">
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <h2 class="settings__section-title">外观</h2>
             <div class="settings__list">
@@ -580,18 +525,15 @@ export function VscodeSettingsPanel({
               />
             </div>
           </section>
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
     if (target === 'theme') {
       return (
-        <SettingsPageShell
-          title="主题"
-          backLabel="设置"
-          onBack={back('root')}
-          headerClass={headerClass}
-        >
+        <Nav.Page title="主题" backLabel="设置" onBack={back('root')}>
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <SettingsChoiceOptionList
               options={VSCODE_THEME_OPTIONS}
@@ -605,17 +547,15 @@ export function VscodeSettingsPanel({
               }}
             />
           </section>
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
     if (target === 'completion') {
       return (
-        <SettingsPageShell
-          title="代码补全"
-          onBack={back('root')}
-          headerClass={headerClass}
-        >
+        <Nav.Page title="代码补全" onBack={back('root')}>
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
               <SettingsSwitchRow
@@ -681,17 +621,15 @@ export function VscodeSettingsPanel({
               ) : undefined}
             </div>
           </section>
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
     if (target === 'agent') {
       return (
-        <SettingsPageShell
-          title="Agent"
-          onBack={back('root')}
-          headerClass={headerClass}
-        >
+        <Nav.Page title="Agent" onBack={back('root')}>
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
               <SettingsStepperRow
@@ -720,17 +658,17 @@ export function VscodeSettingsPanel({
               表示超时后不重试。完成提示音仅在本轮结束且发送队列为空时播放；用户中止或还有排队任务时不播放。
             </p>
           </section>
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
     if (target === 'subagent') {
       return (
-        <SettingsPageShell
+        <Nav.Page
           title="Sub Agent"
           onBack={back('root')}
-          headerClass={headerClass}
-          trailing={
+          actions={
             prefs.subAgentsEnabled ? (
               <div class="settings__nav-trailing">
                 <button
@@ -746,6 +684,7 @@ export function VscodeSettingsPanel({
             ) : undefined
           }
         >
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
               <SettingsSwitchRow
@@ -828,7 +767,8 @@ export function VscodeSettingsPanel({
               </section>
             </>
           ) : undefined}
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
@@ -840,11 +780,8 @@ export function VscodeSettingsPanel({
       const exploreEditKey =
         resolveVscodeCapabilityPickerModelKey(exploreEncoded)
       return (
-        <SettingsPageShell
-          title="Explore"
-          backLabel="Sub Agent"
-          onBack={back('subagent')}
-        >
+        <Nav.Page title="Explore" backLabel="Sub Agent" onBack={back('subagent')}>
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <BuiltinSubAgentPage
               override={prefs.subAgentBuiltinOverrides.explore}
@@ -884,7 +821,8 @@ export function VscodeSettingsPanel({
               onChange={(next) => patchBuiltin('explore', next)}
             />
           </section>
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
@@ -896,11 +834,8 @@ export function VscodeSettingsPanel({
       const generalEditKey =
         resolveVscodeCapabilityPickerModelKey(generalEncoded)
       return (
-        <SettingsPageShell
-          title="General"
-          backLabel="Sub Agent"
-          onBack={back('subagent')}
-        >
+        <Nav.Page title="General" backLabel="Sub Agent" onBack={back('subagent')}>
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <BuiltinSubAgentPage
               override={prefs.subAgentBuiltinOverrides.general}
@@ -941,7 +876,8 @@ export function VscodeSettingsPanel({
               onChange={(next) => patchBuiltin('general', next)}
             />
           </section>
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
@@ -953,11 +889,8 @@ export function VscodeSettingsPanel({
       const visionEditKey =
         resolveVscodeCapabilityPickerModelKey(visionEncoded)
       return (
-        <SettingsPageShell
-          title="Vision"
-          backLabel="Sub Agent"
-          onBack={back('subagent')}
-        >
+        <Nav.Page title="Vision" backLabel="Sub Agent" onBack={back('subagent')}>
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <p class="settings__section-footnote" style={{ marginTop: 0 }}>
               专职识图。委派须传 image_paths，由宿主注入图片（无工具）。仅当主模型无视觉且平台有可用视觉模型时可见。
@@ -1000,17 +933,18 @@ export function VscodeSettingsPanel({
               onChange={(next) => patchBuiltin('vision', next)}
             />
           </section>
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
     if (target === 'subagent-custom') {
       return (
-        <SettingsPageShell
+        <Nav.Page
           title={editingId ? `编辑「${editingId}」` : '添加 Sub Agent'}
           backLabel="Sub Agent"
-          onBack={showBack ? popToSubagent : undefined}
-          trailing={
+          onBack={popToSubagent}
+          actions={
             <div class="settings__nav-trailing">
               <button
                 type="button"
@@ -1022,6 +956,7 @@ export function VscodeSettingsPanel({
             </div>
           }
         >
+          <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
               <label class="settings__row settings__row--static settings__row--inline-input">
@@ -1176,7 +1111,8 @@ export function VscodeSettingsPanel({
               </div>
             </section>
           ) : undefined}
-        </SettingsPageShell>
+        </div>
+      </Nav.Page>
       )
     }
 
@@ -1184,15 +1120,20 @@ export function VscodeSettingsPanel({
       const pickerModels =
         modelPickerSession.selectionMode === 'vision' ? visionModels : textModels
       return (
-        <VscodeSettingsModelPickerView
+        <Nav.Page
           title={modelPickerSession.title}
           backLabel={modelPickerSession.backLabel}
-          value={modelPickerValue}
-          models={pickerModels}
-          selectionMode={modelPickerSession.selectionMode}
-          onChange={applyModelPickerValue}
           onBack={back(modelPickerSession.back)}
-        />
+        >
+          <VscodeSettingsModelPickerView
+            title={modelPickerSession.title}
+            value={modelPickerValue}
+            models={pickerModels}
+            selectionMode={modelPickerSession.selectionMode}
+            onChange={applyModelPickerValue}
+            onBack={back(modelPickerSession.back)}
+          />
+        </Nav.Page>
       )
     }
 
@@ -1211,45 +1152,46 @@ export function VscodeSettingsPanel({
           }) === editModelKey,
       )
 
+      const optionsTitle = editModel ? labelForVscodeAiModel(editModel) : '选项'
       if (target === 'model-options') {
         return (
-          <VscodeSettingsModelOptionsView
-            editModelKey={editModelKey}
+          <Nav.Page
+            title={optionsTitle}
             backLabel={modelPickerSession.backLabel}
-            models={textModels}
-            aiModelOptions={prefs.aiModelOptions}
-            onAiModelOptionsChange={(aiModelOptions) =>
-              onChange({ aiModelOptions })
-            }
-            onSelectModelKey={(nextKey) => {
-              applyModelPickerValue(nextKey)
-              setModelPickerSession({
-                ...modelPickerSession,
-                editModelKey: nextKey,
-              })
-            }}
-            onOpenContext={() => pushScreen('model-context')}
-            onOpenThinking={() => pushScreen('model-thinking')}
             onBack={back(modelPickerSession.back)}
-          />
+          >
+            <VscodeSettingsModelOptionsView
+              editModelKey={editModelKey}
+              models={textModels}
+              aiModelOptions={prefs.aiModelOptions}
+              onAiModelOptionsChange={(aiModelOptions) =>
+                onChange({ aiModelOptions })
+              }
+              onSelectModelKey={(nextKey) => {
+                applyModelPickerValue(nextKey)
+                setModelPickerSession({
+                  ...modelPickerSession,
+                  editModelKey: nextKey,
+                })
+              }}
+              onOpenContext={() => pushScreen('model-context')}
+              onOpenThinking={() => pushScreen('model-thinking')}
+            />
+          </Nav.Page>
         )
       }
 
       if (!editModel) {
         return (
-          <VscodeSettingsModelOptionsView
-            editModelKey={editModelKey}
+          <Nav.Page
+            title="选项"
             backLabel={modelPickerSession.backLabel}
-            models={textModels}
-            aiModelOptions={prefs.aiModelOptions}
-            onAiModelOptionsChange={(aiModelOptions) =>
-              onChange({ aiModelOptions })
-            }
-            onSelectModelKey={() => undefined}
-            onOpenContext={() => undefined}
-            onOpenThinking={() => undefined}
             onBack={back(modelPickerSession.back)}
-          />
+          >
+            <div class="settings__content settings__content--compact">
+              <div class="settings__box settings__empty">模型不可用</div>
+            </div>
+          </Nav.Page>
         )
       }
 
@@ -1259,24 +1201,26 @@ export function VscodeSettingsPanel({
           prefs.aiModelOptions,
         )
         return (
-          <VscodeSettingsModelChoiceView
-            title="上下文长度"
-            options={listSettingsModelContextOptions(
-              editModel,
-              prefs.aiModelOptions,
-            )}
-            value={String(current)}
-            onChange={(raw) => {
-              onChange({
-                aiModelOptions: applySettingsModelContextChange(
-                  prefs.aiModelOptions,
-                  editModelKey,
-                  raw,
-                ),
-              })
-            }}
-            onBack={back('model-options')}
-          />
+          <Nav.Page title="上下文长度" backLabel="选项" onBack={back('model-options')}>
+            <VscodeSettingsModelChoiceView
+              title="上下文长度"
+              options={listSettingsModelContextOptions(
+                editModel,
+                prefs.aiModelOptions,
+              )}
+              value={String(current)}
+              onChange={(raw) => {
+                onChange({
+                  aiModelOptions: applySettingsModelContextChange(
+                    prefs.aiModelOptions,
+                    editModelKey,
+                    raw,
+                  ),
+                })
+              }}
+              onBack={back('model-options')}
+            />
+          </Nav.Page>
         )
       }
 
@@ -1285,54 +1229,39 @@ export function VscodeSettingsPanel({
         prefs.aiModelOptions,
       )
       return (
-        <VscodeSettingsModelChoiceView
-          title="思考深度"
-          options={listSettingsModelThinkingOptions(editModel)}
-          value={current}
-          onChange={(raw) => {
-            onChange({
-              aiModelOptions: applySettingsModelThinkingChange(
-                prefs.aiModelOptions,
-                editModelKey,
-                raw,
-              ),
-            })
-          }}
-          onBack={back('model-options')}
-        />
+        <Nav.Page title="思考深度" backLabel="选项" onBack={back('model-options')}>
+          <VscodeSettingsModelChoiceView
+            title="思考深度"
+            options={listSettingsModelThinkingOptions(editModel)}
+            value={current}
+            onChange={(raw) => {
+              onChange({
+                aiModelOptions: applySettingsModelThinkingChange(
+                  prefs.aiModelOptions,
+                  editModelKey,
+                  raw,
+                ),
+              })
+            }}
+            onBack={back('model-options')}
+          />
+        </Nav.Page>
       )
     }
 
-    return null
+    return <Nav.Page title="设置" />
   }
 
-  // 分栏右栏帧：深度 1 帧（列表直推页）静置无返回键，A 型形变期挂回并
-  // 随滑轨淡出；深度 ≥2 保留返回（pop 上一级或跨级祖先）。
-  const keepDepth1FrameBack =
-    nav.morphing && nav.morphKind === 'A' && chain.length === 1
+  // 分栏帧与窄屏页同源：深度 1 帧静置无返回、A 型顶帧挂回淡出、C 型落定
+  // 淡入，均由 Nav 统一编排。
   const renderWideFrames = (): NavFrameSpec[] =>
-    chain.map((id, index) => {
-      const depth1 = index === 0
-      const keepBack = depth1 && keepDepth1FrameBack
-      return {
-        id,
-        content: renderScreen(id, {
-          showBack: !depth1 || keepBack,
-          headerClass: keepBack ? 'vscode__back-fade-out' : undefined,
-        }),
-      }
-    })
+    chain.map((id) => ({
+      id,
+      content: renderScreen(id as VscodeSettingsScreen),
+    }))
 
-  const renderNarrowPage = (page: string) => {
-    // C 型形变落定的「列表直推页」：返回键在交棒后短淡入，代替硬蹦
-    const landingFade =
-      backFadeEpoch > 0 && page === nav.page && chain.length === 1
-        ? `vscode__back-fade-in-${backFadeEpoch % 2}`
-        : undefined
-    return renderScreen(page as VscodeSettingsScreen, {
-      headerClass: landingFade,
-    })
-  }
+  const renderNarrowPage = (page: string) =>
+    renderScreen(page as VscodeSettingsScreen)
 
   return (
     <div

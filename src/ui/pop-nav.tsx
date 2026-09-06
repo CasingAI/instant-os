@@ -19,9 +19,9 @@ import { Nav, type NavProps } from './nav.tsx'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './pop-nav.css'
 
-/** 面板固定尺寸：细长一条（照当年 iOS 浮层比例）；模块常量，不可调 */
+/** 面板固定尺寸；模块常量，不可调 */
 const POP_NAV_WIDTH = 320
-const POP_NAV_HEIGHT = 480
+const POP_NAV_HEIGHT = 280
 /** 与 Popover 一致的窄屏滞回（宿主窗口宽） */
 const POP_NAV_NARROW_ENTER_WIDTH = 520
 const POP_NAV_NARROW_EXIT_WIDTH = 580
@@ -33,7 +33,7 @@ const POP_NAV_ARROW_SAFE_INSET = 14
 
 type PopNavOwnProps = {
   open: boolean
-  /** 关闭通知（外部点按 / Esc / 右上角关闭钮）；面板仅隐藏不销毁，Nav 状态保留 */
+  /** 关闭通知（外部点按 / Esc）；面板仅隐藏不销毁，Nav 状态保留 */
   onClose: () => void
   /** PopNavTrigger 点按时的开窗请求；不传则触发器点按只负责关窗 */
   onOpen?: () => void
@@ -46,8 +46,8 @@ type PopNavOwnProps = {
 export type PopNavProps = PopNavOwnProps & NavProps
 
 type PopNavTriggerApi = {
-  /** 主锚点登记：cloneElement 注入孩子、由真实 DOM 节点回报 */
-  registerAnchor: (el: HTMLElement | null) => void
+  /** 主锚点登记：cloneElement 注入孩子、由 ref 回调报到（元素或组件实例原样收下，解析见 anchorElementOf） */
+  registerAnchor: (el: unknown) => void
   /** 兜底壳登记：孩子接不了 ref 时由透明壳回报 */
   registerShell: (el: HTMLElement | null) => void
   /** 主锚点是否已登记（Trigger 用来判断要不要退回兜底壳） */
@@ -58,8 +58,22 @@ type PopNavTriggerApi = {
 
 const PopNavTriggerContext = createContext<PopNavTriggerApi | null>(null)
 
+/**
+ * ref 回报值还原成真实元素：原生孩子的 ref 由 preact 以 DOM 节点回调；
+ * 组件孩子（如 Button）的 ref 被框架以「组件实例」回调——createElement 会把
+ * ref 从 props 里抽走挂到节点槽位上，props 根本到不了组件内部，而组件实例的
+ * base 就是框架维护的「该组件渲染出的根 DOM」。两者之外一律当没锚点。
+ */
+function anchorElementOf(reported: unknown): Element | null {
+  if (reported instanceof Element) {
+    return reported
+  }
+  const base = (reported as { base?: unknown } | null)?.base
+  return base instanceof Element ? base : null
+}
+
 /** 锚点有效方块：透明壳（display:contents）自身没有盒子，改量壳内第一个真实元素 */
-function anchorRectOf(el: HTMLElement | null): DOMRect | null {
+function anchorRectOf(el: Element | null): DOMRect | null {
   if (!el) {
     return null
   }
@@ -74,11 +88,11 @@ function anchorRectOf(el: HTMLElement | null): DOMRect | null {
 }
 
 /**
- * 强制 Nav 的大弹出窗：细长固定尺寸（320×480，不可调），内容只能是 Nav 页面
+ * 强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面
  * （controller + 渲染属性原样透传给内部 <Nav>）。有锚点时贴锚点弹出、箭头指向
  * 它（宿主窗口内钳制，不越界盖别的窗口）；无锚点时在视口内居中（无锚点便无从
  * 定位宿主窗口）。宿主窗口很窄（宽 ≤520）时退化为居中模态。关闭 = 外部点按 /
- * Esc / 右上角关闭钮；面板仅隐藏不销毁——Nav 停在第几页下次开还在第几页。
+ * Esc；面板仅隐藏不销毁——Nav 停在第几页下次开还在第几页。
  */
 export function PopNav({
   open,
@@ -91,7 +105,7 @@ export function PopNav({
 }: PopNavProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
-  const primaryAnchorRef = useRef<HTMLElement | null>(null)
+  const primaryAnchorRef = useRef<unknown>(null)
   const shellAnchorRef = useRef<HTMLElement | null>(null)
   const [anchorVersion, setAnchorVersion] = useState(0)
   const [position, setPosition] = useState({ top: 0, left: 0 })
@@ -112,17 +126,17 @@ export function PopNav({
   }, [open])
   const hidden = !open && !exiting
 
-  const resolveAnchorEl = useCallback(() => {
+  const resolveAnchorEl = useCallback((): Element | null => {
     if (anchorRef) {
       return anchorRef.current
     }
-    return primaryAnchorRef.current ?? shellAnchorRef.current
+    return anchorElementOf(primaryAnchorRef.current) ?? shellAnchorRef.current
   }, [anchorRef])
 
   // 登记回调恒定：配合作稳定化的 ref 回调，避免每次开关窗都触发
   // 「旧 ref(null) → 新 ref(el)」的重挂舞步，锚点中途一拍为空会被
   // scroll 触发的定位误判成无锚点、面板跳去视口居中
-  const registerAnchor = useCallback((el: HTMLElement | null) => {
+  const registerAnchor = useCallback((el: unknown) => {
     if (primaryAnchorRef.current === el) {
       return
     }
@@ -286,11 +300,6 @@ export function PopNav({
     [registerAnchor, registerShell],
   )
 
-  const close = (
-    <button type="button" class="pop-nav__close" aria-label="关闭" onClick={onClose}>
-      ×
-    </button>
-  )
   const content = <Nav {...navProps} />
 
   // 首次打开才挂载 portal；此后常驻（退场动画播完仅挂隐藏类）——hide 不 destroy
@@ -320,7 +329,6 @@ export function PopNav({
               onClick={(event) => event.stopPropagation()}
             >
               <div class="pop-nav__content">{content}</div>
-              {close}
             </div>
           </div>,
           getFloatingOverlayRoot(),
@@ -349,7 +357,6 @@ export function PopNav({
           }}
         >
           <div class="pop-nav__content">{content}</div>
-          {close}
         </div>,
         getFloatingOverlayRoot(),
       )}
@@ -358,11 +365,11 @@ export function PopNav({
 }
 
 /**
- * PopNav 的触发器：不多渲染任何元素——cloneElement 给唯一孩子注入 ref（真实
- * DOM 节点挂载/更换/卸载时向 PopNav 报到）与 onClick（点按开关弹窗）。孩子是
- * 原生元素或接 ref 的自家组件（Button）时零包装；提交后主锚点仍没登记上
- * （组件接不了 ref）则退回透明壳兜底，锚点方块改量壳内第一个真实元素。
- * 非单元素孩子（字符串/数组）直接走透明壳。
+ * PopNav 的触发器：不多渲染任何元素——cloneElement 给唯一孩子注入 ref（挂载/
+ * 更换/卸载时向 PopNav 报到）与 onClick（点按开关弹窗）。原生元素孩子 ref 回报
+ * DOM 节点；组件孩子（如 Button）ref 回报组件实例，PopNav 解析实例 base 取根
+ * DOM（见 anchorElementOf），两者都零包装。非单元素孩子（字符串/数组）直接走
+ * 透明壳。
  * 注意：用了 anchorRef 逃生口时，触发器元素须位于锚点内部——外点关闭守卫
  * 只放过锚点内的点按，触发器在锚点外会被「外点关闭」抢先、又被点按重开。
  */

@@ -827,47 +827,6 @@
   display: none;
 }
 
-/* ── 详情页/详情帧返回键的形变对齐（services 同款）：A 型（窄→宽）随滑轨
-   淡出，C 型（宽→窄）落定交棒后短淡入，代替硬蹦 ── */
-
-.ui-kit__back-fade-out .page-back-button {
-  pointer-events: none;
-  animation: ui-kit-back-out var(--nav-frame-ms, 380ms) cubic-bezier(0.22, 0.61, 0.36, 1) both;
-}
-
-@keyframes ui-kit-back-out {
-  from {
-    opacity: 1;
-  }
-
-  to {
-    opacity: 0;
-  }
-}
-
-.ui-kit__back-fade-in-0 .page-back-button,
-.ui-kit__back-fade-in-1 .page-back-button {
-  animation: ui-kit-back-in 240ms ease-out both;
-}
-
-@keyframes ui-kit-back-in {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ui-kit__back-fade-out .page-back-button,
-  .ui-kit__back-fade-in-0 .page-back-button,
-  .ui-kit__back-fade-in-1 .page-back-button {
-    animation: none;
-  }
-}
-
 /* ===== CollectionView 示例：壁纸宫格 / 图文卡片墙 / 照片墙 ===== */
 
 .ui-kit-demo__cv-toolbar {

@@ -14,11 +14,7 @@ import { PageButtonGroup } from '../../ui/page-button-group.tsx'
 import { List, ListAddRow } from '../../ui/list.tsx'
 import { ListItem } from '../../ui/list-item.tsx'
 import { PageStack, usePageStack } from '../../ui/page-stack.tsx'
-import {
-  Nav,
-  useNav,
-  type NavPageContext,
-} from '../../ui/nav.tsx'
+import { Nav, useNav } from '../../ui/nav.tsx'
 import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
@@ -939,65 +935,13 @@ export function KeychainNextApp() {
     return () => observer.disconnect()
   }, [screen])
 
-  // 宽→窄形变落定交棒：深度 1 页（GitHub / AI 供应商，列表直推页）的返回
-  // 键在分栏静置时不存在，落窄后才无中生有——给一次透明度 0→1 的短淡入
-  // 代替硬蹦（services/nav-kit-demo 同款）。epoch 递增 + 双类名交替：320ms
-  // 内背靠背再触发也能重播动画。必须用 layout effect：类要在面板移除的
-  // 同一帧 paint 前挂上。
-  const [backFadeEpoch, setBackFadeEpoch] = useState(0)
-  const backFadeTimerRef = useRef(0)
-  const prevMorphingRef = useRef(false)
-  useLayoutEffect(() => {
-    const was = prevMorphingRef.current
-    prevMorphingRef.current = nav.morphing
-    if (was === nav.morphing) return
-    if (nav.morphing || !nav.narrowLayout || chainRef.current.length !== 1) return
-    window.clearTimeout(backFadeTimerRef.current)
-    setBackFadeEpoch((epoch) => epoch + 1)
-    backFadeTimerRef.current = window.setTimeout(() => setBackFadeEpoch(0), 320)
-  }, [nav.morphing, nav.narrowLayout])
-  useEffect(() => () => window.clearTimeout(backFadeTimerRef.current), [])
-
-  // 分栏帧的返回键 chrome：深度 ≥2 帧（供应商设置及更深）两种形态恒有
-  // 返回；深度 1 帧（GitHub / AI 供应商）窄屏有、分栏静置没有——A 型形变
-  // 期顶帧挂回随滑轨淡出，C 型落窄交棒后由 backFadeEpoch 短淡入。
-  const topFrameId = chain.length > 0 ? chain[chain.length - 1] : ''
-  const isDepth1Frame = (target: Screen) =>
-    chainRef.current.length > 0 && chainRef.current[0] === target
-  const showPaneBack = (
-    target: Screen,
-    ctx: NavPageContext,
-  ): boolean => {
-    if (ctx.narrowLayout) {
-      return !(ctx.morphing && ctx.morphKind === 'C')
-    }
-    if (!isDepth1Frame(target)) return true
-    return ctx.morphing && ctx.morphKind === 'A' && target === topFrameId
-  }
-  const paneBackFadeClass = (
-    target: Screen,
-    ctx: NavPageContext,
-  ): string | undefined => {
-    if (ctx.narrowLayout) {
-      return backFadeEpoch > 0 &&
-        target === nav.page &&
-        chainRef.current.length === 1
-        ? `keychain__back-fade-in-${backFadeEpoch % 2}`
-        : undefined
-    }
-    return ctx.morphing &&
-      ctx.morphKind === 'A' &&
-      isDepth1Frame(target) &&
-      target === topFrameId
-      ? 'keychain__back-fade-out'
-      : undefined
-  }
-
-  const renderScreen = (target: Screen, ctx: NavPageContext) => {
+  const renderScreen = (target: Screen) => {
     if (target === 'add-model' && editingEntry) {
       return (
-        // key 按编辑会话：flat 引擎的页 host 常驻，重开时强制重挂载，
-        // 内部草稿与嵌套 picker 子栈回到初始态
+        // 流程页（内嵌 picker 子栈）：外壳由子栈的 Page+PageHeader 提供，
+        // 用 <Nav.Flow> 过强制校验。key 按编辑会话：flat 引擎的页 host
+        // 常驻，重开时强制重挂载，内部草稿与嵌套 picker 子栈回到初始态
+        <Nav.Flow>
         <AddModelView
           key={`add-model:${editSession}`}
           providerId={editingEntry.providerId}
@@ -1006,12 +950,14 @@ export function KeychainNextApp() {
           onCancel={handleAddModelCancel}
           onComplete={handleAddModelComplete}
         />
+        </Nav.Flow>
       )
     }
 
     if (target === 'model-settings' && editingEntry && editingModelId) {
       const providerTitle = getProviderDisplayName(editingEntry) || '供应商'
       return (
+        <Nav.Flow>
         <ModelSettingsView
           key={`model-settings:${editSession}:${editingModelId}`}
           entry={editingEntry}
@@ -1020,6 +966,7 @@ export function KeychainNextApp() {
           onBack={handleModelSettingsBack}
           onChange={setEditingEntry}
         />
+        </Nav.Flow>
       )
     }
 
@@ -1053,39 +1000,35 @@ export function KeychainNextApp() {
           : ''
 
       return (
-        <>
-        <Page
+        <Nav.Flow>
+        <Nav.Page
           key={`provider-settings:${editSession}`}
           class="keychain__custom-page"
-          header={
-            <PageHeader
-              title={settingsTitle}
-              backLabel={showSave ? undefined : 'AI 模型供应商'}
-              onBack={showSave ? undefined : handleProviderBack}
-              actions={
-                showSave ? (
-                  <PageButtonGroup>
-                    <PageActionButton onClick={handleProviderCancel}>
-                      取消
-                    </PageActionButton>
-                    <PageActionButton
-                      tone="default"
-                      disabled={!entryValid}
-                      onClick={handleProviderSave}
-                    >
-                      保存
-                    </PageActionButton>
-                  </PageButtonGroup>
-                ) : showDelete ? (
-                  <Button
-                    tone="danger"
-                    onClick={handleProviderDelete}
-                  >
-                    删除
-                  </Button>
-                ) : undefined
-              }
-            />
+          title={settingsTitle}
+          backLabel={showSave ? undefined : 'AI 模型供应商'}
+          onBack={showSave ? undefined : handleProviderBack}
+          actions={
+            showSave ? (
+              <PageButtonGroup>
+                <PageActionButton onClick={handleProviderCancel}>
+                  取消
+                </PageActionButton>
+                <PageActionButton
+                  tone="default"
+                  disabled={!entryValid}
+                  onClick={handleProviderSave}
+                >
+                  保存
+                </PageActionButton>
+              </PageButtonGroup>
+            ) : showDelete ? (
+              <Button
+                tone="danger"
+                onClick={handleProviderDelete}
+              >
+                删除
+              </Button>
+            ) : undefined
           }
         >
           <div
@@ -1105,7 +1048,7 @@ export function KeychainNextApp() {
               )}
             </section>
           </div>
-        </Page>
+        </Nav.Page>
 
         {editingEntry && fieldMeta && fieldDialog && (
           <KeychainTextFieldDialog
@@ -1121,8 +1064,7 @@ export function KeychainNextApp() {
             onSave={(value) => handleFieldDialogSave(fieldDialog, value)}
           />
         )}
-
-        </>
+        </Nav.Flow>
       )
     }
 
@@ -1134,8 +1076,7 @@ export function KeychainNextApp() {
           : `${providerCount} 个供应商`
 
       return (
-        <>
-        <Page header={<PageHeader title="钥匙串" />}>
+        <Nav.Page title="钥匙串">
           <div class="settings__content settings__content--compact">
             <section class="settings__section">
               <h2 class="settings__section-title">凭证</h2>
@@ -1159,32 +1100,20 @@ export function KeychainNextApp() {
               </p>
             </section>
           </div>
-        </Page>
-        </>
+        </Nav.Page>
       )
     }
 
     if (target === 'github') {
-      const showBack = showPaneBack(target, ctx)
-      const fadeClass = paneBackFadeClass(target, ctx)
       return (
-        <>
-        <Page
-          header={
-            <PageHeader
-              title="GitHub"
-              backLabel="钥匙串"
-              onBack={
-                showBack
-                  ? () => {
-                      setGithubDialogOpen(false)
-                      popToScreen('root')
-                    }
-                  : undefined
-              }
-              class={fadeClass}
-            />
-          }
+        <Nav.Flow>
+        <Nav.Page
+          title="GitHub"
+          backLabel="钥匙串"
+          onBack={() => {
+            setGithubDialogOpen(false)
+            popToScreen('root')
+          }}
         >
           <div class="settings__content settings__content--compact">
             <section class="settings__section">
@@ -1205,33 +1134,26 @@ export function KeychainNextApp() {
               </p>
             </section>
           </div>
-        </Page>
+        </Nav.Page>
 
         <GithubCredentialsDialog
           open={githubDialogOpen}
           onClose={() => setGithubDialogOpen(false)}
           onChanged={refreshGithubStatus}
         />
-
-        </>
+        </Nav.Flow>
       )
     }
 
     if (target === 'ai-providers') {
-      const showBack = showPaneBack(target, ctx)
-      const fadeClass = paneBackFadeClass(target, ctx)
       return (
-        <>
-        <Page
+        <Nav.Page
           class="keychain__custom-page"
-          header={
-            <PageHeader
-              class={fadeClass}
-              title="AI 模型供应商"
-              backLabel={showBack && !dirty ? '钥匙串' : undefined}
-              onBack={showBack && !dirty ? () => popToScreen('root') : undefined}
-              actions={
-                <PageButtonGroup>
+          title="AI 模型供应商"
+          backLabel={dirty ? undefined : '钥匙串'}
+          onBack={dirty ? undefined : () => popToScreen('root')}
+          actions={
+            <PageButtonGroup>
                   {dirty
                     ? [
                         <PageActionButton
@@ -1269,9 +1191,7 @@ export function KeychainNextApp() {
                           添加
                         </PageActionButton>,
                       ]}
-                </PageButtonGroup>
-              }
-            />
+          </PageButtonGroup>
           }
         >
           <div class="settings__content settings__content--compact">
@@ -1310,11 +1230,10 @@ export function KeychainNextApp() {
               )}
             </section>
           </div>
-        </Page>
-        </>
+        </Nav.Page>
       )
     }
-    return null
+    return <Nav.Page title="钥匙串" />
   }
 
   return (
@@ -1323,7 +1242,7 @@ export function KeychainNextApp() {
       controller={nav}
       engine="flat"
       frames={chain}
-      renderPage={(page, ctx) => renderScreen(page as Screen, ctx)}
+      renderPage={(page) => renderScreen(page as Screen)}
     />
   )
 }
