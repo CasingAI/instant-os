@@ -23,8 +23,12 @@
   /* 内容区：浅色底、内凹嵌在深蓝壳里 */
   --page-bg: linear-gradient(180deg, #f4f4f6 0%, #e9e9ee 100%);
   --page-header-bg: linear-gradient(180deg, #414f6e 0%, #232d44 18%, #161d2b 100%);
-  /* 无分割线：标题栏与粗边框连成一块，转场条带吃同一 token 自动同步 */
-  --page-header-border: 1px solid transparent;
+  /* 无分割线：标题栏与粗边框连成一块，转场条带吃同一 token 自动同步。
+   * 边框不能是透明色——背景渐变默认以 padding box 定尺寸、border box
+   * 绘制、repeat 平铺，透明边框条里会透出渐变平铺后的第一行（顶部最亮
+   * 的 #414f6e），在标题栏底下画出一条亮线；用不透明的壳底色盖掉，
+   * 边框正下方就是同色的壳，视觉无缝，高度也保持 1px 不变。 */
+  --page-header-border: 1px solid var(--page-shell-bg, #161d2b);
   --page-header-shadow: none;
   --page-header-title-color: #f0f0f2;
   --page-header-title-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
