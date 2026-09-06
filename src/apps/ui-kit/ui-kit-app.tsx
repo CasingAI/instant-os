@@ -13,6 +13,7 @@ import { List, ListSection } from '../../ui/list.tsx'
 import { ListItem } from '../../ui/list-item.tsx'
 import { Button } from '../../ui/button.tsx'
 import { Icon } from '../../ui/icon.tsx'
+import { DarkMode } from '../../ui/theme.tsx'
 import '../settings/settings.css'
 import '../../ui/ios-nav-back.css'
 import './ui-kit.css'
@@ -309,8 +310,9 @@ export function UiKitApp() {
   // 单一真源是选中的组件：窄屏子页与分栏详情帧都从它派生，
   // 分栏切回子页栈的落点也由它推导。
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
-  // 详情子页整页亮暗：所有组件子页共享同一开关（切页后状态保持）。
-  // 很多组件尚未适配暗色，翻转后观感参差属预期，不影响页面体系标准件。
+  // 整窗亮暗：所有组件子页共享同一开关（切页后状态保持），作用域包住
+  // 整个 Nav——左右两栏与转场条带一起翻。很多组件尚未适配暗色，翻转后
+  // 观感参差属预期，不影响页面体系标准件。
   const [demoDark, setDemoDark] = useState(false)
 
   const nav = useNav({
@@ -371,9 +373,6 @@ export function UiKitApp() {
         title={selectedComponent.name}
         backLabel="组件库"
         onBack={() => nav.navigate('list', 'pop')}
-        // 主题作用域钉在页根（DarkMode 壳包不住 Nav.Page：外壳由 Nav 强制，
-        // assertNavPage 只认裸页元素，中间加壳还会破坏 .page 的直接子元素布局）
-        dataTheme={demoDark ? 'dark' : undefined}
         actions={
           <Button
             icon={<Icon name={demoDark ? 'light_mode' : 'dark_mode'} />}
@@ -405,12 +404,14 @@ export function UiKitApp() {
   ]
 
   return (
-    <Nav
-      controller={nav}
-      class={`ui-kit${narrowLayout ? ' ui-kit--narrow' : ''}`}
-      renderNarrowPage={renderNarrowPage}
-      renderWideFrames={renderWideFrames}
-      listRatio={0.34}
-    />
+    <DarkMode disabled={!demoDark}>
+      <Nav
+        controller={nav}
+        class={`ui-kit${narrowLayout ? ' ui-kit--narrow' : ''}`}
+        renderNarrowPage={renderNarrowPage}
+        renderWideFrames={renderWideFrames}
+        listRatio={0.34}
+      />
+    </DarkMode>
   )
 }
