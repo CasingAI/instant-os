@@ -109,7 +109,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  /* 容器撑满按钮高，字号钉 20px——字符图标与未传 size 的 Icon 靠继承生效 */
+  /* 容器撑满按钮高，字号缺省 20px——字符图标与未传 size 的 Icon 靠继承生效；
+     传 <Icon> 元素时 button.tsx 会按字形轮廓（高斯模糊取视觉大小）算出光学字号行内覆盖这里 */
   height: var(--ios-button-height);
   font-size: 20px;
 }
@@ -128,7 +129,7 @@
   height: 100% !important;
 }
 
-/* 纯图标钮收成方钮：左右留白归零（配 min-width 28px 成 28×28），图标定 20px 常规粗细，
+/* 纯图标钮收成方钮：左右留白归零（配 min-width 28px 成 28×28），图标缺省 20px 常规粗细（光学字号可覆盖），
    在按钮内靠 align-items: center 垂直居中；字符图标与未传 size 的 Icon 靠继承拿到，
    显式传过 size 的 Icon 仍由上方 !important 定到同一值 */
 .ios-button--icon {

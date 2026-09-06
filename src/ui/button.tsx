@@ -1,6 +1,8 @@
 import type { ComponentChildren, JSX } from 'preact'
+import { useEffect, useState } from 'preact/hooks'
 import './button.css'
-import { Icon } from './icon.tsx'
+import { Icon, type IconFamily } from './icon.tsx'
+import { getCachedOpticalFontSize, measureOpticalFontSize } from './optical-icon-size.ts'
 
 export type ButtonTone = 'secondary' | 'primary' | 'danger'
 export type ButtonVariant = 'filled' | 'borderless'
@@ -30,6 +32,48 @@ export type ButtonProps = {
   onClick?: JSX.MouseEventHandler<HTMLButtonElement>
 }
 
+/** 图标元素里可供光学测量的信息（非 <Icon> 元素、自绘 activity-indicator 都返回 undefined） */
+type IconElementMeta = { name: string; family: IconFamily; weight: number }
+
+function iconElementMeta(icon: ComponentChildren): IconElementMeta | undefined {
+  if (!icon || typeof icon !== 'object') return undefined
+  const el = icon as { type?: unknown; props?: { name?: unknown; family?: unknown; weight?: unknown } }
+  if (el.type !== Icon || typeof el.props?.name !== 'string') return undefined
+  if (el.props.name === 'activity-indicator') return undefined
+  return {
+    name: el.props.name,
+    family: (el.props.family as IconFamily | undefined) ?? 'rounded',
+    weight: typeof el.props.weight === 'number' ? el.props.weight : 400,
+  }
+}
+
+/** 按钮内图标的光学字号（undefined = 先按缺省 20px 渲染）：测量是异步的，首帧兜底、出结果后更新；
+ *  同图标量过一次走同步缓存，重渲染不再闪字号 */
+function useOpticalFontSize(meta: IconElementMeta | undefined): number | undefined {
+  const [fontSize, setFontSize] = useState<number | undefined>(() =>
+    meta ? (getCachedOpticalFontSize(meta.name, meta.family, meta.weight) ?? undefined) : undefined,
+  )
+  const name = meta?.name
+  const family = meta?.family
+  const weight = meta?.weight
+  useEffect(() => {
+    if (!name || !family || weight == null) return
+    const cached = getCachedOpticalFontSize(name, family, weight)
+    if (cached != null) {
+      setFontSize(cached)
+      return
+    }
+    let alive = true
+    measureOpticalFontSize(name, family, weight).then((size) => {
+      if (alive && size != null) setFontSize(size)
+    })
+    return () => {
+      alive = false
+    }
+  }, [name, family, weight])
+  return fontSize
+}
+
 /** iOS 6 拟物按钮：灰底 / 蓝主按钮 / 危险红，另有 borderless 裸形态（无底无边裸按钮，darkMode 控暗底白字/浅底深字，按下光晕垫于内容之下）；可通过 --ios-button-* CSS 变量换皮 */
 export function Button({
   children,
@@ -48,6 +92,9 @@ export function Button({
   onClick,
 }: ButtonProps) {
   const iconOnly = !!icon && !showBothIconAndText
+  // 光学字号挂在 .ios-button__icon 上，子 Icon 靠 button.css 的 inherit !important 跟随容器；
+  // 非 <Icon> 元素 / 未解析完成时为 undefined，容器维持 CSS 缺省 20px
+  const opticalFontSize = useOpticalFontSize(iconElementMeta(icon))
   const classes = [
     'ios-button',
     `ios-button--${tone}`,
@@ -74,7 +121,14 @@ export function Button({
     >
       {/* busy：原内容照常渲染参与排版（CSS visibility 隐形占位，宽度不变），菊花绝对定位盖在正中；
           size 显式传给 Icon（14/20，与 button.css 的 spinner 尺寸一致）以触发小尺寸紧凑画法 */}
-      {icon ? <span class="ios-button__icon">{icon}</span> : undefined}
+      {icon ? (
+        <span
+          class="ios-button__icon"
+          style={opticalFontSize != null ? { fontSize: `${opticalFontSize}px` } : undefined}
+        >
+          {icon}
+        </span>
+      ) : undefined}
       {iconOnly ? undefined : <span class="ios-button__label">{children}</span>}
       {busy ? (
         <Icon name="activity-indicator" size={iconOnly ? 20 : 14} class="ios-button__spinner" />
@@ -84,8 +138,8 @@ export function Button({
 }
 
 // icon-only 由「传了 icon 且未开 showBothIconAndText」直接推断，挂 .ios-button--icon 类；
-// 纯图标钮默认几何：左右 padding 0（配 min-width 28px 成 28×28 方钮）、图标 20px、字重 400（见 button.css），
-// 类名同时保留作外部应用覆盖几何的钩子；
+// 纯图标钮默认几何：左右 padding 0（配 min-width 28px 成 28×28 方钮）、图标缺省 20px、字重 400（见 button.css），
+// 图标为 <Icon> 元素时字号由光学测量按字形轮廓自动定（见 optical-icon-size.ts），类名同时保留作外部应用覆盖几何的钩子；
 // 图标与文字默认互斥：icon 存在时文字不渲染，屏幕阅读器名从 children 回退（见下方 extractText）；
 // 唯一例外是 showBothIconAndText——图标文字并排同显（挂 .ios-button--icon-text，左内边距归零，见 button.css），
 // 仅供用户明确要求时使用
