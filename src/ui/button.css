@@ -103,6 +103,8 @@
   height: var(--ios-button-height);
   font-size: var(--ios-button-height);
 }
+/* ⚠️ 不要用 Unicode 字符（← → ＋ …）当图标：形状随系统字体漂移、缺字显方框，一律传 <Icon>（Material Symbols）。
+   下面提到「字符图标」的继承规则只是对历史遗留的兜底，不是允许新代码这么写 */
 
 /* 显式传过 size 的 Icon 带行内 font-size，一并拉到等高；自绘转圈改跟随容器边长 */
 .ios-button__icon > .material-symbols-outlined,
@@ -114,6 +116,25 @@
 .ios-button__icon > .icon-activity-indicator {
   width: 100% !important;
   height: 100% !important;
+}
+
+/* 纯图标钮收成方钮：左右留白归零（配 min-width 28px 成 28×28），图标定回 24px 常规粗细，
+   在按钮内靠 align-items: center 垂直居中；字符图标与未传 size 的 Icon 靠继承拿到，
+   显式传过 size 的 Icon 仍由上方 !important 定到同一值 */
+.ios-button--icon {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.ios-button--icon .ios-button__icon {
+  height: 24px;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+/* 图标+文字并排（showBothIconAndText）：左内边距归零让图标贴左缘，右侧照常 8px */
+.ios-button--icon-text {
+  padding-left: 0;
 }
 
 /* 文字截断：flex item 被块化后 ellipsis 生效，overflow 非 visible 使自动最小尺寸归 0、允许被压窄 */

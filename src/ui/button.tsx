@@ -10,7 +10,7 @@ export type ButtonProps = {
   tone?: ButtonTone
   /** 形态：filled 实体按钮（默认，渐变底+边框）；borderless 单一类型裸文字/图标——无底无边固定白字，按下时一团纯白光晕垫于内容之下，松手即熄 */
   variant?: ButtonVariant
-  /** 图标内容（元素或字符）；与文字互斥——传入即只渲染图标（不渲染 children），children 转作无障碍名回退；例外见 showBothIconAndText */
+  /** 图标内容；与文字互斥——传入即只渲染图标（不渲染 children），children 转作无障碍名回退；例外见 showBothIconAndText */
   icon?: ComponentChildren
   /** 受控例外：icon 与文字并排同显。仅当用户明确要求按钮带图标时才启用；
    *  未经用户要求默认不得传此属性——icon 互斥设计的目的就是避免主动给按钮乱配图标 */
@@ -49,6 +49,7 @@ export function Button({
     `ios-button--${tone}`,
     variant === 'borderless' ? 'ios-button--borderless' : undefined,
     iconOnly ? 'ios-button--icon' : undefined,
+    icon && showBothIconAndText ? 'ios-button--icon-text' : undefined,
     busy ? 'ios-button--busy' : undefined,
     className,
   ]
@@ -78,11 +79,18 @@ export function Button({
   )
 }
 
-// icon-only 由「传了 icon 且未开 showBothIconAndText」直接推断，挂 .ios-button--icon 类；该类已无基础样式，
-// 图标钮与文字钮完全同规格（28px 高、min-width 48、padding 0 8px），类名仅作外部应用覆盖几何的钩子保留；
+// icon-only 由「传了 icon 且未开 showBothIconAndText」直接推断，挂 .ios-button--icon 类；
+// 纯图标钮默认几何：左右 padding 0（配 min-width 28px 成 28×28 方钮）、图标 24px、字重 400（见 button.css），
+// 类名同时保留作外部应用覆盖几何的钩子；
 // 图标与文字默认互斥：icon 存在时文字不渲染，屏幕阅读器名从 children 回退（见下方 extractText）；
-// 唯一例外是 showBothIconAndText——图标文字并排同显，仅供用户明确要求时使用
+// 唯一例外是 showBothIconAndText——图标文字并排同显（挂 .ios-button--icon-text，左内边距归零，见 button.css），
+// 仅供用户明确要求时使用
 // busy 时文案被 spinner 替换，屏幕阅读器仍需从 children 里取到可读标签
+//
+// ⚠️ 任何情况下都强烈不推荐用 Unicode 字符（← → ＋ ✓ ✕ …）来表达图案：
+// 字符图标在不同系统/字体下形状不一、缺字时直接显示成方框，粗细和对齐也没法跟图标库统一。
+// 图标一律传 <Icon>（Material Symbols）或自绘元素，本项目内置图标见 src/ui 下的 Icon 组件；
+// 下方涉及「字符图标」的兼容样式只是对历史遗留的兜底，不是允许新代码这么写。
 function extractText(children: ComponentChildren): string | undefined {
   if (typeof children === 'string') return children
   if (typeof children === 'number') return String(children)
