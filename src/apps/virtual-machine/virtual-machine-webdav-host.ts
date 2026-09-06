@@ -67,26 +67,6 @@ let sharedRoot: string | undefined
 let handler = createWebdavHandler('', realFs)
 let listenerInstalled = false
 
-/** [排障埋点·临时] 宿主侧 DAV 应答全量打点（与运行时 SF3-resp 同落一份日志）。随埋点一起删。 */
-function zdebug(probeId: string, data: unknown): void {
-  ;(window as unknown as { Z_DEBUGGER?: (id: string, data: unknown) => void }).Z_DEBUGGER?.(
-    probeId,
-    data,
-  )
-}
-
-function textHead(bytes: ArrayBuffer | undefined): string {
-  if (!bytes || bytes.byteLength === 0) {
-    return ''
-  }
-  const view = new Uint8Array(bytes.slice(0, 180))
-  let out = ''
-  for (const ch of view) {
-    out += ch >= 0x20 && ch < 0x7f ? String.fromCharCode(ch) : '.'
-  }
-  return out
-}
-
 function isSourcePostable(source: MessageEvent['source']):
   | {
       postMessage: (
@@ -156,24 +136,6 @@ function onWebdavMessage(event: MessageEvent): void {
       }
     }
     postSource(target, result, origin, result.body ? [result.body] : [])
-    // [埋点] 共享文件夹排障：每个 DAV 请求的方法/路径/应答状态。
-    console.log(
-      '[vm-webdav-host]',
-      request.method,
-      request.url,
-      '->',
-      result.status,
-      sharedRoot ? `(root=${sharedRoot})` : '(root 未设置!)',
-    )
-    // [排障埋点·临时] 应答状态与响应体头部随 SF10 落日志。随埋点一起删。
-    zdebug('SF10', {
-      method: request.method,
-      url: request.url,
-      status: result.status,
-      statusText: result.statusText,
-      head: textHead(result.body),
-      root: sharedRoot ?? null,
-    })
   })()
 }
 

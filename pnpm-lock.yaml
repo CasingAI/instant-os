@@ -17,6 +17,9 @@ importers:
       '@huggingface/tokenizers':
         specifier: ^0.1.3
         version: 0.1.3
+      '@material-symbols/metadata':
+        specifier: ^0.47.0
+        version: 0.47.0
       '@noble/hashes':
         specifier: ^2.2.0
         version: 2.2.0
@@ -119,6 +122,9 @@ importers:
       marked-katex-extension:
         specifier: ^5.1.10
         version: 5.1.10(katex@0.16.22)(marked@18.0.5)
+      material-symbols:
+        specifier: ^0.47.0
+        version: 0.47.0
       monaco-editor:
         specifier: ^0.55.1
         version: 0.55.1
@@ -486,6 +492,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@material-symbols/metadata@0.47.0':
+    resolution: {integrity: sha512-pakkPc+kS/24wqchNbYmgPl6hLBtWasmSsUjcgioJ48Alv7WQotGJpic8zZ0/boSeKc/9KeDkpQiUoNuSUNrUQ==}
 
   '@napi-rs/wasm-runtime@1.1.4':
     resolution: {integrity: sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow==}
@@ -1344,6 +1353,9 @@ packages:
     resolution: {integrity: sha512-S6x5wmcDmsDRRU/c2dkccDwQPXoFczc5+HpQ2lON8pnvHlnvHAHj5WlLVvw6n6vNyHuVugYrFohYxbS+pvFpKQ==}
     engines: {node: '>=10'}
 
+  material-symbols@0.47.0:
+    resolution: {integrity: sha512-/Wt7QSv5Hih8EFj9ySHnnF+NAGajTMRLkfajj0j4MNCY3FB2QhGRg5xtnBs5bUE63mzVo7J5XbbIDr0HeITpHg==}
+
   mdurl@2.1.0:
     resolution: {integrity: sha512-1+HBaOx0zi/dQWht8rNv9MYf9qqpqL/kxI0hXImU6Y547zM6Sni8BQibt7ifgMcYtQg41ao3Ivd6cnSM86inpg==}
 
@@ -1982,6 +1994,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@material-symbols/metadata@0.47.0': {}
 
   '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
     dependencies:
@@ -2764,6 +2778,8 @@ snapshots:
   matcher@4.0.0:
     dependencies:
       escape-string-regexp: 4.0.0
+
+  material-symbols@0.47.0: {}
 
   mdurl@2.1.0: {}
 

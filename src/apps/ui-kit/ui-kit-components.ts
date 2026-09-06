@@ -92,7 +92,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'icon', type: 'ComponentChildren?', description: '图标内容；与文字互斥，传入即只显示图标，文字转作无障碍名', defaultValue: '—' },
       { name: 'showBothIconAndText', type: 'boolean?', description: '受控例外：icon 与文字并排同显；仅当用户明确要求时才启用，未经要求一般不传', defaultValue: 'false' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
-      { name: 'busy', type: 'boolean?', description: '异步进行中：转圈替换文案并标记 aria-busy，无障碍名从 children 回退', defaultValue: 'false' },
+      { name: 'busy', type: 'boolean?', description: '异步进行中：菊花转圈覆盖在原内容之上（原内容隐形占位，按钮尺寸不变），标记 aria-busy；无障碍名从 children 回退', defaultValue: 'false' },
       { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type', defaultValue: "'button'" },
       { name: 'aria-label', type: 'string?', description: '无障碍标签', defaultValue: '—' },
       { name: 'onClick', type: '() => void', description: '点击回调', defaultValue: '—' },
@@ -646,7 +646,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     demos: [
       { id: 'basic', title: '图标库浏览器', description: '搜索、字体族、填充/字重、类目侧栏与虚拟滚动网格；点击格复制名字。侧栏「内置自绘」类目下有 CSS 绘制的 activity-indicator 转圈，不依赖字体' },
       { id: 'combo', title: '与组件组合', description: 'Button 图标钮、icon+文字受控例外、List leading 槽；顶部滑杆统一调字重' },
-      { id: 'spinner', title: '转圈图标', description: '内置自绘图标 activity-indicator：iOS 6 风格加载转圈，尺寸随 size、颜色随文字色' },
+      { id: 'spinner', title: '转圈图标', description: '内置自绘图标 activity-indicator：iOS 6 风格加载转圈，尺寸随 size、颜色随文字色；size < 20px 自动换紧凑画法（12 根刻度减为 8 根、按比例加粗加长，避免小尺寸细成发丝挤成一团）' },
       { id: 'inset', title: '内凹两种画法', description: 'SVG 滤镜真·内阴影 vs 渐变明暗模拟；深度/浓度/字重滑杆联动' },
     ],
     props: [

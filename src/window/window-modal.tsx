@@ -95,9 +95,7 @@ function CloseButton({
   onClick: () => void
 }): preact.JSX.Element {
   return (
-    <Button icon class="window-modal__close" aria-label="关闭" disabled={disabled} onClick={onClick}>
-      <CloseIcon />
-    </Button>
+    <Button icon={<CloseIcon />} class="window-modal__close" aria-label="关闭" disabled={disabled} onClick={onClick} />
   )
 }
 

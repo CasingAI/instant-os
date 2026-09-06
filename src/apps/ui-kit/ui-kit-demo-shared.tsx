@@ -11,16 +11,19 @@ export function DemoVariant({
   children,
   wide,
   textured,
+  hexagons,
 }: {
   label: string
   children: preact.ComponentChildren
   wide?: boolean
   /** 电路板纹理底（壁纸「电路板」同源值）：给 borderless 这类透明内容当背景 */
   textured?: boolean
+  /** 浅色蜂窝纹理底（壁纸「蜂窝」同源值）：与 textured 互斥，borderless 演示切背景用 */
+  hexagons?: boolean
 }) {
   return (
     <div
-      class={`ui-kit-demo__variant${wide ? ' ui-kit-demo__variant--wide' : ''}${textured ? ' ui-kit-demo__variant--textured' : ''}`}
+      class={`ui-kit-demo__variant${wide ? ' ui-kit-demo__variant--wide' : ''}${textured ? ' ui-kit-demo__variant--textured' : ''}${hexagons ? ' ui-kit-demo__variant--hexagons' : ''}`}
     >
       <div class="ui-kit-demo__variant-label">{label}</div>
       {children}

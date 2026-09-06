@@ -7,7 +7,7 @@ import './icon.css'
 export type IconFamily = 'outlined' | 'rounded' | 'sharp'
 
 export type IconProps = {
-  /** Material Symbols ligature 名，如 "delete"；名字见 fonts.google.com/icons。内置自绘例外：activity-indicator（iOS 6 风格转圈，CSS 绘制，不占字体） */
+  /** Material Symbols ligature 名，如 "delete"；名字见 fonts.google.com/icons。内置自绘例外：activity-indicator（iOS 6 风格转圈，CSS 绘制，不占字体；size < 20px 自动换紧凑画法） */
   name: string
   /** 字体族（三套变量字体的轮廓风格），默认 rounded；自绘图标忽略 */
   family?: IconFamily
@@ -32,23 +32,30 @@ const FAMILY_CLASS: Record<IconFamily, string> = {
 }
 
 const TICK_COUNT = 12
+/** 紧凑变体（size < 20px）：12 根刻度按百分比缩到 14px 级别会细成发丝且彼此挤在一起，
+ *  改 8 根（45° 一步）并按比例加粗加长；样式见 icon.css 的 --small 块 */
+const SMALL_TICK_COUNT = 8
+const SMALL_MAX_SIZE = 20
 
-/** 自绘图标：iOS 6 风格转圈（UIActivityIndicatorView），颜色随 currentColor，size 即盒子边长 */
+/** 自绘图标：iOS 6 风格转圈（UIActivityIndicatorView），颜色随 currentColor，size 即盒子边长；
+ *  size < 20px 自动切紧凑画法（刻度 12→8 根、加粗加长），调用方不感知 */
 function ActivityIndicatorIcon({ size, label, className, style }: {
   size?: number
   label?: string
   className?: string
   style?: JSX.CSSProperties
 }) {
+  const small = size != null && size < SMALL_MAX_SIZE
+  const base = small ? 'icon-activity-indicator icon-activity-indicator--small' : 'icon-activity-indicator'
   return (
     <span
-      class={className ? `icon-activity-indicator ${className}` : 'icon-activity-indicator'}
+      class={className ? `${base} ${className}` : base}
       role={label ? 'img' : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : 'true'}
       style={{ width: size != null ? `${size}px` : undefined, height: size != null ? `${size}px` : undefined, ...style }}
     >
-      {Array.from({ length: TICK_COUNT }, (_, i) => (
+      {Array.from({ length: small ? SMALL_TICK_COUNT : TICK_COUNT }, (_, i) => (
         <span key={i} class="icon-activity-indicator__tick" style={`--icon-ai-i:${i}`} />
       ))}
     </span>

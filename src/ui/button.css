@@ -70,6 +70,7 @@
 }
 
 .ios-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -144,25 +145,26 @@
   text-overflow: ellipsis;
 }
 
-.ios-button__spinner {
-  flex-shrink: 0;
+/* busy：菊花（Icon activity-indicator，颜色随 currentColor）绝对定位盖在按钮正中，
+   不参与排版；原内容由上方 visibility 规则隐形占位，按钮尺寸 busy 前后不变 */
+.ios-button--busy .ios-button__icon,
+.ios-button--busy .ios-button__label {
+  visibility: hidden;
+}
+
+/* 两级类选择器压过 icon.css 的 .icon-activity-indicator（同级优先级但源序在后）：
+   钉住绝对定位居中与尺寸，避免被其 24px 定宽和 position: relative 破坏 */
+.ios-button > .ios-button__spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: ios-button-spin 0.7s linear infinite;
 }
 
-.ios-button--secondary .ios-button__spinner {
-  border-color: rgba(0, 0, 0, 0.12);
-  border-top-color: #555;
-}
-
-@keyframes ios-button-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.ios-button--icon > .ios-button__spinner {
+  width: 24px;
+  height: 24px;
 }
 
 .ios-button--secondary:active:not(:disabled) {
@@ -247,12 +249,6 @@
   .ios-button--borderless::after {
     transition: opacity 0.5s ease-out;
   }
-}
-
-/* busy：spinner 默认白圈假设深底，裸形态在浅底上要深圈（值同 secondary 覆写，源序在后故三 tone 通吃） */
-.ios-button--borderless .ios-button__spinner {
-  border-color: rgba(0, 0, 0, 0.12);
-  border-top-color: #555;
 }
 
 .ios-button:disabled {

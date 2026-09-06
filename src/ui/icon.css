@@ -1,5 +1,6 @@
 /* 自绘图标：iOS 6 风格转圈。12 根刻度错峰明暗形成转动感；刻度用比例尺寸（宽 9%、高 28%），
-   任意盒子边长都成立；颜色走 currentColor，父级覆盖 color 即可换色 */
+   任意盒子边长都成立；颜色走 currentColor，父级覆盖 color 即可换色。
+   size < 20px 由组件挂 --small 换紧凑画法（见下方 --small 块） */
 .icon-activity-indicator {
   position: relative;
   display: inline-block;
@@ -26,6 +27,18 @@
   background: currentColor;
   animation: icon-activity-indicator-fade 1s linear infinite;
   animation-delay: calc(var(--icon-ai-i) * -0.0833s);
+}
+
+/* 紧凑变体（size < 20px，组件自动挂）：12 根刻度按百分比缩到 14px 级别会细成发丝且彼此挤成一团，
+   改 8 根（45° 一步）并按比例加粗加长（宽 12%、高 30%），明暗波同步改 0.125s/根保持转动连续 */
+.icon-activity-indicator--small .icon-activity-indicator__tick {
+  transform: rotate(calc(var(--icon-ai-i) * 45deg));
+}
+
+.icon-activity-indicator--small .icon-activity-indicator__tick::before {
+  width: 12%;
+  height: 30%;
+  animation-delay: calc(var(--icon-ai-i) * -0.125s);
 }
 
 @keyframes icon-activity-indicator-fade {

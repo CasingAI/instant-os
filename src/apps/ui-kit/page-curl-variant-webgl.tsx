@@ -12,7 +12,14 @@ import type { CurlVariantProps } from './use-curl-gesture.ts'
 // 深度按卷角 φ 排序而非高度：铰链处与留平纸面连续（φ=0 → 0.5），柱面近侧
 // 四分之一圈遮住远侧——地图正面全程可见（仿斜视相机的自遮挡，纯高度排序会
 // 让绕过柱顶的纸背永远盖住柱面正面），翻扣的纸背（φ=π → 0.40）压在留平纸面
-// 上、又不遮柱面最前缘。纸白背面色与 gl_FrontFacing 在 φ=90° 处翻转沿用旧版。
+// 上、又不遮柱面最前缘。纸背光照单独取镜像法向分量 max(0.34·sp−0.94·cp, 0)：
+// 正面 diff 的「光」主要来自观察方向（cosφ 项），翻平（φ=π）时恒为 0，直接
+// 复用会把整块平铺纸背压成 ×0.73 的暗灰、看着像贴上去的灰色三角——纸背翻平
+// 后恰正对观察者，应是最亮档（×0.984 亮纸色，同 CSS 两案的亮纸背一致）。纸
+// 背压在留平地图上的软投影也在顶点着色器现算：折叠映射 fq = P + n(πR − 2d)
+// 等距且自逆，fq 越过页面右/底边 ⇔ 该点贴在纸背对应翻折边外侧，70px 渐散、
+// 越过纸角 F 后交叉淡出（自逆性自动排除离折痕不足 πR 的假影区）。
+// gl_FrontFacing 仍在 φ=90° 处翻转换脸。
 
 const COLS = 64
 const ROWS = 24
@@ -25,6 +32,8 @@ uniform vec2 uCreaseNormal;
 uniform float uRadius;
 varying vec2 vUV;
 varying float vShade;
+varying float vShadeBack;
+varying float vShadow;
 const float PI = 3.14159265;
 void main() {
   // d>0 在纸角侧：到铰线的距离就是绕柱的弧长；d<=0 留平原位
@@ -43,6 +52,19 @@ void main() {
   float lifted = step(0.0001, d);
   float diff = max(0.34 * sp + 0.94 * cp, 0.0);
   vShade = mix(1.0, 0.40 + 0.60 * diff, lifted);
+  // 纸背光照（设计约束见文件头）：法向分量反号——翻平（φ=π）时纸背正对观察者、
+  // 最亮（平铺区 ≈ ×0.984 亮纸色），侧立（φ=π/2）时最暗；不吃正面的暗档
+  float diffBack = max(0.34 * sp - 0.94 * cp, 0.0);
+  vShadeBack = 0.40 + 0.60 * diffBack;
+  // 纸背投在留平地图上的软阴影：折叠映射 fq = P + n(πR − 2d) 等距且自逆，
+  // fq 越过页面右/底边 ⇔ 该点贴在纸背对应翻折边外侧；70px 线性渐散，越过纸角
+  // F（另一坐标超出页边）后 50px 交叉淡出防边线延长线鬼影；只落在留平侧
+  vec2 fq = aXY + uCreaseNormal * (PI * uRadius - 2.0 * d);
+  float sb = fq.y - uSize.y;
+  float sr = fq.x - uSize.x;
+  float shadowB = max(1.0 - sb / 70.0, 0.0) * step(0.0, sb) * max(1.0 - max(sr, 0.0) / 50.0, 0.0);
+  float shadowR = max(1.0 - sr / 70.0, 0.0) * step(0.0, sr) * max(1.0 - max(sb, 0.0) / 50.0, 0.0);
+  vShadow = 0.30 * max(shadowB, shadowR) * (1.0 - lifted);
   // 深度按卷角（约束见文件头）：铰链连续、近侧遮远侧、纸背压留平面
   float depth = 0.5 - 0.25 * sp - 0.05 * sin(2.0 * phi) - 0.05 * (1.0 - cp);
   gl_Position = vec4(pos.x / uSize.x * 2.0 - 1.0, 1.0 - pos.y / uSize.y * 2.0, depth, 1.0);
@@ -53,11 +75,14 @@ const FRAGMENT_SHADER = `
 precision mediump float;
 varying vec2 vUV;
 varying float vShade;
+varying float vShadeBack;
+varying float vShadow;
 uniform sampler2D uMap;
 void main() {
   vec3 front = texture2D(uMap, vUV).rgb;
   vec3 paper = vec3(0.97, 0.955, 0.92);
-  vec3 rgb = gl_FrontFacing ? front * vShade : paper * (0.55 + 0.45 * vShade);
+  vec3 rgb = gl_FrontFacing ? front * vShade * (1.0 - vShadow)
+                            : paper * (0.55 + 0.45 * vShadeBack);
   gl_FragColor = vec4(rgb, 1.0);
 }
 `

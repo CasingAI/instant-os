@@ -1,5 +1,6 @@
 import type { ComponentChildren, JSX } from 'preact'
 import './button.css'
+import { Icon } from './icon.tsx'
 
 export type ButtonTone = 'secondary' | 'primary' | 'danger'
 export type ButtonVariant = 'filled' | 'borderless'
@@ -15,7 +16,7 @@ export type ButtonProps = {
   /** 受控例外：icon 与文字并排同显。仅当用户明确要求按钮带图标时才启用；
    *  未经用户要求默认不得传此属性——icon 互斥设计的目的就是避免主动给按钮乱配图标 */
   showBothIconAndText?: boolean
-  /** 异步进行中：以转圈替换文案并标记 aria-busy */
+  /** 异步进行中：菊花转圈覆盖在原内容之上（原内容隐形占位，按钮尺寸不变）并标记 aria-busy */
   busy?: boolean
   type?: 'button' | 'submit' | 'reset'
   disabled?: boolean
@@ -67,14 +68,13 @@ export function Button({
       aria-label={ariaLabel ?? (busy || iconOnly ? extractText(children) : undefined)}
       onClick={onClick}
     >
+      {/* busy：原内容照常渲染参与排版（CSS visibility 隐形占位，宽度不变），菊花绝对定位盖在正中；
+          size 显式传给 Icon（14/24，与 button.css 的 spinner 尺寸一致）以触发小尺寸紧凑画法 */}
+      {icon ? <span class="ios-button__icon">{icon}</span> : undefined}
+      {iconOnly ? undefined : <span class="ios-button__label">{children}</span>}
       {busy ? (
-        <span class="ios-button__spinner" aria-hidden="true" />
-      ) : (
-        <>
-          {icon ? <span class="ios-button__icon">{icon}</span> : undefined}
-          {iconOnly ? undefined : <span class="ios-button__label">{children}</span>}
-        </>
-      )}
+        <Icon name="activity-indicator" size={iconOnly ? 24 : 14} class="ios-button__spinner" />
+      ) : undefined}
     </button>
   )
 }
@@ -85,7 +85,7 @@ export function Button({
 // 图标与文字默认互斥：icon 存在时文字不渲染，屏幕阅读器名从 children 回退（见下方 extractText）；
 // 唯一例外是 showBothIconAndText——图标文字并排同显（挂 .ios-button--icon-text，左内边距归零，见 button.css），
 // 仅供用户明确要求时使用
-// busy 时文案被 spinner 替换，屏幕阅读器仍需从 children 里取到可读标签
+// busy 时原内容隐形占位（按钮尺寸不变）、菊花覆盖其上，屏幕阅读器仍需从 children 里取到可读标签
 //
 // ⚠️ 任何情况下都强烈不推荐用 Unicode 字符（← → ＋ ✓ ✕ …）来表达图案：
 // 字符图标在不同系统/字体下形状不一、缺字时直接显示成方框，粗细和对齐也没法跟图标库统一。
