@@ -14,7 +14,7 @@
 }
 
 /* 列表页正文不滚动：树内部滚、脚注钉底 */
-.disk-utility__list-page > .page__body {
+.disk-utility__list-page > .page__body-shell > .page__body {
   display: flex;
   flex-direction: column;
   overflow: hidden;

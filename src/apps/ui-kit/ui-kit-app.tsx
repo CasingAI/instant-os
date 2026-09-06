@@ -345,7 +345,18 @@ export function UiKitApp() {
   // Nav 统一编排（应用只声明域事实：详情页有上一级「组件库」）──
 
   const renderListPage = () => (
-    <Nav.Page title="组件库">
+    <Nav.Page
+      title="组件库"
+      // 整窗亮暗开关放根列表页标题栏：左栏宽屏常驻、窄屏即根页，任何形态都可达
+      actions={
+        <Button
+          icon={<Icon name={demoDark ? 'light_mode' : 'dark_mode'} />}
+          title={demoDark ? '切换亮色' : '切换暗色'}
+          aria-label={demoDark ? '切换亮色' : '切换暗色'}
+          onClick={() => setDemoDark((v) => !v)}
+        />
+      }
+    >
       <div class="ui-kit__list">
         <List variant="plain" selectedId={selectedId} onSelect={handleSelect}>
           {sections.map((section) => (
@@ -373,14 +384,6 @@ export function UiKitApp() {
         title={selectedComponent.name}
         backLabel="组件库"
         onBack={() => nav.navigate('list', 'pop')}
-        actions={
-          <Button
-            icon={<Icon name={demoDark ? 'light_mode' : 'dark_mode'} />}
-            title={demoDark ? '切换亮色' : '切换暗色'}
-            aria-label={demoDark ? '切换亮色' : '切换暗色'}
-            onClick={() => setDemoDark((v) => !v)}
-          />
-        }
       >
         <ComponentPage key={selectedComponent.id} component={selectedComponent} />
       </Nav.Page>

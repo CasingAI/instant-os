@@ -21,12 +21,17 @@ export function Page({ header, children, class: className, dataTheme }: PageProp
   return (
     <div class={`page${className ? ` ${className}` : ''}`} data-theme={dataTheme}>
       {header}
-      {/* 内容面板默认亮（= 恒定套一层 DarkMode disabled 的作用域）：深蓝壳
-          设计下暗色页的内容区是浅色内凹面板，这里钉死亮色作用域让面板内的
-          全部内容跟面板走。调用方要暗色内容，在自己的内容外再包一层
-          <DarkMode> 即可——自定义属性按最近定义祖先继承，一包就翻。 */}
-      <div class="page__body" data-theme="light">
-        {children}
+      {/* 壳包住滚动容器：内阴影等画在壳伪元素上的效果浮在滚动内容
+          之上（画在 .page__body 自身会被铺满内容盖住、随滚动滚走）。
+          壳接管 body 的弹性布局职责，亮色下无任何视觉。 */}
+      <div class="page__body-shell">
+        {/* 内容面板默认亮（= 恒定套一层 DarkMode disabled 的作用域）：深蓝壳
+            设计下暗色页的内容区是浅色内凹面板，这里钉死亮色作用域让面板内的
+            全部内容跟面板走。调用方要暗色内容，在自己的内容外再包一层
+            <DarkMode> 即可——自定义属性按最近定义祖先继承，一包就翻。 */}
+        <div class="page__body" data-theme="light">
+          {children}
+        </div>
       </div>
     </div>
   )
