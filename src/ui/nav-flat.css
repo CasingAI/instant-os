@@ -216,6 +216,45 @@
   height: auto;
 }
 
+/*
+ * 页内 .page__body-shell 壳（暗色内凹覆盖层的锚点，见 page.css）同步打平：
+ * .page 打平后进网格的是壳，壳无摆格规则、两页正文会被自动摆成上下两条
+ * 隐式行。与 page-stack.css / nav.css 同款：壳打平让 body 顶回格子项，壳上
+ * 的暗色 8px 内衬窗口期由 body 交班（同值，首尾帧与静止态逐像素一致），
+ * 壳 ::after 内凹覆盖层窗口期关闭（壳无盒后定位基准跳到 stage，会糊出
+ * 一整圈暗色晕影），收尾随壳盒恢复。
+ */
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under
+  .page__body-shell,
+.nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
+  .page__body-shell {
+  display: contents;
+}
+
+[data-theme='dark']
+  .nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under
+  .page__body,
+[data-theme='dark']
+  .nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
+  .page__body {
+  margin: 8px;
+}
+
+[data-theme='dark']
+  .nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-under
+  .page__body-shell::after,
+[data-theme='dark']
+  .nav--flat[data-stack-transition]:not(.nav--morphing)
+  .nav__host.is-over
+  .page__body-shell::after {
+  content: none;
+}
+
 .nav--flat[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-under
   .page-header,

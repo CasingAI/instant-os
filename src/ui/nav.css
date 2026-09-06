@@ -207,6 +207,29 @@
   height: auto;
 }
 
+/*
+ * 帧内 Page 同样带 .page__body-shell 壳（暗色内凹覆盖层的锚点，见 page.css）：
+ * .page 打平后进网格的是壳，壳无摆格规则、两页正文会被自动摆成上下两条隐式
+ * 行。与 page-stack.css 同款打平壳让 body 顶回格子项；壳上的暗色 8px 内衬
+ * 窗口期由 body 交班（同值，首尾帧与静止态逐像素一致），壳 ::after 内凹
+ * 覆盖层窗口期关闭（壳无盒后定位基准跳到转场根，会糊出一整圈暗色晕影），
+ * 收尾随壳盒恢复。
+ */
+.nav__frames--push .page__body-shell,
+.nav__frames--pop .page__body-shell {
+  display: contents;
+}
+
+[data-theme='dark'] .nav__frames--push .page__body,
+[data-theme='dark'] .nav__frames--pop .page__body {
+  margin: 8px;
+}
+
+[data-theme='dark'] .nav__frames--push .page__body-shell::after,
+[data-theme='dark'] .nav__frames--pop .page__body-shell::after {
+  content: none;
+}
+
 .nav__frames--push .page-header,
 .nav__frames--pop .page-header {
   grid-row: 1;

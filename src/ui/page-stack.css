@@ -101,6 +101,34 @@
   height: auto;
 }
 
+/*
+ * Page 的正文外包着一层 .page__body-shell（暗色内凹覆盖层的锚点，见 page.css）。
+ * 上面的 .page 打平后，进网格的是壳而不是 body：壳没有任何摆格规则，两个壳会
+ * 被自动摆进 row 2 和一条新造的隐式行——两页正文从同格叠放散架成上下两条横带
+ * （body 上的 grid-row 对非格子项无效）。壳跟 .page 同样打平，body 重新成为
+ * 格子项，下方既有的摆格 / 滑动 / 左缘投影 / pointer-events 规则即全部恢复生效。
+ */
+.page-stack--push .page-stack__layer .page__body-shell,
+.page-stack--pop .page-stack__layer .page__body-shell {
+  display: contents;
+}
+
+/*
+ * 壳打平后不再生成盒子：壳上的暗色 8px 内衬（page.css 的 shell margin）会丢，
+ * 窗口期由 body 顶班（同值，动画首尾帧几何与静止态逐像素一致，收尾不跳变）；
+ * 壳 ::after 内凹覆盖层的定位基准会跳到转场根、在整个面板四周糊出一圈暗色
+ * 晕影，窗口期直接关闭，收尾随壳盒恢复——壳层落地前转场里本来就没有这圈。
+ */
+[data-theme='dark'] .page-stack--push .page-stack__layer .page__body,
+[data-theme='dark'] .page-stack--pop .page-stack__layer .page__body {
+  margin: 8px;
+}
+
+[data-theme='dark'] .page-stack--push .page-stack__layer .page__body-shell::after,
+[data-theme='dark'] .page-stack--pop .page-stack__layer .page__body-shell::after {
+  content: none;
+}
+
 /* 父级转场时拆开嵌套的 idle 子栈，让 Header/正文仍参与交叉动画 */
 .page-stack--push
   .page-stack__layer
