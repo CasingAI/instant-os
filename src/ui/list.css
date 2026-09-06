@@ -28,6 +28,27 @@
   --list-hover-bottom: #ececf0;
 }
 
+/* 主题作用域暗色：宿主根节点（或 DarkMode 壳）切 data-theme='dark' 时整套
+   换暗——与 theme.css 的 --page-* 同拍，消费方无须各自桥接。特异度 (0,2,0)
+   压过上方 (0,1,0) 的亮色默认块，继承链上最近的作用域定义生效。选中/点闪的
+   蓝色系两态在暗底上照常可读，不随动。亮色不需要对称块（默认即亮）。 */
+[data-theme='dark'] .list {
+  --list-bg: #323238;
+  --list-border: rgba(255, 255, 255, 0.12);
+  --list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  --list-row-border: rgba(255, 255, 255, 0.08);
+  --list-value-ink: #98989e;
+  --list-disclosure: #5c5c62;
+  --list-title-ink: #d8d8da;
+  --list-title-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --list-footnote-ink: #98989e;
+  --list-footnote-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --list-index-bg: rgba(255, 255, 255, 0.08);
+  --list-index-pressed-bg: rgba(255, 255, 255, 0.16);
+  --list-hover-top: #3a3a40;
+  --list-hover-bottom: #323238;
+}
+
 /* ── 容器盒 ── */
 
 .list {

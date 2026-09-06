@@ -1,11 +1,14 @@
 /*
- * 系统暗色主题作用域：App 在自己的根节点切 data-theme='dark'，
+ * 系统主题作用域：App 在自己的根节点切 data-theme='dark'，
  * 作用域内所有系统页面组件（Page / PageHeader / PageBackButton /
  * PageStack 转场 / Nav，均消费同一套 --page-* token）
  * 原生联动暗色，无需各 App 自行桥接。
  *
  * 自定义属性按「最近的定义祖先」继承，天然压过各组件 :root 的
- * 亮色默认值；亮色不需要对称作用域（:root 默认即亮色）。
+ * 亮色默认值。亮色另有对称作用域 data-theme='light'（下方第二块，
+ * 供 DarkMode disabled 在暗色祖先里强制抠出亮色块），值抄自各组件
+ * :root 定义与消费方 fallback；:root 默认值与 fallback 保留不动，
+ * 亮色作用域只是同一份亮色的显式定义。
  */
 [data-theme='dark'] {
   --page-bg: linear-gradient(180deg, #2c2c30 0%, #1e1e22 100%);
@@ -27,4 +30,33 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 1px 0 rgba(0, 0, 0, 0.35);
   --page-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/*
+ * 亮色对称作用域：DarkMode disabled 时挂 data-theme='light'，在暗色
+ * 祖先里强制回亮色。--page-bg 没有 :root 定义，值从消费方 inline
+ * fallback（page.css 等，值一致）抄入，是这里最容易漏的一个；
+ * --page-action-* 本就只有亮色定义（暗色块同样没覆盖），无需在此出现。
+ */
+[data-theme='light'] {
+  --page-bg: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
+  --page-header-bg: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  --page-header-border: 1px solid rgba(0, 0, 0, 0.14);
+  --page-header-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72),
+    0 5px 14px -8px rgba(0, 0, 0, 0.22);
+  --page-header-title-color: #222;
+  --page-header-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --page-back-color: #007aff;
+  --page-back-color-active: #0056b3;
+  --page-back-bg: linear-gradient(180deg, #fdfdfd 0%, #f0f0f0 42%, #d8d8d8 100%);
+  --page-back-bg-hover: linear-gradient(180deg, #fff 0%, #f4f4f4 42%, #dedede 100%);
+  --page-back-bg-active: linear-gradient(180deg, #d6d6d6 0%, #c8c8c8 45%, #bcbcbc 100%);
+  --page-back-border: 1px solid rgba(0, 0, 0, 0.3);
+  --page-back-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+  --page-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.07),
+    0 1px 2px rgba(0, 0, 0, 0.16);
+  --page-back-shadow-active: inset 0 2px 4px rgba(0, 0, 0, 0.18), 0 1px 1px rgba(0, 0, 0, 0.1);
 }
