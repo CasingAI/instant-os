@@ -21,7 +21,13 @@ export function Page({ header, children, class: className, dataTheme }: PageProp
   return (
     <div class={`page${className ? ` ${className}` : ''}`} data-theme={dataTheme}>
       {header}
-      <div class="page__body">{children}</div>
+      {/* 内容面板默认亮（= 恒定套一层 DarkMode disabled 的作用域）：深蓝壳
+          设计下暗色页的内容区是浅色内凹面板，这里钉死亮色作用域让面板内的
+          全部内容跟面板走。调用方要暗色内容，在自己的内容外再包一层
+          <DarkMode> 即可——自定义属性按最近定义祖先继承，一包就翻。 */}
+      <div class="page__body" data-theme="light">
+        {children}
+      </div>
     </div>
   )
 }

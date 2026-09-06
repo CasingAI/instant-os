@@ -1,22 +1,53 @@
 /* List plain 变体（variant="plain"）自有样式表：iOS 6 邮件/短信式通栏列表。
    本文件零外部样式依赖：不 import 其他 css、不引用 --list-* token；类名前缀
    plain-list / plain-list-item 与 grouped 分支（list*）零交集，两支互不命中。
-   换肤/暗色只需覆盖 --plain-list-* 变量。 */
+   换肤只需覆盖 --plain-list-* 变量。
+   暗色接入方式与 list.css（grouped）同构：主题 token 不在 .plain-list 元素上
+   定义，而是按 data-theme 作用域给出整套（见下方两块）——自定义属性按最近
+   定义祖先继承，暗壳里的 .page__body 钉了 data-theme='light'（page.tsx），
+   面板内的列表跟面板走亮色；调用方要暗色内容，在内容外再包一层 <DarkMode>
+   即可整块翻暗。 */
 
-/* ── token 默认值（换肤入口） ── */
+/* ── 主题作用域 token（最近作用域获胜） ──
+   消费点全部带同值字面量兜底：无任何 data-theme 作用域时走兜底，渲染不变。
+   [data-theme='light'] 块与亮色兜底同值，作用是压回外层暗作用域（如亮钉子
+   所在的浅面板）。选中/点闪的蓝色系与编辑动效曲线两态在暗底上照常可读，
+   不进作用域、不随动。 */
 
-.plain-list {
+[data-theme='dark'] {
+  --plain-list-bg: #323238;
+  --plain-list-row-border: rgba(255, 255, 255, 0.08);
+  --plain-list-secondary-ink: #98989e;
+  --plain-list-meta-ink: #85858c;
+  --plain-list-title-ink: #d8d8da;
+  --plain-list-subtitle-ink: #b0b0b8;
+  --plain-list-disclosure: #5c5c62;
+  --plain-list-section-title-bg: linear-gradient(180deg, #3a3a40 0%, #323238 100%);
+  --plain-list-section-title-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --plain-list-badge-bg: rgba(0, 122, 255, 0.2);
+  --plain-list-disabled-ink: #6d6d72;
+  --plain-list-disabled-bg: #2e2e33;
+  --plain-list-dragging-bg: #323238;
+  --plain-list-hover-top: #3a3a40;
+  --plain-list-hover-bottom: #323238;
+}
+
+[data-theme='light'] {
   --plain-list-bg: #fff;
   --plain-list-row-border: #e0e0e4;
-  --plain-list-accent: #007aff;
   --plain-list-secondary-ink: #888;
   --plain-list-meta-ink: #9a9aa0;
-  --plain-list-selected-top: #4089d4;
-  --plain-list-selected-bottom: #2068b8;
+  --plain-list-title-ink: #555;
+  --plain-list-subtitle-ink: #3c3c43;
+  --plain-list-disclosure: #c7c7cc;
+  --plain-list-section-title-bg: linear-gradient(180deg, #f3f3f3 0%, #e4e4e4 100%);
+  --plain-list-section-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+  --plain-list-badge-bg: rgba(0, 122, 255, 0.12);
+  --plain-list-disabled-ink: #8e8e93;
+  --plain-list-disabled-bg: #d8d8d8;
+  --plain-list-dragging-bg: #fff;
   --plain-list-hover-top: #fbfbfd;
   --plain-list-hover-bottom: #ececf0;
-  /* 编辑模式动效（内容内收、减号滑入、红钮滑出）共用的减速曲线：急起缓收，收尾不顿 */
-  --plain-list-edit-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
 }
 
 /* ── 容器：通栏平铺，无分组盒的边框/圆角/内阴影 ── */
@@ -34,7 +65,7 @@
   margin: 0 0 4px;
   font-size: 13px;
   font-weight: 600;
-  color: #555;
+  color: var(--plain-list-title-ink, #555);
 }
 
 .plain-list__head {
@@ -67,16 +98,16 @@
   text-justify: none;
 }
 
-/* 节标题照 grouped 分组条的观感画：灰底渐变 + 下边框 + 白投影，墨水/底色同
-   list.css 硬编码；下边框走本文件 token，保住「换肤只覆盖 --plain-list-*」入口 */
+/* 节标题照 grouped 分组条的观感画：灰底渐变 + 下边框 + 白投影；墨水/底色/
+   投影走本文件 token（暗色作用域整套翻暗），下边框走行分隔 token */
 .plain-list-section__title {
   padding: 3px 12px 2px;
   border-bottom: 1px solid var(--plain-list-row-border, #e0e0e4);
-  background: linear-gradient(180deg, #f3f3f3 0%, #e4e4e4 100%);
+  background: var(--plain-list-section-title-bg, linear-gradient(180deg, #f3f3f3 0%, #e4e4e4 100%));
   font-size: 11px;
   font-weight: 600;
-  color: #555;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+  color: var(--plain-list-title-ink, #555);
+  text-shadow: var(--plain-list-section-title-shadow, 0 1px 0 rgba(255, 255, 255, 0.85));
 }
 
 /* ── 行 ── */
@@ -176,8 +207,8 @@
 .plain-list-item--button:disabled:hover,
 .plain-list-item--button:disabled:active {
   cursor: default;
-  color: #8e8e93;
-  background: #d8d8d8;
+  color: var(--plain-list-disabled-ink, #8e8e93);
+  background: var(--plain-list-disabled-bg, #d8d8d8);
 }
 
 /* 按下 / 点闪 / 选中时各级墨水随行反白 */
@@ -321,7 +352,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  color: #3c3c43;
+  color: var(--plain-list-subtitle-ink, #3c3c43);
 }
 
 .plain-list-item__preview {
@@ -340,7 +371,7 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--plain-list-accent, #007aff);
-  background: rgba(0, 122, 255, 0.12);
+  background: var(--plain-list-badge-bg, rgba(0, 122, 255, 0.12));
 }
 
 .plain-list-item__check {
@@ -358,7 +389,7 @@
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-  color: #c7c7cc;
+  color: var(--plain-list-disclosure, #c7c7cc);
   /* 只保留 transform 通道：颜色不设过渡——墨水进向由状态规则的 transition:none
      硬切，退向由 --flash-out 相统一驱动；留 0.1s 会让箭头比其他文字慢半拍 */
   transition: transform 0.15s ease;
@@ -488,7 +519,7 @@
   width: 12px;
   min-width: 0;
   overflow: hidden;
-  color: #c7c7cc;
+  color: var(--plain-list-disclosure, #c7c7cc);
   cursor: grab;
   touch-action: none;
   opacity: 1;
@@ -509,7 +540,7 @@
   transition: none !important;
   position: relative;
   z-index: 2;
-  background: #fff;
+  background: var(--plain-list-dragging-bg, #fff);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
 }
 

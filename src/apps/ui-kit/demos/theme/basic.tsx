@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks'
 import { DarkMode } from '../../../../ui/theme.tsx'
 import { Nav, useNav } from '../../../../ui/nav.tsx'
+import { Page } from '../../../../ui/page.tsx'
 import { List } from '../../../../ui/list.tsx'
 import { ListItem } from '../../../../ui/list-item.tsx'
 import { SegmentedControl } from '../../../../ui/segmented-control.tsx'
@@ -115,6 +116,37 @@ export default function ThemeBasicDemo() {
                 framesResetKey={selectedId ?? ''}
               />
             </div>
+          </div>
+        </DarkMode>
+      </DemoVariant>
+      <DemoVariant label="面板内覆盖 · 裸放跟面板走，再套 <DarkMode> 翻暗" wide>
+        <DarkMode>
+          <div style={{ height: 360 }}>
+            <Page>
+              {/* 暗色壳的内容面板被 page.tsx 钉成亮色作用域：左边裸放的
+                  List 跟面板走亮色（默认）；右边调用方给自己的内容外再包
+                  一层 <DarkMode>，最近作用域生效，整块翻暗 */}
+              <div style={{ display: 'flex', gap: 16, padding: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ marginBottom: 6, fontSize: 11, color: '#555' }}>裸放（默认亮）</div>
+                  <List>
+                    <ListItem label="关于本机" accessory="disclosure" />
+                    <ListItem label="软件更新" accessory="disclosure" />
+                    <ListItem label="储存空间" accessory="disclosure" />
+                  </List>
+                </div>
+                <DarkMode>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ marginBottom: 6, fontSize: 11, color: '#98989e' }}>再包 DarkMode（翻暗）</div>
+                    <List>
+                      <ListItem label="关于本机" accessory="disclosure" />
+                      <ListItem label="软件更新" accessory="disclosure" />
+                      <ListItem label="储存空间" accessory="disclosure" />
+                    </List>
+                  </div>
+                </DarkMode>
+              </div>
+            </Page>
           </div>
         </DarkMode>
       </DemoVariant>

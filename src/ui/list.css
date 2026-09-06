@@ -1,38 +1,19 @@
 /* List / ListItem 自有样式表。
    组件不依赖 settings 系老类：容器、行、槽位、状态观感全部在此定义。
    token 以 var(--list-*, 字面值) 形式烘焙默认值，零外部作用域即可正确渲染；
-   换肤/暗色只需在宿主上覆盖 --list-* 变量。 */
+   换肤只需在宿主上覆盖 --list-* 变量。
+   暗色接入方式：--list-* 的主题值不在 .list 元素上定义，而是按 data-theme
+   作用域给出整套（见下方两块）——自定义属性按最近定义祖先继承，暗壳里的
+   .page__body 钉了 data-theme='light'（page.tsx），面板内的列表跟面板走
+   亮色；调用方要暗色内容，在内容外再包一层 <DarkMode> 即可整块翻暗。 */
 
-/* ── token 默认值（换肤入口） ── */
+/* ── 主题作用域 token（最近作用域获胜） ──
+   消费点全部带同值字面量兜底：无任何 data-theme 作用域时走兜底，渲染不变。
+   [data-theme='light'] 块与亮色兜底同值，作用是压回外层暗作用域（如亮钉子
+   所在的浅面板）。选中/点闪的蓝色系与编辑动效曲线两态在暗底上照常可读，
+   不进作用域、不随动。 */
 
-.list {
-  --list-bg: #fff;
-  --list-border: #a8a8a8;
-  --list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
-  --list-row-border: #ececec;
-  --list-value-ink: #666;
-  --list-disclosure: #b4b4b4;
-  --list-accent: #007aff;
-  --list-title-ink: #555;
-  --list-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-  --list-footnote-ink: #666;
-  --list-footnote-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-  --list-index-bg: rgba(0, 0, 0, 0.05);
-  --list-index-pressed-bg: rgba(0, 0, 0, 0.11);
-  /* 编辑模式动效（内容内收、减号滑入、红钮滑出）共用的减速曲线：急起缓收，收尾不顿 */
-  --list-edit-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
-  /* 选中/点闪的蓝渐变两端 + 悬停淡灰两端：悬停/按下/点闪/选中四态共用色源 */
-  --list-selected-top: #4089d4;
-  --list-selected-bottom: #2068b8;
-  --list-hover-top: #fbfbfd;
-  --list-hover-bottom: #ececf0;
-}
-
-/* 主题作用域暗色：宿主根节点（或 DarkMode 壳）切 data-theme='dark' 时整套
-   换暗——与 theme.css 的 --page-* 同拍，消费方无须各自桥接。特异度 (0,2,0)
-   压过上方 (0,1,0) 的亮色默认块，继承链上最近的作用域定义生效。选中/点闪的
-   蓝色系两态在暗底上照常可读，不随动。亮色不需要对称块（默认即亮）。 */
-[data-theme='dark'] .list {
+[data-theme='dark'] {
   --list-bg: #323238;
   --list-border: rgba(255, 255, 255, 0.12);
   --list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
@@ -49,12 +30,7 @@
   --list-hover-bottom: #323238;
 }
 
-/* 暗色页壳的浅色内容区：theme.css 暗色块把 --page-bg 翻成浅色，
- * .page__body 是一块凹在深蓝壳里的亮色面板（见 page.css 暗色规则），
- * 面板里的列表得跟面板走亮色。上面暗色块把 token 直接定义在 .list
- * 元素上、赢过继承链，这里用更高特异度（0,3,0）把它在内容区内
- * 拉回亮色默认值（值与上方亮色默认块一致）。 */
-[data-theme='dark'] .page__body .list {
+[data-theme='light'] {
   --list-bg: #fff;
   --list-border: #a8a8a8;
   --list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
@@ -153,8 +129,8 @@
      缺了它退出瞬间 8→12 会把 value 反向先推 4px 再滑回，正是肉眼可见的抖动；
      --anchored 是 prop 驱动、首帧即达（list.tsx rootClass），不存在挂载滑动 */
   transition:
-    padding-left 220ms var(--list-edit-ease),
-    padding-right 220ms var(--list-edit-ease);
+    padding-left 220ms var(--list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1)),
+    padding-right 220ms var(--list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 .list > .list-item:last-child {
@@ -432,7 +408,7 @@
   user-select: none;
   transition:
     opacity 200ms ease-out 30ms,
-    transform 220ms var(--list-edit-ease);
+    transform 220ms var(--list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 /* 非编辑态：左移 6px 并缩到 40% 藏起来（不外溢），指针/键盘/读屏全隔离。
@@ -444,7 +420,7 @@
   pointer-events: none;
   transition:
     opacity 110ms ease-out,
-    transform 220ms var(--list-edit-ease);
+    transform 220ms var(--list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 .list-item__minus::before {
@@ -477,7 +453,7 @@
   font-size: 13px;
   cursor: pointer;
   transform: translateX(100%);
-  transition: transform 220ms var(--list-edit-ease);
+  transition: transform 220ms var(--list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
   z-index: 1;
 }
 
@@ -508,8 +484,8 @@
   touch-action: none;
   opacity: 1;
   transition:
-    width 220ms var(--list-edit-ease),
-    margin-left 220ms var(--list-edit-ease),
+    width 220ms var(--list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1)),
+    margin-left 220ms var(--list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1)),
     opacity 160ms ease-out;
 }
 
@@ -532,7 +508,7 @@
    会把它独占，transform 让位就瞬移；这里以更高特异性（0,2,0）在拖动期限定改写整个
    transition（拖动中 padding 恒定，替换掉无副作用） */
 .list--editing .list-item--shift {
-  transition: transform 180ms var(--list-edit-ease);
+  transition: transform 180ms var(--list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 /* ── ListSection 索引分组（盒内小节标题行） ── */
