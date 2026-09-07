@@ -93,10 +93,10 @@ function anchorRectOf(el: Element | null): DOMRect | null {
 /**
  * 强制 Nav 的大弹出窗：尺寸可传（width / height，默认 320×280），内容只能是
  * Nav 页面（controller + 渲染属性原样透传给内部 <Nav>）。有锚点时贴锚点弹出、
- * 尖端指向它；定位优先让尽可能多的面积落在宿主窗口里（垂直换边、水平往窗口
- * 里推），放不下的那段伸出窗口盖住桌面，硬钳在屏幕内不飞出屏幕。无锚点时在
- * 视口内居中。关闭 = 外部点按 / Esc；面板仅隐藏不销毁——Nav 停在第几页下次
- * 开还在第几页。
+ * 尖端指向它：下面完整装得下就放下面，装不下而上面装得下就放上面；上下都
+ * 装不下才按屏幕钳制挑更宽敞的一侧。水平整层跟着锚点，会伸出宿主窗口也
+ * 不往里推，只有快飞出屏幕才收。无锚点时在视口内居中。关闭 = 外部点按 /
+ * Esc；面板仅隐藏不销毁——Nav 停在第几页下次开还在第几页。
  */
 export function PopNav({
   open,
@@ -164,9 +164,6 @@ export function PopNav({
     const pad = FLOATING_PANEL_VIEWPORT_PADDING
     const gap = FLOATING_PANEL_GAP
     const anchorEl = resolveAnchorEl()
-    const frame = anchorEl?.closest('.window-frame')
-    const host = frame instanceof HTMLElement ? frame : null
-    const hostRect = host?.getBoundingClientRect() ?? null
     const anchorRect = anchorRectOf(anchorEl)
     const hasArrow = Boolean(anchorRect)
     const arrowH = hasArrow ? POP_NAV_ARROW_H : 0
@@ -181,12 +178,6 @@ export function PopNav({
       prev.width === width && prev.height === height ? prev : { width, height },
     )
 
-    // 宿主窗口内缘（无宿主按视口）：往窗口里推时留 pad 呼吸边
-    const hostL = hostRect ? hostRect.left + pad : pad
-    const hostR = hostRect ? hostRect.right - pad : vw - pad
-    const hostT = hostRect ? hostRect.top + pad : pad
-    const hostB = hostRect ? hostRect.bottom - pad : vh - pad
-
     let top: number
     let left: number
     if (!anchorRect) {
@@ -197,24 +188,46 @@ export function PopNav({
       setPlacement('below')
     } else {
       const anchorCenterX = anchorRect.left + anchorRect.width / 2
-      // 水平：贴锚点起放，先把盒子往宿主窗口里推（已全在窗口里则不动），
-      // 再收进尖心安全内距的可行区间（尖始终正指锚点中心），最后硬钳屏幕
-      const startLeft = Math.min(Math.max(anchorRect.left, pad), Math.max(pad, vw - width - pad))
-      const intoHost = Math.min(Math.max(startLeft, hostL), Math.max(hostL, hostR - width))
-      const minLeft = Math.max(pad, anchorCenterX - (width - POP_NAV_ARROW_SAFE_INSET))
-      const maxLeft = Math.min(vw - width - pad, anchorCenterX - POP_NAV_ARROW_SAFE_INSET)
-      left = Math.min(Math.max(intoHost, minLeft), Math.max(minLeft, maxLeft))
-      left = Math.min(Math.max(left, pad), Math.max(pad, vw - width - pad))
-      // 垂直：上下各按屏幕钳出候选（尖端与锚点留 GAP 空隙），取与宿主窗口
-      // 重叠更大的一侧——放不下的那段伸出窗口，尖仍贴着锚点不脱开
+      // 垂直：按上下「未钳候选」判断哪一侧完整装得下（尖端与锚点留 GAP）。
+      // 优先下面；下面装不下且上面装得下就放上面（上面的桌面空间可用，
+      // 不为「留在宿主窗口里」硬往下塞）；两侧都装不下才退化为屏幕钳制，
+      // 挑钳完离锚点更近（更宽敞）的一侧。
       const clampTop = (t: number) => Math.min(Math.max(t, pad), Math.max(pad, vh - height - pad))
       const belowTop = clampTop(anchorRect.bottom + gap)
       const aboveTop = clampTop(anchorRect.top - height - gap)
-      const overlapAt = (t: number) => Math.min(hostB, t + height) - Math.max(hostT, t)
-      const preferBelow = overlapAt(belowTop) >= overlapAt(aboveTop)
+      const belowFits = belowTop === anchorRect.bottom + gap
+      const aboveFits = aboveTop === anchorRect.top - height - gap
+      let preferBelow = belowFits || !aboveFits
+      const belowDrift = Math.abs(belowTop - (anchorRect.bottom + gap))
+      const aboveDrift = Math.abs(aboveTop + height - (anchorRect.top - gap))
+      if (!belowFits && !aboveFits) {
+        preferBelow = belowDrift <= aboveDrift
+      }
       top = preferBelow ? belowTop : aboveTop
-      setCentered(false)
       setPlacement(preferBelow ? 'below' : 'above')
+      // 水平：整层跟着锚点走（尖对准锚点中心）。会伸出宿主窗口也不往里推
+      // ——一推尖就对不上；只有快飞出屏幕才收。
+      left = anchorCenterX - width / 2
+      if (left < pad) {
+        left = pad
+      }
+      if (left > vw - width - pad) {
+        left = Math.max(pad, vw - width - pad)
+      }
+      // 收进屏幕后尖仍须落在安全内距内；放不下（锚点贴屏幕角）时按钳制
+      // 实际位移挑离锚点更近的一侧，别让尖空指。
+      const minArrowLeft = Math.max(pad, anchorCenterX - (width - POP_NAV_ARROW_SAFE_INSET))
+      const maxArrowLeft = Math.min(vw - width - pad, anchorCenterX - POP_NAV_ARROW_SAFE_INSET)
+      if (minArrowLeft <= maxArrowLeft) {
+        left = Math.min(Math.max(left, minArrowLeft), maxArrowLeft)
+      } else if (preferBelow && aboveDrift < belowDrift) {
+        top = aboveTop
+        setPlacement('above')
+      } else if (!preferBelow && belowDrift < aboveDrift) {
+        top = belowTop
+        setPlacement('below')
+      }
+      setCentered(false)
       const maxArrowX = Math.max(POP_NAV_ARROW_SAFE_INSET, width - POP_NAV_ARROW_SAFE_INSET)
       setArrowX(Math.min(Math.max(anchorCenterX - left, POP_NAV_ARROW_SAFE_INSET), maxArrowX))
     }
@@ -234,7 +247,9 @@ export function PopNav({
       window.removeEventListener('resize', updatePosition)
       document.removeEventListener('scroll', updatePosition, true)
     }
-  }, [open, updatePosition, anchorVersion])
+    // everOpened：面板首次真正挂载的那一拍重跑一次——上一轮 effect 跑在
+    // 挂载渲染之前（panelRef 还空），同步补量才不会先画在 (0,0) 再跳
+  }, [open, everOpened, updatePosition, anchorVersion])
 
   useEffect(() => {
     if (!open) {
