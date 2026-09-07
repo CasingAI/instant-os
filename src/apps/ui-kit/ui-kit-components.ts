@@ -43,7 +43,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'check-toggle',
     name: 'CheckToggle',
-    description: '复选框；支持 default / small 尺寸与 disabled',
+    description: '已弃用。复选框；支持 default / small 尺寸与 disabled',
     category: 'form',
     importPath: "import { CheckToggle } from '../../ui/check-toggle.tsx'",
     demos: [
@@ -349,7 +349,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'extra', type: 'ComponentChildren?', description: '右侧自定义内容（与 value 二选一）', defaultValue: '—' },
       { name: 'control', type: 'ComponentChildren?', description: '控件槽（Switch 等）；点击不触发行选中', defaultValue: '—' },
       { name: 'accessory', type: "'none' | 'disclosure' | 'check' | 'detail'?", description: '右侧配件；check 跟随选中态', defaultValue: "'none'" },
-      { name: 'badge', type: 'string?', description: '名称旁徽章文本', defaultValue: '—' },
+      { name: 'badge', type: 'string?', description: '名称旁徽章文本，见「节标题/脚注」与 plain 变体演示', defaultValue: "'新'" },
       { name: 'selected', type: 'boolean?', description: '强制选中态；缺省由 List selectedId + id 推导', defaultValue: '—' },
       { name: 'disabled', type: 'boolean?', description: '禁用', defaultValue: 'false' },
       { name: 'onClick', type: '() => void?', description: '有则渲染为 button，否则渲染为 div', defaultValue: '—' },

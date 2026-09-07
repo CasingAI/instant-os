@@ -24,6 +24,7 @@ export default function ListDemo() {
           />
           <ListItem
             label="软件更新"
+            badge="新"
             value="已是最新"
             accessory="disclosure"
             onClick={() => setTapped('软件更新')}

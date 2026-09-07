@@ -26,6 +26,7 @@ export default function ListPlainVariantDemo() {
               key={thread.id}
               id={thread.id}
               label={thread.label}
+              badge={thread.id === 't1' ? '置顶' : thread.id === 't3' ? '新' : undefined}
               trailing={thread.trailing}
               subtitle={thread.subtitle}
               preview={thread.preview}

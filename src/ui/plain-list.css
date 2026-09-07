@@ -250,6 +250,14 @@
   transition: none;
 }
 
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__badge,
+.plain-list-item--flashed .plain-list-item__badge,
+.plain-list-item--selected:not(:disabled) .plain-list-item__badge {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.24);
+  transition: none;
+}
+
 .plain-list-item--flashed .plain-list-item__check,
 .plain-list-item--selected:not(:disabled) .plain-list-item__check {
   color: #fff;

@@ -231,6 +231,14 @@
   transition: none;
 }
 
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) .list-item__badge,
+.list-item--flashed .list-item__badge,
+.list-item--selected:not(:disabled) .list-item__badge {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.24);
+  transition: none;
+}
+
 .list-item--flashed .list-item__check,
 .list-item--selected:not(:disabled) .list-item__check {
   color: #fff;
@@ -324,8 +332,8 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #5856d6;
-  background: rgba(88, 86, 214, 0.12);
+  color: #007aff;
+  background: rgba(0, 122, 255, 0.12);
 }
 
 .list-item__value {
