@@ -226,6 +226,12 @@
   border-bottom: var(--page-header-border, 1px solid rgba(0, 0, 0, 0.14));
 }
 
+[data-theme='dark']
+  .nav[data-stack-transition]:not(.nav--morphing)
+  .nav__stage::before {
+  border-bottom: 0;
+}
+
 /* 参与拆盒的两页：盒模型逐层打平进网格（host → slider → 页根） */
 .nav[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-under,
@@ -469,6 +475,12 @@
   z-index: 2;
   background: var(--page-header-bg, linear-gradient(180deg, #ececec 0%, #e0e0e0 100%));
   border-bottom: var(--page-header-border, 1px solid rgba(0, 0, 0, 0.14));
+}
+
+[data-theme='dark']
+  .nav[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under::before {
+  border-bottom: 0;
 }
 
 /* 窗口期 slider 与页根打平，标题栏/正文成为 host 网格的单元格 */

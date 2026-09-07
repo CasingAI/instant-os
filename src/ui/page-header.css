@@ -18,6 +18,15 @@
   box-shadow: var(--page-header-shadow);
 }
 
+/* 暗色上沿贴标题栏：底边/投影必须直接关掉。token 写成 none 时，
+   border-bottom: var(...) 在部分引擎里仍画出 1px，横线会切过左右粗边框。 */
+[data-theme='dark'] .page-header,
+.page[data-theme='dark'] .page-header {
+  border-bottom: 0;
+  box-shadow: none;
+  background-clip: padding-box;
+}
+
 .page-header__bar {
   display: grid;
   /*
