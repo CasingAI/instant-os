@@ -11,8 +11,49 @@ import { createFat32Image } from './files-image-fat32-fixture.ts'
 import { openImageMount, closeImageMountsByPath, listImageMounts } from './files-image-mount-store.ts'
 import type { ImageDiskIo } from './files-image-fat-volume.ts'
 import { filesLocationPathRoot, parseFilesAbsolutePath } from './files-path.ts'
-import { makeImagePartitionLocationId, isImagePartitionLocationId, parseImagePartitionLocationId } from './files-types.ts'
+import {
+  makeImagePartitionLocationId,
+  isImagePartitionLocationId,
+  parseImagePartitionLocationId,
+  parseImageLocationKey,
+} from './files-types.ts'
 import { getCachedImageMount, getImageVolume } from './files-image-mount-store.ts'
+import { unmountDiskImage } from './files-image-actions.ts'
+import {
+  listPersistedImageMounts,
+  rememberImageMount,
+  resetPersistedImageMountsForTests,
+} from './files-image-mount-persist.ts'
+
+class MemoryStorage implements Storage {
+  private readonly map = new Map<string, string>()
+
+  get length(): number {
+    return this.map.size
+  }
+
+  clear(): void {
+    this.map.clear()
+  }
+
+  getItem(key: string): string | null {
+    return this.map.get(key) ?? null
+  }
+
+  key(index: number): string | null {
+    return [...this.map.keys()][index] ?? null
+  }
+
+  removeItem(key: string): void {
+    this.map.delete(key)
+  }
+
+  setItem(key: string, value: string): void {
+    this.map.set(key, value)
+  }
+}
+
+;(globalThis as { localStorage?: Storage }).localStorage ??= new MemoryStorage()
 
 function memoryDisk(bytes: Uint8Array): ImageDiskIo {
   return {
@@ -105,9 +146,42 @@ async function testPartitionIdHelpers(): Promise<void> {
   assert.equal(getCachedImageMount(id)?.label, undefined)
 }
 
+/** 回归：以分区 id 推出 = 推出整盘，整盘挂载意向一并忘记，刷新后不再自动挂回 */
+async function testPartitionEjectForgetsWholeDiskIntent(): Promise<void> {
+  resetPersistedImageMountsForTests()
+  await openImageMount({
+    imagePath: '/user/multi.img',
+    fileName: 'multi.img',
+    io: memoryDisk(createMultiPartitionImage()),
+  })
+  try {
+    const records = listImageMounts().filter((r) => r.imagePath === '/user/multi.img')
+    const anchor = records.find((r) => r.isPartitionAnchor)
+    assert.ok(anchor)
+    const key = parseImageLocationKey(anchor.id)
+    assert.ok(key)
+    const part1Id = makeImagePartitionLocationId(key, 1)
+    assert.ok(records.some((r) => r.id === part1Id))
+
+    rememberImageMount({ id: anchor.id, imagePath: anchor.imagePath })
+    assert.equal(listPersistedImageMounts().length, 1)
+
+    await unmountDiskImage(part1Id)
+
+    // 整盘所有卷（锚点 + 两个分区）都已关闭
+    assert.equal(listImageMounts().filter((r) => r.imagePath === '/user/multi.img').length, 0)
+    // 整盘挂载意向被忘记：修复前这里残留锚点记录，刷新后整盘被自动挂回
+    assert.equal(listPersistedImageMounts().length, 0)
+  } finally {
+    await closeImageMountsByPath('/user/multi.img')
+    resetPersistedImageMountsForTests()
+  }
+}
+
 async function main(): Promise<void> {
   await testPartitionDiscoveryAndIsolation()
   await testPartitionIdHelpers()
+  await testPartitionEjectForgetsWholeDiskIntent()
   console.log('files-image-partition-mount.test.ts ok')
 }
 

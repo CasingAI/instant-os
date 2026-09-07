@@ -7,7 +7,9 @@ import {
 } from './files-disk-image-occupancy.ts'
 import {
   forgetImageMount,
+  forgetImageMountsByPath,
   listPersistedImageMounts,
+  persistedImageMountForPath,
   rememberImageMount,
 } from './files-image-mount-persist.ts'
 import {
@@ -21,7 +23,12 @@ import {
   type ImageMountRecord,
 } from './files-image-mount-store.ts'
 import { openQuietBlobWriter } from './files-quiet-blob-write.ts'
-import { isImageLocationId, type ImageFilesLocationId } from './files-types.ts'
+import {
+  isImageLocationId,
+  makeImageLocationId,
+  parseImagePartitionLocationId,
+  type ImageFilesLocationId,
+} from './files-types.ts'
 import { parseFilesAbsolutePath } from './files-path.ts'
 
 export { isDiskImageFileName }
@@ -54,6 +61,8 @@ export function restorePersistedImageMounts(): Promise<void> {
       const remembered = listPersistedImageMounts()
       for (const item of remembered) {
         if (getImageMountByPath(item.imagePath)) continue
+        // 恢复途中可能已被手动推出：以最新意向列表为准，旧快照里的不再挂
+        if (!persistedImageMountForPath(item.imagePath)) continue
         try {
           await mountDiskImage(item.imagePath)
         } catch {
@@ -147,9 +156,16 @@ export async function unmountDiskImage(locationId: ImageFilesLocationId): Promis
     throw new Error('不是磁盘镜像卷')
   }
   const mounted = getCachedImageMount(locationId) ?? getImageMountByPath(locationId)
-  if (mounted) await closeImageMountsByPath(mounted.imagePath)
-  else await closeImageMount(locationId)
-  forgetImageMount(locationId)
+  if (mounted) {
+    // 推出任意分区卷 = 推出整盘：分区 id 按 id 忘记删不到锚点意向，必须按整盘路径忘记
+    await closeImageMountsByPath(mounted.imagePath)
+    forgetImageMountsByPath(mounted.imagePath)
+    return
+  }
+  await closeImageMount(locationId)
+  // 会话已不在时的兜底：分区 id 换算回锚点 id 再忘记，与级联语义一致
+  const partition = parseImagePartitionLocationId(locationId)
+  forgetImageMount(partition ? makeImageLocationId(partition.imageKey) : locationId)
 }
 
 /** 该镜像卷位置上还有多少在途写入任务；推出前的拦截判断用 */

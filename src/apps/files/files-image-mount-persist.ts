@@ -85,6 +85,13 @@ export function forgetImageMount(id: ImageFilesLocationId): void {
   writeRaw(JSON.stringify(file))
 }
 
+export function forgetImageMountsByPath(imagePath: string): void {
+  const normalized = normalizeDiskImagePath(imagePath)
+  const next = listPersistedImageMounts().filter((item) => item.imagePath !== normalized)
+  const file: PersistFile = { version: 1, mounts: next }
+  writeRaw(JSON.stringify(file))
+}
+
 export function persistedImageMountForPath(imagePath: string): PersistedImageMount | undefined {
   const normalized = normalizeDiskImagePath(imagePath)
   return listPersistedImageMounts().find((item) => item.imagePath === normalized)
