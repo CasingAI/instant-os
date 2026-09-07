@@ -222,12 +222,12 @@
  * 按下不换阴影，在底色上叠一层白色遮罩（变白一档）。
  * 规则放在 borderless 区块之前，borderless 靠源序压回无底无影，传 relief 不生效。
  */
-.ios-button--sunken:not(.ios-button--borderless) {
+.ios-button--sunken.ios-button--secondary {
   background: linear-gradient(180deg, #fff 0%, #e2e2e2 100%);
   box-shadow: inset 0 0px 2px rgba(0, 0, 0, 0.18);
 }
 
-.ios-button--sunken:not(.ios-button--borderless):active:not(:disabled) {
+.ios-button--sunken.ios-button--secondary:active:not(:disabled) {
   background-image: linear-gradient(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.45)),
     linear-gradient(180deg, #fff 0%, #e2e2e2 100%);
 }

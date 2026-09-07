@@ -14,7 +14,7 @@ export type ButtonProps = {
   tone?: ButtonTone
   /** 形态：filled 实体按钮（默认，渐变底+边框）；borderless 单一类型裸文字/图标——无底无边，明暗两形态见 darkMode，按下时一团光晕垫于内容之下，松手即熄 */
   variant?: ButtonVariant
-  /** 凹凸形态（仅 filled 生效；borderless 传入无效）：raised 凸起（默认，静止上亮下暗+白色内高光，按下内凹）；sunken 凹下（灰边框→对内内阴影→白色到浅灰底色三层结构，按下叠白色遮罩变白一档） */
+  /** 凹凸形态（仅 filled 生效；borderless 传入无效）：raised 凸起（默认，静止上亮下暗+白色内高光，按下内凹）；sunken 凹下（渐变同为上亮下暗，内阴影上缘高光、下缘压暗，按下叠白色遮罩变白一档） */
   relief?: ButtonRelief
   /** 仅 borderless 生效：暗底白字形态（默认）；false 翻浅底深字，光晕与按下投影同步翻转 */
   darkMode?: boolean
