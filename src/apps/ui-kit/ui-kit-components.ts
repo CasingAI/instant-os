@@ -403,7 +403,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'narrowPageForState', type: '() => string', description: 'useNav：由领域状态推导当前子页 id', defaultValue: '—' },
       { name: 'listPage', type: 'string?', description: 'useNav：分栏左栏根列表页 id', defaultValue: '—' },
       { name: 'frameAnimationMs', type: 'number?', description: '形变/帧动画时长', defaultValue: '380' },
-      { name: 'safeArea', type: 'number?', description: '安全区高度（px）：大于 0 时顶部与底部各保留该空间，顶部由标题栏材质向上延伸无缝占满；底部仅暗色页壳处理（加进内容井底边框成 8px + 安全区），亮色不处理', defaultValue: '—' },
+      { name: 'safeArea', type: 'number | { top?: number; bottom?: number }?', description: '安全区（px）：一个数则顶/底同值，对象则分侧。顶部由标题栏材质向上延伸无缝占满；底部仅暗色页壳处理（加进内容井底边框成 8px + 安全区），亮色不处理。任一侧大于 0 即生效', defaultValue: '—' },
     ],
   },
   {
@@ -537,14 +537,14 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'pop-nav',
     name: 'PopNav',
     description:
-      '强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面；锚定形态箭头指向触发器、宿主窗口内钳制不越界，无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留；宿主窗口宽 ≤520px 时退化成居中模态。内部固定暗色——面板与箭头为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项',
+      '强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面；锚定形态把尖裁进整盒、指向触发器（尖端那一侧由 Nav 安全区把壳材质垫进尖里），宿主窗口内钳制不越界，无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留；宿主窗口宽 ≤520px 时退化成居中模态。内部固定暗色——面板与尖为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项',
     category: 'other',
     importPath: "import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'",
     demos: [
       {
         id: 'basic',
         title: '基础用法',
-        description: '锚定弹窗：箭头跟随触发器、越界翻转夹紧；翻页后关窗再开仍在原页；窗口拖窄退化居中模态',
+        description: '锚定弹窗：尖跟随触发器、越界翻转夹紧；翻页后关窗再开仍在原页；窗口拖窄退化居中模态',
       },
     ],
     props: [
@@ -554,7 +554,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'anchorRef', type: 'RefObject<HTMLElement>?', description: '逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）', defaultValue: '—' },
       { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
       { name: '…NavProps', type: 'NavProps', description: 'controller 与 renderPage/frames 原样透传给内部 Nav——页面必须是 <Nav.Page>（统一标题栏外壳，运行时强制），没有塞任意组件的口子', defaultValue: '—' },
-      { name: '<PopNavTrigger>', type: 'ComponentChildren', description: '触发器：包住按钮等元素，ref 与点按自动接好，箭头指向它；孩子须是原生元素或接 ref 的组件，否则退回透明壳', defaultValue: '—' },
+      { name: '<PopNavTrigger>', type: 'ComponentChildren', description: '触发器：包住按钮等元素，ref 与点按自动接好，尖指向它；孩子须是原生元素或接 ref 的组件，否则退回透明壳', defaultValue: '—' },
     ],
   },
   {

@@ -23,14 +23,16 @@ import './pop-nav.css'
 /** 面板固定尺寸；模块常量，不可调 */
 const POP_NAV_WIDTH = 320
 const POP_NAV_HEIGHT = 280
+/** 尖高：含进整盒，与 pop-nav.css 的 --pop-nav-arrow-h 同值 */
+const POP_NAV_ARROW_H = 8
 /** 与 Popover 一致的窄屏滞回（宿主窗口宽） */
 const POP_NAV_NARROW_ENTER_WIDTH = 520
 const POP_NAV_NARROW_EXIT_WIDTH = 580
 /** 退出动画时长，与 pop-nav.css 各形态入场动画时长一致 */
 const POP_NAV_EXIT_WIDE_MS = 120
 const POP_NAV_EXIT_MODAL_MS = 150
-/** 箭头中心距面板两边的最小距离，避免贴到圆角外 */
-const POP_NAV_ARROW_SAFE_INSET = 14
+/** 尖心距面板两边的最小距离：圆角 10 + 半宽 6，尖底边不吃进角弧 */
+const POP_NAV_ARROW_SAFE_INSET = 16
 
 type PopNavOwnProps = {
   open: boolean
@@ -90,10 +92,10 @@ function anchorRectOf(el: Element | null): DOMRect | null {
 
 /**
  * 强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面
- * （controller + 渲染属性原样透传给内部 <Nav>）。有锚点时贴锚点弹出、箭头指向
- * 它（宿主窗口内钳制，不越界盖别的窗口）；无锚点时在视口内居中（无锚点便无从
- * 定位宿主窗口）。宿主窗口很窄（宽 ≤520）时退化为居中模态。关闭 = 外部点按 /
- * Esc；面板仅隐藏不销毁——Nav 停在第几页下次开还在第几页。
+ * （controller + 渲染属性原样透传给内部 <Nav>）。有锚点时贴锚点弹出、尖端
+ * 指向它（宿主窗口内钳制，不越界盖别的窗口）；无锚点时在视口内居中（无锚
+ * 点便无从定位宿主窗口）。宿主窗口很窄（宽 ≤520）时退化为居中模态。关闭 =
+ * 外部点按 / Esc；面板仅隐藏不销毁——Nav 停在第几页下次开还在第几页。
  */
 export function PopNav({
   open,
@@ -165,19 +167,18 @@ export function PopNav({
     const frame = anchorEl?.closest('.window-frame')
     const host = frame instanceof HTMLElement ? frame : null
     const hostRect = host?.getBoundingClientRect() ?? null
-    // 尺寸固定，只在超出宿主内容区时收缩（不设可调 props）；max 兜底防极窄宿主算出负数
-    const width = Math.max(
-      1,
-      Math.min(POP_NAV_WIDTH, (hostRect ? hostRect.width : window.innerWidth) - pad * 2),
-    )
-    const height = Math.max(
-      1,
-      Math.min(POP_NAV_HEIGHT, (hostRect ? hostRect.height : window.innerHeight) - pad * 2),
-    )
+    const anchorRect = anchorRectOf(anchorEl)
+    const hasArrow = Boolean(anchorRect)
+    const arrowH = hasArrow ? POP_NAV_ARROW_H : 0
+    const hostW = hostRect ? hostRect.width : window.innerWidth
+    const hostH = hostRect ? hostRect.height : window.innerHeight
+    // 矩形本体固定，只在超出宿主时收缩；有尖时整盒再加一截尖高
+    const width = Math.max(1, Math.min(POP_NAV_WIDTH, hostW - pad * 2))
+    const rectH = Math.max(1, Math.min(POP_NAV_HEIGHT, hostH - pad * 2 - arrowH))
+    const height = rectH + arrowH
     setSize((prev) =>
       prev.width === width && prev.height === height ? prev : { width, height },
     )
-    const anchorRect = anchorRectOf(anchorEl)
     let top: number
     let left: number
     if (!anchorRect) {
@@ -188,11 +189,12 @@ export function PopNav({
       setCentered(true)
       setPlacement('below')
     } else {
+      // 含尖整盒参与翻转与钳制，尖端与锚点留 GAP 空隙
       const next = computeFloatingPanelPosition(anchorRect, width, height, 'left')
       const anchorCenterX = anchorRect.left + anchorRect.width / 2
       const minLeft = hostRect ? hostRect.left + pad : pad
       const maxLeft = hostRect ? hostRect.right - width - pad : window.innerWidth - width - pad
-      // 小锚点中心距面板左缘不足箭头安全内距时整体左移，箭头才能正指锚点中心
+      // 小锚点中心距面板左缘不足尖的安全内距时整体左移，尖才能正指锚点中心
       left = Math.min(
         Math.max(Math.min(next.left, anchorCenterX - POP_NAV_ARROW_SAFE_INSET), minLeft),
         Math.max(minLeft, maxLeft),
@@ -301,7 +303,13 @@ export function PopNav({
     [registerAnchor, registerShell],
   )
 
-  const content = <Nav {...navProps} />
+  const navSafeArea =
+    !narrow && !centered
+      ? placement === 'below'
+        ? { top: POP_NAV_ARROW_H }
+        : { bottom: POP_NAV_ARROW_H }
+      : 0
+  const content = <Nav {...navProps} safeArea={navSafeArea} />
 
   // 首次打开才挂载 portal；此后常驻（退场动画播完仅挂隐藏类）——hide 不 destroy
   if (!everOpened) {

@@ -1,30 +1,93 @@
-/* PopNav：强制 Nav 的大弹出窗。细长固定尺寸，锚定形态带指向触发器的箭头；
-   宿主窗口很窄时退化为居中模态。类名前缀 pop-nav，与 popover 系互不相干。
-   内部固定暗色（pop-nav.tsx 在 portal 渲染物外套 DarkMode 壳，暂无对外
-   配置项）：面板 chrome 与内部 Nav 页面吃同一套深蓝壳 token（theme.css），
-   面板与页壳同材质，弹层浑然一体。 */
+/* PopNav：强制 Nav 的大弹出窗。细长固定尺寸，锚定形态把尖裁进整盒、指向
+   触发器；宿主窗口很窄时退化为居中模态。类名前缀 pop-nav，与 popover 系
+   互不相干。内部固定暗色（pop-nav.tsx 在 portal 渲染物外套 DarkMode 壳，
+   暂无对外配置项）：面板 chrome 与内部 Nav 页面吃同一套深蓝壳 token
+   （theme.css），尖端那一侧由 Nav 安全区把壳材质垫进尖里，弹层浑然一体。 */
 
 .pop-nav {
+  --pop-nav-r: 10px;
+  --pop-nav-arrow-h: 8px;
+  --pop-nav-arrow-half: 6px;
+  --pop-nav-arrow-x: 50%;
   position: fixed;
   z-index: 2200;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 10px;
   /* 壳无自有文字：此 color 只是面板内内容的基准墨水（内容区是钉亮的浅
      面板，配深字），不得改成标题栏的浅色变量——会顺着继承漏进内容区 */
   color: #222;
   background: var(--page-shell-bg, #161d2b);
-  box-shadow:
-    0 10px 26px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
   animation: pop-nav-in 120ms ease;
 }
 
+/* 无尖：居中矩形，描边和圆角跟盒走 */
+.pop-nav--center {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/*
+ * 有尖：外形由 shape() 裁成圆角矩形加尖（尖高/半宽/圆角吃上面的变量，
+ * 尖心吃 --pop-nav-arrow-x）。矩形描边跟不上裁剪路径，外轮廓改走裁剪后
+ * 的投影：四向 0 模糊贴边 + 一层深度阴影。
+ */
+.pop-nav:not(.pop-nav--center) {
+  filter:
+    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.18))
+    drop-shadow(0 -1px 0 rgba(255, 255, 255, 0.18))
+    drop-shadow(1px 0 0 rgba(255, 255, 255, 0.18))
+    drop-shadow(-1px 0 0 rgba(255, 255, 255, 0.18))
+    drop-shadow(0 10px 26px rgba(0, 0, 0, 0.4));
+}
+
 .pop-nav--below {
-  transform-origin: var(--pop-nav-arrow-x, 50%) 0;
+  transform-origin: var(--pop-nav-arrow-x) 0;
 }
 
 .pop-nav--above {
-  transform-origin: var(--pop-nav-arrow-x, 50%) 100%;
+  transform-origin: var(--pop-nav-arrow-x) 100%;
+}
+
+.pop-nav--below:not(.pop-nav--center) {
+  clip-path: shape(
+    from var(--pop-nav-r) var(--pop-nav-arrow-h),
+    hline to calc(var(--pop-nav-arrow-x) - var(--pop-nav-arrow-half)),
+    line to var(--pop-nav-arrow-x) 0,
+    line to calc(var(--pop-nav-arrow-x) + var(--pop-nav-arrow-half))
+      var(--pop-nav-arrow-h),
+    hline to calc(100% - var(--pop-nav-r)),
+    arc to 100% calc(var(--pop-nav-arrow-h) + var(--pop-nav-r)) of
+      var(--pop-nav-r) cw,
+    vline to calc(100% - var(--pop-nav-r)),
+    arc to calc(100% - var(--pop-nav-r)) 100% of var(--pop-nav-r) cw,
+    hline to var(--pop-nav-r),
+    arc to 0 calc(100% - var(--pop-nav-r)) of var(--pop-nav-r) cw,
+    vline to calc(var(--pop-nav-arrow-h) + var(--pop-nav-r)),
+    arc to var(--pop-nav-r) var(--pop-nav-arrow-h) of var(--pop-nav-r) cw,
+    close
+  );
+}
+
+.pop-nav--above:not(.pop-nav--center) {
+  clip-path: shape(
+    from var(--pop-nav-r) 0,
+    hline to calc(100% - var(--pop-nav-r)),
+    arc to 100% var(--pop-nav-r) of var(--pop-nav-r) cw,
+    vline to calc(100% - var(--pop-nav-arrow-h) - var(--pop-nav-r)),
+    arc to calc(100% - var(--pop-nav-r)) calc(100% - var(--pop-nav-arrow-h)) of
+      var(--pop-nav-r) cw,
+    hline to calc(var(--pop-nav-arrow-x) + var(--pop-nav-arrow-half)),
+    line to var(--pop-nav-arrow-x) 100%,
+    line to calc(var(--pop-nav-arrow-x) - var(--pop-nav-arrow-half))
+      calc(100% - var(--pop-nav-arrow-h)),
+    hline to var(--pop-nav-r),
+    arc to 0 calc(100% - var(--pop-nav-arrow-h) - var(--pop-nav-r)) of
+      var(--pop-nav-r) cw,
+    vline to var(--pop-nav-r),
+    arc to var(--pop-nav-r) 0 of var(--pop-nav-r) cw,
+    close
+  );
 }
 
 @keyframes pop-nav-in {
@@ -54,67 +117,20 @@
   }
 }
 
-/* 箭头：外层描边三角 + 内层填充三角（画法照 popover 系）。
-   伪元素高 8px：7px 悬在面板外、1px 伸进面板内部，盖掉顶部高光穿过箭头的那段；
-   left 里的 -1px 补偿伪元素以 padding box 定位、JS 按 border box 计算的偏差。 */
-.pop-nav--below::before,
-.pop-nav--above::before,
-.pop-nav--below::after,
-.pop-nav--above::after {
-  content: '';
-  position: absolute;
-  width: 11px;
-  height: 8px;
-  pointer-events: none;
-}
-
-/* 面板在锚点下方：顶边朝上箭头 */
-.pop-nav--below::before {
-  top: -7px;
-  left: calc(var(--pop-nav-arrow-x, 50%) - 6.5px);
-  background: rgba(255, 255, 255, 0.18);
-  clip-path: polygon(50% 18.75%, 100% 87.5%, 0% 87.5%);
-}
-
-.pop-nav--below::after {
-  top: -7px;
-  left: calc(var(--pop-nav-arrow-x, 50%) - 6.5px);
-  background: var(--page-shell-bg, #161d2b);
-  clip-path: polygon(50% 36.4%, 96.25% 100%, 3.75% 100%);
-}
-
-/* 面板在锚点上方：底边朝下箭头 */
-.pop-nav--above::before {
-  bottom: -7px;
-  left: calc(var(--pop-nav-arrow-x, 50%) - 6.5px);
-  background: rgba(255, 255, 255, 0.18);
-  clip-path: polygon(50% 81.25%, 100% 12.5%, 0% 12.5%);
-}
-
-.pop-nav--above::after {
-  bottom: -7px;
-  left: calc(var(--pop-nav-arrow-x, 50%) - 6.5px);
-  background: var(--page-shell-bg, #161d2b);
-  clip-path: polygon(50% 63.6%, 96.24% 0%, 3.76% 0%);
-}
-
-/* 无锚点的居中形态不出箭头（放在箭头规则之后，同权重靠后者胜） */
-.pop-nav--center::before,
-.pop-nav--center::after {
-  content: none;
-}
-
 /* hide 不 destroy：关窗动画播完常驻隐藏，Nav 页与滚动位置保活 */
 .pop-nav--hidden {
   display: none;
 }
 
-/* 内容壳裁圆角（面板本体不裁——箭头悬在面板外，overflow: hidden 会把它剪掉） */
+/* 尖已在盒内，内容铺满即可；居中形态自己裁圆角贴 1px 描边 */
 .pop-nav__content {
   position: absolute;
   inset: 0;
-  border-radius: 9px;
   overflow: hidden;
+}
+
+.pop-nav--center .pop-nav__content {
+  border-radius: 9px;
 }
 
 /* 窄屏：居中模态对话框 */

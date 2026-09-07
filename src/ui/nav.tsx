@@ -472,6 +472,16 @@ function assertNavPage(
   return element
 }
 
+/** 安全区：一个数表示顶/底同值，对象则分侧（缺省侧为 0） */
+export type NavSafeArea = number | { top?: number; bottom?: number }
+
+function resolveNavSafeArea(safeArea: NavSafeArea = 0): { top: number; bottom: number } {
+  if (typeof safeArea === 'number') {
+    return { top: safeArea, bottom: safeArea }
+  }
+  return { top: safeArea.top ?? 0, bottom: safeArea.bottom ?? 0 }
+}
+
 type NavSharedProps = {
   controller: NavController
   /** 帧栈全量重置键：变化时立即整体替换帧（不播动画），如选中条目身份切换 */
@@ -484,10 +494,11 @@ type NavSharedProps = {
   listRatio?: number
   /** 分栏帧动画时长（ms），默认 380 */
   frameAnimationMs?: number
-  /** 安全区高度（px，如刘海/小白条预留）：大于 0 时顶部与底部各保留该空间。
-   * 顶部由各页标题栏材质自身向上延伸无缝占满；底部仅在暗色页壳下处理——
-   * 加进内容井的底边框（8px 壳边变 8px + 安全区），亮色正文直接铺到窗口底 */
-  safeArea?: number
+  /** 安全区（px，如刘海/小白条预留，或 PopNav 把尖端那一侧垫进壳里）。
+   * 传一个数则顶/底同值；也可只指定一侧。顶部由各页标题栏材质自身向上
+   * 延伸无缝占满；底部仅在暗色页壳下处理——加进内容井的底边框（8px 壳
+   * 边变 8px + 安全区），亮色正文直接铺到窗口底。任一侧大于 0 即生效。 */
+  safeArea?: NavSafeArea
   class?: string
 }
 
@@ -1074,11 +1085,12 @@ function NavView(props: NavProps) {
       isCurrent: fi === active,
     }
   }
+  const { top: safeTop, bottom: safeBottom } = resolveNavSafeArea(safeArea)
   const styleVars = {
     '--nav-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
     '--nav-frame-ms': `${frameAnimationMs}ms`,
-    '--nav-safe-top': `${safeArea}px`,
-    '--nav-safe-bottom': `${safeArea}px`,
+    '--nav-safe-top': `${safeTop}px`,
+    '--nav-safe-bottom': `${safeBottom}px`,
   } as Record<string, string>
 
   return (
@@ -1087,7 +1099,7 @@ function NavView(props: NavProps) {
         rootRef.current = node
         hostRef(node)
       }}
-      class={`nav${safeArea > 0 ? ' nav--safe' : ''}${className ? ` ${className}` : ''}`}
+      class={`nav${safeTop > 0 || safeBottom > 0 ? ' nav--safe' : ''}${className ? ` ${className}` : ''}`}
       style={styleVars}
       data-stack-transition={transition ? transition.direction : undefined}
       data-frame-nav={frameNav}

@@ -65,7 +65,7 @@ function renderDemoPages(page: string, demo: DemoNav) {
   )
 }
 
-/** 锚定形态：PopNavTrigger 直接包 Button（ref 注入，不再手包 span），箭头指向按钮 */
+/** 锚定形态：PopNavTrigger 直接包 Button（ref 注入，不再手包 span），尖指向按钮 */
 function AnchoredPopNav() {
   const [open, setOpen] = useState(false)
   const demo = useDemoNav()
