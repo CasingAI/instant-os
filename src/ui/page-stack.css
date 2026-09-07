@@ -115,18 +115,59 @@
 
 /*
  * 壳打平后不再生成盒子：壳上的暗色 8px 内衬（page.css 的 shell margin）会丢，
- * 窗口期由 body 顶班（同值，动画首尾帧几何与静止态逐像素一致，收尾不跳变）；
- * 壳 ::after 内凹覆盖层的定位基准会跳到转场根、在整个面板四周糊出一圈暗色
- * 晕影，窗口期直接关闭，收尾随壳盒恢复——壳层落地前转场里本来就没有这圈。
+ * 窗口期由 body 顶班（同值，动画首尾帧几何与静止态逐像素一致，收尾不跳变；
+ * margin 只保内容几何，可见边框改由栈根 ::after 静止绘制，见下）；
+ * 壳 ::after 的定位基准会跳到转场根、糊出一圈暗色晕影，窗口期关掉；同一
+ * 圈内凹改画在不动的栈根框上，正文在井口里滑、阴影钉在井沿，收尾随壳盒换手。
  */
 [data-theme='dark'] .page-stack--push .page-stack__layer .page__body,
 [data-theme='dark'] .page-stack--pop .page-stack__layer .page__body {
   margin: 8px;
+  margin-top: 0;
+  /* 底边与静止态壳边同式（page.css）：Nav 底部安全区把底边距加厚到
+     8px + --nav-safe-bottom，非安全区回退 0 仍为 8px，首尾帧不跳变 */
+  margin-bottom: calc(8px + var(--nav-safe-bottom, 0px));
+  /* 滑动页四角清零：井口圆角只留在静止的栈根框上，否则滑动页外圆角
+     和框内缘叠出抗锯齿亮点，页与页相接的竖边也被削成圆角 */
+  border-radius: 0;
 }
 
 [data-theme='dark'] .page-stack--push .page-stack__layer .page__body-shell::after,
 [data-theme='dark'] .page-stack--pop .page-stack__layer .page__body-shell::after {
   content: none;
+}
+
+/*
+ * 暗色边框钉在栈根上（与 nav.css 的 data-stack-transition 舞台框同款，
+ * 画法见那边的注释：井口镂空 + 壳色外铺，避免描边外缘圆角在正文行顶角
+ * 挖空、正文滑过漏出亮点）：
+ * body 的 margin 只保内容几何，本身随正文一起平移，浅色井滑到容器边沿会
+ * 把左右边框顶没。可见边框改画在不动的栈根 ::after 上，盖住边框区域、
+ * 中间井口透出滑动的正文。井口内缘 5px 圆角与 .page__body 同款，上沿
+ * 贴标题栏、底边随安全区加厚与 body margin 同式。正文 translateX 不带
+ * 竖直位移、底边本就守得住；左右必须钉住。窗口两端 body margin 与静
+ * 止态逐像素同位，边框区域内衬本就是透明 margin 露出的外层壳底色，画上同色
+ * 边框首尾帧不变；层级压过两页正文（z-index 1/2），滑动页的左缘界线
+ * 与软投影收进框内，不拦指针。内凹阴影与静止态壳 ::after 同值，画在
+ * 这层不动的框上：壳窗口期无盒，阴影不能跟页走。
+ */
+[data-theme='dark'] .page-stack--push::after,
+[data-theme='dark'] .page-stack--pop::after {
+  content: '';
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 3;
+  pointer-events: none;
+  margin: 0 8px calc(8px + var(--nav-safe-bottom, 0px));
+  border-radius: 5px;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 48px var(--page-shell-bg, #161d2b);
+  clip-path: inset(
+    0 -8px calc(-8px - var(--nav-safe-bottom, 0px)) -8px
+  );
 }
 
 /* 父级转场时拆开嵌套的 idle 子栈，让 Header/正文仍参与交叉动画 */

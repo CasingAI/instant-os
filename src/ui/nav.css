@@ -46,10 +46,11 @@
 }
 
 /*
- * 安全区（safeArea > 0 时挂 nav--safe）：顶部/底部各保留 --nav-safe-* 高度。
- * 顶部由各页标题栏自身 padding-top 长高一截——材质是铺满整个盒子的渐变，
- * 延伸天然无缝；转场窗口期标题栏摆进 grid 第一行、持续条带同为第一行格子项
- * 随行高拉伸，自动盖满含安全区的整行，三条转场路径无需另改规则。
+ * 安全区（任一侧大于 0 时挂 nav--safe）：顶/底可以同值（传一个数）或分侧。
+ * 顶部由各页标题栏自身 padding-top 长高一截（--nav-safe-top，为 0 时与默认
+ * 内边距同值）——材质是铺满整个盒子的渐变，延伸天然无缝；转场窗口期标题栏
+ * 摆进 grid 第一行、持续条带同为第一行格子项随行高拉伸，自动盖满含安全区
+ * 的整行，三条转场路径无需另改规则。
  * 底部不在根上垫：亮色正文直接铺到舞台底（分情况不处理）；暗色把这截
  * 高度加进内容井的底边框（page.css 的 shell margin 消费 --nav-safe-bottom），
  * 转场滑动的正文侧影贴着井沿走，井外是连成一体的加厚壳边。
@@ -268,9 +269,10 @@
  * 页内 .page__body-shell 壳（暗色内凹覆盖层的锚点，见 page.css）同步打平：
  * .page 打平后进网格的是壳，壳无摆格规则、两页正文会被自动摆成上下两条
  * 隐式行。与 page-stack.css 同款：壳打平让 body 顶回格子项，壳上的暗色
- * 8px 内衬窗口期由 body 交班（同值，首尾帧与静止态逐像素一致），壳
- * ::after 内凹覆盖层窗口期关闭（壳无盒后定位基准跳到 stage，会糊出
- * 一整圈暗色晕影），收尾随壳盒恢复。
+ * 8px 内衬窗口期由 body 交班（同值，首尾帧与静止态逐像素一致；margin
+ * 只保内容几何，可见边框改由舞台 ::after 静止绘制，见下）。壳 ::after
+ * 的定位基准会跳到 stage、糊出一整圈暗色晕影，窗口期关掉；同一圈内凹
+ * 改画在不动的舞台框上，正文在井口里滑、阴影钉在井沿，收尾随壳盒换手。
  */
 .nav[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-under
@@ -290,9 +292,13 @@
   .nav__host.is-over
   .page__body {
   margin: 8px;
+  margin-top: 0;
   /* 底边与静止态壳边同式（page.css）：Nav 底部安全区把底边距加厚到
      8px + --nav-safe-bottom，非安全区回退 0 仍为 8px，首尾帧不跳变 */
   margin-bottom: calc(8px + var(--nav-safe-bottom, 0px));
+  /* 滑动页四角清零：井口圆角只留在静止的舞台框上，否则滑动页外圆角
+     和框内缘叠出抗锯齿亮点，页与页相接的竖边也被削成圆角 */
+  border-radius: 0;
 }
 
 [data-theme='dark']
@@ -304,6 +310,46 @@
   .nav__host.is-over
   .page__body-shell::after {
   content: none;
+}
+
+/*
+ * 暗色边框钉在舞台上（PageStack 栈根同款）：body 的 margin 只保内容几
+ * 何，本身随正文一起平移，浅色井滑到面板边沿会把左右边框顶没（PopNav
+ * 弹窗切页露白）。可见边框改画在不动的舞台 ::after 上，盖住边框区域、
+ * 中间井口透出滑动的正文。上沿贴标题栏（不画上边），左右底随安全区
+ * 加厚与 body margin 同式。正文 translateX 不带竖直位移、底边本就守
+ * 得住；左右必须钉住，浅色井滑到面板边沿才会把框顶没。窗口两端
+ * body margin 与静止态逐像素同位，边框区域内衬本就是透明 margin
+ * 露出的壳底色，画上同色边框首尾帧不变；层级压过两页正文（z-index 1/2），
+ * 滑动页的左缘界线与软投影收进框内，不拦指针。
+ *
+ * 画框用「井口镂空 + 壳色外铺」，不用描边：描边的内缘圆角会把外缘逼
+ * 成 13px，左右内衬顶角（标题栏与左右内衬的直角交接）被挖空，切页时浅色
+ * 正文从空里漏出抗锯齿亮点。盒身先缩到井口大小、上沿贴齐（与静止态同
+ * 式，不留上边）、内缘 5px 圆角（静止态 .page__body 同款），盒内不铺色
+ * （井口透出滑动正文），壳色只向盒外铺开，再按正文行网格矩形裁回——
+ * 顶边裁在井沿（不铺进标题栏）、左右底外角被裁成直角，内角仍是圆的，
+ * 几何与静止态井口逐像素一致。内凹阴影与静止态壳 ::after 同值，画在
+ * 这层不动的框上：壳窗口期无盒，阴影不能跟页走。
+ */
+[data-theme='dark']
+  .nav[data-stack-transition]:not(.nav--morphing)
+  .nav__stage::after {
+  content: '';
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 3;
+  pointer-events: none;
+  margin: 0 8px calc(8px + var(--nav-safe-bottom, 0px));
+  border-radius: 5px;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 48px var(--page-shell-bg, #161d2b);
+  clip-path: inset(
+    0 -8px calc(-8px - var(--nav-safe-bottom, 0px)) -8px
+  );
 }
 
 .nav[data-stack-transition]:not(.nav--morphing)
