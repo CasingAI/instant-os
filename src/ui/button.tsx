@@ -102,6 +102,10 @@ export function Button({
     variant === 'borderless' && !darkMode ? 'ios-button--borderless-light' : undefined,
     iconOnly ? 'ios-button--icon' : undefined,
     icon && showBothIconAndText ? 'ios-button--icon-text' : undefined,
+    // 光学字号 >20px 的宽字形图标（箭头类，墨迹更贴边）左边距归零贴左缘；未解析/兜底 20px 落小档留 2px
+    icon && showBothIconAndText && opticalFontSize != null && opticalFontSize > 20
+      ? 'ios-button--icon-text-lg'
+      : undefined,
     busy ? 'ios-button--busy' : undefined,
     className,
   ]
@@ -141,7 +145,8 @@ export function Button({
 // 纯图标钮默认几何：左右 padding 0（配 min-width 28px 成 28×28 方钮）、图标缺省 20px、字重 400（见 button.css），
 // 图标为 <Icon> 元素时字号由光学测量按字形轮廓自动定（见 optical-icon-size.ts），类名同时保留作外部应用覆盖几何的钩子；
 // 图标与文字默认互斥：icon 存在时文字不渲染，屏幕阅读器名从 children 回退（见下方 extractText）；
-// 唯一例外是 showBothIconAndText——图标文字并排同显（挂 .ios-button--icon-text，左内边距归零，见 button.css），
+// 唯一例外是 showBothIconAndText——图标文字并排同显（挂 .ios-button--icon-text：间距 2px、
+// 左内边距按光学字号分档，≤20px 留 2px、>20px 挂 .ios-button--icon-text-lg 归零，见 button.css），
 // 仅供用户明确要求时使用
 // busy 时原内容隐形占位（按钮尺寸不变）、菊花覆盖其上，屏幕阅读器仍需从 children 里取到可读标签
 //

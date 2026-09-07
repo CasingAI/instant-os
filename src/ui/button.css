@@ -57,7 +57,7 @@
   --ios-button-danger-text-shadow: 0 -1px 0 #555;
   --ios-button-danger-disabled-opacity: 0.55;
 
-  /* borderless 变体：裸文字/图标单一类型，明暗两形态（tone 传入不生效）；glow 为按下时垫于内容之下的光晕（::after 填充整段 background）；
+  /* borderless 变体：裸文字/图标单一类型，明暗两形态（tone 传入不生效）；glow 为按下时垫于内容之下的光晕（::after 居中正方形画布铺满 background，圆晕不随按钮矩形变形）；
      默认暗底白字，light 组为浅底深字形态（darkMode=false 翻入），disabled 灰字两形态共用 */
   --ios-button-borderless-color: #fff;
   --ios-button-borderless-disabled-color: #999;
@@ -143,8 +143,15 @@
   font-weight: 400;
 }
 
-/* 图标+文字并排（showBothIconAndText）：左内边距归零让图标贴左缘，右侧照常 8px */
+/* 图标+文字并排（showBothIconAndText）：图标与文字间距收到 2px（视觉间距另含字形自带的白边）；
+   左内边距按光学字号分档——≤20px 的常规字形白边多，留 2px（加白边约共 4px）；
+   >20px 的宽字形（箭头类，墨迹更贴边）由下方 --icon-text-lg 归零贴左缘 */
 .ios-button--icon-text {
+  padding-left: 2px;
+  gap: 2px;
+}
+
+.ios-button--icon-text-lg {
   padding-left: 0;
 }
 
@@ -222,6 +229,10 @@
 .ios-button--borderless {
   position: relative;
   isolation: isolate;
+  /* 光晕按设计要画出按钮盒：显式放开溢出，压过部分引擎给原生 button 的默认裁剪；
+     圆角归零——裸形态无底无边，圆角没有任何视觉作用，只会给引擎多一个裁切轮廓 */
+  overflow: visible;
+  border-radius: 0;
   min-width: 0;
   background: none;
   border-color: transparent;
@@ -241,13 +252,18 @@
 .ios-button--borderless::after {
   content: '';
   position: absolute;
-  inset: -6px;
+  left: 50%;
+  top: 50%;
+  /* 画布：比按钮长边再各扩 6px 的正方形（对应原来的 inset:-6px），再整体放大 1.5 倍——
+     尺寸与原先设计一致；改成正方形只是为了圆晕不被扁矩形切成硬边，渐变仍在画布边内淡到透明 */
+  width: max(calc(100% + 12px), calc(var(--ios-button-height) + 12px));
+  aspect-ratio: 1;
+  height: auto;
+  transform: translate(-50%, -50%) scale(1.5);
   background: var(--ios-button-borderless-glow);
   opacity: 0;
   pointer-events: none;
   z-index: -1;
-  /* 光晕整体放大到 1.5 倍：围绕自身中心缩放，盒尺寸与渐变半径同步变大 */
-  transform: scale(1.5);
 }
 
 .ios-button--borderless:active:not(:disabled)::after {
