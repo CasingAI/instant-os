@@ -53,11 +53,11 @@
   color: #6d7683;
 }
 
-.desktop-app-search__field .ios-text-field-wrap {
+.desktop-app-search__field .input-wrap {
   flex: 1;
 }
 
-.desktop-app-search__field .ios-text-field {
+.desktop-app-search__field .input {
   height: 38px;
   padding: 0 2px;
   border: 0;
@@ -68,12 +68,12 @@
   box-shadow: none;
 }
 
-.desktop-app-search__field .ios-text-field:focus {
+.desktop-app-search__field .input:focus {
   border-color: transparent;
   box-shadow: none;
 }
 
-.desktop-app-search__field .ios-text-field::placeholder {
+.desktop-app-search__field .input::placeholder {
   color: #9aa3ae;
 }
 

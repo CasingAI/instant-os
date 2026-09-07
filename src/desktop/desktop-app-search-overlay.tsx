@@ -11,7 +11,7 @@ import { useGeneratedApps } from '../os/generated-apps-context.tsx'
 import { useOs } from '../os/os-context.tsx'
 import type { BuiltinAppId, ExtAppId, GeneratedAppId } from '../os/types.ts'
 import { getFloatingOverlayRoot } from '../ui/floating-overlay-root.ts'
-import { IosTextField } from '../ui/ios-text-field.tsx'
+import { Input } from '../ui/input.tsx'
 import { useOverlayPresence } from '../ui/use-overlay-presence.ts'
 import '../ui/overlay-presence.css'
 import {
@@ -372,7 +372,7 @@ export function DesktopAppSearchOverlay({
       >
         <div class="desktop-app-search__field" ref={fieldWrapRef}>
           <SearchFieldIcon />
-          <IosTextField
+          <Input
             type="text"
             voiceDictation={false}
             value={query}

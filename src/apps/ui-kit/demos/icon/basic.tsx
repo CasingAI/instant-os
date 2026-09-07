@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { Icon, type IconFamily } from '../../../../ui/icon.tsx'
 import { Switch } from '../../../../ui/switch.tsx'
-import { IosTextField } from '../../../../ui/ios-text-field.tsx'
+import { Input } from '../../../../ui/input.tsx'
 import { IosRangeSlider } from '../../../../ui/ios-range-slider.tsx'
 import { SegmentedControl } from '../../../../ui/segmented-control.tsx'
 import { FixedRowVirtualList } from '../../../../ui/fixed-row-virtual-list.tsx'
@@ -224,7 +224,7 @@ export default function IconDemo() {
         <div class="ui-kit-demo__icon-panel">
           <div class="ui-kit-demo__icon-toolbar">
             <div class="ui-kit-demo__icon-search">
-              <IosTextField
+              <Input
                 type="search"
                 placeholder="搜索图标名或标签，如 trash…"
                 value={query}

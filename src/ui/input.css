@@ -1,10 +1,10 @@
-.ios-text-field-wrap {
+.input-wrap {
   position: relative;
   display: block;
   width: 100%;
 }
 
-.ios-text-field {
+.input {
   box-sizing: border-box;
   width: 100%;
   height: 28px;
@@ -20,11 +20,19 @@
   appearance: none;
 }
 
-.ios-text-field::placeholder {
+.input--textarea {
+  height: auto;
+  min-height: 28px;
+  padding: 4px 10px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.input::placeholder {
   color: #999;
 }
 
-.ios-text-field:focus {
+.input:focus {
   outline: none;
   border-color: #5a9de0;
   box-shadow:
@@ -32,32 +40,32 @@
     0 0 0 2px rgba(80, 150, 220, 0.28);
 }
 
-.ios-text-field:disabled {
+.input:disabled {
   color: #888;
   background: #f0f0f0;
   cursor: default;
 }
 
 /* 听写中：右侧留空给声波条 */
-.ios-text-field.ios-text-field--dictating {
+.input.input--dictating {
   padding-right: 28px;
 }
 
-.ios-text-field.ios-text-field--dictating,
-.ios-text-field.ios-text-field--dictating:focus {
+.input.input--dictating,
+.input.input--dictating:focus {
   border-color: #e07a3a;
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.08),
     0 0 0 2px rgba(224, 122, 58, 0.32);
 }
 
-.ios-text-field-wrap--recording .ios-text-field.ios-text-field--dictating,
-.ios-text-field-wrap--recording .ios-text-field.ios-text-field--dictating:focus {
-  animation: ios-dictation-glow 1s ease-in-out infinite;
+.input-wrap--recording .input.input--dictating,
+.input-wrap--recording .input.input--dictating:focus {
+  animation: input-dictation-glow 1s ease-in-out infinite;
 }
 
-.ios-text-field-wrap--recognizing .ios-text-field.ios-text-field--dictating,
-.ios-text-field-wrap--recognizing .ios-text-field.ios-text-field--dictating:focus {
+.input-wrap--recognizing .input.input--dictating,
+.input-wrap--recognizing .input.input--dictating:focus {
   border-color: #e07a3a;
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.08),
@@ -65,8 +73,8 @@
 }
 
 /* 收听：声波条；识别中：旋转圆环 */
-.ios-text-field__wave,
-.ios-text-field__spinner {
+.input__wave,
+.input__spinner {
   position: absolute;
   top: 50%;
   right: 8px;
@@ -80,7 +88,7 @@
   transition: opacity 0.12s ease;
 }
 
-.ios-text-field__wave {
+.input__wave {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -88,7 +96,7 @@
   height: 14px;
 }
 
-.ios-text-field__spinner {
+.input__spinner {
   box-sizing: border-box;
   width: 12px;
   height: 12px;
@@ -97,17 +105,17 @@
   border-radius: 50%;
 }
 
-.ios-text-field-wrap--recording .ios-text-field__wave,
-.ios-text-field-wrap--recognizing .ios-text-field__spinner {
+.input-wrap--recording .input__wave,
+.input-wrap--recognizing .input__spinner {
   opacity: 1;
   visibility: visible;
 }
 
-.ios-text-field-wrap--recognizing .ios-text-field__spinner {
-  animation: ios-dictation-spin 0.7s linear infinite;
+.input-wrap--recognizing .input__spinner {
+  animation: input-dictation-spin 0.7s linear infinite;
 }
 
-.ios-text-field__wave i {
+.input__wave i {
   display: block;
   width: 2px;
   height: 100%;
@@ -117,31 +125,31 @@
   transform: scaleY(0.35);
 }
 
-.ios-text-field-wrap--recording .ios-text-field__wave i {
-  animation: ios-dictation-bar 0.45s ease-in-out infinite;
+.input-wrap--recording .input__wave i {
+  animation: input-dictation-bar 0.45s ease-in-out infinite;
 }
 
-.ios-text-field__wave i:nth-child(1) {
+.input__wave i:nth-child(1) {
   animation-delay: 0s;
 }
 
-.ios-text-field__wave i:nth-child(2) {
+.input__wave i:nth-child(2) {
   animation-delay: 0.08s;
 }
 
-.ios-text-field__wave i:nth-child(3) {
+.input__wave i:nth-child(3) {
   animation-delay: 0.16s;
 }
 
-.ios-text-field__wave i:nth-child(4) {
+.input__wave i:nth-child(4) {
   animation-delay: 0.24s;
 }
 
-.ios-text-field__wave i:nth-child(5) {
+.input__wave i:nth-child(5) {
   animation-delay: 0.1s;
 }
 
-@keyframes ios-dictation-bar {
+@keyframes input-dictation-bar {
   0%,
   100% {
     transform: scaleY(0.25);
@@ -151,13 +159,13 @@
   }
 }
 
-@keyframes ios-dictation-spin {
+@keyframes input-dictation-spin {
   to {
     transform: translateY(-50%) rotate(360deg);
   }
 }
 
-@keyframes ios-dictation-glow {
+@keyframes input-dictation-glow {
   0%,
   100% {
     border-color: #e07a3a;
@@ -174,17 +182,17 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ios-text-field-wrap--recording .ios-text-field.ios-text-field--dictating,
-  .ios-text-field-wrap--recording .ios-text-field.ios-text-field--dictating:focus {
+  .input-wrap--recording .input.input--dictating,
+  .input-wrap--recording .input.input--dictating:focus {
     animation: none;
   }
 
-  .ios-text-field-wrap--recording .ios-text-field__wave i {
+  .input-wrap--recording .input__wave i {
     animation: none;
     transform: scaleY(0.45);
   }
 
-  .ios-text-field-wrap--recognizing .ios-text-field__spinner {
+  .input-wrap--recognizing .input__spinner {
     animation: none;
   }
 }

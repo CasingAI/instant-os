@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import { List } from '../../../../ui/list.tsx'
 import { ListItem } from '../../../../ui/list-item.tsx'
 import { Switch } from '../../../../ui/switch.tsx'
-import { IosTextField } from '../../../../ui/ios-text-field.tsx'
+import { Input } from '../../../../ui/input.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
 export default function ListControlsDemo() {
@@ -22,7 +22,7 @@ export default function ListControlsDemo() {
           <ListItem
             label="主页"
             control={
-              <IosTextField
+              <Input
                 value={home}
                 onInput={(event) => setHome(event.currentTarget.value)}
                 placeholder="https://"

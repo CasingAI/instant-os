@@ -164,7 +164,7 @@
   align-items: center;
 }
 
-.space-sniffer__path-row .ios-text-field-wrap {
+.space-sniffer__path-row .input-wrap {
   flex: 1;
   min-width: 0;
   width: auto;

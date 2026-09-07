@@ -5,7 +5,7 @@ import { useOs } from '../../os/os-context.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { Button } from '../../ui/button.tsx'
-import { IosTextField } from '../../ui/ios-text-field.tsx'
+import { Input } from '../../ui/input.tsx'
 import { Progress } from '../../ui/progress.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { filesReadText } from '../files/files-api.ts'
@@ -357,7 +357,7 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
           <p class="downloader-app__dialog-title">新建下载</p>
           <div class="downloader-app__dialog-row">
             <span class="downloader-app__dialog-label">下载地址</span>
-            <IosTextField
+            <Input
               class="downloader-app__dialog-input"
               placeholder="https://… 或 .metalink 链接"
               value={url}
@@ -388,7 +388,7 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
           </div>
           <div class="downloader-app__dialog-row">
             <span class="downloader-app__dialog-label">保存到</span>
-            <IosTextField
+            <Input
               class="downloader-app__dialog-input"
               value={targetDirectory}
               disabled={isAdding}

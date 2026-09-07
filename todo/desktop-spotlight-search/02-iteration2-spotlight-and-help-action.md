@@ -46,7 +46,7 @@ export function buildDesktopHelpPresetPrompt(query: string): string {
 - 面板：宽 `min(100%, 560px)`、圆角 18px、
   `background: rgba(250,251,253,0.74)` + `backdrop-filter: blur(28px) saturate(170%)`、
   白色发丝边 + 大投影 + 内高光。
-- 搜索行：内联放大镜 SVG + 无边框大输入（覆盖 `.ios-text-field` 样式：
+- 搜索行：内联放大镜 SVG + 无边框大输入（覆盖 `.input` 样式：
   透明底、无边框、17px、去 focus 光圈），下缘发丝分隔线。
 - 行高 46px；图标 28；选中态从「蓝色渐变满行」改为玻璃高亮
   `rgba(10,60,120,0.14)` + 左侧 3px 蓝色指示条 + 名称主色加深（更 Golden Gate）。
@@ -66,7 +66,7 @@ export function buildDesktopHelpPresetPrompt(query: string): string {
 - `applyOpenPayload` 只在 helpQuery 定义时写入，不清空存量（防止打开 help 不带
   query 时误清未消费的问题）——消费端读后即清，无脏残留。
 - overlay 的 aria 结构保持 listbox/option；AI 代办行也作 option（键盘模型统一）。
-- iOS 6 输入框组件（IosTextField）样式只做局部覆盖，不动全局组件。
+- iOS 6 输入框组件（Input）样式只做局部覆盖，不动全局组件。
 
 ## 5. 实施记录与自验
 

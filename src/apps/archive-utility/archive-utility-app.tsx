@@ -10,7 +10,7 @@ import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
 import { Button } from '../../ui/button.tsx'
-import { IosTextField } from '../../ui/ios-text-field.tsx'
+import { Input } from '../../ui/input.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { ArchiveUtilityIcon } from '../../icons/app-icons.tsx'
 import { FilesNodeIcon } from '../files/files-node-icon.tsx'
@@ -1148,7 +1148,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           </div>
           <div class="archive-utility-app__create-row">
             <span class="archive-utility-app__create-label">文件名</span>
-            <IosTextField
+            <Input
               class="archive-utility-app__create-name"
               value={createName}
               onInput={(event) => setCreateName((event.target as HTMLInputElement).value)}

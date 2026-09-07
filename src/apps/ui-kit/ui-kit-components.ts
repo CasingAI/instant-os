@@ -123,14 +123,14 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
-    id: 'ios-text-field',
-    name: 'IosTextField',
+    id: 'input',
+    name: 'Input',
     description:
-      'iOS 6 内凹文本输入框；属性与原生 input 一致。开启「语音实验室」后可长按空格语音听写',
+      '内凹文本输入框；属性与原生 input 一致。Input.TextArea 为多行文本域。开启「语音实验室」后可长按空格语音听写',
     category: 'form',
-    importPath: "import { IosTextField } from '../../ui/ios-text-field.tsx'",
+    importPath: "import { Input } from '../../ui/input.tsx'",
     demos: [
-      { id: 'basic', title: '基础用法', description: '输入、禁用与语音听写（需开启开发者选项 → 语音实验室）' },
+      { id: 'basic', title: '基础用法', description: '单行输入、多行文本域、禁用与语音听写（需开启开发者选项 → 语音实验室）' },
     ],
     props: [
       { name: 'value', type: 'string', description: '输入值', defaultValue: '—' },
@@ -144,6 +144,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
           '长按空格语音听写；undefined 跟随开发者选项「语音实验室」，false 强制关闭',
         defaultValue: '跟随开发者选项「语音实验室」',
       },
+      { name: '<Input.TextArea>', type: 'TextAreaProps', description: '多行文本域变体；props 与原生 textarea 一致', defaultValue: '—' },
+      { name: 'rows', type: 'number?', description: 'TextArea：可见行数', defaultValue: '—' },
     ],
   },
   {
@@ -301,7 +303,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     demos: [
       { id: 'basic', title: '节标题与滚动区', description: '节标题/脚注、表头限高滚动区；可点行有触达反馈，信息行零反馈' },
       { id: 'selection', title: '受控单选', description: 'selectedId/onSelect，点击自动上报、蓝底高亮、accessory 勾随选中' },
-      { id: 'controls', title: '控件行', description: 'control 槽放 Switch / IosTextField（点控件不触发行）；纯勾选行用整行点按切换' },
+      { id: 'controls', title: '控件行', description: 'control 槽放 Switch / Input（点控件不触发行）；纯勾选行用整行点按切换' },
       { id: 'index', title: '快速索引条', description: '条上文字三档自动：标题首字 → 拼音首字母 → 隔位采样；含姓氏模式与乱序告警演示' },
       { id: 'editing', title: '编辑模式', description: '「编辑」进出：减号删除、把手重排' },
       { id: 'plain-variant', title: 'plain 变体换装', description: '同一组件同一份数据，传参即换装：grouped ↔ plain 现场切换' },

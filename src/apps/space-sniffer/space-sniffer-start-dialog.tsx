@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import { Button } from '../../ui/button.tsx'
-import { IosTextField } from '../../ui/ios-text-field.tsx'
+import { Input } from '../../ui/input.tsx'
 import { filesListVolumes, type FilesApiVolume } from '../files/files-api.ts'
 import {
   addMount,
@@ -165,7 +165,7 @@ export function SpaceSnifferStartDialog({
         <div class="space-sniffer__start-section">
           <h2 class="space-sniffer__start-section-title">路径</h2>
           <div class="space-sniffer__path-row">
-            <IosTextField
+            <Input
               value={pathInput}
               placeholder="/user 或 /user/Downloads"
               spellcheck={false}
