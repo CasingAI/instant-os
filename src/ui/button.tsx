@@ -1,5 +1,6 @@
 import type { ComponentChildren, JSX } from 'preact'
-import { useEffect, useState } from 'preact/hooks'
+import { createContext } from 'preact'
+import { useContext, useEffect, useState } from 'preact/hooks'
 import './button.css'
 import { Icon, type IconFamily } from './icon.tsx'
 import { getCachedOpticalFontSize, measureOpticalFontSize } from './optical-icon-size.ts'
@@ -8,13 +9,26 @@ export type ButtonTone = 'secondary' | 'primary' | 'danger'
 export type ButtonVariant = 'filled' | 'borderless'
 export type ButtonRelief = 'raised' | 'sunken'
 
+/** relief 缺省值由所在容器下发：导航头等容器用 ButtonDefaultReliefProvider 设区域默认（如 sunken），显式传 relief 的照旧优先 */
+const ButtonDefaultReliefContext = createContext<ButtonRelief>('raised')
+
+export function ButtonDefaultReliefProvider({
+  relief,
+  children,
+}: {
+  relief: ButtonRelief
+  children?: ComponentChildren
+}) {
+  return <ButtonDefaultReliefContext.Provider value={relief}>{children}</ButtonDefaultReliefContext.Provider>
+}
+
 export type ButtonProps = {
   children?: ComponentChildren
   /** 按钮色调（仅 filled 生效；borderless 走 darkMode 明暗两形态，传入不生效） */
   tone?: ButtonTone
   /** 形态：filled 实体按钮（默认，渐变底+边框）；borderless 单一类型裸文字/图标——无底无边，明暗两形态见 darkMode，按下时一团光晕垫于内容之下，松手即熄 */
   variant?: ButtonVariant
-  /** 凹凸形态（仅 filled 生效；borderless 传入无效）：raised 凸起（默认，静止上亮下暗+白色内高光，按下内凹）；sunken 凹下（渐变同为上亮下暗，内阴影上缘高光、下缘压暗，按下叠白色遮罩变白一档） */
+  /** 凹凸形态（仅 filled 生效；borderless 传入无效）：raised 凸起（静止上亮下暗+白色内高光，按下内凹）；sunken 凹下（渐变同为上亮下暗，内阴影上缘高光、下缘压暗，按下叠白色遮罩变白一档）；不传时随所在区域的 ButtonDefaultReliefProvider 默认（无 Provider 处为 raised） */
   relief?: ButtonRelief
   /** 仅 borderless 生效：暗底白字形态（默认）；false 翻浅底深字，光晕与按下投影同步翻转 */
   darkMode?: boolean
@@ -82,7 +96,7 @@ export function Button({
   children,
   tone = 'secondary',
   variant = 'filled',
-  relief = 'raised',
+  relief: reliefProp,
   darkMode = true,
   icon,
   showBothIconAndText = false,
@@ -95,6 +109,7 @@ export function Button({
   ref,
   onClick,
 }: ButtonProps) {
+  const relief = reliefProp ?? useContext(ButtonDefaultReliefContext)
   const iconOnly = !!icon && !showBothIconAndText
   // 光学字号挂在 .ios-button__icon 上，子 Icon 靠 button.css 的 inherit !important 跟随容器；
   // 非 <Icon> 元素 / 未解析完成时为 undefined，容器维持 CSS 缺省 20px

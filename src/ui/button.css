@@ -362,3 +362,17 @@
 .ios-button--borderless.ios-button--danger:disabled {
   opacity: 1;
 }
+
+/* sunken 禁用：底色随各自 :disabled 灰渐变走，只把外投影换回对内阴影（比按住时的更淡），
+   凹进去的观感不因禁用翻回凸起 */
+.ios-button--sunken.ios-button--secondary:disabled {
+  box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+.ios-button--sunken.ios-button--primary:disabled {
+  box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.14);
+}
+
+.ios-button--sunken.ios-button--danger:disabled {
+  box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.16);
+}

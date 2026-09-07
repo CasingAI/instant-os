@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact'
+import { ButtonDefaultReliefProvider } from './button.tsx'
 import { PageBackButton } from './page-back-button.tsx'
 import './page-header.css'
 
@@ -32,20 +33,22 @@ export function PageHeader({
     .filter(Boolean)
     .join(' ')
   return (
-    <div class={classes}>
-      <div class="page-header__bar">
-        {onBack ? (
-          <PageBackButton label={backLabel ?? '返回'} onClick={onBack} />
-        ) : (
-          <span class="page-header__back-spacer" aria-hidden="true" />
-        )}
-        {title ? <h1 class="page-header__title">{title}</h1> : undefined}
-        {actions ? (
-          <div class="page-header__trailing">{actions}</div>
-        ) : (
-          <span class="page-header__trailing page-header__trailing--empty" aria-hidden="true" />
-        )}
+    <ButtonDefaultReliefProvider relief="sunken">
+      <div class={classes}>
+        <div class="page-header__bar">
+          {onBack ? (
+            <PageBackButton label={backLabel ?? '返回'} onClick={onBack} />
+          ) : (
+            <span class="page-header__back-spacer" aria-hidden="true" />
+          )}
+          {title ? <h1 class="page-header__title">{title}</h1> : undefined}
+          {actions ? (
+            <div class="page-header__trailing">{actions}</div>
+          ) : (
+            <span class="page-header__trailing page-header__trailing--empty" aria-hidden="true" />
+          )}
+        </div>
       </div>
-    </div>
+    </ButtonDefaultReliefProvider>
   )
 }
