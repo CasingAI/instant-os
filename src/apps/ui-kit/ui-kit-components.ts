@@ -537,18 +537,20 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'pop-nav',
     name: 'PopNav',
     description:
-      '强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面；锚定形态把尖裁进整盒、指向触发器（尖端那一侧由 Nav 安全区把壳材质垫进尖里），宿主窗口内钳制不越界，无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留；宿主窗口宽 ≤520px 时退化成居中模态。内部固定暗色——面板与尖为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项',
+      '强制 Nav 的大弹出窗：宽高可传（width / height，默认 320×280），内容只能是 Nav 页面；锚定形态把尖裁进整盒、指向触发器（尖端那一侧由 Nav 安全区把壳材质垫进尖里）；定位优先让尽可能多的面积落在宿主窗口里（垂直换边、水平往窗口里推），放不下的那段伸出窗口，硬钳在屏幕内不飞出屏幕，无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留。内部固定暗色——面板与尖为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项',
     category: 'other',
     importPath: "import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'",
     demos: [
       {
         id: 'basic',
         title: '基础用法',
-        description: '锚定弹窗：尖跟随触发器、越界翻转夹紧；翻页后关窗再开仍在原页；窗口拖窄退化居中模态',
+        description: '锚定弹窗：尖跟随触发器、贴边换边让面积尽量留在窗口里，硬钳屏幕；翻页后关窗再开仍在原页',
       },
     ],
     props: [
       { name: 'open', type: 'boolean', description: '是否打开', defaultValue: '—' },
+      { name: 'width', type: 'number?', description: '面板宽（px），默认 320；仅当屏幕放不下才收窄', defaultValue: '320' },
+      { name: 'height', type: 'number?', description: '面板高（px，不含尖），默认 280；仅当屏幕放不下才收短', defaultValue: '280' },
       { name: 'onClose', type: '() => void', description: '关闭通知（外部点按 / Esc）；面板仅隐藏不销毁', defaultValue: '—' },
       { name: 'onOpen', type: '() => void?', description: 'PopNavTrigger 点按时的开窗请求', defaultValue: '—' },
       { name: 'anchorRef', type: 'RefObject<HTMLElement>?', description: '逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）', defaultValue: '—' },

@@ -281,8 +281,8 @@ function jumpToAnchor(getContainer: () => HTMLElement | null, entry: AnchorEntry
 }
 
 /** 页内锚点目录（antd 式 TOC）：标题栏 actions 槽的按钮 → PopNav 弹窗承载。
- * 原来右侧固定 148px 的吸附列让位给正文；弹窗是标准 PopNav（固定 320×280、
- * 锚定按钮箭头跟随、窄窗退居中模态、hide 不 destroy），点条目跳小节并收起。 */
+ * 原来右侧固定 148px 的吸附列让位给正文；弹窗是标准 PopNav（默认 320×280、
+ * 锚定按钮箭头跟随、hide 不 destroy），点条目跳小节并收起。 */
 function TocPopNav({
   component,
   getContainer,

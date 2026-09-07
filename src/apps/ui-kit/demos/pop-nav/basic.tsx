@@ -9,7 +9,7 @@ import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 const LIST_ITEMS = [
   { id: 'item-1', title: '列表项一', detail: '第一项的详情内容：PopNav 的内容只能是 Nav 页面，从列表推入详情、返回键退回。' },
   { id: 'item-2', title: '列表项二', detail: '第二项的详情内容：关窗（点外面 / Esc）只是隐藏，再开还在原页。' },
-  { id: 'item-3', title: '列表项三', detail: '第三项的详情内容：面板固定 320×280，超出宿主窗口时自动钳回窗口内。' },
+  { id: 'item-3', title: '列表项三', detail: '第三项的详情内容：面板默认 320×280（宽高可传），贴边时换边或伸出窗口让面积尽量留在窗口里，硬钳在屏幕内。' },
 ]
 
 type DemoNav = {
@@ -122,8 +122,8 @@ export default function PopNavDemo() {
       <DemoVariant label="关窗不销毁" wide>
         <StatefulPopNav />
       </DemoVariant>
-      <DemoVariant label="窄窗自适应">
-        <span class="ui-kit-demo__hint">把窗口拖窄到 520px 以下，弹窗会变成居中模态对话框</span>
+      <DemoVariant label="窄窗不退化">
+        <span class="ui-kit-demo__hint">窗口再窄也不会变模态：始终锚定触发器弹出，面板可伸出窗口、硬钳在屏幕内</span>
       </DemoVariant>
     </DemoVariants>
   )

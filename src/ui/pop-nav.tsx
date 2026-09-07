@@ -11,7 +11,7 @@ import {
 } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
 import {
-  computeFloatingPanelPosition,
+  FLOATING_PANEL_GAP,
   FLOATING_PANEL_VIEWPORT_PADDING,
 } from './compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
@@ -20,17 +20,13 @@ import { DarkMode } from './theme.tsx'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './pop-nav.css'
 
-/** 面板固定尺寸；模块常量，不可调 */
+/** 面板默认尺寸；可用 width / height 覆盖 */
 const POP_NAV_WIDTH = 320
 const POP_NAV_HEIGHT = 280
 /** 尖高：含进整盒，与 pop-nav.css 的 --pop-nav-arrow-h 同值 */
 const POP_NAV_ARROW_H = 12
-/** 与 Popover 一致的窄屏滞回（宿主窗口宽） */
-const POP_NAV_NARROW_ENTER_WIDTH = 520
-const POP_NAV_NARROW_EXIT_WIDTH = 580
-/** 退出动画时长，与 pop-nav.css 各形态入场动画时长一致 */
+/** 退出动画时长，与 pop-nav.css 入场动画时长一致 */
 const POP_NAV_EXIT_WIDE_MS = 120
-const POP_NAV_EXIT_MODAL_MS = 150
 /** 尖心距面板两边的最小距离：圆角 10 + 半宽 9，尖底边不吃进角弧 */
 const POP_NAV_ARROW_SAFE_INSET = 19
 
@@ -42,6 +38,10 @@ type PopNavOwnProps = {
   onOpen?: () => void
   /** 逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）；锚点须包含触发器元素，理由见 PopNavTrigger 注释 */
   anchorRef?: { current: HTMLElement | null }
+  /** 面板宽（矩形本体，px）。默认 320；仅当屏幕本身放不下才收窄——宿主窗口不是硬边界 */
+  width?: number
+  /** 面板高（矩形本体，不含尖，px）。默认 280；仅当屏幕本身放不下才收短——宿主窗口不是硬边界 */
+  height?: number
   ariaLabel?: string
   children?: ComponentChildren
 }
@@ -91,23 +91,25 @@ function anchorRectOf(el: Element | null): DOMRect | null {
 }
 
 /**
- * 强制 Nav 的大弹出窗：固定尺寸（320×280，不可调），内容只能是 Nav 页面
- * （controller + 渲染属性原样透传给内部 <Nav>）。有锚点时贴锚点弹出、尖端
- * 指向它（宿主窗口内钳制，不越界盖别的窗口）；无锚点时在视口内居中（无锚
- * 点便无从定位宿主窗口）。宿主窗口很窄（宽 ≤520）时退化为居中模态。关闭 =
- * 外部点按 / Esc；面板仅隐藏不销毁——Nav 停在第几页下次开还在第几页。
+ * 强制 Nav 的大弹出窗：尺寸可传（width / height，默认 320×280），内容只能是
+ * Nav 页面（controller + 渲染属性原样透传给内部 <Nav>）。有锚点时贴锚点弹出、
+ * 尖端指向它；定位优先让尽可能多的面积落在宿主窗口里（垂直换边、水平往窗口
+ * 里推），放不下的那段伸出窗口盖住桌面，硬钳在屏幕内不飞出屏幕。无锚点时在
+ * 视口内居中。关闭 = 外部点按 / Esc；面板仅隐藏不销毁——Nav 停在第几页下次
+ * 开还在第几页。
  */
 export function PopNav({
   open,
   onClose,
   onOpen,
   anchorRef,
+  width,
+  height,
   ariaLabel,
   children,
   ...navProps
 }: PopNavProps) {
   const panelRef = useRef<HTMLDivElement>(null)
-  const modalRef = useRef<HTMLDivElement>(null)
   const primaryAnchorRef = useRef<unknown>(null)
   const shellAnchorRef = useRef<HTMLElement | null>(null)
   const [anchorVersion, setAnchorVersion] = useState(0)
@@ -116,12 +118,8 @@ export function PopNav({
   const [placement, setPlacement] = useState<'below' | 'above'>('below')
   const [arrowX, setArrowX] = useState(0)
   const [centered, setCentered] = useState(false)
-  const [narrow, setNarrow] = useState(false)
   const [everOpened, setEverOpened] = useState(false)
-  const { exiting } = useOverlayPresence(
-    open,
-    narrow ? POP_NAV_EXIT_MODAL_MS : POP_NAV_EXIT_WIDE_MS,
-  )
+  const { exiting } = useOverlayPresence(open, POP_NAV_EXIT_WIDE_MS)
   useLayoutEffect(() => {
     if (open) {
       setEverOpened(true)
@@ -154,15 +152,17 @@ export function PopNav({
     setAnchorVersion((version) => version + 1)
   }, [])
 
+  // 面板矩形本体尺寸：跟调用方走，缺省 320×280
+  const reqWidth = width ?? POP_NAV_WIDTH
+  const reqHeight = height ?? POP_NAV_HEIGHT
+
   const updatePosition = useCallback(() => {
-    if (narrow) {
-      return
-    }
     const panel = panelRef.current
     if (!panel) {
       return
     }
     const pad = FLOATING_PANEL_VIEWPORT_PADDING
+    const gap = FLOATING_PANEL_GAP
     const anchorEl = resolveAnchorEl()
     const frame = anchorEl?.closest('.window-frame')
     const host = frame instanceof HTMLElement ? frame : null
@@ -170,76 +170,59 @@ export function PopNav({
     const anchorRect = anchorRectOf(anchorEl)
     const hasArrow = Boolean(anchorRect)
     const arrowH = hasArrow ? POP_NAV_ARROW_H : 0
-    const hostW = hostRect ? hostRect.width : window.innerWidth
-    const hostH = hostRect ? hostRect.height : window.innerHeight
-    // 矩形本体固定，只在超出宿主时收缩；有尖时整盒再加一截尖高
-    const width = Math.max(1, Math.min(POP_NAV_WIDTH, hostW - pad * 2))
-    const rectH = Math.max(1, Math.min(POP_NAV_HEIGHT, hostH - pad * 2 - arrowH))
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    // 只在屏幕本身放不下时收到视口内——宿主窗口不是硬边界，不为它挤扁面板；
+    // 有尖时整盒再加一截尖高
+    const width = Math.max(1, Math.min(reqWidth, vw - pad * 2))
+    const rectH = Math.max(1, Math.min(reqHeight, vh - pad * 2 - arrowH))
     const height = rectH + arrowH
     setSize((prev) =>
       prev.width === width && prev.height === height ? prev : { width, height },
     )
+
+    // 宿主窗口内缘（无宿主按视口）：往窗口里推时留 pad 呼吸边
+    const hostL = hostRect ? hostRect.left + pad : pad
+    const hostR = hostRect ? hostRect.right - pad : vw - pad
+    const hostT = hostRect ? hostRect.top + pad : pad
+    const hostB = hostRect ? hostRect.bottom - pad : vh - pad
+
     let top: number
     let left: number
     if (!anchorRect) {
       // 无锚点：视口内居中（拿不到锚点便无从定位宿主窗口）
-      const base = { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
-      left = base.left + (base.width - width) / 2
-      top = base.top + (base.height - height) / 2
+      left = (vw - width) / 2
+      top = (vh - height) / 2
       setCentered(true)
       setPlacement('below')
     } else {
-      // 含尖整盒参与翻转与钳制，尖端与锚点留 GAP 空隙
-      const next = computeFloatingPanelPosition(anchorRect, width, height, 'left')
       const anchorCenterX = anchorRect.left + anchorRect.width / 2
-      const minLeft = hostRect ? hostRect.left + pad : pad
-      const maxLeft = hostRect ? hostRect.right - width - pad : window.innerWidth - width - pad
-      // 小锚点中心距面板左缘不足尖的安全内距时整体左移，尖才能正指锚点中心
-      left = Math.min(
-        Math.max(Math.min(next.left, anchorCenterX - POP_NAV_ARROW_SAFE_INSET), minLeft),
-        Math.max(minLeft, maxLeft),
-      )
-      top = next.top
-      if (hostRect) {
-        // 钳回宿主窗口内容区内，不越界盖别的窗口
-        top = Math.min(
-          Math.max(top, hostRect.top + pad),
-          Math.max(hostRect.top + pad, hostRect.bottom - height - pad),
-        )
-      }
+      // 水平：贴锚点起放，先把盒子往宿主窗口里推（已全在窗口里则不动），
+      // 再收进尖心安全内距的可行区间（尖始终正指锚点中心），最后硬钳屏幕
+      const startLeft = Math.min(Math.max(anchorRect.left, pad), Math.max(pad, vw - width - pad))
+      const intoHost = Math.min(Math.max(startLeft, hostL), Math.max(hostL, hostR - width))
+      const minLeft = Math.max(pad, anchorCenterX - (width - POP_NAV_ARROW_SAFE_INSET))
+      const maxLeft = Math.min(vw - width - pad, anchorCenterX - POP_NAV_ARROW_SAFE_INSET)
+      left = Math.min(Math.max(intoHost, minLeft), Math.max(minLeft, maxLeft))
+      left = Math.min(Math.max(left, pad), Math.max(pad, vw - width - pad))
+      // 垂直：上下各按屏幕钳出候选（尖端与锚点留 GAP 空隙），取与宿主窗口
+      // 重叠更大的一侧——放不下的那段伸出窗口，尖仍贴着锚点不脱开
+      const clampTop = (t: number) => Math.min(Math.max(t, pad), Math.max(pad, vh - height - pad))
+      const belowTop = clampTop(anchorRect.bottom + gap)
+      const aboveTop = clampTop(anchorRect.top - height - gap)
+      const overlapAt = (t: number) => Math.min(hostB, t + height) - Math.max(hostT, t)
+      const preferBelow = overlapAt(belowTop) >= overlapAt(aboveTop)
+      top = preferBelow ? belowTop : aboveTop
       setCentered(false)
-      setPlacement(next.placement)
+      setPlacement(preferBelow ? 'below' : 'above')
       const maxArrowX = Math.max(POP_NAV_ARROW_SAFE_INSET, width - POP_NAV_ARROW_SAFE_INSET)
       setArrowX(Math.min(Math.max(anchorCenterX - left, POP_NAV_ARROW_SAFE_INSET), maxArrowX))
     }
     setPosition({ top, left })
-  }, [narrow, resolveAnchorEl])
-
-  // 宽窄判定：锚点所在窗口框架的宽度；不在任何窗口里（桌面级浮层）退化为视口宽度
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    const frame = resolveAnchorEl()?.closest('.window-frame')
-    const host = frame instanceof HTMLElement ? frame : null
-    const measure = () => {
-      const width = host ? host.clientWidth : window.innerWidth
-      setNarrow((prev) =>
-        width <= (prev ? POP_NAV_NARROW_EXIT_WIDTH : POP_NAV_NARROW_ENTER_WIDTH),
-      )
-    }
-    measure()
-    if (!host) {
-      window.addEventListener('resize', measure)
-      return () => window.removeEventListener('resize', measure)
-    }
-    const observer = new ResizeObserver(measure)
-    observer.observe(host)
-    return () => observer.disconnect()
-  }, [open, resolveAnchorEl, anchorVersion])
+  }, [resolveAnchorEl, reqWidth, reqHeight])
 
   useLayoutEffect(() => {
-    if (!open || narrow) {
+    if (!open) {
       return
     }
     updatePosition()
@@ -251,7 +234,7 @@ export function PopNav({
       window.removeEventListener('resize', updatePosition)
       document.removeEventListener('scroll', updatePosition, true)
     }
-  }, [open, narrow, updatePosition, anchorVersion])
+  }, [open, updatePosition, anchorVersion])
 
   useEffect(() => {
     if (!open) {
@@ -259,7 +242,7 @@ export function PopNav({
     }
     const closeOnOutside = (event: PointerEvent) => {
       const target = event.target instanceof Node ? event.target : null
-      if (panelRef.current?.contains(target) || modalRef.current?.contains(target)) {
+      if (panelRef.current?.contains(target)) {
         return
       }
       // 触发器自身的点按不放给外点关闭——交给 activate 完整切换，
@@ -303,52 +286,17 @@ export function PopNav({
     [registerAnchor, registerShell],
   )
 
-  const navSafeArea =
-    !narrow && !centered
-      ? placement === 'below'
-        ? { top: POP_NAV_ARROW_H }
-        : { bottom: POP_NAV_ARROW_H }
-      : 0
+  const navSafeArea = !centered
+    ? placement === 'below'
+      ? { top: POP_NAV_ARROW_H }
+      : { bottom: POP_NAV_ARROW_H }
+    : 0
   const content = <Nav {...navProps} safeArea={navSafeArea} />
 
   // 首次打开才挂载 portal；此后常驻（退场动画播完仅挂隐藏类）——hide 不 destroy
   if (!everOpened) {
     return (
       <PopNavTriggerContext.Provider value={triggerApi}>{children}</PopNavTriggerContext.Provider>
-    )
-  }
-
-  if (narrow) {
-    return (
-      <PopNavTriggerContext.Provider value={triggerApi}>
-        {children}
-        {createPortal(
-          // 内部固定暗色（暂不提供对外配置）：DarkMode 壳包住面板整体——
-          // 面板 chrome 与内部 Nav 页面吃同一套暗色 token。壳在 Nav 组件
-          // 外侧，不进 assertNavPage 页元素校验；portal 挂在浮层根、脱离
-          // 调用方组件树，外层包 DarkMode 作用不到这里，只能自带作用域。
-          <DarkMode>
-            <div
-              class={`pop-nav-modal__backdrop${exiting ? ' pop-nav-modal__backdrop--exiting' : ''}${
-                hidden ? ' pop-nav-modal__backdrop--hidden' : ''
-              }`}
-              onClick={onClose}
-            >
-              <div
-                ref={modalRef}
-                class={`pop-nav-modal${exiting ? ' pop-nav-modal--exiting' : ''}`}
-                role="dialog"
-                aria-modal="true"
-                aria-label={ariaLabel}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div class="pop-nav__content">{content}</div>
-              </div>
-            </div>
-          </DarkMode>,
-          getFloatingOverlayRoot(),
-        )}
-      </PopNavTriggerContext.Provider>
     )
   }
 

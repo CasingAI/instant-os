@@ -1,8 +1,9 @@
-/* PopNav：强制 Nav 的大弹出窗。细长固定尺寸，锚定形态把尖裁进整盒、指向
-   触发器；宿主窗口很窄时退化为居中模态。类名前缀 pop-nav，与 popover 系
-   互不相干。内部固定暗色（pop-nav.tsx 在 portal 渲染物外套 DarkMode 壳，
-   暂无对外配置项）：面板 chrome 与内部 Nav 页面吃同一套深蓝壳 token
-   （theme.css），尖端那一侧由 Nav 安全区把壳材质垫进尖里，弹层浑然一体。 */
+/* PopNav：强制 Nav 的大弹出窗。细长面板（默认 320×280，宽高可传），锚定形态
+   把尖裁进整盒、指向触发器；面板可伸出宿主窗口、硬钳在屏幕内。类名前缀
+   pop-nav，与 popover 系互不相干。内部固定暗色（pop-nav.tsx 在 portal 渲染物
+   外套 DarkMode 壳，暂无对外配置项）：面板 chrome 与内部 Nav 页面吃同一套深
+   蓝壳 token（theme.css），尖端那一侧由 Nav 安全区把壳材质垫进尖里，弹层浑然
+   一体。 */
 
 .pop-nav {
   --pop-nav-r: 10px;
@@ -158,93 +159,6 @@
 
 .pop-nav--center .pop-nav__content {
   border-radius: 9px;
-}
-
-/* 窄屏：居中模态对话框 */
-
-.pop-nav-modal__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 2200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.28);
-  animation: pop-nav-backdrop-in 150ms ease;
-}
-
-.pop-nav-modal {
-  position: relative;
-  width: min(320px, 100%);
-  height: min(280px, 100%);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 12px;
-  overflow: hidden;
-  /* 同 .pop-nav：内容基准墨水，非壳配色，勿用标题浅色变量 */
-  color: #222;
-  background: var(--page-shell-bg, #161d2b);
-  box-shadow:
-    0 8px 16px rgba(0, 0, 0, 0.65),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  animation: pop-nav-modal-in 150ms ease;
-}
-
-.pop-nav-modal .pop-nav__content {
-  border-radius: 11px;
-}
-
-/* hide 不 destroy：模态退场动画播完常驻隐藏 */
-.pop-nav-modal__backdrop--hidden {
-  display: none;
-}
-
-@keyframes pop-nav-backdrop-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes pop-nav-modal-in {
-  from {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.pop-nav-modal__backdrop.pop-nav-modal__backdrop--exiting {
-  animation: pop-nav-backdrop-out 150ms ease forwards;
-}
-
-.pop-nav-modal.pop-nav-modal--exiting {
-  animation: pop-nav-modal-out 150ms ease forwards;
-}
-
-@keyframes pop-nav-backdrop-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes pop-nav-modal-out {
-  from {
-    opacity: 1;
-    transform: scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.94);
-  }
 }
 
 /* Trigger 兜底壳：透明、不参与排版，仅在孩子接不了 ref 时兜底登记锚点 */
