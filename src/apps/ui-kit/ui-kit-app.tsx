@@ -353,7 +353,7 @@ export function UiKitApp() {
           {sections.map((section) => (
             <ListSection key={section.id} id={section.id} title={section.name}>
               {section.components.map((comp) => (
-                <ListItem key={comp.id} id={comp.id} label={comp.name} />
+                <ListItem key={comp.id} id={comp.id} label={comp.name} badge={comp.badge} />
               ))}
             </ListSection>
           ))}

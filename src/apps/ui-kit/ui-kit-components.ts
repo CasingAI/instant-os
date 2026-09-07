@@ -16,6 +16,8 @@ export type ComponentDemo = {
   id: string
   name: string
   description: string
+  /** 名称旁徽章文本（如「已弃用」），组件列表页 List 行展示 */
+  badge?: string
   category: 'data-display' | 'form' | 'icons' | 'settings' | 'navigation' | 'picker' | 'other' | 'window' | 'page-curl'
   importPath: string
   /** 何时使用（antd 式）：空则组件页不渲染该节 */
@@ -43,6 +45,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'check-toggle',
     name: 'CheckToggle',
+    badge: '已弃用',
     description: '已弃用。复选框；支持 default / small 尺寸与 disabled',
     category: 'form',
     importPath: "import { CheckToggle } from '../../ui/check-toggle.tsx'",
