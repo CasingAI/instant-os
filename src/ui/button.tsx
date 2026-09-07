@@ -6,6 +6,7 @@ import { getCachedOpticalFontSize, measureOpticalFontSize } from './optical-icon
 
 export type ButtonTone = 'secondary' | 'primary' | 'danger'
 export type ButtonVariant = 'filled' | 'borderless'
+export type ButtonRelief = 'raised' | 'sunken'
 
 export type ButtonProps = {
   children?: ComponentChildren
@@ -13,6 +14,8 @@ export type ButtonProps = {
   tone?: ButtonTone
   /** 形态：filled 实体按钮（默认，渐变底+边框）；borderless 单一类型裸文字/图标——无底无边，明暗两形态见 darkMode，按下时一团光晕垫于内容之下，松手即熄 */
   variant?: ButtonVariant
+  /** 凹凸形态（仅 filled 生效；borderless 传入无效）：raised 凸起（默认，静止上亮下暗+白色内高光，按下内凹）；sunken 凹下（灰边框→对内内阴影→白色到浅灰底色三层结构，按下叠白色遮罩变白一档） */
+  relief?: ButtonRelief
   /** 仅 borderless 生效：暗底白字形态（默认）；false 翻浅底深字，光晕与按下投影同步翻转 */
   darkMode?: boolean
   /** 图标内容；与文字互斥——传入即只渲染图标（不渲染 children），children 转作无障碍名回退；例外见 showBothIconAndText */
@@ -79,6 +82,7 @@ export function Button({
   children,
   tone = 'secondary',
   variant = 'filled',
+  relief = 'raised',
   darkMode = true,
   icon,
   showBothIconAndText = false,
@@ -100,6 +104,7 @@ export function Button({
     `ios-button--${tone}`,
     variant === 'borderless' ? 'ios-button--borderless' : undefined,
     variant === 'borderless' && !darkMode ? 'ios-button--borderless-light' : undefined,
+    relief === 'sunken' ? 'ios-button--sunken' : undefined,
     iconOnly ? 'ios-button--icon' : undefined,
     icon && showBothIconAndText ? 'ios-button--icon-text' : undefined,
     // 光学字号 >20px 的宽字形图标（箭头类，墨迹更贴边）左边距归零贴左缘；未解析/兜底 20px 落小档留 2px

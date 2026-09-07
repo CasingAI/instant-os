@@ -31,6 +31,14 @@ export default function ButtonBasicDemo() {
           <Button variant="borderless" darkMode={!hexagons} onClick={() => setHexagons(!hexagons)}>切换背景</Button>
         </div>
       </DemoVariant>
+      <DemoVariant label="凹凸（sunken 静止即凹样，按住变白一档）" wide>
+        <div class="ui-kit-demo__row">
+          <Button relief="sunken">次要</Button>
+          <Button relief="sunken" tone="primary">主要</Button>
+          <Button relief="sunken" tone="danger">危险</Button>
+          <Button relief="sunken" disabled>禁用</Button>
+        </div>
+      </DemoVariant>
       <DemoVariant label="图标 / icon+文字">
         <div class="ui-kit-demo__row">
           <Button icon={<Icon name="arrow_back" />} title="后退" />
