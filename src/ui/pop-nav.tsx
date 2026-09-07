@@ -119,13 +119,15 @@ export function PopNav({
   const [arrowX, setArrowX] = useState(0)
   const [centered, setCentered] = useState(false)
   const [everOpened, setEverOpened] = useState(false)
-  const { exiting } = useOverlayPresence(open, POP_NAV_EXIT_WIDE_MS)
+  // mounted：presence 自己的挂载判定——关窗当拍退场标记尚未立上也算挂着，
+  // 面板不会被打成隐藏，等退场动画播完才真正隐藏（避免消失又冒出播退出）
+  const { mounted, exiting } = useOverlayPresence(open, POP_NAV_EXIT_WIDE_MS)
   useLayoutEffect(() => {
     if (open) {
       setEverOpened(true)
     }
   }, [open])
-  const hidden = !open && !exiting
+  const hidden = !mounted
 
   const resolveAnchorEl = useCallback((): Element | null => {
     if (anchorRef) {
