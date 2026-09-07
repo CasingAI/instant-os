@@ -1,8 +1,9 @@
 import type { ComponentChildren, JSX } from 'preact'
 import { createContext } from 'preact'
-import { useContext, useEffect, useRef, useState } from 'preact/hooks'
+import { useContext, useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { compareIndexLabelRank, deriveIndexChar, deriveIndexLabel } from './list-index.ts'
 import { useReorderDrag, type ListPointerEvent } from './list-reorder.ts'
+import { useAppNarrowLayout } from './use-app-narrow-layout.ts'
 import './list.css'
 import './plain-list.css'
 
@@ -53,6 +54,12 @@ type ListProps = {
   onDelete?: (id: string) => void
   /** 编辑模式：拖拽重排落定（fromId 行移到 toId 行的位置）。 */
   onReorder?: (fromId: string, toId: string) => void
+  /**
+   * 选择行（ListItem 传 options）的宽窄行为覆盖：'wide' 强制弹菜单、
+   * 'narrow' 强制走行回调。缺省由本容器自测宽度自动判定
+   * （≤520 判窄、≥580 判宽，中间滞回区维持现态）。
+   */
+  choiceLayout?: 'wide' | 'narrow'
 } & Omit<JSX.HTMLAttributes<HTMLDivElement>, 'class' | 'onSelect'>
 
 function joinClass(base: string, extra?: string): string {
@@ -101,7 +108,7 @@ function warnIndexOrderUnordered(labels: string[]): void {
   }
 }
 
-/** List ↔ ListItem 结合上下文：变体 + 受控单选/多选 + 编辑态 + 拖拽重排。 */
+/** List ↔ ListItem 结合上下文：变体 + 受控单选/多选 + 编辑态 + 拖拽重排 + 选择行宽窄态。 */
 type ListContextValue = {
   selectedId?: string
   onSelect?: (id: string) => void
@@ -111,6 +118,12 @@ type ListContextValue = {
   variant?: 'grouped' | 'plain'
   onDelete?: (id: string) => void
   onReorder?: (fromId: string, toId: string) => void
+  /**
+   * 选择行当前应处的形态：true = 窄容器（点行走跳转回调），false = 宽容器
+   * （点行弹选择菜单）。choiceLayout 覆盖优先，否则取容器实测宽；首次测量
+   * 前按宽处理（false）。
+   */
+  choiceNarrow?: boolean
   beginReorder?: (event: ListPointerEvent, id: string) => void
   moveReorder?: (event: ListPointerEvent) => void
   endReorder?: () => void
@@ -151,12 +164,25 @@ export function List({
   selectionTone,
   onDelete,
   onReorder,
+  choiceLayout,
   children,
   ...rest
 }: ListProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const indexStripRef = useRef<HTMLDivElement>(null)
+  // 选择行宽窄自动判定：量本容器内容宽（520/580 滞回），结果经 Context 发给行。
+  // 组合 ref 必须 useCallback 稳定身份——ref 每次渲染都换会反复走 hostRef 的
+  // 挂载/卸载（内部含 setState），造成无意义的重渲染循环。
+  const choiceWidth = useAppNarrowLayout()
+  const choiceHostRef = choiceWidth.hostRef
+  const setRootRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      rootRef.current = node
+      choiceHostRef(node)
+    },
+    [choiceHostRef],
+  )
   const [sections, setSections] = useState<ListSectionAnchor[]>([])
   // 排序契约告警的去重签名：节标签序列没变就不重复报（collect 随每次 DOM 变更触发）
   const indexOrderSigRef = useRef('')
@@ -290,6 +316,7 @@ export function List({
     variant,
     onDelete,
     onReorder,
+    choiceNarrow: choiceLayout ? choiceLayout === 'narrow' : choiceWidth.narrowLayout,
     beginReorder: reorder.beginReorder,
     moveReorder: reorder.moveReorder,
     endReorder: reorder.endReorder,
@@ -321,7 +348,7 @@ export function List({
   return (
     <ListContext.Provider value={contextValue}>
       {title !== undefined && <div class={c.title}>{title}</div>}
-      <div ref={rootRef} class={rootClass} {...rest}>
+      <div ref={setRootRef} class={rootClass} {...rest}>
         {head !== undefined && (
           <div class={joinClass(c.head, headClass)}>{head}</div>
         )}

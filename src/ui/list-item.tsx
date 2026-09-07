@@ -1,9 +1,14 @@
 import type { ComponentChildren, JSX } from 'preact'
 import { useContext, useEffect, useRef, useState } from 'preact/hooks'
 import { ForwardIcon, GrabberIcon, InfoIcon } from '../icons/app-icons.tsx'
+import { SettingsChoicePopoverMenu } from './settings-choice-popover-menu.tsx'
+import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
 import { ListContext, type ListPointerEvent } from './list.tsx'
 
 export type ListItemAccessory = 'none' | 'disclosure' | 'check' | 'detail'
+
+/** 选择行的一个选项（与 SettingsChoiceOption 同构，独立定义避免跨家族耦合）。 */
+export type ListChoiceOption = { id: string; label: string }
 
 type ListItemProps = {
   /** 稳定 id：List 受控单选（selectedId/onSelect）与编辑模式（删除/重排）靠它结合。 */
@@ -36,6 +41,17 @@ type ListItemProps = {
   /** 有 onClick（或参与 List 受控单选）渲染为 button（可交互行），否则渲染为 div（静态行）；
    *  编辑模式只暂停行为（aria-disabled），不再换标签——换标签会重建整行 DOM，动画全断。 */
   onClick?: () => void
+  /** 选择行：传入选项后本行变为选择行——右侧显示当前值，点行按 List 判定的宽窄
+   *  行为响应：宽容器在行旁弹选择菜单，窄容器调 onChoiceNavigate（缺省回退弹菜单）。 */
+  options?: readonly ListChoiceOption[]
+  /** 选择行当前值（options 里某个 id）。 */
+  choiceValue?: string
+  /** 选择行：菜单里选中某项的回调；选中后菜单自行收起。 */
+  onChoiceChange?: (id: string) => void
+  /** 选择行：窄容器点行的跳转回调（跳哪由调用方接 Nav）。缺省回退为弹菜单。 */
+  onChoiceNavigate?: () => void
+  /** 覆盖选择行右侧显示文本；缺省按 choiceValue 从 options 找 label，找不到原样显示 choiceValue。 */
+  choiceDisplayValue?: string
   class?: string
 } & Omit<JSX.HTMLAttributes<HTMLDivElement>, 'class'>
 
@@ -60,6 +76,11 @@ export function ListItem({
   value,
   extra,
   control,
+  options,
+  choiceValue,
+  onChoiceChange,
+  onChoiceNavigate,
+  choiceDisplayValue,
   accessory = 'none',
   badge,
   selected,
@@ -76,9 +97,59 @@ export function ListItem({
   const [flashPhase, setFlashPhase] = useState<'hold' | 'out' | 'idle'>('idle')
   const flashTimer = useRef<number | undefined>(undefined)
 
+  // 选择行：options 非空即生效。弹层锚点是行根本体；宽窄形态由 List 实测后经
+  // Context 下发（choiceNarrow），行只管按形态分流点击与收放菜单。
+  const isChoice = options !== undefined && options.length > 0
+  const choiceNarrow = isChoice && list.choiceNarrow === true
+  const [choiceOpen, setChoiceOpen] = useState(false)
+  const rowRef = useRef<HTMLElement>(null)
+  const setRowRef = (node: HTMLElement | null) => {
+    rowRef.current = node
+  }
+  const choiceDisplay =
+    choiceDisplayValue ??
+    options?.find((option) => option.id === choiceValue)?.label ??
+    choiceValue
+
+  useEffect(() => {
+    if (choiceNarrow) setChoiceOpen(false)
+  }, [choiceNarrow])
+
   useEffect(() => {
     if (!list.editing) setArmed(false)
   }, [list.editing])
+
+  // 选择行菜单开着时的外点/Esc 关闭（与 SettingsChoiceField 同款判定：行本体
+  // 与浮层宿主内的点不关，其余全关）
+  useEffect(() => {
+    if (!choiceOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (rowRef.current?.contains(target)) {
+        return
+      }
+      if (getFloatingOverlayRoot().contains(target)) {
+        return
+      }
+      setChoiceOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setChoiceOpen(false)
+      }
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [choiceOpen])
 
   // 进编辑/卸载时清点闪：编辑态行行为暂停，蓝闪不该挂着
   useEffect(() => {
@@ -94,7 +165,11 @@ export function ListItem({
     (id !== undefined && ((list.selectedId !== undefined && list.selectedId === id) || (list.selectedIds?.includes(id) ?? false)))
   // 蓝底持久高亮只是选中的呈现档位之一：selectionTone="check" 时选中只落勾，蓝底留给按下瞬间反馈
   const showHighlight = active && list.selectionTone !== 'check'
-  const actionable = onClick !== undefined || (id !== undefined && list.onSelect !== undefined)
+  const actionable =
+    onClick !== undefined || isChoice || (id !== undefined && list.onSelect !== undefined)
+  // 选择行的箭头配件缺省补上（调用方显式传的 accessory 优先——比如想用勾选样式）
+  const effectiveAccessory =
+    isChoice && accessory === 'none' ? ('disclosure' as ListItemAccessory) : accessory
 
   const hasDelete = id !== undefined && list.onDelete !== undefined
   const hasReorder = id !== undefined && list.onReorder !== undefined
@@ -102,6 +177,23 @@ export function ListItem({
   // grouped/plain 两支类名前缀（机制同一份，DOM 骨架与类名按变体分叉）
   const plain = list.variant === 'plain'
   const cp = plain ? 'plain-list-item' : 'list-item'
+  // 选择行在 plain 变体没有 value 槽，当前值落到首行 trailing 位
+  const plainTrailing = trailing ?? (isChoice && plain ? choiceDisplay : undefined)
+
+  // 选择行的弹出菜单：锚点是行根本体，选中即回调并收起
+  const choiceMenu = isChoice ? (
+    <SettingsChoicePopoverMenu
+      open={choiceOpen}
+      anchorRef={rowRef}
+      options={options}
+      value={choiceValue ?? ''}
+      label={typeof label === 'string' ? label : ''}
+      onChange={(next) => {
+        onChoiceChange?.(next)
+        setChoiceOpen(false)
+      }}
+    />
+  ) : undefined
 
   const handleClick = () => {
     if (armed) {
@@ -109,6 +201,16 @@ export function ListItem({
       return
     }
     if (list.editing) return
+    // 选择行独占点击：宽形态开合菜单、窄形态走跳转回调；不参与行选中与点闪
+    // （反馈由菜单/跳转承载）
+    if (isChoice) {
+      if (choiceNarrow) {
+        onChoiceNavigate?.()
+        return
+      }
+      setChoiceOpen((open) => !open)
+      return
+    }
     if (id !== undefined && list.onSelect !== undefined) list.onSelect(id)
     onClick?.()
     // 点闪只属于纯动作行。受控选中行（id+onSelect，或外部 selected）跳过：它们的
@@ -162,13 +264,15 @@ export function ListItem({
               {label}
               {badge !== undefined && <span class={`${cp}__badge`}>{badge}</span>}
             </span>
-            {trailing !== undefined && <span class={`${cp}__trailing`}>{trailing}</span>}
+            {plainTrailing !== undefined && (
+              <span class={`${cp}__trailing`}>{plainTrailing}</span>
+            )}
           </span>
           {subtitle !== undefined && <span class={`${cp}__subtitle`}>{subtitle}</span>}
           {preview !== undefined && <span class={`${cp}__preview`}>{preview}</span>}
         </span>
       )}
-      {accessory === 'check' && (
+      {effectiveAccessory === 'check' && (
         <span
           class={active ? `${cp}__check` : `${cp}__check ${cp}__check--off`}
           aria-hidden="true"
@@ -176,12 +280,12 @@ export function ListItem({
           ✓
         </span>
       )}
-      {accessory === 'disclosure' && (
+      {effectiveAccessory === 'disclosure' && (
         <span class={`${cp}__disclosure`} aria-hidden="true">
           <ForwardIcon size={13} />
         </span>
       )}
-      {accessory === 'detail' && (
+      {effectiveAccessory === 'detail' && (
         <span
           class={`${cp}__detail`}
           role="button"
@@ -251,7 +355,9 @@ export function ListItem({
           {subtitle !== undefined && <span class="list-item__subtitle">{subtitle}</span>}
         </span>
       )}
-      {control !== undefined ? (
+      {isChoice ? (
+        <span class="list-item__value">{choiceDisplay}</span>
+      ) : control !== undefined ? (
         <span
           class="list-item__control"
           onClick={(event) => event.stopPropagation()}
@@ -263,7 +369,7 @@ export function ListItem({
       ) : value !== undefined ? (
         <span class="list-item__value">{value}</span>
       ) : undefined}
-      {accessory === 'check' && (
+      {effectiveAccessory === 'check' && (
         <span
           class={active ? 'list-item__check' : `list-item__check list-item__check--off`}
           aria-hidden="true"
@@ -271,12 +377,12 @@ export function ListItem({
           ✓
         </span>
       )}
-      {accessory === 'disclosure' && (
+      {effectiveAccessory === 'disclosure' && (
         <span class="list-item__disclosure" aria-hidden="true">
           <ForwardIcon size={13} />
         </span>
       )}
-      {accessory === 'detail' && (
+      {effectiveAccessory === 'detail' && (
         <span
           class="list-item__detail"
           role="button"
@@ -322,19 +428,24 @@ export function ListItem({
   return actionable ? (
     <button
       type="button"
+      ref={isChoice ? setRowRef : undefined}
       data-list-item-id={id}
       class={className}
       aria-current={active ? 'true' : undefined}
       aria-disabled={list.editing || undefined}
+      aria-haspopup={isChoice && !choiceNarrow ? 'listbox' : undefined}
+      aria-expanded={isChoice && !choiceNarrow ? choiceOpen : undefined}
       tabIndex={list.editing ? -1 : undefined}
       disabled={disabled}
       onClick={handleClick}
       {...(rest as JSX.HTMLAttributes<HTMLButtonElement>)}
     >
       {content}
+      {choiceMenu}
     </button>
   ) : (
     <div
+      ref={isChoice ? setRowRef : undefined}
       data-list-item-id={id}
       class={className}
       aria-current={active ? 'true' : undefined}
@@ -342,6 +453,7 @@ export function ListItem({
       {...rest}
     >
       {content}
+      {choiceMenu}
     </div>
   )
 }
