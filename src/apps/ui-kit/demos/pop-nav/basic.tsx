@@ -77,8 +77,8 @@ function AnchoredPopNav() {
         onClose={() => setOpen(false)}
         ariaLabel="示例弹出导航"
         controller={demo.controller}
-        renderNarrowPage={(page) => renderDemoPages(page, demo)}
-        renderWideFrames={() => []}
+        frames={[]}
+        renderPage={(page) => renderDemoPages(page, demo)}
       >
         <PopNavTrigger>
           <Button>打开弹窗</Button>
@@ -101,8 +101,8 @@ function StatefulPopNav() {
         onClose={() => setOpen(false)}
         ariaLabel="状态保持示例"
         controller={demo.controller}
-        renderNarrowPage={(page) => renderDemoPages(page, demo)}
-        renderWideFrames={() => []}
+        frames={[]}
+        renderPage={(page) => renderDemoPages(page, demo)}
       >
         <PopNavTrigger>
           <Button>打开弹窗</Button>

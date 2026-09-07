@@ -130,30 +130,29 @@
   --settings-nav-heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-/* ── Nav（flat 引擎）转场桥接 ──
- * 顶层导航已换 flat 引擎：窄屏进退走 data-stack-transition 窗口（stage 级
- * 拆盒），宽屏帧进退走 data-frame-nav 窗口（详情 host 内拆盒）。引擎只认
- * .page-header/.page__body 结构；flow 页（模型设置/添加模型，页根内嵌
- * idle 子栈）在此打平子栈，让内层表单页的 header/正文参与外层拆盒
- * （page-stack.css 同款三板斧）。 */
+/* ── Nav 转场桥接 ──
+ * 窄屏进退走 data-stack-transition 窗口（stage 级拆盒），宽屏帧进退走
+ * data-frame-nav 窗口（详情 host 内拆盒）。引擎只认 .page-header/.page__body
+ * 结构；flow 页（模型设置/添加模型，页根内嵌 idle 子栈）在此打平子栈，让
+ * 内层表单页的 header/正文参与外层拆盒（page-stack.css 同款三板斧）。 */
 
-.nav--flat[data-stack-transition]:not(.nav--morphing)
+.nav[data-stack-transition]:not(.nav--morphing)
   .nav__host:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--']),
-.nav--flat[data-frame-nav]:not(.nav--morphing)
+.nav[data-frame-nav]:not(.nav--morphing)
   .nav__host[data-pos='detail']:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--']) {
   display: contents;
 }
 
-.nav--flat[data-stack-transition]:not(.nav--morphing)
+.nav[data-stack-transition]:not(.nav--morphing)
   .nav__host:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--'])
   > .page-stack__layer,
-.nav--flat[data-frame-nav]:not(.nav--morphing)
+.nav[data-frame-nav]:not(.nav--morphing)
   .nav__host[data-pos='detail']:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--'])
@@ -163,13 +162,13 @@
   inset: auto;
 }
 
-.nav--flat[data-stack-transition]:not(.nav--morphing)
+.nav[data-stack-transition]:not(.nav--morphing)
   .nav__host:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--'])
   > .page-stack__layer
   > .page,
-.nav--flat[data-frame-nav]:not(.nav--morphing)
+.nav[data-frame-nav]:not(.nav--morphing)
   .nav__host[data-pos='detail']:is(.is-under, .is-over)
   .keychain__flow-page
   > .page-stack:not([class*='page-stack--'])

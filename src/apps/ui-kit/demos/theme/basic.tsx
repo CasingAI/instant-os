@@ -102,17 +102,8 @@ export default function ThemeBasicDemo() {
             <div style={{ flex: 1, minHeight: 0 }}>
               <Nav
                 controller={controller}
-                renderNarrowPage={renderPage}
-                renderWideFrames={() =>
-                  selected
-                    ? [
-                        {
-                          id: 'detail',
-                          content: renderPage('detail'),
-                        },
-                      ]
-                    : []
-                }
+                frames={selected ? ['detail'] : []}
+                renderPage={renderPage}
                 framesResetKey={selectedId ?? ''}
               />
             </div>

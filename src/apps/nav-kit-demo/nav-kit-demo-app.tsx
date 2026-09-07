@@ -403,9 +403,9 @@ export function NavKitDemoApp() {
     )
   }
 
-  // flat 引擎：每页 id 只有一个常驻 host，窄屏子页与分栏帧是同一实例的
-  // 两种角色；返回键 chrome 由 Nav 统一编排（深度 1 的书页：分栏静置无
-  // 返回、A 型顶帧挂回淡出、落窄淡入；其余层级恒有返回）。
+  // 每页 id 只有一个常驻 host，窄屏子页与分栏帧是同一实例的两种角色；
+  // 返回键 chrome 由 Nav 统一编排（深度 1 的书页：分栏静置无返回、A 型
+  // 顶帧挂回淡出、落窄淡入；其余层级恒有返回）。
   const framePath = framePositions(pos)
   const frames = framePath.map(posPageId)
 
@@ -428,7 +428,6 @@ export function NavKitDemoApp() {
   return (
     <Nav
       controller={nav}
-      engine="flat"
       frames={frames}
       renderPage={renderPage}
       framesResetKey={pos.kind === 'shelf' ? 'shelf' : `b:${pos.b}`}

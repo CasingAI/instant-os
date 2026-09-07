@@ -384,7 +384,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'nav',
     name: 'Nav',
-    description: '导航家族：Nav 本体（宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变交接）+ Nav.Page（强制页单位：统一标题栏外壳由组件绘制，返回键显隐与形变淡入淡出全系统一份实现）+ Nav.Header / Nav.Flow。分栏宽度 ≤640 时进入紧凑档。页面必须是 <Nav.Page>（运行时强制校验）——用 Nav 的地方外壳必然一个长相。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
+    description: '导航家族：Nav 本体（宽屏「列表 + 帧栈」分栏、窄屏自动回子页栈，宽窄切换以刚性面板滑轨形变）+ Nav.Page（强制页单位：统一标题栏外壳由组件绘制，返回键显隐与形变淡入淡出全系统一份实现）+ Nav.Header / Nav.Flow。平铺单实例：每页 id 一个常驻宿主，窄/宽只是同一份内容的两种角色，窄屏子页与分栏帧共用同一套页 id。分栏宽度 ≤640 时进入紧凑档。页面必须是 <Nav.Page>（运行时强制校验）——用 Nav 的地方外壳必然一个长相。布局原语需整应用承载——点 Demo 里的按钮打开「导航组件演示」',
     category: 'navigation',
     importPath: "import { Nav, useNav } from '../../ui/nav.tsx'",
     demos: [
@@ -392,8 +392,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
     props: [
       { name: 'controller', type: 'NavController', description: 'useNav() 返回的控制器', defaultValue: '—' },
-      { name: 'renderNarrowPage', type: '(page: string) => <Nav.Page>', description: '窄屏子页栈页面渲染（必须返回 <Nav.Page>）', defaultValue: '—' },
-      { name: 'renderWideFrames', type: '() => NavFrameSpec[]', description: '分栏右栏帧序列（content 必须是 <Nav.Page>，末位最上）', defaultValue: '—' },
+      { name: 'renderPage', type: '(page, ctx) => <Nav.Page>', description: '按页 id 渲染页面实体，一份内容服务窄/宽两种形态（形态差异经 ctx 的 narrowLayout/morphing/morphKind 取舍）', defaultValue: '—' },
+      { name: 'frames', type: 'string[]', description: '分栏右栏帧序（页 id，末位最上）；与窄屏子页同一套 id 空间', defaultValue: '—' },
       { name: '<Nav.Page>', type: '{ title?, backLabel?, onBack?, actions?, children }', description: '强制页单位：统一标题栏（返回/标题/操作区）+ 滚动正文；返回键随形态的显隐与淡入淡出由 Nav 编排', defaultValue: '—' },
       { name: '<Nav.Header>', type: 'NavHeaderProps', description: '标题栏本体（无标题特殊页单独取用）', defaultValue: '—' },
       { name: '<Nav.Flow>', type: '{ children }', description: '流程页出口：内嵌 PageStack 子栈的选择器/向导（外壳由子栈的标准件提供）', defaultValue: '—' },
@@ -401,7 +401,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'narrowPageForState', type: '() => string', description: 'useNav：由领域状态推导当前子页 id', defaultValue: '—' },
       { name: 'listPage', type: 'string?', description: 'useNav：分栏左栏根列表页 id', defaultValue: '—' },
       { name: 'frameAnimationMs', type: 'number?', description: '形变/帧动画时长', defaultValue: '380' },
-      { name: 'safeArea', type: 'number?', description: '安全区高度（px）：大于 0 时顶部与底部各保留该空间，顶部由标题栏材质向上延伸无缝占满，底部由与页面材质同色的条带延续', defaultValue: '—' },
+      { name: 'safeArea', type: 'number?', description: '安全区高度（px）：大于 0 时顶部与底部各保留该空间，顶部由标题栏材质向上延伸无缝占满；底部仅暗色页壳处理（加进内容井底边框成 8px + 安全区），亮色不处理', defaultValue: '—' },
     ],
   },
   {
@@ -551,7 +551,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'onOpen', type: '() => void?', description: 'PopNavTrigger 点按时的开窗请求', defaultValue: '—' },
       { name: 'anchorRef', type: 'RefObject<HTMLElement>?', description: '逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）', defaultValue: '—' },
       { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
-      { name: '…NavProps', type: 'NavProps', description: "controller 与 renderNarrowPage/renderWideFrames（或 engine:'flat' 一套）原样透传给内部 Nav——页面必须是 <Nav.Page>（统一标题栏外壳，运行时强制），没有塞任意组件的口子", defaultValue: '—' },
+      { name: '…NavProps', type: 'NavProps', description: 'controller 与 renderPage/frames 原样透传给内部 Nav——页面必须是 <Nav.Page>（统一标题栏外壳，运行时强制），没有塞任意组件的口子', defaultValue: '—' },
       { name: '<PopNavTrigger>', type: 'ComponentChildren', description: '触发器：包住按钮等元素，ref 与点按自动接好，箭头指向它；孩子须是原生元素或接 ref 的组件，否则退回透明壳', defaultValue: '—' },
     ],
   },

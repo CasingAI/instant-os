@@ -20,11 +20,7 @@ import {
   type WorkerHeapReport,
   type WorkerHeapServiceId,
 } from '../../os/worker-heap-reports.ts'
-import {
-  Nav,
-  useNav,
-  type NavFrameSpec,
-} from '../../ui/nav.tsx'
+import { Nav, useNav } from '../../ui/nav.tsx'
 import { Button } from '../../ui/button.tsx'
 import { List } from '../../ui/list.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -285,7 +281,7 @@ export function ServicesApp() {
     </Nav.Page>
   )
 
-  const renderNarrowPage = (target: string) => {
+  const renderPage = (target: string) => {
     if (target === 'detail') {
       return renderDetailPage()
     }
@@ -318,21 +314,14 @@ export function ServicesApp() {
     return renderListPage(nav.narrowLayout)
   }
 
-  // 分栏帧：详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
-  // 顶帧临时挂回随滑轨淡出——由 Nav 统一编排。
-  const renderWideFrames = (): NavFrameSpec[] => [
-    {
-      id: 'detail',
-      content: renderDetailPage(),
-    },
-  ]
-
   return (
+    // 详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）顶帧临时
+    // 挂回随滑轨淡出——由 Nav 统一编排。
     <Nav
       controller={nav}
       class="services-host"
-      renderNarrowPage={renderNarrowPage}
-      renderWideFrames={renderWideFrames}
+      frames={['detail']}
+      renderPage={renderPage}
       listRatio={0.36}
     />
   )

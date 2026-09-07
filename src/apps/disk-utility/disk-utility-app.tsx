@@ -2,11 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import { Button } from '../../ui/button.tsx'
-import {
-  Nav,
-  useNav,
-  type NavFrameSpec,
-} from '../../ui/nav.tsx'
+import { Nav, useNav } from '../../ui/nav.tsx'
 import { TreeView } from '../../ui/tree-view.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { requestFilesReveal } from '../files/files-reveal-request.ts'
@@ -1105,39 +1101,24 @@ export function DiskUtilityApp() {
     </Nav.Page>
   )
 
-  const renderNarrowPage = (target: string) => {
+  const renderPage = (target: string) => {
     if (target === 'detail') {
-      return renderDetailPage(false)
+      // 详情节点用分栏那份闭包（含地图节点回退），窄屏同样走这份
+      return renderDetailPage(false, mapNode ?? selectedNode)
     }
     if (target === 'partition') return renderDetailPage(true)
     return renderListPage()
   }
 
-  // 分栏帧：详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
-  // 顶帧临时挂回随滑轨淡出；分区视图帧（帧深 2）恒带「返回镜像」。
-  const renderWideFrames = (): NavFrameSpec[] => {
-    const frames: NavFrameSpec[] = [
-      {
-        id: 'detail',
-        content: renderDetailPage(false, mapNode ?? selectedNode),
-      },
-    ]
-    if (partitionView) {
-      frames.push({
-        id: 'partition',
-        content: renderDetailPage(true, selectedNode),
-      })
-    }
-    return frames
-  }
-
   return (
     <>
+      {/* 帧序 = 详情，分区视图打开时再加一层；详情帧静置不带返回（左栏列表
+          即它的上级）、分区帧（帧深 2）恒带「返回镜像」，均由 Nav 统一编排。 */}
       <Nav
         controller={nav}
         class="disk-utility"
-        renderNarrowPage={renderNarrowPage}
-        renderWideFrames={renderWideFrames}
+        frames={partitionView ? ['detail', 'partition'] : ['detail']}
+        renderPage={renderPage}
       />
 
       <EraseDiskDialog

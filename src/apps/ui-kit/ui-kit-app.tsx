@@ -4,11 +4,7 @@ import { UI_COMPONENTS, COMPONENT_CATEGORIES } from './ui-kit-components.ts'
 import type { ComponentDemo, ComponentDemoBlock } from './ui-kit-components.ts'
 import { PageCurlDemo } from './page-curl-demo.tsx'
 import pageCurlSource from './page-curl-demo.tsx?raw'
-import {
-  Nav,
-  useNav,
-  type NavFrameSpec,
-} from '../../ui/nav.tsx'
+import { Nav, useNav } from '../../ui/nav.tsx'
 import { List, ListSection } from '../../ui/list.tsx'
 import { ListItem } from '../../ui/list-item.tsx'
 import { Button } from '../../ui/button.tsx'
@@ -390,29 +386,22 @@ export function UiKitApp() {
     )
   }
 
-  const renderNarrowPage = (target: string) => {
+  const renderPage = (target: string) => {
     if (target === 'detail') {
       return renderDetailPage()
     }
     return renderListPage()
   }
 
-  // 分栏帧：详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
-  // 顶帧临时挂回随滑轨淡出——由 Nav 统一编排。
-  const renderWideFrames = (): NavFrameSpec[] => [
-    {
-      id: 'detail',
-      content: renderDetailPage(),
-    },
-  ]
-
   return (
     <DarkMode disabled={!demoDark}>
+      {/* 详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）顶帧
+          临时挂回随滑轨淡出——由 Nav 统一编排。 */}
       <Nav
         controller={nav}
         class={`ui-kit${narrowLayout ? ' ui-kit--narrow' : ''}`}
-        renderNarrowPage={renderNarrowPage}
-        renderWideFrames={renderWideFrames}
+        frames={['detail']}
+        renderPage={renderPage}
         listRatio={0.34}
       />
     </DarkMode>

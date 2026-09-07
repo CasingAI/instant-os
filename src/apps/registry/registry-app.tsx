@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import {
-  Nav,
-  useNav,
-  type NavFrameSpec,
-} from '../../ui/nav.tsx'
+import { Nav, useNav } from '../../ui/nav.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { Button } from '../../ui/button.tsx'
 import { ForwardIcon } from '../../icons/app-icons.tsx'
@@ -332,66 +328,41 @@ function editorDraftError(kind: EditorKind, draft: string): string | undefined {
   return parsed.ok ? undefined : parsed.error
 }
 
-type WideFrame =
-  | { kind: 'keys'; id: string; appId: string }
-  | { kind: 'browse'; id: string; appId: string; key: string; path: JsonPath }
-  | { kind: 'edit'; id: string; appId: string; key: string; path: JsonPath }
-
-function buildWideFrames(
+/** 分栏右栏帧序：与窄屏子页同一套页 id（keys / 浏览深度 b:N / edit），从
+ * displayedAppId + drill 派生。keys → 根浏览 b:0 → 逐层容器 b:N →（编辑时）
+ * edit，与窄屏栈同构；叶子层不产帧（直接进 edit）。换命名空间由
+ * framesResetKey 整体替换，同深度换键是同 id 内容刷新、无动画。 */
+function buildFrames(
   appId: string | undefined,
   drill: DrillState,
   entry: RegistryEntry | undefined,
-): WideFrame[] {
+): string[] {
   if (!appId) {
     return []
   }
-  const frames: WideFrame[] = [{ kind: 'keys', id: `keys:${appId}`, appId }]
+  const frames: string[] = [PAGE_KEYS]
   if (!drill.selectedKey || !entry) {
     return frames
   }
   const containerKey = jsonOpenMode(entry.value, entryValueType(entry)) === 'browse'
   if (!containerKey) {
     if (drill.editorOpen) {
-      frames.push({
-        id: `edit:${entry.key}`,
-        kind: 'edit',
-        appId,
-        key: entry.key,
-        path: [],
-      })
+      frames.push(PAGE_EDIT)
     }
     return frames
   }
 
   const root = parsedJsonRoot(entry)
-  frames.push({
-    id: `browse:${entry.key}`,
-    kind: 'browse',
-    appId,
-    key: entry.key,
-    path: [],
-  })
+  frames.push(browsePageId(0))
   for (let index = 0; index < drill.jsonPath.length; index += 1) {
     const prefix = drill.jsonPath.slice(0, index + 1)
     const node = root !== undefined ? getAtPath(root, prefix) : undefined
     if (isJsonContainer(node)) {
-      frames.push({
-        id: `browse:${entry.key}:${prefix.join('\0')}`,
-        kind: 'browse',
-        appId,
-        key: entry.key,
-        path: prefix,
-      })
+      frames.push(browsePageId(prefix.length))
     }
   }
   if (drill.editorOpen) {
-    frames.push({
-      id: `edit:${entry.key}:${drill.jsonPath.join('\0')}`,
-      kind: 'edit',
-      appId,
-      key: entry.key,
-      path: drill.jsonPath,
-    })
+    frames.push(PAGE_EDIT)
   }
   return frames
 }
@@ -486,222 +457,162 @@ function RegistryRootPane({
   onSelect,
 }: RegistryRootPaneProps) {
   return (
-    <Nav.Page title="注册表管理">
-      <div class="settings__content settings__content--compact">
-        <section class="settings__section">
-          <p class="settings__section-subtitle">
-            应用注册表（IndexedDB）按应用命名空间存储数据，当前{' '}
-            {formatStorageSize(namespaces.reduce((sum, namespace) => sum + namespace.bytes, 0))} /{' '}
-            {formatStorageSize(getDataCapacityBytes())}
-          </p>
-          {loading ? (
-            <div class="settings__loading">
-              <div class="settings__loading-spinner" />
-              <span>加载中…</span>
-            </div>
-          ) : namespaces.length === 0 ? (
-            <div class="settings__box settings__empty">注册表暂无应用数据</div>
-          ) : (
-            <NamespaceList
-              namespaces={namespaces}
-              selectedAppId={selectedAppId}
-              onSelect={onSelect}
-            />
-          )}
-          <p class="settings__section-footnote">{footnote}</p>
-        </section>
-      </div>
-    </Nav.Page>
+    <div class="settings__content settings__content--compact">
+      <section class="settings__section">
+        <p class="settings__section-subtitle">
+          应用注册表（IndexedDB）按应用命名空间存储数据，当前{' '}
+          {formatStorageSize(namespaces.reduce((sum, namespace) => sum + namespace.bytes, 0))} /{' '}
+          {formatStorageSize(getDataCapacityBytes())}
+        </p>
+        {loading ? (
+          <div class="settings__loading">
+            <div class="settings__loading-spinner" />
+            <span>加载中…</span>
+          </div>
+        ) : namespaces.length === 0 ? (
+          <div class="settings__box settings__empty">注册表暂无应用数据</div>
+        ) : (
+          <NamespaceList
+            namespaces={namespaces}
+            selectedAppId={selectedAppId}
+            onSelect={onSelect}
+          />
+        )}
+        <p class="settings__section-footnote">{footnote}</p>
+      </section>
+    </div>
   )
 }
 
 type RegistryDetailPaneProps = {
-  selectedAppId: string
   namespace: GlobalNamespaceInfo | undefined
   entries: RegistryEntry[]
   entriesLoading: boolean
   deletingKey: string | undefined
-  clearing: boolean
-  onBack: () => void
   onOpenKey: (key: string) => void
   onDeleteKey: (key: string) => void
-  onConfirmClear: () => void
 }
 
 function RegistryDetailPane({
-  selectedAppId,
   namespace,
   entries,
   entriesLoading,
   deletingKey,
-  clearing,
-  onBack,
   onOpenKey,
   onDeleteKey,
-  onConfirmClear,
 }: RegistryDetailPaneProps) {
   return (
-    <Nav.Page
-      title={appLabel(selectedAppId)}
-      backLabel="注册表管理"
-      onBack={onBack}
-      actions={
-        entries.length > 0 ? (
-          <Button
-            tone="danger"
-            busy={clearing}
-            onClick={onConfirmClear}
-          >
-            清空
-          </Button>
-        ) : undefined
-      }
-    >
-      <div class="settings__content settings__content--compact">
-        <section class="settings__section">
-          <p class="settings__section-footnote">
-            {namespace?.keyCount ?? entries.length} 键 ·{' '}
-            {formatStorageSize(namespace?.bytes ?? 0)}
-          </p>
-          {entriesLoading && entries.length === 0 ? (
-            <div class="settings__loading">
-              <div class="settings__loading-spinner" />
-              <span>加载中…</span>
+    <div class="settings__content settings__content--compact">
+      <section class="settings__section">
+        <p class="settings__section-footnote">
+          {namespace?.keyCount ?? entries.length} 键 ·{' '}
+          {formatStorageSize(namespace?.bytes ?? 0)}
+        </p>
+        {entriesLoading && entries.length === 0 ? (
+          <div class="settings__loading">
+            <div class="settings__loading-spinner" />
+            <span>加载中…</span>
+          </div>
+        ) : entries.length === 0 ? (
+          <div class="settings__box settings__empty">该命名空间暂无数据</div>
+        ) : (
+          <div class="settings__list registry__key-list">
+            <div class="settings__list-head registry__list-head">
+              <span>键</span>
+              <span>大小</span>
+              <span>操作</span>
             </div>
-          ) : entries.length === 0 ? (
-            <div class="settings__box settings__empty">该命名空间暂无数据</div>
-          ) : (
-            <div class="settings__list registry__key-list">
-              <div class="settings__list-head registry__list-head">
-                <span>键</span>
-                <span>大小</span>
-                <span>操作</span>
-              </div>
-              <div class="settings__list-body settings__list-body--keys">
-                {entries.map((entry) => (
-                  <RegistryEntryRow
-                    key={entry.key}
-                    entry={entry}
-                    deleting={deletingKey === entry.key}
-                    onOpen={() => onOpenKey(entry.key)}
-                    onDelete={() => onDeleteKey(entry.key)}
-                  />
-                ))}
-              </div>
+            <div class="settings__list-body settings__list-body--keys">
+              {entries.map((entry) => (
+                <RegistryEntryRow
+                  key={entry.key}
+                  entry={entry}
+                  deleting={deletingKey === entry.key}
+                  onOpen={() => onOpenKey(entry.key)}
+                  onDelete={() => onDeleteKey(entry.key)}
+                />
+              ))}
             </div>
-          )}
-          <p class="settings__section-footnote">
-            JSON 对象与数组可逐级展开；文本与叶子值点进去编辑。删除仍只作用于整个注册表键。
-          </p>
-        </section>
-      </div>
-    </Nav.Page>
-  )
-}
-
-function RegistryDetailEmpty() {
-  return (
-    <Nav.Page title="注册表管理">
-      <div class="settings__content settings__content--compact">
-        <div class="settings__box settings__empty">选择左侧应用以查看注册表键</div>
-      </div>
-    </Nav.Page>
+          </div>
+        )}
+        <p class="settings__section-footnote">
+          JSON 对象与数组可逐级展开；文本与叶子值点进去编辑。删除仍只作用于整个注册表键。
+        </p>
+      </section>
+    </div>
   )
 }
 
 type RegistryBrowsePaneProps = {
-  title: string
-  backLabel: string
   footnote: string
   nodes: JsonChild[]
-  onBack: () => void
   onOpenChild: (key: string) => void
-  onEditJson: () => void
 }
 
 function RegistryBrowsePane({
-  title,
-  backLabel,
   footnote,
   nodes,
-  onBack,
   onOpenChild,
-  onEditJson,
 }: RegistryBrowsePaneProps) {
   return (
-    <Nav.Page
-      title={title}
-      backLabel={backLabel}
-      onBack={onBack}
-      actions={
-        <Button tone="primary" onClick={onEditJson}>
-          编辑 JSON
-        </Button>
-      }
-    >
-      <div class="settings__content settings__content--compact">
-        <section class="settings__section">
-          <p class="settings__section-footnote">{footnote}</p>
-          {nodes.length === 0 ? (
-            <div class="settings__box settings__empty">此节点暂无子项</div>
-          ) : (
-            <div class="settings__list registry__node-list">
-              <div class="settings__list-head registry__list-head">
-                <span>键</span>
-                <span>值</span>
-              </div>
-              <div class="settings__list-body">
-                {nodes.map((child) => (
-                  <div class="registry__entry-row registry__entry-row--node" key={child.key}>
-                    <button
-                      type="button"
-                      class="settings__row settings__row--button registry__entry-open"
-                      onClick={() => onOpenChild(child.key)}
-                    >
-                      <span class="settings__row-name">
-                        <span class="registry__row-meta">
-                          <span class="registry__row-key-line">
-                            <span class="settings__row-key">{child.label}</span>
-                            <span class="settings__row-badge">{jsonKindLabel(child.kind)}</span>
-                          </span>
+    <div class="settings__content settings__content--compact">
+      <section class="settings__section">
+        <p class="settings__section-footnote">{footnote}</p>
+        {nodes.length === 0 ? (
+          <div class="settings__box settings__empty">此节点暂无子项</div>
+        ) : (
+          <div class="settings__list registry__node-list">
+            <div class="settings__list-head registry__list-head">
+              <span>键</span>
+              <span>值</span>
+            </div>
+            <div class="settings__list-body">
+              {nodes.map((child) => (
+                <div class="registry__entry-row registry__entry-row--node" key={child.key}>
+                  <button
+                    type="button"
+                    class="settings__row settings__row--button registry__entry-open"
+                    onClick={() => onOpenChild(child.key)}
+                  >
+                    <span class="settings__row-name">
+                      <span class="registry__row-meta">
+                        <span class="registry__row-key-line">
+                          <span class="settings__row-key">{child.label}</span>
+                          <span class="settings__row-badge">{jsonKindLabel(child.kind)}</span>
                         </span>
                       </span>
-                      <span class="settings__disclosure" aria-hidden="true">
-                        <ForwardIcon size={13} />
-                      </span>
-                    </button>
-                    <span class="settings__row-size">{child.summary}</span>
-                  </div>
-                ))}
-              </div>
+                    </span>
+                    <span class="settings__disclosure" aria-hidden="true">
+                      <ForwardIcon size={13} />
+                    </span>
+                  </button>
+                  <span class="settings__row-size">{child.summary}</span>
+                </div>
+              ))}
             </div>
-          )}
-        </section>
-      </div>
-    </Nav.Page>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }
 
 type RegistryValuePaneProps = {
-  title: string
-  backLabel: string
   footnote: string
   initial: string
   kind: EditorKind
   saving: boolean
-  onBack: () => void
   onSave: (draft: string) => void | Promise<void>
   onDirtyChange: (dirty: boolean) => void
 }
 
+/** 编辑器正文（带草稿状态）：标题栏外壳由组装处的 <Nav.Page> 提供，
+ * 保存钮因依赖组件内的草稿状态而落在正文里。 */
 function RegistryValuePane({
-  title,
-  backLabel,
   footnote,
   initial,
   kind,
   saving,
-  onBack,
   onSave,
   onDirtyChange,
 }: RegistryValuePaneProps) {
@@ -726,11 +637,18 @@ function RegistryValuePane({
   }, [draft, initial, onDirtyChange])
 
   return (
-    <Nav.Page
-      title={title}
-      backLabel={backLabel}
-      onBack={onBack}
-      actions={
+    <div class="settings__content settings__content--compact registry__value-content">
+      <p class="settings__section-footnote">{footnote}</p>
+      {parseError ? <p class="registry__value-error">{parseError}</p> : undefined}
+      <textarea
+        class="registry__value-textarea"
+        value={draft}
+        cols={1}
+        spellcheck={false}
+        disabled={saving}
+        onInput={(event) => setDraft((event.currentTarget as HTMLTextAreaElement).value)}
+      />
+      <div class="registry__value-actions">
         <Button
           tone="primary"
           disabled={!canSave}
@@ -739,21 +657,8 @@ function RegistryValuePane({
         >
           保存
         </Button>
-      }
-    >
-      <div class="settings__content settings__content--compact registry__value-content">
-        <p class="settings__section-footnote">{footnote}</p>
-        {parseError ? <p class="registry__value-error">{parseError}</p> : undefined}
-        <textarea
-          class="registry__value-textarea"
-          value={draft}
-          cols={1}
-          spellcheck={false}
-          disabled={saving}
-          onInput={(event) => setDraft((event.currentTarget as HTMLTextAreaElement).value)}
-        />
       </div>
-    </Nav.Page>
+    </div>
   )
 }
 
@@ -1330,17 +1235,10 @@ export function RegistryApp() {
     Boolean(selectedAppId) &&
     (narrowLayout ? detailAppId !== selectedAppId : !detailAppId && entriesLoading)
 
-  const liveFrames = useMemo(
-    () => buildWideFrames(displayedAppId, drill, selectedEntry),
+  const frames = useMemo(
+    () => buildFrames(displayedAppId, drill, selectedEntry),
     [displayedAppId, drill, selectedEntry],
   )
-
-  const findEntry = (appId: string, key: string): RegistryEntry | undefined => {
-    if (appId === displayedAppId) {
-      return displayedEntries.find((item) => item.key === key) ?? selectedEntry
-    }
-    return entriesCacheRef.current.get(appId)?.find((item) => item.key === key)
-  }
 
   const browseBackLabel = (entry: RegistryEntry, path: JsonPath): string => {
     if (path.length === 0) {
@@ -1368,19 +1266,30 @@ export function RegistryApp() {
     return pathTitle(entry.key, path.slice(0, -1), root)
   }
 
+  // 键列表：标题 = 命名空间应用名，返回回根列表；有键时标题栏放「清空」。
+  // 分栏下深度 1 的返回由 Nav 自己藏，应用只声明域事实。
   const renderDetailPane = (appId: string) => (
-    <RegistryDetailPane
-      selectedAppId={appId}
-      namespace={appId === selectedAppId ? selectedNamespace : displayedNamespace}
-      entries={displayedEntries}
-      entriesLoading={displayedLoading}
-      deletingKey={deletingKey}
-      clearing={clearing}
+    <Nav.Page
+      title={appLabel(appId)}
+      backLabel="注册表管理"
       onBack={closeDetail}
-      onOpenKey={openEntry}
-      onDeleteKey={(key) => void handleDeleteKey(key)}
-      onConfirmClear={() => void handleConfirmClear()}
-    />
+      actions={
+        displayedEntries.length > 0 ? (
+          <Button tone="danger" busy={clearing} onClick={() => void handleConfirmClear()}>
+            清空
+          </Button>
+        ) : undefined
+      }
+    >
+      <RegistryDetailPane
+        namespace={appId === selectedAppId ? selectedNamespace : displayedNamespace}
+        entries={displayedEntries}
+        entriesLoading={displayedLoading}
+        deletingKey={deletingKey}
+        onOpenKey={openEntry}
+        onDeleteKey={(key) => void handleDeleteKey(key)}
+      />
+    </Nav.Page>
   )
 
   const renderBrowsePane = (entry: RegistryEntry, path: JsonPath) => {
@@ -1390,15 +1299,22 @@ export function RegistryApp() {
     const title = root !== undefined ? pathTitle(entry.key, path, root) : entry.key
     const kind = jsonNodeKind(node)
     return (
-      <RegistryBrowsePane
+      <Nav.Page
         title={title}
         backLabel={browseBackLabel(entry, path)}
-        footnote={`${jsonKindLabel(kind)} · ${nodes.length} 项`}
-        nodes={nodes}
         onBack={() => void goBackFromDrill()}
-        onOpenChild={(childKey) => openChild(entry, path, childKey)}
-        onEditJson={() => openEditJson(entry, path)}
-      />
+        actions={
+          <Button tone="primary" onClick={() => openEditJson(entry, path)}>
+            编辑 JSON
+          </Button>
+        }
+      >
+        <RegistryBrowsePane
+          footnote={`${jsonKindLabel(kind)} · ${nodes.length} 项`}
+          nodes={nodes}
+          onOpenChild={(childKey) => openChild(entry, path, childKey)}
+        />
+      </Nav.Page>
     )
   }
 
@@ -1417,19 +1333,23 @@ export function RegistryApp() {
       resolved.kind === 'raw' ? valueTypeBadgeLabel(entry) : jsonKindLabel(resolved.kind)
     const bytes =
       resolved.kind === 'raw' ? utf8Length(entry.value) : nodeByteLength(resolved.node)
+    // 保存钮依赖组件内草稿状态，落在正文里；标题栏外壳在组装处套。
     return (
-      <RegistryValuePane
-        key={`${entry.appId}:${entry.key}:${path.join('\0')}`}
+      <Nav.Page
         title={resolved.title}
         backLabel={editorBackLabel(entry, path, resolved.kind)}
-        footnote={`${kindLabel} · ${formatStorageSize(bytes)} · 更新于 ${formatTimestamp(entry.updatedAt)}`}
-        initial={resolved.initial}
-        kind={resolved.kind}
-        saving={saving}
         onBack={() => void goBackFromDrill()}
-        onSave={(draft) => handleSaveEntry(entry, path, resolved.kind, draft)}
-        onDirtyChange={handleDirtyChange}
-      />
+      >
+        <RegistryValuePane
+          key={`${entry.appId}:${entry.key}:${path.join('\0')}`}
+          footnote={`${kindLabel} · ${formatStorageSize(bytes)} · 更新于 ${formatTimestamp(entry.updatedAt)}`}
+          initial={resolved.initial}
+          kind={resolved.kind}
+          saving={saving}
+          onSave={(draft) => handleSaveEntry(entry, path, resolved.kind, draft)}
+          onDirtyChange={handleDirtyChange}
+        />
+      </Nav.Page>
     )
   }
 
@@ -1440,7 +1360,12 @@ export function RegistryApp() {
     return renderBrowsePane(selectedEntry, drill.jsonPath.slice(0, depth))
   }
 
-  const renderNarrowPage = (target: string) => {
+  // 窄屏子页与分栏帧共用一份渲染（同一套页 id）。keys 页的命名空间随形态
+  // 取：窄屏即时显新选中项（加载期骨架），分栏显 displayedAppId（加载期
+  // 保留旧命名空间内容）——与拆分前两侧行为一致。keys 帧静置不带返回
+  // （左栏即它的上级），A 型形变（窄→宽）顶帧临时挂回随滑轨淡出；
+  // browse/edit 帧（帧深 ≥2）恒带返回——均由 Nav 统一编排。
+  const renderPage = (target: string) => {
     if (target === PAGE_EDIT) {
       // 兜底：edit 页必有选中键，缺失时给一个统一外壳的空页（类型不允许裸 null）
       if (!selectedEntry) {
@@ -1455,52 +1380,29 @@ export function RegistryApp() {
     }
 
     if (target === PAGE_KEYS) {
-      if (!selectedAppId) {
+      const paneAppId = narrowLayout ? selectedAppId : displayedAppId
+      if (!paneAppId) {
         return <Nav.Page title="注册表管理" />
       }
-      return renderDetailPane(selectedAppId)
+      return renderDetailPane(paneAppId)
     }
 
     return (
-      <RegistryRootPane
-        namespaces={namespaces}
-        loading={loading}
-        selectedAppId={narrowLayout ? undefined : selectedAppId}
-        onSelect={selectNamespace}
-        footnote={
-          narrowLayout
-            ? '点击命名空间可查看字段级键条目；JSON 可逐级展开，叶子可编辑。'
-            : '点击应用可在右侧查看注册表键；JSON 可逐级展开。'
-        }
-      />
+      <Nav.Page title="注册表管理">
+        <RegistryRootPane
+          namespaces={namespaces}
+          loading={loading}
+          selectedAppId={narrowLayout ? undefined : selectedAppId}
+          onSelect={selectNamespace}
+          footnote={
+            narrowLayout
+              ? '点击命名空间可查看字段级键条目；JSON 可逐级展开，叶子可编辑。'
+              : '点击应用可在右侧查看注册表键；JSON 可逐级展开。'
+          }
+        />
+      </Nav.Page>
     )
   }
-
-  // 分栏帧栈：keys 帧静置不带返回（左栏即它的上级），A 型形变（窄→宽）
-  // 顶帧临时挂回随滑轨淡出；browse/edit 帧（帧深 ≥2）恒带返回——均由 Nav
-  // 统一编排。
-  const renderWideFrame = (frame: WideFrame) => {
-    if (frame.kind === 'keys') {
-      return renderDetailPane(frame.appId)
-    }
-    const entry = findEntry(frame.appId, frame.key)
-    if (!entry) {
-      return (
-        <Nav.Page>
-          <div class="settings__content settings__content--compact">
-            <div class="settings__box settings__empty">该键已不存在</div>
-          </div>
-        </Nav.Page>
-      )
-    }
-    if (frame.kind === 'browse') {
-      return renderBrowsePane(entry, frame.path)
-    }
-    return renderEditorPane(entry, frame.path)
-  }
-
-  const renderWideFrames = (): NavFrameSpec[] =>
-    liveFrames.map((frame) => ({ id: frame.id, content: renderWideFrame(frame) }))
 
   const pathCrumbs = buildPathCrumbs(selectedAppId, drill, selectedEntry)
   const pathBar =
@@ -1508,13 +1410,21 @@ export function RegistryApp() {
       <RegistryPathBar crumbs={pathCrumbs} onSelect={(index) => void jumpToPathCrumb(index)} />
     ) : undefined
 
+  // 空态必须直接给 <Nav.Page> 元素：Nav 运行时校验只认页元素本身，
+  // 隔一层组件会被视为自拼外壳而抛错。
   return (
     <Nav
       controller={nav}
       class={narrowLayout ? 'registry registry--narrow' : 'registry registry--wide'}
-      renderNarrowPage={renderNarrowPage}
-      renderWideFrames={renderWideFrames}
-      renderDetailEmpty={() => <RegistryDetailEmpty />}
+      frames={frames}
+      renderPage={renderPage}
+      renderDetailEmpty={() => (
+        <Nav.Page title="注册表管理">
+          <div class="settings__content settings__content--compact">
+            <div class="settings__box settings__empty">选择左侧应用以查看注册表键</div>
+          </div>
+        </Nav.Page>
+      )}
       framesResetKey={displayedAppId}
       footer={pathBar}
       listRatio={0.34}

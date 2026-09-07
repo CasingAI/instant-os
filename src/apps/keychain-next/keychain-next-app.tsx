@@ -1240,7 +1240,6 @@ export function KeychainNextApp() {
     <Nav
       class="keychain-app"
       controller={nav}
-      engine="flat"
       frames={chain}
       renderPage={(page) => renderScreen(page as Screen)}
     />

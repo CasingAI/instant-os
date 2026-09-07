@@ -8,7 +8,6 @@ import { PlusIcon } from '../../icons/app-icons.tsx'
 import {
   Nav,
   useNav,
-  type NavFrameSpec,
 } from '../../ui/nav.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
@@ -1252,26 +1251,17 @@ export function VscodeSettingsPanel({
     return <Nav.Page title="设置" />
   }
 
-  // 分栏帧与窄屏页同源：深度 1 帧静置无返回、A 型顶帧挂回淡出、C 型落定
-  // 淡入，均由 Nav 统一编排。
-  const renderWideFrames = (): NavFrameSpec[] =>
-    chain.map((id) => ({
-      id,
-      content: renderScreen(id as VscodeSettingsScreen),
-    }))
-
-  const renderNarrowPage = (page: string) =>
-    renderScreen(page as VscodeSettingsScreen)
-
   return (
     <div
       class={`settings vscode__settings${dark ? ' settings--dark' : ''}`}
       data-theme={dark ? 'dark' : undefined}
     >
+      {/* 帧序 = 打开链 chain，与窄屏子页同一套屏幕 id：深度 1 帧静置无返回、
+          A 型顶帧挂回淡出、C 型落定淡入，均由 Nav 统一编排。 */}
       <Nav
         controller={nav}
-        renderNarrowPage={renderNarrowPage}
-        renderWideFrames={renderWideFrames}
+        frames={chain}
+        renderPage={(page) => renderScreen(page as VscodeSettingsScreen)}
       />
     </div>
   )

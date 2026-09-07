@@ -15,11 +15,7 @@ import { openKeychainAiProvidersView } from '../../os/keychain-route-open.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId } from '../../os/types.ts'
-import {
-  Nav,
-  useNav,
-  type NavFrameSpec,
-} from '../../ui/nav.tsx'
+import { Nav, useNav } from '../../ui/nav.tsx'
 import { Button } from '../../ui/button.tsx'
 import '../settings/settings.css'
 import './welcome.css'
@@ -254,8 +250,9 @@ export function WelcomeApp() {
   }, [nav])
 
   // ── 页面渲染：外壳统一由 <Nav.Page> 绘制，返回键显隐与形变淡入淡出由
-  // Nav 统一编排（应用只声明域事实：详情页有上一级「欢迎中心」）──
-  const renderNarrowPage = (target: string) => {
+  // Nav 统一编排（应用只声明域事实：详情页有上一级「欢迎中心」）；
+  // hero 图标尺寸按宽窄取自控制器形态，一份内容服务两种形态。──
+  const renderPage = (target: string) => {
     if (target === 'detail') {
       return (
         <Nav.Page
@@ -266,7 +263,7 @@ export function WelcomeApp() {
           <WelcomeHero
             item={selected}
             keyAdded={keyAdded}
-            iconSize={HERO_ICON_SIZE_NARROW}
+            iconSize={nav.narrowLayout ? HERO_ICON_SIZE_NARROW : HERO_ICON_SIZE_WIDE}
             onOpen={openSelected}
           />
         </Nav.Page>
@@ -283,36 +280,16 @@ export function WelcomeApp() {
     )
   }
 
-  // 分栏帧：hero 帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）
-  // 顶帧临时挂回随滑轨淡出——由 Nav 统一编排。
-  const renderWideFrames = (): NavFrameSpec[] => [
-    {
-      id: 'detail',
-      content: (
-        <Nav.Page
-          title={taskLabel(selected.id)}
-          backLabel="欢迎中心"
-          onBack={handleBack}
-        >
-          <WelcomeHero
-            item={selected}
-            keyAdded={keyAdded}
-            iconSize={HERO_ICON_SIZE_WIDE}
-            onOpen={openSelected}
-          />
-        </Nav.Page>
-      ),
-    },
-  ]
-
   return (
+    // 详情帧静置不带返回（左栏列表即它的上级），A 型形变（窄→宽）顶帧临时
+    // 挂回随滑轨淡出——由 Nav 统一编排。
     <Nav
       controller={nav}
       class={
         nav.narrowLayout ? 'welcome-app welcome-app--narrow' : 'welcome-app welcome-app--wide'
       }
-      renderNarrowPage={renderNarrowPage}
-      renderWideFrames={renderWideFrames}
+      frames={['detail']}
+      renderPage={renderPage}
       /* 左栏宽度 = listRatio 纯比例跟随窗口（组件已不提供最小宽） */
       listRatio={0.36}
     />

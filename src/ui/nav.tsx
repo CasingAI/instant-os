@@ -14,12 +14,11 @@ import {
   APP_NARROW_LAYOUT_MAX_WIDTH,
   useAppNarrowLayout,
 } from './use-app-narrow-layout.ts'
-import { PageStack, usePageStack, type PageStackTransition } from './page-stack.tsx'
+import { usePageStack, type PageStackTransition } from './page-stack.tsx'
 import { Page } from './page.tsx'
 import { PageHeader } from './page-header.tsx'
 import { hitsNavFrameIndex, wideNavFrameIndices } from './nav-model.ts'
 import './nav.css'
-import './nav-flat.css'
 import './theme.css'
 
 /**
@@ -27,31 +26,23 @@ import './theme.css'
  * Header（返回键 / 操作区，PageHeader 套件）与全部正文内容由应用自行渲染，
  * 本组件不强加任何外壳样式——应用想写什么就写什么。
  *
- * 形态：
- * - 未开启 `split`：任何宽度都渲染为子页栈（普通页面栈布局）；
- * - 开启 `split`：宽屏左右分栏（列表 + 派生帧栈详情），窄屏自动回子页栈。
+ * 平铺单实例：每页 id 一个常驻宿主（host），窄/宽只是同一骨架下 host 盒子
+ * 的两种角色状态——窄屏是子页栈（普通页面栈布局），开启 `split` 后宽屏
+ * 左右分栏（列表 + 派生帧栈详情），窄屏自动回子页栈。形态切换零重挂载、
+ * 零交接，跨形态滚动位置天然保留。
  *
- * 宽窄形变 = 刚性面板滑轨：右栏帧容器作为面板与左栏内容同曲线联动，四种
- * 方向连续交接（窄子页滑退成右栏、列表刚性面板自左缘滑入 / 右栏自右缘
- * 滑入 / 面板扩张盖满交棒子页栈 / 面板滑出右缘），前后画面共享同一份内容
- * 与几何，无硬切。
+ * 宽窄形变 = 刚性面板滑轨：详情 host 盒子作为面板与列表同曲线联动，四种
+ * 方向（窄子页滑退成右栏、列表刚性面板自左缘滑入 / 右栏自右缘滑入 / 面板
+ * 扩张盖满落成子页 / 面板滑出右缘），前后画面共享同一份内容与几何，无硬切。
  *
- * 单一真源是应用的领域状态：子页与帧都从它派生，本组件不持有任何业务
- * 导航历史。子页栈（PageStack，壳无关）由组件接管——应用经
- * useNav 拿到 navigate/setPageSilent 驱动，形态切回子页栈时
- * 组件会按 narrowPageForState 静默重置栈；分栏右栏帧栈纯视觉叠放（无
- * 历史，返回即改状态）：push 新帧从右滑入、pop 旧帧保帧滑出
- * frameAnimationMs 后才移除、重置/跨级跳变立即整体替换；进退的转场窗口
- * 里容器套用页面栈同款拆盒（标题栏交叉淡移、正文整页滑），静止时仍是
- * 各自完整的一帧。
+ * 单一真源是应用的领域状态：子页与帧都从它派生（同一套页 id 空间），本组件
+ * 不持有任何业务导航历史。窄屏子页栈由组件接管（usePageStack 状态机）——
+ * 应用经 useNav 拿到 navigate/setPageSilent 驱动，形态切回子页栈时组件会按
+ * narrowPageForState 静默重置栈；分栏右栏帧栈纯视觉叠放（无历史，返回即改
+ * 状态）：push 新帧从右滑入、pop 旧帧保帧滑出 frameAnimationMs 后才移除、
+ * 重置/跨级跳变立即整体替换；进退的转场窗口里套用页面栈同款拆盒（标题栏
+ * 交叉淡移、正文整页滑），静止时仍是各自完整的一帧。
  */
-
-export type NavFrameSpec = {
-  /** 帧稳定性键：结构变化（push/pop/重置）按 id 序列判定 */
-  id: string
-  /** 帧内容：必须是 <Nav.Page>（统一外壳由组件强制，见 NavPageProps） */
-  content: VNode<NavPageProps>
-}
 
 /** 形态翻转计划：翻转那一帧渲染期写入，供组件编排面板形变与页面交接 */
 export type NavSwitchPlan = {
@@ -287,7 +278,7 @@ export function useNav(options: {
   )
 }
 
-/** flat 引擎渲染页面时收到的 chrome 上下文（应用据此决定返回键等形态差异） */
+/** 渲染页面时收到的 chrome 上下文（应用据此决定返回键等形态差异） */
 export type NavPageContext = {
   narrowLayout: boolean
   morphing: boolean
@@ -493,30 +484,14 @@ type NavSharedProps = {
   listRatio?: number
   /** 分栏帧动画时长（ms），默认 380 */
   frameAnimationMs?: number
-  /** 安全区高度（px，如刘海/小白条预留）：大于 0 时顶部与底部各保留该空间，
-   * 顶部由各页标题栏材质自身向上延伸无缝占满，底部由与页面材质同色的条带延续 */
+  /** 安全区高度（px，如刘海/小白条预留）：大于 0 时顶部与底部各保留该空间。
+   * 顶部由各页标题栏材质自身向上延伸无缝占满；底部仅在暗色页壳下处理——
+   * 加进内容井的底边框（8px 壳边变 8px + 安全区），亮色正文直接铺到窗口底 */
   safeArea?: number
   class?: string
 }
 
-export type ClassicNavProps = NavSharedProps & {
-  /** 双份渲染引擎（缺省）：窄屏子页与分栏帧各渲染一份，形变靠交接对齐 */
-  engine?: 'classic'
-  /**
-   * 子页栈：渲染某个页。必须返回 <Nav.Page>——统一标题栏外壳由组件强制，
-   * 返回键的显隐与形变淡入淡出也由组件统一编排，应用只声明域事实。
-   */
-  renderNarrowPage: (page: string) => VNode<NavPageProps>
-  /**
-   * 分栏右栏帧序列，从与子页同一份领域状态派生；顺序 = 叠放次序（末位最上）。
-   * 每次渲染都会调用，活帧内容始终取最新（空数组表示详情区无内容）。
-   */
-  renderWideFrames: () => NavFrameSpec[]
-}
-
-export type FlatNavProps = NavSharedProps & {
-  /** 平铺单实例引擎：每页一个常驻 host，形态切换零重挂载、零交接、无双份 */
-  engine: 'flat'
+export type NavProps = NavSharedProps & {
   /**
    * 按页 id 渲染页面实体（页 = 身份：pop 离场帧靠 id 稳定内容，无需快照）。
    * 必须返回 <Nav.Page>（统一外壳强制）；形态差异由 ctx 提供，一份内容服务
@@ -526,10 +501,6 @@ export type FlatNavProps = NavSharedProps & {
   /** 分栏右栏帧序（页 id，末位最上）；与窄屏子页同一套 id 空间 */
   frames: string[]
 }
-
-export type NavProps =
-  | ClassicNavProps
-  | FlatNavProps
 
 const DEFAULT_LIST_RATIO = 0.38
 const DEFAULT_FRAME_MS = 380
@@ -552,33 +523,14 @@ const MORPH_EASING = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
 
 /**
  * 形变分型：
- * - A 窄(子页)→宽：面板从满屏宽收缩到右栏宽（右缘钉住），子页原位退成
+ * - A 窄(子页)→宽：面板从满窗收缩到右栏宽（右缘钉住），子页原位退成
  *   右栏，根列表钉在最终宽度作为刚性面板自左缘滑入（列表右缘与面板左缘
  *   同式联动，任意中间帧严丝合缝）；
  * - B 窄(根列表)→宽：面板以最终宽度从窗口右缘外整体滑入；
- * - C 宽(子页)→窄：面板从右栏宽扩张盖满，落定后交棒给同内容子页栈；
+ * - C 宽(子页)→窄：面板从右栏宽扩张盖满，落定即窄屏当前页；
  * - D 宽(根列表)→窄：面板整体滑出右缘。
- * A/C 期间面板会向左越出详情栏盒子，必须放开该栏 overflow / contain，
- * 否则悬出被剪掉，视觉塌成「列表瞬现 + 内容从右挤入」。
  */
 type MorphKind = NavMorphKind
-
-/** 一次进行中的形态形变：持有全部需要在收尾时清理/还原的资源 */
-type MorphGesture = {
-  kind: MorphKind
-  toNarrow: boolean
-  detailW: number
-  duration: number
-  sheet: HTMLElement | undefined
-  detailPane: HTMLElement | undefined
-  anim: Animation | undefined
-  /** A 型：左栏列表刚性滑入的轨道，收尾时还原内联样式 */
-  listTrack: HTMLElement | undefined
-  trackAnim: Animation | undefined
-  timer: number
-  observer: ResizeObserver
-  done: boolean
-}
 
 function prefersReducedMotion() {
   return (
@@ -602,14 +554,6 @@ function playMorphAnim(
   return anim
 }
 
-/** 按引擎分发：classic（缺省，双份渲染 + 交接）与 flat（平铺单实例） */
-function NavView(props: NavProps) {
-  if (props.engine === 'flat') {
-    return <FlatSplitNavView {...props} />
-  }
-  return <ClassicSplitNavView {...props} />
-}
-
 /**
  * 导航组件家族：Nav 本体（页栈/分栏布局与形变）+ Nav.Page（强制页单位 =
  * 统一标题栏外壳 + 滚动正文）+ Nav.Header（标题栏本体，无标题特殊页单独
@@ -622,560 +566,19 @@ export const Nav = Object.assign(NavView, {
   Flow: NavFlowImpl,
 })
 
-function ClassicSplitNavView(props: ClassicNavProps) {
-  const {
-    controller,
-    renderNarrowPage,
-    renderWideFrames,
-    framesResetKey = '',
-    footer,
-    renderDetailEmpty,
-    listRatio = DEFAULT_LIST_RATIO,
-    frameAnimationMs = DEFAULT_FRAME_MS,
-    safeArea = 0,
-    class: className,
-  } = props
-  const { narrowLayout, layoutReady, hostRef } = controller
-  // 紧凑档生效时左右各半：styleVars 与形变数学必须消费同一份有效比例
-  const ratio = controller.compactSplit ? COMPACT_SPLIT_LIST_RATIO : listRatio
-  // 形变编排要直接操作的骨架节点：根（量宽/装甲 RO）、帧容器（面板本体）、
-  // 详情栏（形变期抬 z 用）
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const framesRef = useRef<HTMLDivElement | null>(null)
-  const detailPaneRef = useRef<HTMLDivElement | null>(null)
-  const listTrackRef = useRef<HTMLDivElement | null>(null)
-  // 分栏左栏显示不变量：分栏形态固定渲染根列表页（listPage），栈顶残留页
-  // 只在栈里保活、不上屏；未配置 listPage 时退回显示栈顶页（原行为）。
-  // 例外：宽→窄形变（C/D）期间继续渲染 listPage——左栏是滑轨要盖过去的
-  // 画面，翻转当帧就换栈顶页会让左栏硬切出子页、顶上闪出一颗分栏没有的
-  // 返回键；窄屏终态页等形变收尾、面板盖满交棒时才换上。
-  const morphToNarrow =
-    controller.morphing &&
-    (controller.morphKind === 'C' || controller.morphKind === 'D')
-  const displayPage = !controller.listPage
-    ? controller.page
-    : narrowLayout && !morphToNarrow
-      ? controller.page
-      : controller.listPage
-
-  // 活帧：ref 供 effect 读取最新值；渲染期直接使用（内容永不过期）
-  const liveFrames = renderWideFrames()
-  const liveFramesRef = useRef(liveFrames)
-  liveFramesRef.current = liveFrames
-  // 结构签名：只有 id 序列变化才进入时序分支（同结构的内容刷新不触发动画）
-  const liveSig = liveFrames.map((frame) => frame.id).join('\0')
-
-  /** pop 离场的帧：保帧播完滑出动画后才移除，内容定格在退场开始那一刻 */
-  const [exiting, setExiting] = useState<NavFrameSpec[]>([])
-  const exitingRef = useRef(exiting)
-  exitingRef.current = exiting
-  const [wideIndex, setWideIndex] = useState(0)
-  const prevLiveLenRef = useRef(0)
-  const resetKeyRef = useRef(framesResetKey)
-  // 上一帧视图（活帧 + 退场帧），供下一次 pop 捕获离场帧；
-  // 由本文件最后一个 layout effect 更新（时序 effect 读到的是上一帧视图）
-  const lastViewRef = useRef<NavFrameSpec[]>([])
-
-  // 帧转场窗口：右栏进/退子页的那一段时间（时长 = 帧动画时长）。窗口期
-  // 容器改用页面栈同款拆盒（标题栏交叉淡移、正文整页滑、持续底色画在伪
-  // 元素上）——旧实现整帧连标题栏一起滑，底色跟着走会露出白底，返回键
-  // 也会在白板上叠出两颗。形变（滑轨 A~D）期间不开窗口，那是另一套编排。
-  const [frameNav, setFrameNav] = useState<'push' | 'pop' | undefined>(undefined)
-  const frameNavTimerRef = useRef(0)
-  const openFrameNav = (direction: 'push' | 'pop') => {
-    window.clearTimeout(frameNavTimerRef.current)
-    setFrameNav(direction)
-    frameNavTimerRef.current = window.setTimeout(() => {
-      setFrameNav(undefined)
-    }, frameAnimationMs)
-  }
-  const closeFrameNav = () => {
-    window.clearTimeout(frameNavTimerRef.current)
-    setFrameNav(undefined)
-  }
-
-  // 结构时序：重置键变化 / 跨级跳变（|Δ|>1）→ 立即整体替换；
-  // pop（帧数变少）→ active 先回退让旧帧滑出，动画结束后才从 DOM 移除；
-  // push（帧数变多）→ 这里不动，由下方收尾 effect 抬 active 完成滑入
-  useLayoutEffect(() => {
-    if (narrowLayout) return
-    const resetChanged = resetKeyRef.current !== framesResetKey
-    resetKeyRef.current = framesResetKey
-    const nextLen = liveFramesRef.current.length
-    const prevLen = prevLiveLenRef.current
-    if (resetChanged || Math.abs(nextLen - prevLen) > 1) {
-      prevLiveLenRef.current = nextLen
-      setExiting([])
-      setWideIndex(Math.max(0, nextLen - 1))
-      return
-    }
-    if (nextLen < prevLen) {
-      const popped = lastViewRef.current.slice(nextLen)
-      prevLiveLenRef.current = nextLen
-      setExiting(popped)
-      setWideIndex(Math.max(0, nextLen - 1))
-      if (!morphRef.current) openFrameNav('pop')
-      const timer = window.setTimeout(() => {
-        setExiting([])
-      }, frameAnimationMs)
-      return () => window.clearTimeout(timer)
-    }
-    if (nextLen > prevLen) return
-    if (exitingRef.current.length > 0) {
-      // 弹栈动画进行中又推回同级：丢弃退场帧，顶帧立即生效（滑入）
-      setExiting([])
-      setWideIndex(Math.max(0, nextLen - 1))
-    }
-  }, [liveSig, narrowLayout, framesResetKey, frameAnimationMs])
-
-  // push 收尾：新帧已挂载在 translateX(100%) 之外，paint 后再抬 active，
-  // 让它从右侧滑入（挂载与动画分两帧，否则首帧就是终点、没有动画）。
-  // 形变期不走这条：顶帧由滑轨对齐，再抬会让子页自己从右边滑进来。
-  useEffect(() => {
-    if (narrowLayout) return
-    if (morphRef.current) {
-      prevLiveLenRef.current = liveFramesRef.current.length
-      return
-    }
-    if (liveFramesRef.current.length > prevLiveLenRef.current) {
-      const hadTop = prevLiveLenRef.current > 0
-      prevLiveLenRef.current = liveFramesRef.current.length
-      setWideIndex(liveFramesRef.current.length - 1)
-      // 首帧（书架位自动展开）没有退让的底层帧，不拆盒直接就位
-      if (hadTop) openFrameNav('push')
-    }
-  }, [liveSig, narrowLayout])
-
-  useLayoutEffect(() => {
-    lastViewRef.current = [...liveFramesRef.current, ...exitingRef.current]
-  })
-
-  // ── 宽窄形变：刚性面板滑轨 ──
-  // 右栏帧容器作为「面板」参与滑轨，A 型时左栏列表作为刚性面板自左缘滑入，
-  // 两者同曲线联动（时长取同源的 --nav-frame-ms）。翻转统一在宽度停变
-  // （松手/一步跳变）后提交，到这里必有稳定的起止点；仅 reduced-motion 与
-  // 「提交撞上拖拽态」的竞态装甲退化为即时切换。
-  // 形变中途宿主再变尺寸则立即落定清理（RO 装甲，忽略首次回调）。
-  const morphRef = useRef<MorphGesture | undefined>(undefined)
-  const pendingSlideRef = useRef(false)
-  const prevMorphFormRef = useRef<boolean | undefined>(undefined)
-  const finishMorphRef = useRef<() => void>(() => {})
-
-  const clearWideFramesView = () => {
-    setExiting([])
-    prevLiveLenRef.current = 0
-    setWideIndex(0)
-    closeFrameNav()
-  }
-
-  const finishMorph = () => {
-    const gesture = morphRef.current
-    if (!gesture || gesture.done) return
-    gesture.done = true
-    window.clearTimeout(gesture.timer)
-    gesture.observer.disconnect()
-    // cancel 让面板回到常态样式（与移除内联同帧、同一次 paint，无中间态）
-    gesture.anim?.cancel()
-    const sheet = gesture.sheet
-    if (sheet) {
-      sheet.style.position = ''
-      sheet.style.top = ''
-      sheet.style.bottom = ''
-      sheet.style.right = ''
-      sheet.style.left = ''
-      sheet.style.width = ''
-    }
-    const track = gesture.listTrack
-    if (track) {
-      // 同理：fill 保持的终态 translateX(0) 即常态，cancel + 去掉内联宽度
-      // 回到流内（左栏 width 过渡与滑轨同拍，此刻已停稳在终宽，无跳变）
-      gesture.trackAnim?.cancel()
-      track.style.width = ''
-      track.style.transform = ''
-    }
-    if (gesture.detailPane) {
-      gesture.detailPane.style.zIndex = ''
-      gesture.detailPane.style.overflow = ''
-      gesture.detailPane.style.contain = ''
-    }
-    rootRef.current?.classList.remove('nav--morphing')
-    morphRef.current = undefined
-    pendingSlideRef.current = false
-    controller.morphingSetRef.current(false)
-    if (gesture.toNarrow) {
-      clearWideFramesView()
-    } else if (liveFramesRef.current.length > 0) {
-      // 形变期间用户又前进了一层（push 收尾给滑轨让路）：顶帧滞留右缘待入，
-      // 收尾在这里补抬 active 让它滑入；常态下 active 已在顶，赋同值无动画
-      prevLiveLenRef.current = liveFramesRef.current.length
-      setWideIndex(liveFramesRef.current.length - 1)
-    }
-  }
-  finishMorphRef.current = finishMorph
-
-  // 形变启动。必须先于下方清场 effect 声明：清场要等形变收尾才执行。
-  useLayoutEffect(() => {
-    if (!layoutReady) return
-    const previous = prevMorphFormRef.current
-    prevMorphFormRef.current = narrowLayout
-    if (previous === undefined || previous === narrowLayout) return
-
-    const root = rootRef.current
-    // 装甲：拖拽中（--resizing）hook 已 hold 翻转、不该有提交到这里，但
-    // 松手后 settle 计时窗口内又开拖的竞态仍可能把提交撞进拖拽态——此时
-    // 不播滑轨（起止点在流变，硬播也会被 RO 装甲掐掉），退化为即时切换。
-    // reduced-motion 同样退化为即时切换。翻转当帧已经把 morphing 标亮，
-    // 不播滑轨就要立刻清掉，否则应用会按起始 chrome 一直画到下一次翻转。
-    const dragging = !!root?.closest('.window-frame--resizing')
-    if (!root || dragging || prefersReducedMotion()) {
-      // 上一次滑轨还挂着（装甲未及收尾）先落定清场，再按新形态就位
-      finishMorphRef.current()
-      if (!narrowLayout) {
-        // 宽向即时切：对齐栈顶帧，否则头一帧先画出底层帧
-        const len = liveFramesRef.current.length
-        if (len > 0) {
-          prevLiveLenRef.current = len
-          setWideIndex(len - 1)
-        }
-      }
-      controller.morphingSetRef.current(false)
-      return
-    }
-
-    const plan = controller.switchPlanRef.current
-    if (!plan) {
-      controller.morphingSetRef.current(false)
-      return
-    }
-    const stageW = root.clientWidth
-    if (stageW <= 0) {
-      controller.morphingSetRef.current(false)
-      return
-    }
-    // 面板终宽 D：与 CSS 同式（width: ratio%），缝隙恒等式的两端才能对上
-    const ratioPct = Math.round(ratio * 10000) / 100
-    const detailW = stageW - (stageW * ratioPct) / 100
-    const hasFrames = liveFramesRef.current.length > 0
-
-    let kind: MorphKind
-    if (plan.toWide) {
-      kind = plan.fromPage === controller.listPage ? 'B' : 'A'
-    } else {
-      kind = plan.narrowTarget === controller.listPage ? 'D' : 'C'
-    }
-    if (kind === 'A' && !hasFrames) kind = 'B'
-    if (kind === 'C' && !hasFrames) kind = 'D'
-
-    // 快速连续翻转：上一次形变先落定清场，再起新滑轨
-    finishMorphRef.current()
-    // 若帧转场窗口还开着（滑轨与进退子页撞上），先关掉：滑轨要独占面板
-    closeFrameNav()
-
-    // 面板对齐栈顶帧：窄屏期间 wideIndex 被清成 0，不抬会先渲染底层帧
-    if (hasFrames && kind !== 'D') {
-      prevLiveLenRef.current = liveFramesRef.current.length
-      setWideIndex(liveFramesRef.current.length - 1)
-    }
-
-    const sheet = framesRef.current ?? undefined
-    const detailPane = detailPaneRef.current ?? undefined
-    // observe() 会立刻回一次当前尺寸；若当成「中途改宽」会在首帧 paint 前
-    // 把刚起的滑轨掐死，A 型塌成「列表硬切 + 子页从右挤入」（B 型碰巧长得像对的）。
-    const originW = root.clientWidth
-    const observer = new ResizeObserver(() => {
-      if (root.clientWidth === originW) return
-      finishMorphRef.current()
-    })
-    observer.observe(root)
-    root.classList.add('nav--morphing')
-    const gesture: MorphGesture = {
-      kind,
-      toNarrow: !plan.toWide,
-      detailW,
-      duration: frameAnimationMs,
-      sheet,
-      detailPane,
-      anim: undefined,
-      listTrack: undefined,
-      trackAnim: undefined,
-      timer: 0,
-      observer,
-      done: false,
-    }
-    morphRef.current = gesture
-    // 翻转当帧靠 flipping 让 morphing 为 true；parent 的 form effect 随后
-    // 会把 flipping 关掉。这里把状态和分型钉住，直到收尾，应用才能按起始
-    // 形态画 chrome（如 A 型书页返回键随滑轨淡出）。
-    controller.morphingSetRef.current(true, kind)
-    const armTimer = () => {
-      window.clearTimeout(gesture.timer)
-      gesture.timer = window.setTimeout(
-        () => finishMorphRef.current(),
-        gesture.duration + 30,
-      )
-    }
-    armTimer()
-
-    if ((kind === 'A' || kind === 'C') && detailPane) {
-      // 面板要盖住/露出左栏（静置时左栏 z=2 在上），形变期抬到最上；
-      // A/C 的面板会大幅向左越出详情栏盒子（面板左缘从 0 滑到 L，而详情栏
-      // 左缘从 W 滑到 L），不放开详情栏的 overflow 裁剪，滑轨就会被剪成
-      // 「列表瞬现 + 内容从右挤入」——恰是 B/D 不存在此悬出（只悬出窗口外）
-      detailPane.style.zIndex = '3'
-      detailPane.style.overflow = 'visible'
-      detailPane.style.contain = 'none'
-    }
-
-    if (!sheet) {
-      // 帧未就绪（B 型：书架位切宽时应用常晚一帧自动展开首帧）：武装，
-      // 等帧挂载的 paint 前补播滑入；届时已超时收尾则自然作废。
-      // A 型帧容器缺失不补播（列表轨道在下方、同样不会启动），由计时器
-      // 收尾，退化为即时切换而非错误动画。
-      if (kind === 'B') pendingSlideRef.current = true
-      return
-    }
-
-    sheet.style.position = 'absolute'
-    sheet.style.top = '0'
-    sheet.style.bottom = '0'
-    sheet.style.right = '0'
-    sheet.style.left = 'auto'
-
-    let keyframes: Keyframe[]
-    if (kind === 'A') {
-      sheet.style.width = `${stageW}px`
-      keyframes = [{ width: `${stageW}px` }, { width: `${detailW}px` }]
-      // 列表刚性面板自左缘滑入：内容钉在最终宽度排版（此刻面板盖满全窗，
-      // 满宽→终宽的改排不可见），translateX(-L→0) 的右缘 = -L(1-e)+L =
-      // L·e(t) 恰与面板左缘同式，缝隙恒等式成立；同时免掉 width 过渡的
-      // 逐帧重排挤压
-      const track = listTrackRef.current
-      if (track) {
-        const listW = stageW - detailW
-        track.style.width = `${listW}px`
-        gesture.listTrack = track
-        gesture.trackAnim = playMorphAnim(
-          track,
-          [
-            { transform: `translateX(${-listW}px)` },
-            { transform: 'translateX(0px)' },
-          ],
-          gesture.duration,
-        )
-      }
-    } else if (kind === 'C') {
-      sheet.style.width = `${detailW}px`
-      keyframes = [{ width: `${detailW}px` }, { width: `${stageW}px` }]
-    } else if (kind === 'B') {
-      sheet.style.width = `${detailW}px`
-      keyframes = [
-        { transform: `translateX(${detailW}px)` },
-        { transform: 'translateX(0px)' },
-      ]
-    } else {
-      sheet.style.width = `${detailW}px`
-      keyframes = [
-        { transform: 'translateX(0px)' },
-        { transform: `translateX(${detailW}px)` },
-      ]
-    }
-    gesture.anim = playMorphAnim(sheet, keyframes, gesture.duration)
-  }, [
-    layoutReady,
-    narrowLayout,
-    listRatio,
-    controller.compactSplit,
-    frameAnimationMs,
-    controller.switchPlanRef,
-    controller.listPage,
-  ])
-
-  // B 型补播：武装后帧才挂载（应用自动展开），在挂载渲染的 paint 前起滑
-  useLayoutEffect(() => {
-    const gesture = morphRef.current
-    if (!gesture || gesture.kind !== 'B' || !pendingSlideRef.current) return
-    const sheet = framesRef.current
-    if (!sheet) return
-    pendingSlideRef.current = false
-    sheet.style.position = 'absolute'
-    sheet.style.top = '0'
-    sheet.style.bottom = '0'
-    sheet.style.right = '0'
-    sheet.style.left = 'auto'
-    sheet.style.width = `${gesture.detailW}px`
-    gesture.sheet = sheet
-    gesture.anim = playMorphAnim(
-      sheet,
-      [
-        { transform: `translateX(${gesture.detailW}px)` },
-        { transform: 'translateX(0px)' },
-      ],
-      gesture.duration,
-    )
-    window.clearTimeout(gesture.timer)
-    gesture.timer = window.setTimeout(
-      () => finishMorphRef.current(),
-      gesture.duration + 30,
-    )
-  }, [liveSig])
-
-  // 切回子页栈：帧栈是纯视觉层，随形态一起清场（下次进分栏按状态重建）。
-  // 形变进行中让路——等 morph 收尾再清，面板才能把画面交棒给子页栈。
-  useLayoutEffect(() => {
-    if (!narrowLayout) return
-    if (morphRef.current) return
-    clearWideFramesView()
-  }, [narrowLayout])
-
-  // 卸载时形变未收尾：取消动画并还原样式；顺带清掉帧转场窗口计时器
-  useEffect(
-    () => () => {
-      finishMorphRef.current()
-      window.clearTimeout(frameNavTimerRef.current)
-    },
-    [],
-  )
-
-  // 渲染视图 = 活帧（最新内容）+ 与活帧不重号的退场帧（定格内容）
-  const liveIds = new Set(liveFrames.map((frame) => frame.id))
-  const view =
-    exiting.length > 0
-      ? [...liveFrames, ...exiting.filter((frame) => !liveIds.has(frame.id))]
-      : liveFrames
-  const active = Math.min(wideIndex, Math.max(0, view.length - 1))
-
-  const styleVars = {
-    '--nav-list-ratio': `${Math.round(ratio * 10000) / 100}%`,
-    '--nav-frame-ms': `${frameAnimationMs}ms`,
-    '--nav-safe-top': `${safeArea}px`,
-    '--nav-safe-bottom': `${safeArea}px`,
-  } as Record<string, string>
-
-  // 页级 chrome 作用域：栈页走窄形态规则（深度 = 栈内位置，栈顶为当前页），
-  // 帧走宽形态规则（深度 = 帧位 +1，顶帧为当前帧）。Nav.Page 据此统一编排
-  // 返回键，应用不再自管 showBack / 淡入淡出。
-  const stackScope = (page: string): NavChromeScope => ({
-    narrow: true,
-    morphing: controller.morphing,
-    morphKind: controller.morphKind,
-    depth: Math.max(0, controller.stackView.stack.indexOf(page)),
-    isCurrent: page === controller.stackView.stack[controller.stackView.stack.length - 1],
-  })
-  const frameScope = (index: number): NavChromeScope => ({
-    narrow: false,
-    morphing: controller.morphing,
-    morphKind: controller.morphKind,
-    depth: index + 1,
-    isCurrent: index === active,
-  })
-
-  const renderFramesStack = () => {
-    if (view.length === 0) {
-      return (
-        <div class="nav__detail-empty">
-          {renderDetailEmpty
-            ? assertNavPage(renderDetailEmpty(), 'renderDetailEmpty')
-            : undefined}
-        </div>
-      )
-    }
-    // 窗口期参与拆盒的两帧：push = 旧顶退守（under）+ 新顶滑入（over）；
-    // pop = 新顶回位（under）+ 退场帧滑出（over）。其余帧窗口内不渲染。
-    const navUnder = frameNav === 'push' ? active - 1 : frameNav === 'pop' ? active : -1
-    const navOver = frameNav === 'push' ? active : frameNav === 'pop' ? active + 1 : -1
-    return (
-      <div
-        ref={framesRef}
-        class={`nav__frames${
-          frameNav ? ` nav__frames--${frameNav}` : ''
-        }`}
-      >
-        {view.map((frame, index) => (
-          <div
-            key={frame.id}
-            class={[
-              'nav__frame',
-              index === active ? 'is-active' : '',
-              index === navUnder ? 'is-under' : '',
-              index === navOver ? 'is-over' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            style={{
-              transform:
-                index === active
-                  ? 'translateX(0)'
-                  : index < active
-                    ? 'translateX(-30%)'
-                    : 'translateX(100%)',
-              zIndex: index,
-            }}
-          >
-            <NavChromeContext.Provider value={frameScope(index)}>
-              {assertNavPage(frame.content, `帧「${frame.id}」的 content`)}
-            </NavChromeContext.Provider>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  return (
-    <div
-      ref={(node) => {
-        rootRef.current = node
-        hostRef(node)
-      }}
-      class={`nav${safeArea > 0 ? ' nav--safe' : ''}${className ? ` ${className}` : ''}`}
-      style={styleVars}
-    >
-      <div class="nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
-        <div class="nav__list-pane">
-          <div ref={listTrackRef} class="nav__list-track">
-            <PageStack
-              stack={controller.stackView.stack}
-              page={displayPage}
-              transition={controller.stackView.transition}
-              onMotionEnd={controller.stackView.handleMotionEnd}
-              renderPage={(page) => (
-                <NavChromeContext.Provider value={stackScope(page)}>
-                  {assertNavPage(renderNarrowPage(page), `renderNarrowPage("${page}")`)}
-                </NavChromeContext.Provider>
-              )}
-            />
-          </div>
-          {narrowLayout && footer ? (
-            <div class="nav__footer">{footer}</div>
-          ) : undefined}
-        </div>
-        <div
-          ref={detailPaneRef}
-          class="nav__detail-pane"
-          aria-hidden={narrowLayout || undefined}
-        >
-          {renderFramesStack()}
-          {!narrowLayout && footer ? (
-            <div class="nav__footer">{footer}</div>
-          ) : undefined}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── flat 引擎：平铺单实例渲染 ──
+// ── 平铺单实例渲染 ──
 // 每页一个常驻 host（stage 的绝对定位子节点），data-pos 表达角色——窄/宽
 // 只是同一骨架下 host 盒子的两种角色状态。详情 host 恒钉右栏矩形，叠放
 // 位移（露边/待入）写在盒内 slider 层上，host 只负责裁切；进退动画作用
 // 在 host 内的 header/正文（host 盒本身不动）；宽窄形变是另一套编排，由
-// tsx 用 WAAPI 直接动 host 盒子的几何（编排与缝隙数学照 classic 移植）。
+// tsx 用 WAAPI 直接动 host 盒子的几何（缝隙数学与 CSS 的宽度过渡同式）。
 // 页面内容从不换手：没有副本、没有交接，形态切换零重挂载，跨形态滚动
 // 位置天然保留。
 
-type FlatHostPos = 'current' | 'under' | 'parked' | 'list' | 'detail'
+type HostPos = 'current' | 'under' | 'parked' | 'list' | 'detail'
 
 /** 一次进行中的形态形变：持有全部需要在收尾时清理/还原的资源 */
-type FlatMorphGesture = {
+type MorphGesture = {
   kind: MorphKind
   toNarrow: boolean
   detailW: number
@@ -1188,7 +591,7 @@ type FlatMorphGesture = {
   done: boolean
 }
 
-function FlatSplitNavView(props: FlatNavProps) {
+function NavView(props: NavProps) {
   const {
     controller,
     renderPage,
@@ -1313,7 +716,7 @@ function FlatSplitNavView(props: FlatNavProps) {
   // 翻转统一在宽度停变（松手/一步跳变）后提交，到这里必有稳定的起止点；
   // 仅 reduced-motion 与「提交撞上拖拽态」的竞态装甲退化为即时切换。
   // 形变中途宿主再变尺寸则立即落定清理（RO 装甲，忽略首次回调）。
-  const morphRef = useRef<FlatMorphGesture | undefined>(undefined)
+  const morphRef = useRef<MorphGesture | undefined>(undefined)
   const pendingSlideRef = useRef(false)
   const prevMorphFormRef = useRef<boolean | undefined>(undefined)
   const finishMorphRef = useRef<() => void>(() => {})
@@ -1421,7 +824,7 @@ function FlatSplitNavView(props: FlatNavProps) {
     }
 
     // observe() 会立刻回一次当前尺寸；若当成「中途改宽」会在首帧 paint 前
-    // 把刚起的滑轨掐死（classic 同款：忽略首次回调）
+    // 把刚起的滑轨掐死（与页面栈宽度测量同款：忽略首次回调）
     const originW = root.clientWidth
     const observer = new ResizeObserver(() => {
       if (root.clientWidth === originW) return
@@ -1430,7 +833,7 @@ function FlatSplitNavView(props: FlatNavProps) {
     observer.observe(root)
     root.classList.add('nav--morphing')
     root.dataset.morphKind = kind
-    const gesture: FlatMorphGesture = {
+    const gesture: MorphGesture = {
       kind,
       toNarrow: !plan.toWide,
       detailW,
@@ -1469,7 +872,7 @@ function FlatSplitNavView(props: FlatNavProps) {
     if (kind === 'A') {
       // 窄子页原位退成右栏：host 盒从满窗收缩到右栏宽（右缘钉住），列表
       // 钉在最终宽度作为刚性面板自左缘滑入——两者同曲线联动，任意中间帧
-      // 严丝合缝；列表免掉 width 过渡的逐帧重排挤压（classic 同款）
+      // 严丝合缝；列表免掉 width 过渡的逐帧重排挤压
       for (const el of detailHosts) {
         el.style.left = '0px'
         el.style.width = `${stageW}px`
@@ -1629,7 +1032,7 @@ function FlatSplitNavView(props: FlatNavProps) {
 
   // host 角色。形变期（窄形态）按起始（分栏）几何画：帧保持 detail、列表
   // 保持 list，等收尾才整体换成窄屏角色——面板盖满的瞬间无缝换装。
-  const roleOf = (id: string): FlatHostPos => {
+  const roleOf = (id: string): HostPos => {
     if (narrowLayout) {
       if (morphing) {
         if (id === controller.listPage) return 'list'
@@ -1684,7 +1087,7 @@ function FlatSplitNavView(props: FlatNavProps) {
         rootRef.current = node
         hostRef(node)
       }}
-      class={`nav nav--flat${safeArea > 0 ? ' nav--safe' : ''}${className ? ` ${className}` : ''}`}
+      class={`nav${safeArea > 0 ? ' nav--safe' : ''}${className ? ` ${className}` : ''}`}
       style={styleVars}
       data-stack-transition={transition ? transition.direction : undefined}
       data-frame-nav={frameNav}
@@ -1716,7 +1119,7 @@ function FlatSplitNavView(props: FlatNavProps) {
       <div class="nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
         {hostIds.map((id) => {
           const exiting = !frameIdSet.has(id) && exitingSet.has(id)
-          const pos: FlatHostPos = exiting ? 'detail' : roleOf(id)
+          const pos: HostPos = exiting ? 'detail' : roleOf(id)
           const fi = viewIds.indexOf(id)
           const isUnder =
             (transition !== undefined && id === underId) ||
@@ -1775,13 +1178,13 @@ function FlatSplitNavView(props: FlatNavProps) {
           )
         })}
         {!narrowLayout && viewIds.length === 0 ? (
-          <div class="nav__flat-empty">
+          <div class="nav__detail-empty">
             {renderDetailEmpty
               ? assertNavPage(renderDetailEmpty(), 'renderDetailEmpty')
               : undefined}
           </div>
         ) : undefined}
-        {footer ? <div class="nav__flat-footer">{footer}</div> : undefined}
+        {footer ? <div class="nav__footer">{footer}</div> : undefined}
       </div>
     </div>
   )
