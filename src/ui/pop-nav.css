@@ -9,7 +9,9 @@
   z-index: 2200;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 10px;
-  color: var(--page-header-title-color, #f0f0f2);
+  /* 壳无自有文字：此 color 只是面板内内容的基准墨水（内容区是钉亮的浅
+     面板，配深字），不得改成标题栏的浅色变量——会顺着继承漏进内容区 */
+  color: #222;
   background: var(--page-shell-bg, #161d2b);
   box-shadow:
     0 10px 26px rgba(0, 0, 0, 0.4),
@@ -136,7 +138,8 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 12px;
   overflow: hidden;
-  color: var(--page-header-title-color, #f0f0f2);
+  /* 同 .pop-nav：内容基准墨水，非壳配色，勿用标题浅色变量 */
+  color: #222;
   background: var(--page-shell-bg, #161d2b);
   box-shadow:
     0 8px 20px rgba(0, 0, 0, 0.45),
