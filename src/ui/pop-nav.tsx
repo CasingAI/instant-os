@@ -23,12 +23,66 @@ import './pop-nav.css'
 /** 面板默认尺寸；可用 width / height 覆盖 */
 const POP_NAV_WIDTH = 320
 const POP_NAV_HEIGHT = 280
-/** 尖高：含进整盒，与 pop-nav.css 的 --pop-nav-arrow-h 同值 */
+/** 气球几何：圆角半径、尖高、尖半宽（含进整盒），拼路径与 Nav 安全区共用 */
+const POP_NAV_R = 10
 const POP_NAV_ARROW_H = 9
+const POP_NAV_ARROW_HALF = 7
 /** 退出动画时长，与 pop-nav.css 入场动画时长一致 */
 const POP_NAV_EXIT_WIDE_MS = 120
-/** 尖心距面板两边的最小距离：圆角 10 + 半宽 7，尖底边不吃进角弧 */
-const POP_NAV_ARROW_SAFE_INSET = 17
+/** 尖心距面板两边的最小距离：圆角 + 半宽，尖底边不吃进角弧 */
+const POP_NAV_ARROW_SAFE_INSET = POP_NAV_R + POP_NAV_ARROW_HALF
+
+/**
+ * 气球外形路径：圆角矩形加一侧尖，坐标系与面板同盒（左上 0,0）。旁路 SVG 的
+ * 填充描边与内容层的裁剪共用这一条路径——外形几何只维护此处。
+ */
+function balloonPath(
+  width: number,
+  height: number,
+  arrowX: number,
+  placement: 'below' | 'above',
+): string {
+  const r = POP_NAV_R
+  const h = POP_NAV_ARROW_H
+  const half = POP_NAV_ARROW_HALF
+  const n = (v: number) => `${Math.round(v * 100) / 100}`
+  // 圆角四分之一弧：路径恒顺时针走，sweep 恒 1
+  const corner = (x: number, y: number) => `A ${r} ${r} 0 0 1 ${n(x)} ${n(y)}`
+  if (placement === 'below') {
+    // 尖在上边：尖底把上边分成两段，从尖底左端起顺时针绕一圈
+    return [
+      `M ${n(r)} ${h}`,
+      `L ${n(arrowX - half)} ${h}`,
+      `L ${n(arrowX)} 0`,
+      `L ${n(arrowX + half)} ${h}`,
+      `L ${n(width - r)} ${h}`,
+      corner(width, h + r),
+      `L ${n(width)} ${n(height - r)}`,
+      corner(width - r, height),
+      `L ${n(r)} ${n(height)}`,
+      corner(0, height - r),
+      `L 0 ${h + r}`,
+      corner(r, h),
+      'Z',
+    ].join(' ')
+  }
+  // 尖在下边：从左上角起顺时针绕一圈
+  return [
+    `M ${n(r)} 0`,
+    `L ${n(width - r)} 0`,
+    corner(width, r),
+    `L ${n(width)} ${n(height - h - r)}`,
+    corner(width - r, height - h),
+    `L ${n(arrowX + half)} ${n(height - h)}`,
+    `L ${n(arrowX)} ${n(height)}`,
+    `L ${n(arrowX - half)} ${n(height - h)}`,
+    `L ${n(r)} ${n(height - h)}`,
+    corner(0, height - h - r),
+    `L 0 ${n(r)}`,
+    corner(r, 0),
+    'Z',
+  ].join(' ')
+}
 
 type PopNavOwnProps = {
   open: boolean
@@ -309,6 +363,8 @@ export function PopNav({
       : { bottom: POP_NAV_ARROW_H }
     : 0
   const content = <Nav {...navProps} safeArea={navSafeArea} />
+  // 有尖形态的气球路径：旁路 SVG 描边与内容层裁剪同吃这一条
+  const balloon = centered ? null : balloonPath(size.width, size.height, arrowX, placement)
 
   // 首次打开才挂载 portal；此后常驻（退场动画播完仅挂隐藏类）——hide 不 destroy
   if (!everOpened) {
@@ -339,8 +395,25 @@ export function PopNav({
               '--pop-nav-arrow-x': `${arrowX}px`,
             }}
           >
-            {!centered && <div class="pop-nav__cast" aria-hidden="true" />}
-            <div class="pop-nav__content">{content}</div>
+            {balloon && (
+              // 旁路层：两道同路径描边替代四向投影——投影复制会把锐角抹平，
+              // SVG 描边沿路径 miter 相交，尖保持锐。先半透明圈宽 4，再深色
+              // 边宽 2 + 壳色填充；描边居中、内半被填充盖住，各露 1px。
+              <svg
+                class="pop-nav__cast"
+                aria-hidden="true"
+                viewBox={`0 0 ${size.width} ${size.height}`}
+              >
+                <path class="pop-nav__cast-ring" d={balloon} />
+                <path class="pop-nav__cast-body" d={balloon} />
+              </svg>
+            )}
+            <div
+              class="pop-nav__content"
+              style={balloon ? { clipPath: `path('${balloon}')` } : undefined}
+            >
+              {content}
+            </div>
           </div>
         </DarkMode>,
         getFloatingOverlayRoot(),
