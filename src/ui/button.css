@@ -71,9 +71,9 @@
   --ios-button-borderless-light-color: #333;
   --ios-button-borderless-light-glow: radial-gradient(
     circle,
-    rgba(0, 0, 0, 0.45) 0%,
-    rgba(0, 0, 0, 0.2) 38%,
-    rgba(0, 0, 0, 0) 68%
+    rgba(0, 122, 255, 0.45) 0%,
+    rgba(0, 122, 255, 0.2) 38%,
+    rgba(0, 122, 255, 0) 68%
   );
   --ios-button-borderless-light-text-shadow-active: 0 1px 0 rgba(255, 255, 255, 0.55);
 }
@@ -313,7 +313,7 @@
   }
 }
 
-/* 浅底形态（darkMode=false）：深字、光晕翻黑灰、按下投影翻白（深字浮雕方向倒转为白色下投影）；
+/* 浅底形态（darkMode=false）：深字、光晕翻蓝（与系统勾选/返回键同款 #007aff，按下投影仍翻白——深字浮雕方向倒转为白色下投影）；
    三条与基础 borderless 规则同特异性，靠源序覆盖 */
 .ios-button--borderless-light {
   color: var(--ios-button-borderless-light-color);
