@@ -24,11 +24,11 @@ import './pop-nav.css'
 const POP_NAV_WIDTH = 320
 const POP_NAV_HEIGHT = 280
 /** 尖高：含进整盒，与 pop-nav.css 的 --pop-nav-arrow-h 同值 */
-const POP_NAV_ARROW_H = 12
+const POP_NAV_ARROW_H = 9
 /** 退出动画时长，与 pop-nav.css 入场动画时长一致 */
 const POP_NAV_EXIT_WIDE_MS = 120
-/** 尖心距面板两边的最小距离：圆角 10 + 半宽 9，尖底边不吃进角弧 */
-const POP_NAV_ARROW_SAFE_INSET = 19
+/** 尖心距面板两边的最小距离：圆角 10 + 半宽 7，尖底边不吃进角弧 */
+const POP_NAV_ARROW_SAFE_INSET = 17
 
 type PopNavOwnProps = {
   open: boolean

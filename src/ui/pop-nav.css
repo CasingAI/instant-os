@@ -7,8 +7,8 @@
 
 .pop-nav {
   --pop-nav-r: 10px;
-  --pop-nav-arrow-h: 12px;
-  --pop-nav-arrow-half: 9px;
+  --pop-nav-arrow-h: 9px;
+  --pop-nav-arrow-half: 7px;
   --pop-nav-arrow-x: 50%;
   position: fixed;
   z-index: 2200;
