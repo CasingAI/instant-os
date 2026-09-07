@@ -89,7 +89,7 @@ import {
   consumePendingOpenKeychainAiProvidersView,
   OPEN_KEYCHAIN_AI_PROVIDERS_EVENT,
 } from '../../os/keychain-route-open.ts'
-import '../../ui/ios-nav-back.css'
+import '../../ui/nav-back.css'
 import '../settings/settings.css'
 import './keychain.css'
 

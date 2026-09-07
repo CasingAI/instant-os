@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { ButtonDefaultReliefProvider } from './button.tsx'
-import { IosNavBackButton } from './ios-nav-back-button.tsx'
+import { NavBackButton } from './nav-back-button.tsx'
 import './popover-nav-header.css'
 
 export type PopoverNavHeaderProps = {
@@ -29,7 +29,7 @@ export function PopoverNavHeader({
       >
         <div class="popover-nav-header__leading">
           {showBack ? (
-            <IosNavBackButton size="mini" label={backLabel!} onClick={() => onBack?.()} />
+            <NavBackButton size="mini" label={backLabel!} onClick={() => onBack?.()} />
           ) : (
             <span class="popover-nav-header__spacer" aria-hidden="true" />
           )}

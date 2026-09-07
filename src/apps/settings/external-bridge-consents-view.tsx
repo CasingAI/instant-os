@@ -4,7 +4,7 @@
  * 【实验性 · 未完成】外链应用平台（Bridge）仍是未完成的实验特性。
  */
 import { useEffect, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import {
   EXTERNAL_BRIDGE_CONSENT_CHANGED_EVENT,
   listExternalBridgeConsents,
@@ -60,7 +60,7 @@ export function ExternalBridgeConsentsView({ onBack }: ExternalBridgeConsentsVie
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label={NAV_LABEL} onClick={onBack} />
+        <NavBackButton label={NAV_LABEL} onClick={onBack} />
       </div>
       <div class="settings__content">
         <section class="settings__section">

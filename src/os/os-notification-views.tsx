@@ -1,7 +1,7 @@
 import { AiStreamPreview } from '../ai/ai-stream-preview.tsx'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { getAppDefinition } from './app-registry.tsx'
-import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../ui/nav-back-button.tsx'
 import { useBookStream } from './use-book-stream.ts'
 import { usePendingInstallStream } from './use-pending-install-stream.ts'
 import {
@@ -246,7 +246,7 @@ export function OsNotificationDetail({
   return (
     <div class="notification-center__detail">
       <div class="notification-center__detail-header">
-        <IosNavBackButton
+        <NavBackButton
           label="返回通知"
           onClick={(event) => {
             event.stopPropagation()

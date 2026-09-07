@@ -10,7 +10,7 @@ import {
   patchSpeechSettings,
   subscribeSpeechSettings,
 } from '../../os/speech-settings-storage.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from './settings-layout-breakpoints.ts'
@@ -141,7 +141,7 @@ export function SpeechSettingsView({ onBack, onOpenKeychain }: SpeechSettingsVie
   return (
     <div class="settings" ref={hostRef}>
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

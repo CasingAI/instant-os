@@ -3,7 +3,7 @@ import { listMigratedLegacyStorageKeys } from '../../os/app-registry-migration.t
 import { createGlobalRegistry, type GlobalNamespaceInfo } from '../../os/app-registry.ts'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import { getLocalStorageKeyBytes, STORAGE_CHANGED_EVENT } from '../../os/device-storage.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { formatStorageSize } from './format-storage-size.ts'
 
 type LegacyKeyEntry = {
@@ -92,7 +92,7 @@ export function LegacyStorageCleanupView({ onBack }: { onBack: () => void }) {
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="存储空间" onClick={onBack} />
+        <NavBackButton label="存储空间" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

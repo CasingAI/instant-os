@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { generatedAppIdToSlug } from '../appstore/store-agent.ts'
@@ -636,7 +636,7 @@ type ContentNavProps = {
 function ContentNav({ label, onBack }: ContentNavProps) {
   return (
     <div class="settings__nav">
-      <IosNavBackButton label={label} onClick={onBack} />
+      <NavBackButton label={label} onClick={onBack} />
     </div>
   )
 }

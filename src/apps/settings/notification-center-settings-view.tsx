@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { Switch } from '../../ui/switch.tsx'
 import {
   loadNotificationCenterSettings,
@@ -118,7 +118,7 @@ export function NotificationCenterSettingsView({ onBack }: NotificationCenterSet
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

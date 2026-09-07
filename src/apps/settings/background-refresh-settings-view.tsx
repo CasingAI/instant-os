@@ -9,7 +9,7 @@ import {
   type BackgroundRefreshTaskId,
   type BackgroundRefreshTaskState,
 } from '../../os/background-refresh-settings-storage.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
@@ -140,7 +140,7 @@ export function BackgroundRefreshSettingsView({
   return (
     <div class="settings" ref={hostRef}>
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { normalizeAppVersion } from './app-version.ts'
@@ -250,7 +250,7 @@ export function ListingDetail({
   return (
     <div class="appstore-detail" ref={detailRef}>
       <header class="appstore-detail__nav">
-        <IosNavBackButton label="应用集市" onClick={onBack} />
+        <NavBackButton label="应用集市" onClick={onBack} />
       </header>
 
       <div class="appstore-detail__scroll">

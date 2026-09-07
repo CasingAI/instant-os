@@ -18,7 +18,7 @@ const MS_PER_DAY = 86_400_000
 const NEWS_DATE_PANEL_THEME = {
   accent: 'var(--news-accent)',
   accentLight: 'var(--news-accent-light)',
-  accentDeep: 'var(--ios-nav-back-color-active)',
+  accentDeep: 'var(--nav-back-color-active)',
 } as const
 
 export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePickerProps) {

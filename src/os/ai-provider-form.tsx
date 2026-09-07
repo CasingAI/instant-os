@@ -19,7 +19,7 @@ import {
 import { SettingsChoiceField } from '../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../ui/settings-inline-input-row.tsx'
 import { SettingsSwitchRow } from '../ui/settings-switch-row.tsx'
-import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../ui/nav-back-button.tsx'
 import { CheckToggle } from '../ui/check-toggle.tsx'
 import { AiModelCapabilityTags } from '../ui/ai-model-capability-tags.tsx'
 import '../ui/check-toggle.css'
@@ -422,7 +422,7 @@ export function AiProviderForm({
     <div class="settings__list settings__list--account">
       {showBackButton && onBack && (
         <div class="settings__nav">
-          <IosNavBackButton label={backLabel} onClick={onBack} />
+          <NavBackButton label={backLabel} onClick={onBack} />
         </div>
       )}
       {content}

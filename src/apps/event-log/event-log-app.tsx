@@ -29,7 +29,7 @@ import { useOsNowDate } from '../../os/use-os-clock.ts'
 import type { AppId } from '../../os/types.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { generatedAppIdToSlug } from '../appstore/store-agent.ts'
 import { SystemDebugLogPanel } from './system-debug-log-panel.tsx'
 import './event-log.css'
@@ -296,7 +296,7 @@ export function EventLogApp() {
     >
       <header class="event-log__header">
         {showStackedDetail && activeTab === 'ai' ? (
-          <IosNavBackButton
+          <NavBackButton
             class="event-log__back"
             iconSize={14}
             label="记录"

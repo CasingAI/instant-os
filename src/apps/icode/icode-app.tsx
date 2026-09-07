@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren, ComponentType } from 'preact'
 import { osNowMs } from '../../os/os-clock.ts'
 import { ICodeIcon } from '../../icons/app-icons.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { Switch } from '../../ui/switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
@@ -1727,7 +1727,7 @@ export function ICodeApp() {
 
       <div class="icode__editor">
         <nav class="icode__nav">
-          <IosNavBackButton class="icode__nav-back" label="应用" onClick={requestCloseEditor} />
+          <NavBackButton class="icode__nav-back" label="应用" onClick={requestCloseEditor} />
           <p class="icode__nav-hint">
             {hasDraftToSave
               ? '草稿有未保存修改'

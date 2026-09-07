@@ -1,5 +1,5 @@
 import { useRef, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { applyDockSettingsVariables } from '../../dock/apply-dock-settings.ts'
@@ -170,7 +170,7 @@ export function DockSettingsView({ onBack }: DockSettingsViewProps) {
   return (
     <div class="settings" ref={hostRef}>
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section settings__dock-size-section">

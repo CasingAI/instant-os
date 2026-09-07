@@ -34,18 +34,18 @@
   font-size: 13px;
   overflow: hidden;
 
-  --ios-nav-back-color: #fffaf0;
-  --ios-nav-back-color-active: #fff;
-  --ios-nav-back-bg: linear-gradient(180deg, #d4b888 0%, #a67c42 55%, #7a5428 100%);
-  --ios-nav-back-bg-hover: linear-gradient(180deg, #e0c898 0%, #b89568 55%, #8a6a38 100%);
-  --ios-nav-back-bg-active: linear-gradient(180deg, #7a5428 0%, #a67c42 100%);
-  --ios-nav-back-border: 1px solid #5a4328;
-  --ios-nav-back-text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
-  --ios-nav-back-shadow:
+  --nav-back-color: #fffaf0;
+  --nav-back-color-active: #fff;
+  --nav-back-bg: linear-gradient(180deg, #d4b888 0%, #a67c42 55%, #7a5428 100%);
+  --nav-back-bg-hover: linear-gradient(180deg, #e0c898 0%, #b89568 55%, #8a6a38 100%);
+  --nav-back-bg-active: linear-gradient(180deg, #7a5428 0%, #a67c42 100%);
+  --nav-back-border: 1px solid #5a4328;
+  --nav-back-text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  --nav-back-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.45),
     0 1px 2px rgba(0, 0, 0, 0.35);
-  --ios-nav-back-shadow-active: inset 0 2px 3px rgba(0, 0, 0, 0.35);
-  --ios-nav-back-radius: 6px;
+  --nav-back-shadow-active: inset 0 2px 3px rgba(0, 0, 0, 0.35);
+  --nav-back-radius: 6px;
 }
 
 .files__sidebar {

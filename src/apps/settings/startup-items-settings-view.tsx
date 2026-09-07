@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { Switch } from '../../ui/switch.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
@@ -107,7 +107,7 @@ export function StartupItemsSettingsView({ onBack }: StartupItemsSettingsViewPro
       return (
         <div class="settings" data-settings-subpage>
           <div class="settings__nav">
-            <IosNavBackButton
+            <NavBackButton
               label="启动项"
               onClick={() => {
                 setRunStatus(undefined)
@@ -127,7 +127,7 @@ export function StartupItemsSettingsView({ onBack }: StartupItemsSettingsViewPro
     return (
       <div class="settings" data-settings-subpage>
         <div class="settings__nav">
-          <IosNavBackButton
+          <NavBackButton
             label="启动项"
             onClick={() => {
               setRunStatus(undefined)
@@ -229,7 +229,7 @@ export function StartupItemsSettingsView({ onBack }: StartupItemsSettingsViewPro
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

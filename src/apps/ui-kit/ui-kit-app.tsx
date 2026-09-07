@@ -12,7 +12,7 @@ import { Button } from '../../ui/button.tsx'
 import { Icon } from '../../ui/icon.tsx'
 import { DarkMode } from '../../ui/theme.tsx'
 import '../settings/settings.css'
-import '../../ui/ios-nav-back.css'
+import '../../ui/nav-back.css'
 import './ui-kit.css'
 
 type CategorySection = {

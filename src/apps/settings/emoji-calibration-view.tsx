@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 import { applyEmojiFontMode } from '../../fonts/ensure-apple-color-emoji-fonts.ts'
 import { EMOJI_CALIBRATION_GLYPHS } from '../../fonts/emoji-calibration-glyphs.ts'
@@ -193,7 +193,7 @@ export function EmojiCalibrationView({ onBack }: EmojiCalibrationViewProps) {
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="表情符号" onClick={onBack} />
+        <NavBackButton label="表情符号" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section settings__emoji-calibration-section">

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import {
   catalogEntriesForSource,
@@ -73,7 +73,7 @@ export function Resources3dView({ onBack, onOpenDetail }: Resources3dViewProps) 
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="资源" onClick={onBack} />
+        <NavBackButton label="资源" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

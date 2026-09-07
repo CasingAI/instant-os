@@ -1,4 +1,4 @@
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { formatStorageSize } from './format-storage-size.ts'
 
 type DataOtherStorageViewProps = {
@@ -15,7 +15,7 @@ export function DataOtherStorageView({
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="存储空间" onClick={onBack} />
+        <NavBackButton label="存储空间" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

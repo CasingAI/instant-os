@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { Switch } from '../../ui/switch.tsx'
 import {
   formatCalendarYearLabel,
@@ -137,7 +137,7 @@ export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
   return (
     <div class={`settings${editor ? ' date-time-settings--editing' : ''}`}>
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

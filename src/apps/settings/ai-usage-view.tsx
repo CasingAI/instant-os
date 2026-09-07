@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import {
   AI_TOKEN_USAGE_CHANGED_EVENT,
   clearAiTokenUsage,
@@ -316,7 +316,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
     return (
       <div class="settings">
         <div class="settings__nav">
-          <IosNavBackButton label="显示全部" onClick={onBack} />
+          <NavBackButton label="显示全部" onClick={onBack} />
         </div>
         <div class="settings__content settings__content--compact">
           <div class="settings__box settings__empty">正在加载 AI 用量…</div>
@@ -329,7 +329,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
     return (
       <div class="settings" data-settings-subpage>
         <div class="settings__nav">
-          <IosNavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
+          <NavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
         </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
@@ -383,7 +383,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
     return (
       <div class="settings" data-settings-subpage>
         <div class="settings__nav">
-          <IosNavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
+          <NavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
         </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
@@ -449,7 +449,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
     return (
       <div class="settings" data-settings-subpage>
         <div class="settings__nav">
-          <IosNavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
+          <NavBackButton label={AI_USAGE_NAV_LABEL} onClick={backToOverview} />
         </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
@@ -485,7 +485,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

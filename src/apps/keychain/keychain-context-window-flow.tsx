@@ -7,7 +7,7 @@ import {
   type AiProviderId,
 } from '../../ai/ai-providers.ts'
 import { formatCompactTokenCount } from '../browser/format-token-count.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 
@@ -107,7 +107,7 @@ export function KeychainContextWindowFlow({
     <>
       <div class="settings__nav settings__nav--titled">
         <div class="settings__nav-bar">
-          <IosNavBackButton label={backLabel} onClick={onClose} />
+          <NavBackButton label={backLabel} onClick={onClose} />
           <h1 class="settings__nav-heading">上下文</h1>
           <span class="settings__nav-trailing" aria-hidden="true" />
         </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import {
@@ -119,7 +119,7 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
     return (
       <div class="settings">
         <div class="settings__nav">
-          <IosNavBackButton label="显示全部" onClick={onBack} />
+          <NavBackButton label="显示全部" onClick={onBack} />
         </div>
         <div class="settings__content settings__content--compact">
           <div class="settings__box settings__empty">正在加载…</div>
@@ -135,7 +135,7 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

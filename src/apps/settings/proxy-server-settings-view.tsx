@@ -10,7 +10,7 @@ import {
   type ProxyServerPresetId,
 } from '../../os/proxy-server-settings-storage.ts'
 import { PROXY_SERVER_URL_PLACEHOLDER } from '../../page-host/page-host-config.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
@@ -247,7 +247,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
   return (
     <div class="settings" ref={hostRef}>
       <div class="settings__nav">
-        <IosNavBackButton label="显示全部" onClick={onBack} />
+        <NavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

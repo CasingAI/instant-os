@@ -192,7 +192,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'settings-choice-field',
     name: 'SettingsChoiceField',
-    description: '设置选项字段；form / list 内置触发器，或 children 自定义；支持宽窄屏与 dark',
+    badge: '已弃用',
+    description: '已弃用。设置选项字段；form / list 内置触发器，或 children 自定义；支持宽窄屏与 dark',
     category: 'settings',
     importPath: "import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'",
     demos: [
@@ -311,6 +312,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { id: 'selection', title: '受控单选', description: 'selectedId/onSelect + selectionTone="check"，点击自动上报、accessory 勾随选中（只显勾，无持久蓝底）' },
       { id: 'multi-selection', title: '受控多选', description: 'selectedIds/onSelect + selectionTone="check"，点行切换勾、多行同选（只显勾，无持久蓝底）' },
       { id: 'controls', title: '控件行', description: 'control 槽放 Switch / Input（点控件不触发行）；纯勾选行用整行点按切换' },
+      { id: 'choice', title: '选择行', description: 'ListItem 传 options 即选择行：右侧显示当前值，宽容器点行弹选择菜单、窄容器点行走跳转回调（onChoiceNavigate），List 自动判定或 choiceLayout 强制' },
       { id: 'index', title: '快速索引条', description: '条上文字三档自动：标题首字 → 拼音首字母 → 隔位采样；含姓氏模式与乱序告警演示' },
       { id: 'editing', title: '编辑模式', description: '「编辑」进出：减号删除、把手重排' },
       { id: 'plain-variant', title: 'plain 变体换装', description: '同一组件同一份数据，传参即换装：grouped ↔ plain 现场切换' },
@@ -479,7 +481,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'nav-back-button',
     name: 'NavBackButton',
-    description: '返回按钮；用于子页标题栏',
+    badge: '已弃用',
+    description: '已弃用。返回按钮；用于子页标题栏',
     category: 'navigation',
     importPath: "import { NavBackButton } from '../../ui/nav-back-button.tsx'",
     demos: [

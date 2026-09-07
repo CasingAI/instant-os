@@ -1,8 +1,8 @@
 import type { JSX } from 'preact'
 import { BackIcon } from '../icons/app-icons.tsx'
-import './ios-nav-back.css'
+import './nav-back.css'
 
-type IosNavBackButtonProps = {
+type NavBackButtonProps = {
   label: string
   onClick: (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => void
   class?: string
@@ -13,7 +13,10 @@ type IosNavBackButtonProps = {
   'aria-label'?: string
 }
 
-export function IosNavBackButton({
+/**
+ * @deprecated 已弃用，新代码不要再用；仅保留供现有调用方，后续随调用方迁移一并移除。
+ */
+export function NavBackButton({
   label,
   onClick,
   class: className,
@@ -21,20 +24,20 @@ export function IosNavBackButton({
   iconSize,
   disabled = false,
   'aria-label': ariaLabel,
-}: IosNavBackButtonProps) {
+}: NavBackButtonProps) {
   const resolvedIconSize = iconSize ?? (size === 'mini' ? 11 : 13)
   return (
     <button
       type="button"
-      class={`ios-nav-back${size === 'mini' ? ' ios-nav-back--mini' : ''}${className ? ` ${className}` : ''}`}
+      class={`nav-back${size === 'mini' ? ' nav-back--mini' : ''}${className ? ` ${className}` : ''}`}
       onClick={onClick}
       disabled={disabled}
       aria-label={ariaLabel}
     >
-      <span class="ios-nav-back__icon" aria-hidden="true">
+      <span class="nav-back__icon" aria-hidden="true">
         <BackIcon size={resolvedIconSize} />
       </span>
-      <span class="ios-nav-back__label">{label}</span>
+      <span class="nav-back__label">{label}</span>
     </button>
   )
 }

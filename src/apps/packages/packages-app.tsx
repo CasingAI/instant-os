@@ -27,14 +27,14 @@ import {
   type PackageTaskProgress,
   type PackageTaskStatus,
 } from '../../packages/package-public.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { PackagesInstallSheet } from './packages-install-sheet.tsx'
 import { ExpandablePackageList } from './expandable-package-list.tsx'
-import '../../ui/ios-nav-back.css'
+import '../../ui/nav-back.css'
 import '../settings/settings.css'
 import './packages-app.css'
 
@@ -687,7 +687,7 @@ export function PackagesApp() {
         {openDialog}
         {installSheet}
         <header class="settings__nav packages-app__header">
-          <IosNavBackButton
+          <NavBackButton
             label={backLabelForStack(detailStack, '项目')}
             onClick={popPackageDetail}
           />
@@ -840,7 +840,7 @@ export function PackagesApp() {
         {openDialog}
         {installSheet}
         <header class="settings__nav packages-app__header">
-          <IosNavBackButton
+          <NavBackButton
             label={backLabelForStack(
               cacheDetailStack.map((entry) => entry.name),
               '全局缓存',

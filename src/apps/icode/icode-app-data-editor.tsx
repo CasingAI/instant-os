@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import {
   decodeStorageValue,
   encodeStorageValue,
@@ -211,7 +211,7 @@ export function IcodeAppDataEditor({
           <>
             <div class="icode__data-detail-header">
               {narrowLayout && (
-                <IosNavBackButton
+                <NavBackButton
                   class="icode__data-detail-back"
                   label="键列表"
                   aria-label="返回键列表"

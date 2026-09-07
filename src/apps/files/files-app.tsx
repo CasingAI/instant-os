@@ -22,7 +22,7 @@ import {
 } from '../../ui/adaptive-action-menu.tsx'
 import { getFloatingOverlayRoot } from '../../ui/floating-overlay-root.ts'
 import { CheckToggle } from '../../ui/check-toggle.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
@@ -160,7 +160,7 @@ import {
   type FilesWriteProgressEntry,
 } from './files-write-progress.ts'
 import '../../ui/check-toggle.css'
-import '../../ui/ios-nav-back.css'
+import '../../ui/nav-back.css'
 import './files.css'
 
 const APP_ID = 'files' as const
@@ -4028,7 +4028,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         <header class="files__toolbar">
           <div class="files__toolbar-left">
             {showToolbarBack ? (
-              <IosNavBackButton label={backLabel} onClick={handleToolbarBack} />
+              <NavBackButton label={backLabel} onClick={handleToolbarBack} />
             ) : (
               <span class="files__toolbar-spacer" />
             )}

@@ -3,7 +3,7 @@ import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
 import type { SpeechBlock } from '../../ai/speech-read-aloud.ts'
 import { useSpeechReadAloud } from '../../ai/use-speech-read-aloud.ts'
 import { BackIcon, ForwardIcon, ReloadIcon } from '../../icons/app-icons.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SpeechReadAloudBar } from '../../ui/speech-read-aloud-bar.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -527,7 +527,7 @@ export function NewsApp() {
     >
       <header class="news__toolbar">
         {narrowLayout && stackedReaderOpen && (
-          <IosNavBackButton
+          <NavBackButton
             class="news__toolbar-back"
             iconSize={14}
             label="报道"

@@ -1,8 +1,8 @@
 import { useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../../../ui/nav-back-button.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
-export default function IosNavBackButtonDemo() {
+export default function NavBackButtonDemo() {
   const [page, setPage] = useState<'list' | 'detail'>('detail')
 
   return (
@@ -10,7 +10,7 @@ export default function IosNavBackButtonDemo() {
       <DemoVariant label="返回导航">
         {page === 'detail' ? (
           <div class="ui-kit-demo__nav-chrome">
-            <IosNavBackButton label="设置" onClick={() => setPage('list')} />
+            <NavBackButton label="设置" onClick={() => setPage('list')} />
             <span class="ui-kit-demo__nav-title">账号</span>
           </div>
         ) : (
@@ -23,7 +23,7 @@ export default function IosNavBackButtonDemo() {
         )}
       </DemoVariant>
       <DemoVariant label="禁用">
-        <IosNavBackButton label="返回" onClick={() => undefined} disabled />
+        <NavBackButton label="返回" onClick={() => undefined} disabled />
       </DemoVariant>
     </DemoVariants>
   )

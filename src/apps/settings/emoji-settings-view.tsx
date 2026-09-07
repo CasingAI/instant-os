@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 import { applyEmojiFontMode } from '../../fonts/ensure-apple-color-emoji-fonts.ts'
@@ -49,7 +49,7 @@ export function EmojiSettingsView({ onBack, onOpenCalibration }: EmojiSettingsVi
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="显示" onClick={onBack} />
+        <NavBackButton label="显示" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

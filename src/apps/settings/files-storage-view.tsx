@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
 import { osBootTimeMs } from '../../os/os-boot-time.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import {
   loadDataSpaceFilesBreakdown,
   type DataSpaceFilesBreakdown,
@@ -56,7 +56,7 @@ export function FilesStorageView({ onBack, onOpenSpaceSniffer }: FilesStorageVie
   return (
     <div class="settings">
       <div class="settings__nav">
-        <IosNavBackButton label="存储空间" onClick={onBack} />
+        <NavBackButton label="存储空间" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

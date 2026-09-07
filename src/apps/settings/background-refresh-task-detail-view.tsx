@@ -14,7 +14,7 @@ import {
 } from '../../ai/ai-model-pricing-cache.ts'
 import { DEFAULT_PRICING_API_URL } from '../../ai/fetch-model-pricing.ts'
 import { collectOpenRouterBindings } from '../../ai/fetch-openrouter-pricing.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 
 type BackgroundRefreshTaskDetailViewProps = {
   taskId: BackgroundRefreshTaskId
@@ -114,7 +114,7 @@ export function BackgroundRefreshTaskDetailView({
     return (
       <div class="settings" data-settings-subpage>
         <div class="settings__nav">
-          <IosNavBackButton label="背景刷新" onClick={onBack} />
+          <NavBackButton label="背景刷新" onClick={onBack} />
         </div>
         <div class="settings__content settings__content--compact">
           <p class="settings__empty">未找到该刷新项目。</p>
@@ -126,7 +126,7 @@ export function BackgroundRefreshTaskDetailView({
   return (
     <div class="settings" data-settings-subpage>
       <div class="settings__nav">
-        <IosNavBackButton label="背景刷新" onClick={onBack} />
+        <NavBackButton label="背景刷新" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

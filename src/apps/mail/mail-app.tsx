@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { osNowMs } from '../../os/os-clock.ts'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
@@ -382,7 +382,7 @@ export function MailApp() {
       class={`mail${narrowLayout ? ' mail--narrow' : ''}${narrowLayout && stackedDetailOpen ? ' mail--detail-open' : ''}`}
     >
       <header class="mail__toolbar">
-        <IosNavBackButton
+        <NavBackButton
           class="mail__toolbar-back"
           iconSize={14}
           label="邮件"

@@ -4,7 +4,7 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { Button } from '../../ui/button.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { FixedRowVirtualList } from '../../ui/fixed-row-virtual-list.tsx'
@@ -617,7 +617,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
       {showLyricsScreen ? (
         <>
           <header class="music__toolbar">
-            <IosNavBackButton iconSize={14} label="曲库" onClick={() => setLyricsOpen(false)} />
+            <NavBackButton iconSize={14} label="曲库" onClick={() => setLyricsOpen(false)} />
             <span class="music__toolbar-title music__toolbar-title--center">
               {currentLibraryTrack?.title ?? '歌词文件'}
             </span>
@@ -675,7 +675,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
       ) : visualizerOpen ? (
         <>
           <header class="music__toolbar">
-            <IosNavBackButton iconSize={14} label="曲库" onClick={() => setVisualizerOpen(false)} />
+            <NavBackButton iconSize={14} label="曲库" onClick={() => setVisualizerOpen(false)} />
             <span class="music__toolbar-title music__toolbar-title--center">可视化</span>
             <span class="music__toolbar-spacer" />
           </header>

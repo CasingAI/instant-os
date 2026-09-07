@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact'
 import { useMemo, useState } from 'preact/hooks'
 import { SearchIcon } from '../../icons/app-icons.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import {
   SettingsChoiceOptionList,
   type SettingsChoiceOption,
@@ -76,7 +76,7 @@ export function SettingsChoicePickerView({
         class={`settings__nav${titleInNav ? ' settings__nav--titled' : ''}`}
       >
         <div class="settings__nav-bar">
-          <IosNavBackButton
+          <NavBackButton
             label={backLabel}
             onClick={onBack}
             disabled={loading}

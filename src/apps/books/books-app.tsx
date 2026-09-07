@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { Button } from '../../ui/button.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import { generateBookChaptersStreaming, generateStoreCatalogForCategoryStreaming, generateStoreCatalogStreaming } from './books-agent.ts'
@@ -274,7 +274,7 @@ export function BooksApp() {
     return (
       <div class="books">
         <header class="books__toolbar">
-          <IosNavBackButton iconSize={14} label={backLabel} onClick={closeDetail} />
+          <NavBackButton iconSize={14} label={backLabel} onClick={closeDetail} />
           <span class="books__toolbar-title books__toolbar-title--center">书籍详情</span>
           <span class="books__toolbar-spacer" />
         </header>
@@ -300,7 +300,7 @@ export function BooksApp() {
     return (
       <div class="books">
         <header class="books__toolbar">
-          <IosNavBackButton iconSize={14} label="书架" onClick={() => setScreen('shelf')} />
+          <NavBackButton iconSize={14} label="书架" onClick={() => setScreen('shelf')} />
           <span class="books__toolbar-title books__toolbar-title--center">书城</span>
           <div class="books__toolbar-actions">
             <Button onClick={openSearch} aria-label="搜索">
@@ -332,7 +332,7 @@ export function BooksApp() {
     return (
       <div class="books">
         <header class="books__toolbar">
-          <IosNavBackButton iconSize={14} label="书城" onClick={closeSearch} />
+          <NavBackButton iconSize={14} label="书城" onClick={closeSearch} />
           <span class="books__toolbar-title books__toolbar-title--center">搜索</span>
           <span class="books__toolbar-spacer" />
         </header>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { SpeechBlock } from '../../ai/speech-read-aloud.ts'
 import { useSpeechReadAloud } from '../../ai/use-speech-read-aloud.ts'
 import { Button } from '../../ui/button.tsx'
-import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { SpeechReadAloudBar } from '../../ui/speech-read-aloud-bar.tsx'
 import { loadChapterBody } from './books-data-storage.ts'
 import { readBooksStore, setReadingProgress, writeBooksStore } from './books-storage.ts'
@@ -134,7 +134,7 @@ export function BooksReader({ book, store, onStoreChange, onBack }: BooksReaderP
   return (
     <>
       <header class="books__toolbar">
-        <IosNavBackButton iconSize={14} label="书架" onClick={onBack} />
+        <NavBackButton iconSize={14} label="书架" onClick={onBack} />
         <span class="books__toolbar-title books__toolbar-title--center">{book.title}</span>
         {speechOpen ? (
           <span class="books__toolbar-spacer" />
