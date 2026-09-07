@@ -152,11 +152,11 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
-    id: 'ios-range-slider',
-    name: 'IosRangeSlider',
-    description: 'iOS 风格数值滑块；左侧数字输入，右侧水平拖块，支持刻度点、标签与单位后缀',
+    id: 'range',
+    name: 'Range',
+    description: '数值滑块；左侧数字输入，右侧水平拖块，支持刻度点、标签与单位后缀',
     category: 'form',
-    importPath: "import { IosRangeSlider, type IosRangeSliderMark } from '../../ui/ios-range-slider.tsx'",
+    importPath: "import { Range, type RangeMark } from '../../ui/range.tsx'",
     demos: [
       { id: 'basic', title: '基础用法', description: '拖块 + 数字输入、标签后缀与刻度、禁用' },
       { id: 'scenarios', title: '业务场景', description: '虚拟机内存与新建空盘容量：非 0 起点的大范围刻度' },
@@ -169,7 +169,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'label', type: 'string?', description: '左侧标签', defaultValue: '—' },
       { name: 'suffix', type: 'string?', description: '数值后缀，如 MB / %', defaultValue: '—' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用', defaultValue: 'false' },
-      { name: 'marks', type: 'IosRangeSliderMark[]?', description: '刻度点；value 在范围内即可，会被自动吸附到 step', defaultValue: '—' },
+      { name: 'marks', type: 'RangeMark[]?', description: '刻度点；value 在范围内即可，会被自动吸附到 step', defaultValue: '—' },
       { name: 'onChange', type: '(value: number) => void', description: '值变化回调', defaultValue: '—' },
     ],
   },
@@ -213,7 +213,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'settings-nav-row',
     name: 'SettingsNavRow',
-    description: '设置导航行；右侧值、密钥圆点掩码、禁用态',
+    badge: '已弃用',
+    description: '已弃用。设置导航行；右侧值、密钥圆点掩码、禁用态',
     category: 'settings',
     importPath: "import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'",
     demos: [
@@ -230,7 +231,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'settings-switch-row',
     name: 'SettingsSwitchRow',
-    description: '设置开关行；标签 + Switch 组合，常成组出现',
+    badge: '已弃用',
+    description: '已弃用。设置开关行；标签 + Switch 组合，常成组出现',
     category: 'settings',
     importPath: "import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'",
     demos: [
@@ -243,11 +245,11 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
-    id: 'settings-stepper-row',
-    name: 'SettingsStepperRow',
+    id: 'number-selector',
+    name: 'NumberSelector',
     description: '设置数字行；点击弹出模态，在模态内用 [−] / 输入 / [+] 调节',
     category: 'settings',
-    importPath: "import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'",
+    importPath: "import { NumberSelector } from '../../ui/number-selector.tsx'",
     demos: [
       { id: 'basic', title: '基础用法', description: '点击行弹出步进模态' },
     ],
@@ -266,7 +268,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'settings-check-row',
     name: 'SettingsCheckRow',
-    description: '设置勾选行；左侧标签、右侧无边框勾，整行点按切换；禁用态灰底灰字',
+    badge: '已弃用',
+    description: '已弃用。设置勾选行；左侧标签、右侧无边框勾，整行点按切换；禁用态灰底灰字',
     category: 'settings',
     importPath: "import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'",
     demos: [

@@ -13,6 +13,9 @@ type SettingsNavRowProps = {
   secretLength?: number
 }
 
+/**
+ * @deprecated 已弃用，新代码不要再用；仅保留供现有调用方，后续随调用方迁移一并移除。
+ */
 export function SettingsNavRow({
   label,
   value,
