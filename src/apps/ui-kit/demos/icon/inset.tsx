@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { Icon } from '../../../../ui/icon.tsx'
-import { IosRangeSlider } from '../../../../ui/ios-range-slider.tsx'
+import { Slider } from '../../../../ui/slider.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
 /** 内凹演示用的图标名，三个画法共用同一排便于对照 */
@@ -66,15 +66,15 @@ export default function IconInsetDemo() {
       <div class="ui-kit-demo__inset-controls" style={{ flex: '0 0 auto' }}>
         <label class="ui-kit-demo__inset-control">
           <span class="ui-kit-demo__label">深度</span>
-          <IosRangeSlider value={depth} min={0.5} max={3} step={0.25} onChange={setDepth} />
+          <Slider value={depth} min={0.5} max={3} step={0.25} onChange={setDepth} />
         </label>
         <label class="ui-kit-demo__inset-control">
           <span class="ui-kit-demo__label">浓度</span>
-          <IosRangeSlider value={strength} min={0.15} max={0.8} step={0.05} onChange={setStrength} />
+          <Slider value={strength} min={0.15} max={0.8} step={0.05} onChange={setStrength} />
         </label>
         <label class="ui-kit-demo__inset-control">
           <span class="ui-kit-demo__label">字重</span>
-          <IosRangeSlider value={weight} min={100} max={700} step={100} onChange={setWeight} />
+          <Slider value={weight} min={100} max={700} step={100} onChange={setWeight} />
         </label>
       </div>
       <DemoVariants>

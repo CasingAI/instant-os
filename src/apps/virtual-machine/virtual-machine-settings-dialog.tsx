@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { HelpHint } from '../../ui/help-hint.tsx'
 import { Button } from '../../ui/button.tsx'
 import {
-  IosRangeSlider,
-  type IosRangeSliderMark,
-} from '../../ui/ios-range-slider.tsx'
+  Slider,
+  type SliderMark,
+} from '../../ui/slider.tsx'
 import { Switch } from '../../ui/switch.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -84,14 +84,14 @@ import {
 
 const THEME = '#3d5a80'
 
-const MEMORY_SLIDER_MARKS: IosRangeSliderMark[] = [
+const MEMORY_SLIDER_MARKS: SliderMark[] = [
   { value: 512, label: '512M' },
   { value: 1024, label: '1G' },
   { value: 1536, label: '1.5G' },
   { value: VM_MEMORY_MB_MAX, label: '2G' },
 ]
 
-const BLANK_DISK_SLIDER_MARKS: IosRangeSliderMark[] = [
+const BLANK_DISK_SLIDER_MARKS: SliderMark[] = [
   { value: 256, label: '256M' },
   { value: 512, label: '512M' },
   { value: 1024, label: '1G' },
@@ -614,7 +614,7 @@ export function VirtualMachineSettingsDialog({
                 </span>
                 {selectedHardware === 'ram' ? (
                   <>
-                    <IosRangeSlider
+                    <Slider
                       label="内存"
                       value={draft.memoryMb}
                       min={VM_MEMORY_MB_MIN}
@@ -1293,7 +1293,7 @@ export function VirtualMachineSettingsDialog({
             />
             {!enhanceOff && draft.enhanceWindowSnap ? (
               <>
-                <IosRangeSlider
+                <Slider
                   label="吸附触发距离"
                   value={draft.enhanceWindowSnapEdgePx}
                   min={VM_SNAP_EDGE_PX_MIN}
@@ -1368,7 +1368,7 @@ export function VirtualMachineSettingsDialog({
               }
             />
           </div>
-          <IosRangeSlider
+          <Slider
             label="容量"
             value={createDiskSizeMb}
             min={VM_BLANK_DISK_MIN_SIZE_MB}

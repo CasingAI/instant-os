@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import { List, ListSection } from '../../../../ui/list.tsx'
 import { groupByIndexLetter } from '../../../../ui/list-index.ts'
 import { ListItem } from '../../../../ui/list-item.tsx'
-import { IosRangeSlider } from '../../../../ui/ios-range-slider.tsx'
+import { Slider } from '../../../../ui/slider.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
 export default function ListIndexDemo() {
@@ -224,7 +224,7 @@ export default function ListIndexDemo() {
   return (
     <DemoVariants>
       <DemoVariant label="分类数量滑杆：三档全自动——节少条上显示标题首字（水果类→水），节多降为拼音首字母（水果类→S），再多槽位放不下走隔位采样" wide>
-        <IosRangeSlider
+        <Slider
           value={catCount}
           min={4}
           max={36}
@@ -244,7 +244,7 @@ export default function ListIndexDemo() {
           class="ui-kit-demo__index-height-host"
           style={{ ['--ui-kit-demo-index-height' as string]: `${bodyHeight}px` }}
         >
-          <IosRangeSlider
+          <Slider
             value={bodyHeight}
             min={120}
             max={600}

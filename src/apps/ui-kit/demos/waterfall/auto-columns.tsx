@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { Waterfall } from '../../../../ui/waterfall.tsx'
-import { IosRangeSlider } from '../../../../ui/ios-range-slider.tsx'
+import { Slider } from '../../../../ui/slider.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
 type FeatureCard = { id: string; title: string; sub: string; badge: string; from: string; to: string }
@@ -36,7 +36,7 @@ export default function WaterfallAutoColumnsDemo() {
             卡片最小宽 {minItemWidth}px
           </span>
           <div style={{ flex: 1, maxWidth: 240 }}>
-            <IosRangeSlider value={minItemWidth} min={180} max={320} step={10} onChange={setMinItemWidth} />
+            <Slider value={minItemWidth} min={180} max={320} step={10} onChange={setMinItemWidth} />
           </div>
           <span class="ui-kit-demo__status">{opened ? `已打开「${opened}」` : '点按打开'}</span>
         </div>

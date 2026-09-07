@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import './ios-range-slider.css'
+import './slider.css'
 
-export type IosRangeSliderMark = {
+export type SliderMark = {
   value: number
   label?: string
 }
 
-type IosRangeSliderProps = {
+type SliderProps = {
   value: number
   min: number
   max: number
@@ -14,7 +14,7 @@ type IosRangeSliderProps = {
   label?: string
   suffix?: string
   disabled?: boolean
-  marks?: IosRangeSliderMark[]
+  marks?: SliderMark[]
   onChange: (value: number) => void
 }
 
@@ -23,8 +23,8 @@ function clampStep(value: number, min: number, max: number, step: number): numbe
   return Math.max(min, Math.min(max, rounded))
 }
 
-/** iOS 风格 Range Slider：左侧数字输入框可直接键入，右侧是水平拖块。 */
-export function IosRangeSlider({
+/** Slider：左侧数字输入框可直接键入，右侧是水平拖块。 */
+export function Slider({
   value,
   min,
   max,
@@ -34,7 +34,7 @@ export function IosRangeSlider({
   disabled = false,
   marks,
   onChange,
-}: IosRangeSliderProps) {
+}: SliderProps) {
   const trackRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const [inputValue, setInputValue] = useState(String(value))
@@ -91,7 +91,7 @@ export function IosRangeSlider({
   }, [dragging, progress])
 
   const normalizedMarks = useMemo(() => {
-    const byValue = new Map<number, IosRangeSliderMark>()
+    const byValue = new Map<number, SliderMark>()
     for (const mark of marks ?? []) {
       if (mark.value < min || mark.value > max) continue
       const snapped = clampStep(mark.value, min, max, step)
@@ -177,16 +177,16 @@ export function IosRangeSlider({
 
   return (
     <div
-      class={`ios-range-slider${disabled ? ' ios-range-slider--disabled' : ''}${
-        dragging ? ' ios-range-slider--dragging' : ''
+      class={`slider${disabled ? ' slider--disabled' : ''}${
+        dragging ? ' slider--dragging' : ''
       }`}
       aria-disabled={disabled}
     >
-      {label ? <span class="ios-range-slider__label">{label}</span> : null}
-      <div class="ios-range-slider__body">
+      {label ? <span class="slider__label">{label}</span> : null}
+      <div class="slider__body">
         <input
           type="number"
-          class="ios-range-slider__input"
+          class="slider__input"
           value={inputValue}
           min={min}
           max={max}
@@ -196,10 +196,10 @@ export function IosRangeSlider({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
         />
-        {suffix ? <span class="ios-range-slider__suffix">{suffix}</span> : null}
-        <div class="ios-range-slider__track-area" onMouseDown={handleMouseDown}>
+        {suffix ? <span class="slider__suffix">{suffix}</span> : null}
+        <div class="slider__track-area" onMouseDown={handleMouseDown}>
           <div
-            class="ios-range-slider__track"
+            class="slider__track"
             ref={trackRef}
             role="slider"
             aria-valuemin={min}
@@ -207,14 +207,14 @@ export function IosRangeSlider({
             aria-valuenow={clampedValue}
           >
             <div
-              class="ios-range-slider__fill"
+              class="slider__fill"
               style={{ width: `${progress * 100}%` }}
             />
             {normalizedMarks.map((mark) => (
               <div
                 key={mark.value}
-                class={`ios-range-slider__tick${
-                  clampedValue >= mark.value ? ' ios-range-slider__tick--active' : ''
+                class={`slider__tick${
+                  clampedValue >= mark.value ? ' slider__tick--active' : ''
                 }`}
                 style={{
                   // 圆头半径 4px，圆心在 100% - 4px：极限档位的点要和圆头同心。
@@ -225,13 +225,13 @@ export function IosRangeSlider({
               />
             ))}
             <div
-              class="ios-range-slider__thumb"
+              class="slider__thumb"
               style={{ left: `clamp(4px, ${progress * 100}%, calc(100% - 4px))` }}
             />
             {dragging && !disabled ? (
               <>
                 <div
-                  class="ios-range-slider__tooltip"
+                  class="slider__tooltip"
                   ref={tooltipRef}
                   // 首帧先用拇指钳位兜底，布局后由 useLayoutEffect 实测修正。
                   style={{
@@ -245,18 +245,18 @@ export function IosRangeSlider({
                   {suffix}
                 </div>
                 <div
-                  class="ios-range-slider__tooltip-arrow"
+                  class="slider__tooltip-arrow"
                   style={{ left: `clamp(4px, ${progress * 100}%, calc(100% - 4px))` }}
                 />
               </>
             ) : null}
           </div>
           {labeledMarks.length > 0 ? (
-            <div class="ios-range-slider__marks">
+            <div class="slider__marks">
               {labeledMarks.map((mark) => (
                 <span
                   key={mark.value}
-                  class="ios-range-slider__mark-label"
+                  class="slider__mark-label"
                   style={{
                     // 和刻度点同一圆心：极限标签对齐圆头圆心，而不是端点。
                     left: `clamp(4px, ${

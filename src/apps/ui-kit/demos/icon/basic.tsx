@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import { Icon, type IconFamily } from '../../../../ui/icon.tsx'
 import { Switch } from '../../../../ui/switch.tsx'
 import { Input } from '../../../../ui/input.tsx'
-import { IosRangeSlider } from '../../../../ui/ios-range-slider.tsx'
+import { Slider } from '../../../../ui/slider.tsx'
 import { SegmentedControl } from '../../../../ui/segmented-control.tsx'
 import { FixedRowVirtualList } from '../../../../ui/fixed-row-virtual-list.tsx'
 import { ICON_RECOMMENDED, ICON_RECOMMENDED_NAMES } from '../../icon-recommended.ts'
@@ -243,7 +243,7 @@ export default function IconDemo() {
             </div>
             <div class="ui-kit-demo__icon-slider">
               <span class="ui-kit-demo__label">字重</span>
-              <IosRangeSlider
+              <Slider
                 value={weight}
                 min={100}
                 max={700}

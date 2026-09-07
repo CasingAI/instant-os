@@ -14,21 +14,21 @@
   <div class="panel narrow" id="p3"></div>
   <script type="module">
     import { h, render } from 'preact'
-    import { IosRangeSlider } from '/src/ui/ios-range-slider.tsx'
+    import { Slider } from '/src/ui/slider.tsx'
 
     // 场景 1：VM 设置对话框内存滑块同参（16–2032 / step 16 / MB）
     render(
-      h(IosRangeSlider, { value: 1024, min: 16, max: 2032, step: 16, suffix: 'MB', onChange: () => {} }),
+      h(Slider, { value: 1024, min: 16, max: 2032, step: 16, suffix: 'MB', onChange: () => {} }),
       document.getElementById('p1'),
     )
     // 场景 2：无后缀基础滑块
     render(
-      h(IosRangeSlider, { value: 50, min: 0, max: 100, step: 1, onChange: () => {} }),
+      h(Slider, { value: 50, min: 0, max: 100, step: 1, onChange: () => {} }),
       document.getElementById('p2'),
     )
     // 场景 3：极窄轨道（触发 clamp min>max 退化）
     render(
-      h(IosRangeSlider, { value: 1024, min: 16, max: 2032, step: 16, suffix: 'MB', onChange: () => {} }),
+      h(Slider, { value: 1024, min: 16, max: 2032, step: 16, suffix: 'MB', onChange: () => {} }),
       document.getElementById('p3'),
     )
     window.__ready = true

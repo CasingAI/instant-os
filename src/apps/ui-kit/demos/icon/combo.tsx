@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import { Button } from '../../../../ui/button.tsx'
 import { Icon } from '../../../../ui/icon.tsx'
-import { IosRangeSlider } from '../../../../ui/ios-range-slider.tsx'
+import { Slider } from '../../../../ui/slider.tsx'
 import { List } from '../../../../ui/list.tsx'
 import { ListItem } from '../../../../ui/list-item.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
@@ -14,7 +14,7 @@ export default function IconComboDemo() {
     <div class="ui-kit-demo__icon-panel">
       <div class="ui-kit-demo__icon-slider" style={{ flex: '0 0 auto' }}>
         <span class="ui-kit-demo__label">字重</span>
-        <IosRangeSlider value={weight} min={100} max={700} step={100} onChange={setWeight} />
+        <Slider value={weight} min={100} max={700} step={100} onChange={setWeight} />
       </div>
       <DemoVariants>
         <DemoVariant label="Button · 仅图标（无文字）">

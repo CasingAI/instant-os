@@ -1,19 +1,19 @@
 import { useState } from 'preact/hooks'
-import { IosRangeSlider, type IosRangeSliderMark } from '../../../../ui/ios-range-slider.tsx'
+import { Slider, type SliderMark } from '../../../../ui/slider.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
-export default function IosRangeSliderScenariosDemo() {
+export default function SliderScenariosDemo() {
   const [memory, setMemory] = useState(1024)
   const [disk, setDisk] = useState(512)
 
-  const memoryMarks: IosRangeSliderMark[] = [
+  const memoryMarks: SliderMark[] = [
     { value: 512, label: '512M' },
     { value: 1024, label: '1G' },
     { value: 1536, label: '1.5G' },
     { value: 2032, label: '2G' },
   ]
 
-  const diskMarks: IosRangeSliderMark[] = [
+  const diskMarks: SliderMark[] = [
     { value: 256, label: '256M' },
     { value: 512, label: '512M' },
     { value: 1024, label: '1G' },
@@ -23,7 +23,7 @@ export default function IosRangeSliderScenariosDemo() {
   return (
     <DemoVariants>
       <DemoVariant label="业务场景：虚拟机内存 (16–2032 MB / step 16)" wide>
-        <IosRangeSlider
+        <Slider
           label="内存"
           value={memory}
           min={16}
@@ -36,7 +36,7 @@ export default function IosRangeSliderScenariosDemo() {
       </DemoVariant>
 
       <DemoVariant label="业务场景：新建空盘容量 (16–2048 MB / step 16)" wide>
-        <IosRangeSlider
+        <Slider
           label="容量"
           value={disk}
           min={16}

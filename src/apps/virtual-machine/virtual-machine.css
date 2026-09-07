@@ -839,7 +839,7 @@
   padding: 2px 0;
 }
 
-.virtual-machine-settings__create-disk .ios-range-slider__body {
+.virtual-machine-settings__create-disk .slider__body {
   grid-template-columns: 56px minmax(0, 1fr);
 }
 

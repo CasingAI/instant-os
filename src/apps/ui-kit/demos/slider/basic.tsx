@@ -1,13 +1,13 @@
 import { useState } from 'preact/hooks'
-import { IosRangeSlider, type IosRangeSliderMark } from '../../../../ui/ios-range-slider.tsx'
+import { Slider, type SliderMark } from '../../../../ui/slider.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
-export default function IosRangeSliderBasicDemo() {
+export default function SliderBasicDemo() {
   const [basic, setBasic] = useState(30)
   const [withMarks, setWithMarks] = useState(25)
   const [disabledVal, setDisabledVal] = useState(60)
 
-  const percentMarks: IosRangeSliderMark[] = [
+  const percentMarks: SliderMark[] = [
     { value: 0, label: '0%' },
     { value: 25, label: '25%' },
     { value: 50, label: '50%' },
@@ -18,7 +18,7 @@ export default function IosRangeSliderBasicDemo() {
   return (
     <DemoVariants>
       <DemoVariant label="基础" wide>
-        <IosRangeSlider
+        <Slider
           value={basic}
           min={0}
           max={100}
@@ -28,7 +28,7 @@ export default function IosRangeSliderBasicDemo() {
       </DemoVariant>
 
       <DemoVariant label="带标签 + 后缀 + 刻度" wide>
-        <IosRangeSlider
+        <Slider
           label="音量"
           value={withMarks}
           min={0}
@@ -41,7 +41,7 @@ export default function IosRangeSliderBasicDemo() {
       </DemoVariant>
 
       <DemoVariant label="禁用" wide>
-        <IosRangeSlider
+        <Slider
           value={disabledVal}
           min={0}
           max={100}

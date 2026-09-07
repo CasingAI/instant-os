@@ -1,30 +1,30 @@
-.ios-range-slider {
+.slider {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
 }
 
-.ios-range-slider--disabled {
+.slider--disabled {
   opacity: 0.55;
   pointer-events: none;
 }
 
-.ios-range-slider__label {
+.slider__label {
   font-size: 12px;
   font-weight: 500;
   color: #333;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-.ios-range-slider__body {
+.slider__body {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
-.ios-range-slider__input {
+.slider__input {
   width: 56px;
   height: 22px;
   padding: 0 4px;
@@ -39,24 +39,24 @@
   outline: none;
 }
 
-.ios-range-slider__input:focus {
+.slider__input:focus {
   border-color: #4a90e2;
   box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.25);
 }
 
-.ios-range-slider__input::-webkit-outer-spin-button,
-.ios-range-slider__input::-webkit-inner-spin-button {
+.slider__input::-webkit-outer-spin-button,
+.slider__input::-webkit-inner-spin-button {
   appearance: none;
   margin: 0;
 }
 
-.ios-range-slider__suffix {
+.slider__suffix {
   font-size: 12px;
   color: #666;
   min-width: 20px;
 }
 
-.ios-range-slider__track-area {
+.slider__track-area {
   position: relative;
   flex: 1;
   min-width: 0;
@@ -65,7 +65,7 @@
 }
 
 /* 命中区向上下各扩 8px、向左右各扩 12px，覆盖两侧留白 */
-.ios-range-slider__track-area::before {
+.slider__track-area::before {
   content: '';
   position: absolute;
   top: -8px;
@@ -74,12 +74,12 @@
   right: -12px;
 }
 
-.ios-range-slider--dragging,
-.ios-range-slider--dragging .ios-range-slider__track-area {
+.slider--dragging,
+.slider--dragging .slider__track-area {
   cursor: grabbing;
 }
 
-.ios-range-slider__track {
+.slider__track {
   position: relative;
   height: 8px;
   border-radius: 4px;
@@ -90,7 +90,7 @@
   cursor: pointer;
 }
 
-.ios-range-slider__tick {
+.slider__tick {
   position: absolute;
   top: 50%;
   width: 4px;
@@ -104,19 +104,19 @@
   pointer-events: none;
 }
 
-.ios-range-slider__tick--active {
+.slider__tick--active {
   background: rgba(255, 255, 255, 0.9);
   border-color: rgba(0, 0, 0, 0.1);
 }
 
-.ios-range-slider__marks {
+.slider__marks {
   position: relative;
   height: 14px;
   margin-top: 5px;
   pointer-events: none;
 }
 
-.ios-range-slider__mark-label {
+.slider__mark-label {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
@@ -126,7 +126,7 @@
   white-space: nowrap;
 }
 
-.ios-range-slider__tooltip {
+.slider__tooltip {
   position: absolute;
   bottom: calc(100% + 7px);
   transform: translateX(-50%);
@@ -141,7 +141,7 @@
 }
 
 /* 箭头独立于气泡定位：气泡在两端钳制防外溢时，箭头仍钉在拇指圆心上。 */
-.ios-range-slider__tooltip-arrow {
+.slider__tooltip-arrow {
   position: absolute;
   bottom: calc(100% + 3px);
   width: 0;
@@ -153,7 +153,7 @@
   pointer-events: none;
 }
 
-.ios-range-slider__fill {
+.slider__fill {
   position: absolute;
   top: 0;
   left: 0;
@@ -164,7 +164,7 @@
   pointer-events: none;
 }
 
-.ios-range-slider__thumb {
+.slider__thumb {
   position: absolute;
   top: 50%;
   width: 16px;
