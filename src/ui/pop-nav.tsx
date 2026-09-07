@@ -24,15 +24,15 @@ import './pop-nav.css'
 const POP_NAV_WIDTH = 320
 const POP_NAV_HEIGHT = 280
 /** 尖高：含进整盒，与 pop-nav.css 的 --pop-nav-arrow-h 同值 */
-const POP_NAV_ARROW_H = 8
+const POP_NAV_ARROW_H = 12
 /** 与 Popover 一致的窄屏滞回（宿主窗口宽） */
 const POP_NAV_NARROW_ENTER_WIDTH = 520
 const POP_NAV_NARROW_EXIT_WIDTH = 580
 /** 退出动画时长，与 pop-nav.css 各形态入场动画时长一致 */
 const POP_NAV_EXIT_WIDE_MS = 120
 const POP_NAV_EXIT_MODAL_MS = 150
-/** 尖心距面板两边的最小距离：圆角 10 + 半宽 6，尖底边不吃进角弧 */
-const POP_NAV_ARROW_SAFE_INSET = 16
+/** 尖心距面板两边的最小距离：圆角 10 + 半宽 9，尖底边不吃进角弧 */
+const POP_NAV_ARROW_SAFE_INSET = 19
 
 type PopNavOwnProps = {
   open: boolean
@@ -374,6 +374,7 @@ export function PopNav({
               '--pop-nav-arrow-x': `${arrowX}px`,
             }}
           >
+            {!centered && <div class="pop-nav__cast" aria-hidden="true" />}
             <div class="pop-nav__content">{content}</div>
           </div>
         </DarkMode>,

@@ -6,39 +6,56 @@
 
 .pop-nav {
   --pop-nav-r: 10px;
-  --pop-nav-arrow-h: 8px;
-  --pop-nav-arrow-half: 6px;
+  --pop-nav-arrow-h: 12px;
+  --pop-nav-arrow-half: 9px;
   --pop-nav-arrow-x: 50%;
   position: fixed;
   z-index: 2200;
   /* 壳无自有文字：此 color 只是面板内内容的基准墨水（内容区是钉亮的浅
      面板，配深字），不得改成标题栏的浅色变量——会顺着继承漏进内容区 */
   color: #222;
-  background: var(--page-shell-bg, #161d2b);
   animation: pop-nav-in 120ms ease;
 }
 
-/* 无尖：居中矩形，描边和圆角跟盒走 */
+/* 无尖：居中矩形，描边、圆角、盒阴影跟盒走 */
 .pop-nav--center {
+  background: var(--page-shell-bg, #161d2b);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 10px;
   box-shadow:
-    0 10px 26px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    0 8px 18px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 /*
- * 有尖：外形由 shape() 裁成圆角矩形加尖（尖高/半宽/圆角吃上面的变量，
- * 尖心吃 --pop-nav-arrow-x）。矩形描边跟不上裁剪路径，外轮廓改走裁剪后
- * 的投影：四向 0 模糊贴边 + 一层深度阴影。
+ * 有尖：投影不能做内容的祖先——祖先一设 filter，子级 shape() 裁剪会失效，
+ * 顶角变直角、外形变方盒。投单独丢给旁路层（.pop-nav__cast 只投、伪元素
+ * 裁成外形）；内容层自己裁，不在投影子树里。外壳不接点击，裁掉的角点
+ * 穿到底，仍算点在外面。
  */
 .pop-nav:not(.pop-nav--center) {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.pop-nav__cast {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   filter:
-    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.18))
-    drop-shadow(0 -1px 0 rgba(255, 255, 255, 0.18))
-    drop-shadow(1px 0 0 rgba(255, 255, 255, 0.18))
-    drop-shadow(-1px 0 0 rgba(255, 255, 255, 0.18))
-    drop-shadow(0 10px 26px rgba(0, 0, 0, 0.4));
+    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.28))
+    drop-shadow(0 -1px 0 rgba(255, 255, 255, 0.28))
+    drop-shadow(1px 0 0 rgba(255, 255, 255, 0.28))
+    drop-shadow(-1px 0 0 rgba(255, 255, 255, 0.28))
+    drop-shadow(0 10px 20px rgba(0, 0, 0, 0.65));
+}
+
+.pop-nav__cast::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--page-shell-bg, #161d2b);
 }
 
 .pop-nav--below {
@@ -49,7 +66,15 @@
   transform-origin: var(--pop-nav-arrow-x) 100%;
 }
 
-.pop-nav--below:not(.pop-nav--center) {
+.pop-nav:not(.pop-nav--center) .pop-nav__content {
+  z-index: 1;
+  pointer-events: auto;
+  overflow: visible;
+  background: var(--page-shell-bg, #161d2b);
+}
+
+.pop-nav--below:not(.pop-nav--center) .pop-nav__cast::before,
+.pop-nav--below:not(.pop-nav--center) .pop-nav__content {
   clip-path: shape(
     from var(--pop-nav-r) var(--pop-nav-arrow-h),
     hline to calc(var(--pop-nav-arrow-x) - var(--pop-nav-arrow-half)),
@@ -69,7 +94,8 @@
   );
 }
 
-.pop-nav--above:not(.pop-nav--center) {
+.pop-nav--above:not(.pop-nav--center) .pop-nav__cast::before,
+.pop-nav--above:not(.pop-nav--center) .pop-nav__content {
   clip-path: shape(
     from var(--pop-nav-r) 0,
     hline to calc(100% - var(--pop-nav-r)),
@@ -122,7 +148,8 @@
   display: none;
 }
 
-/* 尖已在盒内，内容铺满即可；居中形态自己裁圆角贴 1px 描边 */
+/* 尖已在盒内，内容铺满即可。有尖时旁路层投、内容层自己裁（见上方）；
+   居中形态自己裁圆角贴 1px 描边。 */
 .pop-nav__content {
   position: absolute;
   inset: 0;
@@ -158,8 +185,8 @@
   color: #222;
   background: var(--page-shell-bg, #161d2b);
   box-shadow:
-    0 8px 20px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    0 8px 16px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
   animation: pop-nav-modal-in 150ms ease;
 }
 
