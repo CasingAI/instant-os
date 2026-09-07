@@ -82,7 +82,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'button',
     name: 'Button',
     description:
-      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标单一类型（无底无边，darkMode 控暗底白字/浅底深字两形态，tone 传入不生效，按住时一团光晕垫在内容之下，松手即熄）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
+      'iOS 6 拟物按钮；secondary / primary / danger，单一规格（28px 高、min-width 48、padding 0 8px、字重 400）；variant 选形态——filled 实体按钮（默认）或 borderless 裸文字/图标单一类型（无底无边，darkMode 控暗底白字/浅底深字两形态，tone 传入不生效，按住时一团光晕垫在内容之下，松手即熄）；icon 与文字默认互斥——传入 icon 即只渲染图标，children 文字不再显示、转作无障碍名回退；确需图标+文字同显时用 showBothIconAndText（受控例外，未经用户要求一般不启用）。可在父级覆盖 --ios-button-* CSS 变量换皮（与 NavBackButton 相同）',
     category: 'form',
     importPath: "import { Button } from '../../ui/button.tsx'",
     demos: [
@@ -416,6 +416,32 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
+    id: 'pop-nav',
+    name: 'PopNav',
+    description:
+      '强制 Nav 的大弹出窗：宽高可传（width / height，默认 320×280），内容只能是 Nav 页面；锚定形态把尖裁进整盒、指向触发器（尖端那一侧由 Nav 安全区把壳材质垫进尖里）；下面完整装得下就放下面，装不下而上面装得下就放上面，上下都不够才按屏幕钳制挑更宽敞的一侧；水平整层跟着触发器，伸出宿主窗口也不往里推，只有快飞出屏幕才收；无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留。内部固定暗色——面板与尖为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项',
+    category: 'navigation',
+    importPath: "import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'",
+    demos: [
+      {
+        id: 'basic',
+        title: '基础用法',
+        description: '锚定弹窗：尖跟随触发器，下面不够就放到上面，水平跟着按钮、伸出窗口不内推，只钳屏幕；翻页后关窗再开仍在原页',
+      },
+    ],
+    props: [
+      { name: 'open', type: 'boolean', description: '是否打开', defaultValue: '—' },
+      { name: 'width', type: 'number?', description: '面板宽（px），默认 320；仅当屏幕放不下才收窄', defaultValue: '320' },
+      { name: 'height', type: 'number?', description: '面板高（px，不含尖），默认 280；仅当屏幕放不下才收短', defaultValue: '280' },
+      { name: 'onClose', type: '() => void', description: '关闭通知（外部点按 / Esc）；面板仅隐藏不销毁', defaultValue: '—' },
+      { name: 'onOpen', type: '() => void?', description: 'PopNavTrigger 点按时的开窗请求', defaultValue: '—' },
+      { name: 'anchorRef', type: 'RefObject<HTMLElement>?', description: '逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）', defaultValue: '—' },
+      { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
+      { name: '…NavProps', type: 'NavProps', description: 'controller 与 renderPage/frames 原样透传给内部 Nav——页面必须是 <Nav.Page>（统一标题栏外壳，运行时强制），没有塞任意组件的口子', defaultValue: '—' },
+      { name: '<PopNavTrigger>', type: 'ComponentChildren', description: '触发器：包住按钮等元素，ref 与点按自动接好，尖指向它；孩子须是原生元素或接 ref 的组件，否则退回透明壳', defaultValue: '—' },
+    ],
+  },
+  {
     id: 'document-tab-bar',
     name: 'DocumentTabBar',
     description: '文档标签栏；脏状态、关闭动画、拥挤时悬停加宽、minTabsToShow',
@@ -451,11 +477,11 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
-    id: 'ios-nav-back-button',
-    name: 'IosNavBackButton',
-    description: 'iOS 风格返回按钮；用于子页标题栏',
+    id: 'nav-back-button',
+    name: 'NavBackButton',
+    description: '返回按钮；用于子页标题栏',
     category: 'navigation',
-    importPath: "import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'",
+    importPath: "import { NavBackButton } from '../../ui/nav-back-button.tsx'",
     demos: [
       { id: 'basic', title: '基础用法', description: '子页返回导航与禁用态' },
     ],
@@ -540,32 +566,6 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'children', type: 'ComponentChildren', description: '气泡内容', defaultValue: '—' },
       { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
       { name: 'dismissLabel', type: 'string?', description: '窄屏模态关闭按钮文案', defaultValue: "'好'" },
-    ],
-  },
-  {
-    id: 'pop-nav',
-    name: 'PopNav',
-    description:
-      '强制 Nav 的大弹出窗：宽高可传（width / height，默认 320×280），内容只能是 Nav 页面；锚定形态把尖裁进整盒、指向触发器（尖端那一侧由 Nav 安全区把壳材质垫进尖里）；下面完整装得下就放下面，装不下而上面装得下就放上面，上下都不够才按屏幕钳制挑更宽敞的一侧；水平整层跟着触发器，伸出宿主窗口也不往里推，只有快飞出屏幕才收；无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留。内部固定暗色——面板与尖为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项',
-    category: 'other',
-    importPath: "import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'",
-    demos: [
-      {
-        id: 'basic',
-        title: '基础用法',
-        description: '锚定弹窗：尖跟随触发器，下面不够就放到上面，水平跟着按钮、伸出窗口不内推，只钳屏幕；翻页后关窗再开仍在原页',
-      },
-    ],
-    props: [
-      { name: 'open', type: 'boolean', description: '是否打开', defaultValue: '—' },
-      { name: 'width', type: 'number?', description: '面板宽（px），默认 320；仅当屏幕放不下才收窄', defaultValue: '320' },
-      { name: 'height', type: 'number?', description: '面板高（px，不含尖），默认 280；仅当屏幕放不下才收短', defaultValue: '280' },
-      { name: 'onClose', type: '() => void', description: '关闭通知（外部点按 / Esc）；面板仅隐藏不销毁', defaultValue: '—' },
-      { name: 'onOpen', type: '() => void?', description: 'PopNavTrigger 点按时的开窗请求', defaultValue: '—' },
-      { name: 'anchorRef', type: 'RefObject<HTMLElement>?', description: '逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）', defaultValue: '—' },
-      { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
-      { name: '…NavProps', type: 'NavProps', description: 'controller 与 renderPage/frames 原样透传给内部 Nav——页面必须是 <Nav.Page>（统一标题栏外壳，运行时强制），没有塞任意组件的口子', defaultValue: '—' },
-      { name: '<PopNavTrigger>', type: 'ComponentChildren', description: '触发器：包住按钮等元素，ref 与点按自动接好，尖指向它；孩子须是原生元素或接 ref 的组件，否则退回透明壳', defaultValue: '—' },
     ],
   },
   {
