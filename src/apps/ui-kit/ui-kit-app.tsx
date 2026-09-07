@@ -210,8 +210,7 @@ function ComponentPage({
 
 type AnchorEntry = { id: string; label: string }
 
-/** 锚点越过容器顶部的判定余量与跳转落点的顶部呼吸空间 */
-const ANCHOR_TOP_THRESHOLD = 80
+/** 跳转落点的顶部呼吸空间 */
 const ANCHOR_SCROLL_OFFSET = 20
 
 /** 详情页锚点项：各 demo 标题 + 有 props 时的 API */
@@ -226,45 +225,6 @@ function useAnchorEntries(component: ComponentDemo): AnchorEntry[] {
     ],
     [component],
   )
-}
-
-/** 滚动跟踪当前锚点：每次滚动实时量位置，示例懒加载 / 代码展开收起改变高度后天然正确 */
-function useActiveAnchorId(entries: AnchorEntry[], getContainer: () => HTMLElement | null) {
-  const [activeId, setActiveId] = useState(entries[0]?.id ?? '')
-  useEffect(() => {
-    const container = getContainer()
-    if (!container || entries.length === 0) return
-    const measure = () => {
-      const containerTop = container.getBoundingClientRect().top
-      let current = entries[0].id
-      for (const entry of entries) {
-        const el = document.getElementById(entry.id)
-        if (el && el.getBoundingClientRect().top - containerTop <= ANCHOR_TOP_THRESHOLD) {
-          current = entry.id
-        }
-      }
-      // 卷到底时强制点亮最后一条，兜住末尾小节永远够不到阈值的情况
-      if (container.scrollTop + container.clientHeight >= container.scrollHeight - 1) {
-        current = entries[entries.length - 1].id
-      }
-      setActiveId(current)
-    }
-    let raf = 0
-    const onScroll = () => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        measure()
-      })
-    }
-    measure()
-    container.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      container.removeEventListener('scroll', onScroll)
-      if (raf) cancelAnimationFrame(raf)
-    }
-  }, [getContainer, entries])
-  return activeId
 }
 
 /** 平滑跳到某锚点小节（视口落点留顶部呼吸空间） */
@@ -293,7 +253,6 @@ function TocPopNav({
   const [open, setOpen] = useState(false)
   const tocNav = useNav({ narrowPageForState: () => 'toc' })
   const entries = useAnchorEntries(component)
-  const activeId = useActiveAnchorId(entries, getContainer)
 
   return (
     <PopNav
@@ -307,7 +266,6 @@ function TocPopNav({
         <Nav.Page title="页内导航">
           <List
             variant="plain"
-            selectedId={activeId}
             onSelect={(id) => {
               const entry = entries.find((item) => item.id === id)
               if (entry) {
