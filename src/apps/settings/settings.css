@@ -89,10 +89,10 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.85),
     0 1px 0 rgba(255, 255, 255, 0.35);
   --settings-btn-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-  --settings-stepper-btn-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
-  --settings-stepper-btn-border: 1px solid rgba(0, 0, 0, 0.28);
-  --settings-stepper-btn-ink: #222;
-  --settings-stepper-value-ink: #444;
+  --number-selector-btn-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --number-selector-btn-border: 1px solid rgba(0, 0, 0, 0.28);
+  --number-selector-btn-ink: #222;
+  --number-selector-value-ink: #444;
   --settings-error: #c0392b;
   --settings-search-bar-bg: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
   --settings-search-bar-border: 1px solid rgba(0, 0, 0, 0.14);
@@ -102,20 +102,20 @@
   --settings-search-icon: #8e8e93;
   --settings-search-placeholder: #8e8e93;
 
-  --ios-nav-back-color: #007aff;
-  --ios-nav-back-color-active: #0056b3;
-  --ios-nav-back-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
-  --ios-nav-back-bg-hover: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
-  --ios-nav-back-bg-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
-  --ios-nav-back-border: 1px solid rgba(0, 0, 0, 0.28);
-  --ios-nav-back-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-  --ios-nav-back-shadow:
+  --nav-back-color: #007aff;
+  --nav-back-color-active: #0056b3;
+  --nav-back-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --nav-back-bg-hover: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
+  --nav-back-bg-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --nav-back-border: 1px solid rgba(0, 0, 0, 0.28);
+  --nav-back-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --nav-back-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.85),
     0 1px 0 rgba(255, 255, 255, 0.35);
-  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.12);
-  --ios-nav-back-radius: 4px;
-  --ios-nav-back-height: 28px;
-  --ios-nav-back-font-size: 13px;
+  --nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  --nav-back-radius: 4px;
+  --nav-back-height: 28px;
+  --nav-back-font-size: 13px;
 
   background: var(--settings-page-bg);
   color: var(--settings-ink);
@@ -213,7 +213,7 @@
   gap: 8px;
 }
 
-.settings__nav-bar > .ios-nav-back {
+.settings__nav-bar > .nav-back {
   justify-self: start;
   flex-shrink: 0;
   max-width: min(200px, 100%);
@@ -245,7 +245,7 @@
   z-index: 0;
 }
 
-.settings__nav-bar > .ios-nav-back,
+.settings__nav-bar > .nav-back,
 .settings__nav-bar > .settings__btn,
 .settings__nav-trailing {
   position: relative;
@@ -3726,9 +3726,9 @@
   color: #c0392b;
 }
 
-/* ── Number stepper modal ── */
+/* ── Number selector modal ── */
 
-.settings-stepper-modal__backdrop {
+.number-selector-modal__backdrop {
   position: absolute;
   inset: 0;
   z-index: 30;
@@ -3739,7 +3739,7 @@
   background: rgba(0, 0, 0, 0.32);
 }
 
-.settings-stepper-modal {
+.number-selector-modal {
   display: flex;
   flex-direction: column;
   width: min(100%, 260px);
@@ -3752,14 +3752,14 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
-.settings--dark .settings-stepper-modal {
+.settings--dark .number-selector-modal {
   background: linear-gradient(180deg, #3a3a42 0%, #2a2a30 100%);
   box-shadow:
     0 14px 36px rgba(0, 0, 0, 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.settings-stepper-modal__header {
+.number-selector-modal__header {
   flex-shrink: 0;
   padding: 11px 14px 10px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
@@ -3767,13 +3767,13 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
-.settings--dark .settings-stepper-modal__header {
+.settings--dark .number-selector-modal__header {
   border-bottom-color: rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, #42424a 0%, #34343c 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.settings-stepper-modal__title {
+.number-selector-modal__title {
   margin: 0;
   font-size: 13px;
   font-weight: 700;
@@ -3782,7 +3782,7 @@
   text-shadow: var(--settings-nav-heading-shadow);
 }
 
-.settings-stepper-modal__body {
+.number-selector-modal__body {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3790,7 +3790,7 @@
   padding: 22px 18px 8px;
 }
 
-.settings-stepper-modal__control {
+.number-selector-modal__control {
   display: grid;
   grid-template-columns: 44px minmax(88px, 1fr) 44px;
   align-items: stretch;
@@ -3803,7 +3803,7 @@
   box-shadow: var(--settings-list-shadow);
 }
 
-.settings-stepper-modal__btn {
+.number-selector-modal__btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3811,8 +3811,8 @@
   padding: 0;
   border: none;
   border-right: 1px solid var(--settings-row-border);
-  background: var(--settings-stepper-btn-bg);
-  color: var(--settings-stepper-btn-ink);
+  background: var(--number-selector-btn-bg);
+  color: var(--number-selector-btn-ink);
   font: inherit;
   line-height: 1;
   cursor: pointer;
@@ -3821,22 +3821,22 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
-.settings-stepper-modal__glyph {
+.number-selector-modal__glyph {
   position: relative;
   display: block;
   width: 12px;
   height: 12px;
 }
 
-.settings-stepper-modal__glyph::before,
-.settings-stepper-modal__glyph--plus::after {
+.number-selector-modal__glyph::before,
+.number-selector-modal__glyph--plus::after {
   content: '';
   position: absolute;
   background: currentColor;
   border-radius: 1px;
 }
 
-.settings-stepper-modal__glyph::before {
+.number-selector-modal__glyph::before {
   top: 50%;
   left: 1px;
   right: 1px;
@@ -3844,7 +3844,7 @@
   margin-top: -1px;
 }
 
-.settings-stepper-modal__glyph--plus::after {
+.number-selector-modal__glyph--plus::after {
   left: 50%;
   top: 1px;
   bottom: 1px;
@@ -3852,30 +3852,30 @@
   margin-left: -1px;
 }
 
-.settings-stepper-modal__btn:last-child {
+.number-selector-modal__btn:last-child {
   border-right: none;
   border-left: 1px solid var(--settings-row-border);
 }
 
-.settings-stepper-modal__btn:hover:not(:disabled) {
+.number-selector-modal__btn:hover:not(:disabled) {
   filter: brightness(1.04);
 }
 
-.settings-stepper-modal__btn:active:not(:disabled) {
+.number-selector-modal__btn:active:not(:disabled) {
   background: linear-gradient(180deg, #d8d8d8 0%, #ececec 100%);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16);
 }
 
-.settings--dark .settings-stepper-modal__btn:active:not(:disabled) {
+.settings--dark .number-selector-modal__btn:active:not(:disabled) {
   background: linear-gradient(180deg, #2a2a30 0%, #3a3a42 100%);
 }
 
-.settings-stepper-modal__btn:disabled {
+.number-selector-modal__btn:disabled {
   opacity: 0.35;
   cursor: default;
 }
 
-.settings-stepper-modal__value {
+.number-selector-modal__value {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3886,8 +3886,8 @@
   background: var(--settings-list-bg);
 }
 
-.settings-stepper-modal__input,
-.settings-stepper-modal__digit {
+.number-selector-modal__input,
+.number-selector-modal__digit {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -3910,38 +3910,38 @@
   appearance: none;
 }
 
-.settings-stepper-modal__digit {
+.number-selector-modal__digit {
   display: flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
 }
 
-.settings-stepper-modal__input::selection {
+.number-selector-modal__input::selection {
   background: color-mix(in srgb, #4a90e2 35%, transparent);
 }
 
-.settings-stepper-modal__unit {
+.number-selector-modal__unit {
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--settings-row-size);
 }
 
-.settings-stepper-modal__hint {
+.number-selector-modal__hint {
   margin: 0;
   font-size: 11px;
   color: var(--settings-footnote);
   text-shadow: var(--settings-footnote-shadow);
 }
 
-.settings-stepper-modal__footer {
+.number-selector-modal__footer {
   display: flex;
   justify-content: stretch;
   padding: 12px 14px 14px;
 }
 
-.settings-stepper-modal__done {
+.number-selector-modal__done {
   flex: 1;
   min-height: 30px;
   padding: 6px 14px;
@@ -3958,7 +3958,7 @@
   cursor: pointer;
 }
 
-.settings-stepper-modal__done:active {
+.number-selector-modal__done:active {
   background: var(--settings-btn-plain-bg-active);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
 }
@@ -4005,10 +4005,10 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 1px 0 rgba(0, 0, 0, 0.35);
   --settings-btn-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
-  --settings-stepper-btn-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
-  --settings-stepper-btn-border: 1px solid rgba(255, 255, 255, 0.14);
-  --settings-stepper-btn-ink: #e6e6e8;
-  --settings-stepper-value-ink: #c8c8ce;
+  --number-selector-btn-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
+  --number-selector-btn-border: 1px solid rgba(255, 255, 255, 0.14);
+  --number-selector-btn-ink: #e6e6e8;
+  --number-selector-value-ink: #c8c8ce;
   --settings-error: #ff8a80;
   --settings-search-bar-bg: var(--settings-nav-bg);
   --settings-search-bar-border: var(--settings-nav-border);
@@ -4018,17 +4018,17 @@
   --settings-search-icon: #9a9aa2;
   --settings-search-placeholder: #7a7a82;
 
-  --ios-nav-back-color: #5eb0ff;
-  --ios-nav-back-color-active: #8ec8ff;
-  --ios-nav-back-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
-  --ios-nav-back-bg-hover: linear-gradient(180deg, #52525a 0%, #42424a 55%, #3a3a42 100%);
-  --ios-nav-back-bg-active: linear-gradient(180deg, #2e2e34 0%, #3a3a42 100%);
-  --ios-nav-back-border: 1px solid rgba(255, 255, 255, 0.16);
-  --ios-nav-back-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
-  --ios-nav-back-shadow:
+  --nav-back-color: #5eb0ff;
+  --nav-back-color-active: #8ec8ff;
+  --nav-back-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
+  --nav-back-bg-hover: linear-gradient(180deg, #52525a 0%, #42424a 55%, #3a3a42 100%);
+  --nav-back-bg-active: linear-gradient(180deg, #2e2e34 0%, #3a3a42 100%);
+  --nav-back-border: 1px solid rgba(255, 255, 255, 0.16);
+  --nav-back-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --nav-back-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 1px 0 rgba(0, 0, 0, 0.35);
-  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  --nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .settings--dark .settings__box,

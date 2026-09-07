@@ -4,7 +4,7 @@ import { ForwardIcon } from '../icons/app-icons.tsx'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './overlay-presence.css'
 
-type SettingsStepperRowProps = {
+type NumberSelectorProps = {
   label: string
   value: number
   onChange: (value: number) => void
@@ -33,10 +33,10 @@ function resolveOverlayHost(from: HTMLElement | null): HTMLElement | null {
   )
 }
 
-const STEPPER_HOLD_DELAY_MS = 360
-const STEPPER_HOLD_INTERVAL_MS = 60
+const NUMBER_SELECTOR_HOLD_DELAY_MS = 360
+const NUMBER_SELECTOR_HOLD_INTERVAL_MS = 60
 
-function SettingsStepperControls({
+function NumberSelectorControls({
   label,
   value,
   onChange,
@@ -110,8 +110,8 @@ function SettingsStepperControls({
           return
         }
         commit(next)
-      }, STEPPER_HOLD_INTERVAL_MS)
-    }, STEPPER_HOLD_DELAY_MS)
+      }, NUMBER_SELECTOR_HOLD_INTERVAL_MS)
+    }, NUMBER_SELECTOR_HOLD_DELAY_MS)
   }
 
   const commitDraft = () => {
@@ -129,10 +129,10 @@ function SettingsStepperControls({
   }
 
   return (
-    <div class="settings-stepper-modal__control" role="group" aria-label={label}>
+    <div class="number-selector-modal__control" role="group" aria-label={label}>
       <button
         type="button"
-        class="settings-stepper-modal__btn"
+        class="number-selector-modal__btn"
         aria-label={`减少${label}`}
         disabled={atMin}
         onPointerDown={(event) => {
@@ -145,14 +145,14 @@ function SettingsStepperControls({
         onPointerCancel={stopHold}
         onLostPointerCapture={stopHold}
       >
-        <span class="settings-stepper-modal__glyph settings-stepper-modal__glyph--minus" aria-hidden="true" />
+        <span class="number-selector-modal__glyph number-selector-modal__glyph--minus" aria-hidden="true" />
       </button>
 
-      <div class="settings-stepper-modal__value">
+      <div class="number-selector-modal__value">
         {editable ? (
           <input
             ref={inputRef}
-            class="settings-stepper-modal__input"
+            class="number-selector-modal__input"
             type="text"
             inputMode="numeric"
             autocomplete="off"
@@ -193,14 +193,14 @@ function SettingsStepperControls({
             }}
           />
         ) : (
-          <span class="settings-stepper-modal__digit">{value}</span>
+          <span class="number-selector-modal__digit">{value}</span>
         )}
-        {unit ? <span class="settings-stepper-modal__unit">{unit}</span> : undefined}
+        {unit ? <span class="number-selector-modal__unit">{unit}</span> : undefined}
       </div>
 
       <button
         type="button"
-        class="settings-stepper-modal__btn"
+        class="number-selector-modal__btn"
         aria-label={`增加${label}`}
         disabled={atMax}
         onPointerDown={(event) => {
@@ -213,13 +213,13 @@ function SettingsStepperControls({
         onPointerCancel={stopHold}
         onLostPointerCapture={stopHold}
       >
-        <span class="settings-stepper-modal__glyph settings-stepper-modal__glyph--plus" aria-hidden="true" />
+        <span class="number-selector-modal__glyph number-selector-modal__glyph--plus" aria-hidden="true" />
       </button>
     </div>
   )
 }
 
-function SettingsStepperModal({
+function NumberSelectorModal({
   host,
   titleId,
   label,
@@ -261,7 +261,7 @@ function SettingsStepperModal({
   return createPortal(
     <div
       class={[
-        'settings-stepper-modal__backdrop',
+        'number-selector-modal__backdrop',
         'overlay-presence__backdrop',
         exiting ? 'overlay-presence__backdrop--exiting' : '',
       ]
@@ -272,7 +272,7 @@ function SettingsStepperModal({
     >
       <div
         class={[
-          'settings-stepper-modal',
+          'number-selector-modal',
           'overlay-presence__sheet',
           exiting ? 'overlay-presence__sheet--exiting' : '',
         ]
@@ -283,14 +283,14 @@ function SettingsStepperModal({
         aria-labelledby={titleId}
         onClick={(event) => event.stopPropagation()}
       >
-        <header class="settings-stepper-modal__header">
-          <h3 class="settings-stepper-modal__title" id={titleId}>
+        <header class="number-selector-modal__header">
+          <h3 class="number-selector-modal__title" id={titleId}>
             {label}
           </h3>
         </header>
 
-        <div class="settings-stepper-modal__body">
-          <SettingsStepperControls
+        <div class="number-selector-modal__body">
+          <NumberSelectorControls
             label={label}
             value={value}
             onChange={onChange}
@@ -301,7 +301,7 @@ function SettingsStepperModal({
             editable={editable}
           />
           {Number.isFinite(min) || Number.isFinite(max) ? (
-            <p class="settings-stepper-modal__hint">
+            <p class="number-selector-modal__hint">
               {Number.isFinite(min) && Number.isFinite(max)
                 ? `${min} – ${max}`
                 : Number.isFinite(min)
@@ -311,10 +311,10 @@ function SettingsStepperModal({
           ) : undefined}
         </div>
 
-        <footer class="settings-stepper-modal__footer">
+        <footer class="number-selector-modal__footer">
           <button
             type="button"
-            class="settings-stepper-modal__done"
+            class="number-selector-modal__done"
             onClick={onClose}
           >
             完成
@@ -327,7 +327,7 @@ function SettingsStepperModal({
 }
 
 /** 设置列表数字行：点击后弹出模态，在模态内用步进器调节。 */
-export function SettingsStepperRow({
+export function NumberSelector({
   label,
   value,
   onChange,
@@ -338,7 +338,7 @@ export function SettingsStepperRow({
   formatValue,
   disabled = false,
   editable = true,
-}: SettingsStepperRowProps) {
+}: NumberSelectorProps) {
   const titleId = useId()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
@@ -355,7 +355,7 @@ export function SettingsStepperRow({
       <button
         ref={triggerRef}
         type="button"
-        class="settings__row settings__row--button settings__row--nav settings__row--stepper"
+        class="settings__row settings__row--button settings__row--nav settings__row--number-selector"
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -372,7 +372,7 @@ export function SettingsStepperRow({
       </button>
 
       {mounted && host ? (
-        <SettingsStepperModal
+        <NumberSelectorModal
           host={host}
           titleId={titleId}
           label={label}

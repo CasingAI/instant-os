@@ -12,7 +12,7 @@ import {
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsChoiceOptionList } from '../../ui/settings-choice-option-list.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
-import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'
+import { NumberSelector } from '../../ui/number-selector.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
 import { labelForVscodeModelPickerDisplay } from './vscode-ai-model-picker-data.ts'
 import {
@@ -478,7 +478,7 @@ export function VscodeSettingsPanel({
                 value={themeLabel(prefs.theme)}
                 onClick={() => pushScreen('theme')}
               />
-              <SettingsStepperRow
+              <NumberSelector
                 label="字号"
                 value={prefs.fontSize}
                 min={10}
@@ -631,7 +631,7 @@ export function VscodeSettingsPanel({
           <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
-              <SettingsStepperRow
+              <NumberSelector
                 label="空闲超时"
                 value={prefs.aiIdleTimeoutSeconds}
                 min={5}
@@ -639,7 +639,7 @@ export function VscodeSettingsPanel({
                 unit="秒"
                 onChange={(aiIdleTimeoutSeconds) => onChange({ aiIdleTimeoutSeconds })}
               />
-              <SettingsStepperRow
+              <NumberSelector
                 label="空闲重试次数"
                 value={prefs.aiIdleRetryCount}
                 min={0}
@@ -692,7 +692,7 @@ export function VscodeSettingsPanel({
                 onChange={(subAgentsEnabled) => onChange({ subAgentsEnabled })}
               />
               {prefs.subAgentsEnabled ? (
-                <SettingsStepperRow
+                <NumberSelector
                   label="并发上限"
                   value={prefs.subAgentsMaxConcurrent}
                   min={1}
