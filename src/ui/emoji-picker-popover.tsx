@@ -1,5 +1,7 @@
+import { cloneElement, isValidElement } from 'preact'
+import type { ComponentChildren, VNode } from 'preact'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
-import type { ComponentChildren } from 'preact'
+import type { JSX } from 'preact'
 import { createPortal } from 'preact/compat'
 import { EmojiPicker } from 'frimousse'
 import {
@@ -11,6 +13,16 @@ import './emoji-picker-popover.css'
 
 const EMOJI_PICKER_PANEL_WIDTH = 320
 const EMOJI_PICKER_PANEL_HEIGHT = 360
+
+/** 触发器 ref 回报值还原成真实元素：原生元素孩子直接是 DOM 节点；组件孩子（如 Button）
+ *  会被框架以「组件实例」回报，实例的 base 是它渲染出的根 DOM。两者之外一律当没锚点。 */
+function triggerElementOf(reported: unknown): HTMLElement | null {
+  if (reported instanceof HTMLElement) {
+    return reported
+  }
+  const base = (reported as { base?: unknown } | null)?.base
+  return base instanceof HTMLElement ? base : null
+}
 
 type EmojiPickerPanelProps = {
   onSelect: (emoji: string) => void
@@ -92,7 +104,10 @@ export function EmojiPickerPopover({
 }: EmojiPickerPopoverProps) {
   const [open, setOpen] = useState(false)
   const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 })
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = useRef<HTMLElement | null>(null)
+  const setTriggerRef = useCallback((el: unknown) => {
+    triggerRef.current = triggerElementOf(el)
+  }, [])
   const panelRef = useRef<HTMLDivElement>(null)
 
   const updatePanelPosition = useCallback(() => {
@@ -186,27 +201,41 @@ export function EmojiPickerPopover({
       )
     : undefined
 
+  const child = isValidElement(children) ? (children as VNode<Record<string, unknown>>) : null
+
   return (
     <>
       <div class="emoji-picker-popover">
-        <button
-          ref={triggerRef}
-          type="button"
-          class="emoji-picker-popover__trigger"
-          aria-expanded={open}
-          aria-haspopup="dialog"
-          disabled={disabled}
-          onClick={() => setOpen((current) => !current)}
-        >
-          {children ?? (
-            <>
-              <span class="emoji-picker-popover__trigger-glyph" aria-hidden="true">
-                {value || '📦'}
-              </span>
-              <span class="emoji-picker-popover__trigger-label">{triggerLabel}</span>
-            </>
-          )}
-        </button>
+        {child ? (
+          cloneElement(child, {
+            ref: setTriggerRef,
+            onClick: (event: JSX.TargetedMouseEvent<HTMLElement>) => {
+              const original = child.props.onClick as
+                | ((e: JSX.TargetedMouseEvent<HTMLElement>) => void)
+                | undefined
+              original?.(event)
+              setOpen((current) => !current)
+            },
+            'aria-expanded': open,
+            'aria-haspopup': 'dialog',
+            disabled,
+          })
+        ) : (
+          <button
+            ref={setTriggerRef}
+            type="button"
+            class="emoji-picker-popover__trigger"
+            aria-expanded={open}
+            aria-haspopup="dialog"
+            disabled={disabled}
+            onClick={() => setOpen((current) => !current)}
+          >
+            <span class="emoji-picker-popover__trigger-glyph" aria-hidden="true">
+              {value || '📦'}
+            </span>
+            <span class="emoji-picker-popover__trigger-label">{triggerLabel}</span>
+          </button>
+        )}
       </div>
       {floatingPanel}
     </>

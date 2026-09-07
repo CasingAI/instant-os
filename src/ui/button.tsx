@@ -44,6 +44,8 @@ export type ButtonProps = {
   title?: string
   class?: string
   'aria-label'?: string
+  'aria-expanded'?: boolean
+  'aria-haspopup'?: 'dialog' | 'menu' | 'listbox' | 'tree' | 'grid' | 'true' | 'false'
   /** 挂载回调：拿到最外层 <button> 真实节点（锚定弹层等场景靠它定位）；卸载时以 null 回调 */
   ref?: (el: HTMLButtonElement | null) => void
   onClick?: JSX.MouseEventHandler<HTMLButtonElement>
@@ -106,6 +108,8 @@ export function Button({
   title,
   class: className,
   'aria-label': ariaLabel,
+  'aria-expanded': ariaExpanded,
+  'aria-haspopup': ariaHasPopup,
   ref,
   onClick,
 }: ButtonProps) {
@@ -141,6 +145,8 @@ export function Button({
       title={title}
       aria-busy={busy || undefined}
       aria-label={ariaLabel ?? (busy || iconOnly ? extractText(children) : undefined)}
+      aria-expanded={ariaExpanded}
+      aria-haspopup={ariaHasPopup}
       onClick={onClick}
     >
       {/* busy：原内容照常渲染参与排版（CSS visibility 隐形占位，宽度不变），菊花绝对定位盖在正中；
