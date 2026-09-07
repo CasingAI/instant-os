@@ -24,7 +24,18 @@ export function Checkbox({ checked, onChange, label, ariaLabel, disabled = false
           onChange((event.currentTarget as HTMLInputElement).checked)
         }}
       />
-      <span class="checkbox__box" aria-hidden="true" />
+      <span class="checkbox__box" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M5 12.5 L10.5 18 L19 7.5"
+            pathLength="1"
+            stroke="#ffffff"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </span>
       {label && <span class="checkbox__text">{label}</span>}
     </label>
   )
