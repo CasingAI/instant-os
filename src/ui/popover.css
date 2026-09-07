@@ -102,6 +102,33 @@
   clip-path: polygon(50% 63.6%, 96.24% 0%, 3.76% 0%);
 }
 
+/* 深色（默认）：只换配色。箭头双层伪元素的 clip-path 几何、安全内距、
+   1px 伸进面板的盖缝机制与浅色完全一致；内层填充色必须取面板渐变在
+   拼接行的颜色——below 拼在顶边取 0% 端、above 拼在底边取 100% 端，
+   箭头才与正文无缝。顶部高光减弱后仍被内层伸进的那 1px 盖住。 */
+
+.popover--dark {
+  border-color: rgba(0, 0, 0, 0.55);
+  color: #f2f2f2;
+  background: linear-gradient(180deg, #3a3a3c 0%, #2c2c2e 100%);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.popover--dark.popover--below::before,
+.popover--dark.popover--above::before {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.popover--dark.popover--below::after {
+  background: #3a3a3c;
+}
+
+.popover--dark.popover--above::after {
+  background: #2c2c2e;
+}
+
 /* 窄屏：居中模态对话框 */
 
 .popover-modal__backdrop {
@@ -126,6 +153,15 @@
     0 8px 20px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
   animation: popover-in 150ms ease;
+}
+
+.popover-modal--dark {
+  border-color: rgba(0, 0, 0, 0.55);
+  color: #f2f2f2;
+  background: linear-gradient(180deg, #3a3a3c 0%, #2c2c2e 100%);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .popover-modal__body {

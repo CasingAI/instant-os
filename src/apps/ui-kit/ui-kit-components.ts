@@ -553,7 +553,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'popover',
     name: 'Popover',
     description:
-      '通用锚定气泡；箭头自动跟随锚点，靠近视口底部向上翻、超出视口夹紧；宿主窗口宽 ≤520px 时自动退化为居中模态对话框（「好」按钮关闭）',
+      '通用锚定气泡；箭头自动跟随锚点，靠近视口底部向上翻、超出视口夹紧；宿主窗口宽 ≤520px 时自动退化为居中模态对话框（「好」按钮关闭）。默认深色外观，内容区按钮默认凹形态',
     category: 'other',
     importPath: "import { Popover } from '../../ui/popover.tsx'",
     demos: [
@@ -566,6 +566,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'children', type: 'ComponentChildren', description: '气泡内容', defaultValue: '—' },
       { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
       { name: 'dismissLabel', type: 'string?', description: '窄屏模态关闭按钮文案', defaultValue: "'好'" },
+      { name: 'dark', type: 'boolean?', description: '深色外观；默认深色，传 false 用浅色', defaultValue: 'true' },
     ],
   },
   {

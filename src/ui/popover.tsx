@@ -3,7 +3,7 @@ import type { RefObject } from 'preact'
 import { createPortal } from 'preact/compat'
 import { computeFloatingPanelPosition, FLOATING_PANEL_VIEWPORT_PADDING } from './compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
-import { Button } from './button.tsx'
+import { Button, ButtonDefaultReliefProvider } from './button.tsx'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './popover.css'
 
@@ -25,6 +25,8 @@ type PopoverProps = {
   ariaLabel?: string
   /** 窄屏模态里关闭按钮文案，默认「好」 */
   dismissLabel?: string
+  /** 深色外观，默认开启；需要浅色时显式传 false */
+  dark?: boolean
 }
 
 /**
@@ -39,6 +41,7 @@ export function Popover({
   children,
   ariaLabel,
   dismissLabel = '好',
+  dark = true,
 }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
@@ -155,13 +158,15 @@ export function Popover({
       >
         <div
           ref={modalRef}
-          class={`popover-modal${exiting ? ' popover-modal--exiting' : ''}`}
+          class={`popover-modal${dark ? ' popover-modal--dark' : ''}${exiting ? ' popover-modal--exiting' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label={ariaLabel}
           onClick={(event) => event.stopPropagation()}
         >
-          <div class="popover-modal__body">{childrenRef.current}</div>
+          <div class="popover-modal__body">
+            <ButtonDefaultReliefProvider relief="sunken">{childrenRef.current}</ButtonDefaultReliefProvider>
+          </div>
           <div class="popover-modal__actions">
             <Button tone="primary" onClick={onClose}>
               {dismissLabel}
@@ -176,7 +181,7 @@ export function Popover({
   return createPortal(
     <div
       ref={panelRef}
-      class={`popover popover--${placement}${exiting ? ' popover--exiting' : ''}`}
+      class={`popover popover--${placement}${dark ? ' popover--dark' : ''}${exiting ? ' popover--exiting' : ''}`}
       role="dialog"
       aria-label={ariaLabel}
       style={{
@@ -185,7 +190,7 @@ export function Popover({
         '--popover-arrow-x': `${arrowX}px`,
       }}
     >
-      {childrenRef.current}
+      <ButtonDefaultReliefProvider relief="sunken">{childrenRef.current}</ButtonDefaultReliefProvider>
     </div>,
     getFloatingOverlayRoot(),
   )
