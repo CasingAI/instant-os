@@ -14,12 +14,9 @@
   padding: 0;
 }
 
-/* ── 页内锚点目录（antd 式）：组件页内部的吸附列，窄屏隐藏 ── */
+/* ── 组件页正文外壳（页内锚点目录已移入标题栏的 PopNav 弹窗，不再占右侧栏位） ── */
 
 .ui-kit__page-shell {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
   padding: 14px 18px 20px;
 }
 
@@ -29,42 +26,7 @@
 }
 
 .ui-kit__page {
-  flex: 1 1 auto;
-  min-width: 0;
   max-width: 980px;
-}
-
-.ui-kit__toc {
-  flex: 0 0 148px;
-  position: sticky;
-  top: 14px;
-  padding: 2px 0 20px 10px;
-}
-
-.ui-kit__toc-item {
-  display: block;
-  margin: 0 0 2px;
-  padding: 3px 8px 3px 10px;
-  border-left: 2px solid transparent;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #555;
-  text-decoration: none;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.ui-kit__toc-item:hover {
-  color: #222;
-}
-
-.ui-kit__toc-item--active {
-  border-left-color: #5856d6;
-  color: #111;
-  font-weight: 600;
 }
 
 /* ── 组件页 ── */
@@ -831,14 +793,10 @@
   color: #cfc9bf;
 }
 
-/* ── 窄屏（子页栈形态）：页面内边距收窄，锚点目录让位 ── */
+/* ── 窄屏（子页栈形态）：页面内边距收窄 ── */
 
 .ui-kit--narrow .ui-kit__page-shell {
   padding: 10px 12px 16px;
-}
-
-.ui-kit--narrow .ui-kit__toc {
-  display: none;
 }
 
 /* ===== Waterfall（瀑布流）示例：壁纸宫格 / 图文卡片墙 / 照片墙 ===== */

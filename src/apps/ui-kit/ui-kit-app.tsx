@@ -5,6 +5,7 @@ import type { ComponentDemo, ComponentDemoBlock } from './ui-kit-components.ts'
 import { PageCurlDemo } from './page-curl-demo.tsx'
 import pageCurlSource from './page-curl-demo.tsx?raw'
 import { Nav, useNav } from '../../ui/nav.tsx'
+import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'
 import { List, ListSection } from '../../ui/list.tsx'
 import { ListItem } from '../../ui/list-item.tsx'
 import { Button } from '../../ui/button.tsx'
@@ -137,14 +138,13 @@ function DemoBlock({ component, demo }: { component: ComponentDemo; demo: Compon
   )
 }
 
-function ComponentPage({ component }: { component: ComponentDemo }) {
-  const shellRef = useRef<HTMLDivElement | null>(null)
-  // 锚点量测的滚动容器是 Page 的正文（.page__body）；从页面壳向上取，
-  // 避免依赖调用时 DOM 是否已插入
-  const getScrollContainer = useCallback(
-    () => (shellRef.current?.closest('.page__body') as HTMLElement | null) ?? null,
-    [],
-  )
+function ComponentPage({
+  component,
+  shellRef,
+}: {
+  component: ComponentDemo
+  shellRef: (node: HTMLDivElement | null) => void
+}) {
   const [copiedImport, setCopiedImport] = useState(false)
 
   const handleCopyImport = () => {
@@ -204,8 +204,6 @@ function ComponentPage({ component }: { component: ComponentDemo }) {
           </section>
         )}
       </article>
-
-      <AnchorNav component={component} getContainer={getScrollContainer} />
     </div>
   )
 }
@@ -216,14 +214,9 @@ type AnchorEntry = { id: string; label: string }
 const ANCHOR_TOP_THRESHOLD = 80
 const ANCHOR_SCROLL_OFFSET = 20
 
-function AnchorNav({
-  component,
-  getContainer,
-}: {
-  component: ComponentDemo
-  getContainer: () => HTMLElement | null
-}) {
-  const entries = useMemo<AnchorEntry[]>(
+/** 详情页锚点项：各 demo 标题 + 有 props 时的 API */
+function useAnchorEntries(component: ComponentDemo): AnchorEntry[] {
+  return useMemo<AnchorEntry[]>(
     () => [
       ...component.demos.map((demo) => ({
         id: `demo-${component.id}-${demo.id}`,
@@ -233,9 +226,11 @@ function AnchorNav({
     ],
     [component],
   )
-  const [activeId, setActiveId] = useState(entries[0]?.id ?? '')
+}
 
-  // 每次滚动实时量位置：示例懒加载、代码展开收起改变高度后天然正确
+/** 滚动跟踪当前锚点：每次滚动实时量位置，示例懒加载 / 代码展开收起改变高度后天然正确 */
+function useActiveAnchorId(entries: AnchorEntry[], getContainer: () => HTMLElement | null) {
+  const [activeId, setActiveId] = useState(entries[0]?.id ?? '')
   useEffect(() => {
     const container = getContainer()
     if (!container || entries.length === 0) return
@@ -269,35 +264,69 @@ function AnchorNav({
       if (raf) cancelAnimationFrame(raf)
     }
   }, [getContainer, entries])
+  return activeId
+}
 
-  const handleJump = (entry: AnchorEntry) => {
-    const container = getContainer()
-    const el = document.getElementById(entry.id)
-    if (!container || !el) return
-    const top =
-      el.getBoundingClientRect().top -
-      container.getBoundingClientRect().top +
-      container.scrollTop -
-      ANCHOR_SCROLL_OFFSET
-    container.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
-  }
+/** 平滑跳到某锚点小节（视口落点留顶部呼吸空间） */
+function jumpToAnchor(getContainer: () => HTMLElement | null, entry: AnchorEntry) {
+  const container = getContainer()
+  const el = document.getElementById(entry.id)
+  if (!container || !el) return
+  const top =
+    el.getBoundingClientRect().top -
+    container.getBoundingClientRect().top +
+    container.scrollTop -
+    ANCHOR_SCROLL_OFFSET
+  container.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
+}
+
+/** 页内锚点目录（antd 式 TOC）：标题栏 actions 槽的按钮 → PopNav 弹窗承载。
+ * 原来右侧固定 148px 的吸附列让位给正文；弹窗是标准 PopNav（固定 320×280、
+ * 锚定按钮箭头跟随、窄窗退居中模态、hide 不 destroy），点条目跳小节并收起。 */
+function TocPopNav({
+  component,
+  getContainer,
+}: {
+  component: ComponentDemo
+  getContainer: () => HTMLElement | null
+}) {
+  const [open, setOpen] = useState(false)
+  const tocNav = useNav({ narrowPageForState: () => 'toc' })
+  const entries = useAnchorEntries(component)
+  const activeId = useActiveAnchorId(entries, getContainer)
 
   return (
-    <aside class="ui-kit__toc" aria-label="页内导航">
-      {entries.map((entry) => (
-        <a
-          key={entry.id}
-          class={`ui-kit__toc-item${activeId === entry.id ? ' ui-kit__toc-item--active' : ''}`}
-          href={`#${entry.id}`}
-          onClick={(event) => {
-            event.preventDefault()
-            handleJump(entry)
-          }}
-        >
-          {entry.label}
-        </a>
-      ))}
-    </aside>
+    <PopNav
+      open={open}
+      onOpen={() => setOpen(true)}
+      onClose={() => setOpen(false)}
+      ariaLabel="页内导航"
+      controller={tocNav}
+      frames={[]}
+      renderPage={() => (
+        <Nav.Page title="页内导航">
+          <List
+            variant="plain"
+            selectedId={activeId}
+            onSelect={(id) => {
+              const entry = entries.find((item) => item.id === id)
+              if (entry) {
+                jumpToAnchor(getContainer, entry)
+                setOpen(false)
+              }
+            }}
+          >
+            {entries.map((entry) => (
+              <ListItem key={entry.id} id={entry.id} label={entry.label} />
+            ))}
+          </List>
+        </Nav.Page>
+      )}
+    >
+      <PopNavTrigger>
+        <Button icon={<Icon name="format_list_bulleted" />} title="页内导航" aria-label="页内导航" />
+      </PopNavTrigger>
+    </PopNav>
   )
 }
 
@@ -310,6 +339,14 @@ export function UiKitApp() {
   // 整个 Nav——左右两栏与转场条带一起翻。很多组件尚未适配暗色，翻转后
   // 观感参差属预期，不影响页面体系标准件。
   const [demoDark, setDemoDark] = useState(false)
+
+  // 锚点量测的滚动容器是 Page 的正文（.page__body）；从详情页页面壳向上取，
+  // 避免依赖调用时 DOM 是否已插入。挂在这一层让 header 里的锚点按钮也能拿到。
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  const getScrollContainer = useCallback(
+    () => (shellRef.current?.closest('.page__body') as HTMLElement | null) ?? null,
+    [],
+  )
 
   const nav = useNav({
     split: true,
@@ -377,11 +414,25 @@ export function UiKitApp() {
     }
     return (
       <Nav.Page
+        key={selectedComponent.id}
         title={selectedComponent.name}
         backLabel="组件库"
         onBack={() => nav.navigate('list', 'pop')}
+        actions={
+          <TocPopNav
+            key={selectedComponent.id}
+            component={selectedComponent}
+            getContainer={getScrollContainer}
+          />
+        }
       >
-        <ComponentPage key={selectedComponent.id} component={selectedComponent} />
+        <ComponentPage
+          key={selectedComponent.id}
+          component={selectedComponent}
+          shellRef={(node) => {
+            shellRef.current = node
+          }}
+        />
       </Nav.Page>
     )
   }
