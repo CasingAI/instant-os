@@ -89,7 +89,11 @@ export function ListItem({
     return () => window.clearTimeout(flashTimer.current)
   }, [list.editing])
 
-  const active = selected ?? (id !== undefined && list.selectedId !== undefined && list.selectedId === id)
+  const active =
+    selected ??
+    (id !== undefined && ((list.selectedId !== undefined && list.selectedId === id) || (list.selectedIds?.includes(id) ?? false)))
+  // 蓝底持久高亮只是选中的呈现档位之一：selectionTone="check" 时选中只落勾，蓝底留给按下瞬间反馈
+  const showHighlight = active && list.selectionTone !== 'check'
   const actionable = onClick !== undefined || (id !== undefined && list.onSelect !== undefined)
 
   const hasDelete = id !== undefined && list.onDelete !== undefined
@@ -125,7 +129,7 @@ export function ListItem({
   const className = [
     cp,
     actionable ? `${cp}--button` : `${cp}--static`,
-    active ? `${cp}--selected` : '',
+    showHighlight ? `${cp}--selected` : '',
     armed ? `${cp}--armed` : '',
     flashPhase === 'hold' ? `${cp}--flashed` : flashPhase === 'out' ? `${cp}--flash-out` : '',
     plain && unread ? `${cp}--unread` : '',
@@ -164,8 +168,11 @@ export function ListItem({
           {preview !== undefined && <span class={`${cp}__preview`}>{preview}</span>}
         </span>
       )}
-      {accessory === 'check' && active && (
-        <span class={`${cp}__check`} aria-hidden="true">
+      {accessory === 'check' && (
+        <span
+          class={active ? `${cp}__check` : `${cp}__check ${cp}__check--off`}
+          aria-hidden="true"
+        >
           ✓
         </span>
       )}
@@ -256,8 +263,11 @@ export function ListItem({
       ) : value !== undefined ? (
         <span class="list-item__value">{value}</span>
       ) : undefined}
-      {accessory === 'check' && active && (
-        <span class="list-item__check" aria-hidden="true">
+      {accessory === 'check' && (
+        <span
+          class={active ? 'list-item__check' : `list-item__check list-item__check--off`}
+          aria-hidden="true"
+        >
           ✓
         </span>
       )}

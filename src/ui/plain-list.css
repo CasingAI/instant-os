@@ -261,7 +261,8 @@
 .plain-list-item--flashed .plain-list-item__check,
 .plain-list-item--selected:not(:disabled) .plain-list-item__check {
   color: #fff;
-  transition: none;
+  /* 墨水硬切只对颜色：宽/缩放/不透明度是勾自身的出现消失通道，不在此掐断 */
+  transition: color 0s;
 }
 
 /* ── 点闪（iOS deselectRow 式）──
@@ -388,6 +389,19 @@
   color: var(--plain-list-accent, #007aff);
   font-weight: 600;
   text-align: center;
+  /* 勾常驻 DOM（accessory="check" 即渲染），选中态由 --off 收起：宽度收零不留
+     空位、缩放+淡出配合，出现与消失都有过渡；文字不换行裁切由 overflow 兜住 */
+  overflow: hidden;
+  transition:
+    width 180ms ease-out,
+    transform 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+.plain-list-item__check--off {
+  width: 0;
+  opacity: 0;
+  transform: scale(0.4);
 }
 
 .plain-list-item__disclosure {
@@ -557,4 +571,10 @@
    （拖动中 padding 恒定，替换掉无副作用） */
 .plain-list--editing .plain-list-item--shift {
   transition: transform 180ms var(--plain-list-edit-ease, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+/* 只显勾档（selectionTone="check"）：同 grouped——按压蓝底瞬间勾随行反白 */
+.plain-list.plain-list--selection-check .plain-list-item--button:active:not(:disabled) .plain-list-item__check {
+  color: #fff;
+  transition: color 0s;
 }

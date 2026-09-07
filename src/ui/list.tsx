@@ -45,6 +45,10 @@ type ListProps = {
   /** 受控单选：配合 ListItem 的 id 使用。 */
   selectedId?: string
   onSelect?: (id: string) => void
+  /** 受控多选：配合 ListItem 的 id 使用；点击行仍回调 onSelect(id)，增删集合成员由调用方负责。 */
+  selectedIds?: readonly string[]
+  /** 选中态的呈现：highlight（默认）为持久蓝底反白 + 行尾勾；check 只显示行尾勾，蓝底仅剩按下瞬间反馈。 */
+  selectionTone?: 'highlight' | 'check'
   /** 编辑模式：确认删除某行（id 为 ListItem 的 id）。 */
   onDelete?: (id: string) => void
   /** 编辑模式：拖拽重排落定（fromId 行移到 toId 行的位置）。 */
@@ -97,10 +101,12 @@ function warnIndexOrderUnordered(labels: string[]): void {
   }
 }
 
-/** List ↔ ListItem 结合上下文：变体 + 受控单选 + 编辑态 + 拖拽重排。 */
+/** List ↔ ListItem 结合上下文：变体 + 受控单选/多选 + 编辑态 + 拖拽重排。 */
 type ListContextValue = {
   selectedId?: string
   onSelect?: (id: string) => void
+  selectedIds?: readonly string[]
+  selectionTone?: 'highlight' | 'check'
   editing?: boolean
   variant?: 'grouped' | 'plain'
   onDelete?: (id: string) => void
@@ -141,6 +147,8 @@ export function List({
   editing,
   selectedId,
   onSelect,
+  selectedIds,
+  selectionTone,
   onDelete,
   onReorder,
   children,
@@ -276,6 +284,8 @@ export function List({
   const contextValue: ListContextValue = {
     selectedId,
     onSelect,
+    selectedIds,
+    selectionTone,
     editing,
     variant,
     onDelete,
@@ -298,7 +308,12 @@ export function List({
 
   const rootClass = joinClass(
     c.base,
-    [listClass, indexBar ? c.anchored : '', editing ? c.editing : '']
+    [
+      listClass,
+      indexBar ? c.anchored : '',
+      editing ? c.editing : '',
+      selectionTone === 'check' ? `${c.base}--selection-check` : '',
+    ]
       .filter(Boolean)
       .join(' '),
   )
