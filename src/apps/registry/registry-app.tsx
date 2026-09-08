@@ -597,71 +597,6 @@ function RegistryBrowsePane({
   )
 }
 
-type RegistryValuePaneProps = {
-  footnote: string
-  initial: string
-  kind: EditorKind
-  saving: boolean
-  onSave: (draft: string) => void | Promise<void>
-  onDirtyChange: (dirty: boolean) => void
-}
-
-/** 编辑器正文（带草稿状态）：标题栏外壳由组装处的 <Nav.Page> 提供，
- * 保存钮因依赖组件内的草稿状态而落在正文里。 */
-function RegistryValuePane({
-  footnote,
-  initial,
-  kind,
-  saving,
-  onSave,
-  onDirtyChange,
-}: RegistryValuePaneProps) {
-  const [draft, setDraft] = useState(initial)
-  const initialRef = useRef(initial)
-  const draftRef = useRef(draft)
-  draftRef.current = draft
-  const parseError = editorDraftError(kind, draft)
-  const dirty = draft !== initial
-  const canSave = dirty && !saving && parseError === undefined
-
-  useEffect(() => {
-    if (draftRef.current === initialRef.current) {
-      setDraft(initial)
-    }
-    initialRef.current = initial
-  }, [initial])
-
-  useEffect(() => {
-    onDirtyChange(draft !== initial)
-    return () => onDirtyChange(false)
-  }, [draft, initial, onDirtyChange])
-
-  return (
-    <div class="settings__content settings__content--compact registry__value-content">
-      <p class="settings__section-footnote">{footnote}</p>
-      {parseError ? <p class="registry__value-error">{parseError}</p> : undefined}
-      <textarea
-        class="registry__value-textarea"
-        value={draft}
-        cols={1}
-        spellcheck={false}
-        disabled={saving}
-        onInput={(event) => setDraft((event.currentTarget as HTMLTextAreaElement).value)}
-      />
-      <div class="registry__value-actions">
-        <Button
-          tone="primary"
-          disabled={!canSave}
-          busy={saving}
-          onClick={() => void onSave(draft)}
-        >
-          保存
-        </Button>
-      </div>
-    </div>
-  )
-}
-
 export function RegistryApp() {
   const modal = useWindowModal()
   const editorDirtyRef = useRef(false)
@@ -679,6 +614,12 @@ export function RegistryApp() {
   const [deletingKey, setDeletingKey] = useState<string | undefined>(undefined)
   const [clearing, setClearing] = useState(false)
   const [saving, setSaving] = useState(false)
+  // 键值编辑草稿：target 定位「应用:键:路径」，base 记落笔时的 initial——
+  // 未动过草稿（value===base）时正文恒显示最新 initial（外部改动/保存刷新自动跟随）；
+  // renderPage 返回值受 Nav 强校验（必须是 <Nav.Page> 元素本身），草稿只能放这层
+  const [editorDraft, setEditorDraft] = useState<
+    { target: string; base: string; value: string } | undefined
+  >(undefined)
   const entriesCacheRef = useRef(new Map<string, RegistryEntry[]>())
   const hasDisplayedDetailRef = useRef(false)
 
@@ -717,10 +658,6 @@ export function RegistryApp() {
         setLoading(false)
       }
     }
-  }, [])
-
-  const handleDirtyChange = useCallback((dirty: boolean) => {
-    editorDirtyRef.current = dirty
   }, [])
 
   const confirmDiscard = useCallback(async (): Promise<boolean> => {
@@ -865,6 +802,14 @@ export function RegistryApp() {
   const selectedEntry = drill.selectedKey
     ? entries.find((entry) => entry.key === drill.selectedKey)
     : undefined
+
+  // 编辑页不在栈上时兜底清 dirty：renderEditorPane 只在编辑页真实渲染时
+  // 同步 editorDirtyRef，卸载/兜底空页路径靠这里清，确认弹窗才不会误弹
+  useEffect(() => {
+    if (!drill.editorOpen || !selectedEntry) {
+      editorDirtyRef.current = false
+    }
+  }, [drill.editorOpen, selectedEntry])
 
   useEffect(() => {
     if (!drill.selectedKey) {
@@ -1333,22 +1278,52 @@ export function RegistryApp() {
       resolved.kind === 'raw' ? valueTypeBadgeLabel(entry) : jsonKindLabel(resolved.kind)
     const bytes =
       resolved.kind === 'raw' ? utf8Length(entry.value) : nodeByteLength(resolved.node)
-    // 保存钮依赖组件内草稿状态，落在正文里；标题栏外壳在组装处套。
+    const target = `${entry.appId}:${entry.key}:${path.join('\0')}`
+    const seeded = editorDraft?.target === target
+    const base = seeded ? editorDraft.base : resolved.initial
+    const touched = seeded && editorDraft.value !== base
+    const draft = touched ? editorDraft.value : resolved.initial
+    const parseError = editorDraftError(resolved.kind, draft)
+    const dirty = draft !== resolved.initial
+    const canSave = dirty && !saving && parseError === undefined
+    // 编辑页每次真实渲染都同步 dirty 标记（返回键确认弹窗读它）
+    editorDirtyRef.current = dirty
     return (
       <Nav.Page
         title={resolved.title}
         backLabel={editorBackLabel(entry, path, resolved.kind)}
         onBack={() => void goBackFromDrill()}
+        actions={
+          <Button
+            tone="primary"
+            disabled={!canSave}
+            busy={saving}
+            onClick={() => void handleSaveEntry(entry, path, resolved.kind, draft)}
+          >
+            保存
+          </Button>
+        }
       >
-        <RegistryValuePane
-          key={`${entry.appId}:${entry.key}:${path.join('\0')}`}
-          footnote={`${kindLabel} · ${formatStorageSize(bytes)} · 更新于 ${formatTimestamp(entry.updatedAt)}`}
-          initial={resolved.initial}
-          kind={resolved.kind}
-          saving={saving}
-          onSave={(draft) => handleSaveEntry(entry, path, resolved.kind, draft)}
-          onDirtyChange={handleDirtyChange}
-        />
+        <div class="settings__content settings__content--compact registry__value-content">
+          <p class="settings__section-footnote">
+            {`${kindLabel} · ${formatStorageSize(bytes)} · 更新于 ${formatTimestamp(entry.updatedAt)}`}
+          </p>
+          {parseError ? <p class="registry__value-error">{parseError}</p> : undefined}
+          <textarea
+            class="registry__value-textarea"
+            value={draft}
+            cols={1}
+            spellcheck={false}
+            disabled={saving}
+            onInput={(event) =>
+              setEditorDraft({
+                target,
+                base,
+                value: (event.currentTarget as HTMLTextAreaElement).value,
+              })
+            }
+          />
+        </div>
       </Nav.Page>
     )
   }
