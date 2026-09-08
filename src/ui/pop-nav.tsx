@@ -10,10 +10,7 @@ import {
   useState,
 } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
-import {
-  FLOATING_PANEL_GAP,
-  FLOATING_PANEL_VIEWPORT_PADDING,
-} from './compute-floating-panel-position.ts'
+import { FLOATING_PANEL_VIEWPORT_PADDING } from './compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
 import { Nav, type NavProps } from './nav.tsx'
 import { DarkMode } from './theme.tsx'
@@ -31,6 +28,8 @@ const POP_NAV_ARROW_HALF = 7
 const POP_NAV_EXIT_WIDE_MS = 120
 /** 尖心距面板两边的最小距离：圆角 + 半宽，尖底边不吃进角弧 */
 const POP_NAV_ARROW_SAFE_INSET = POP_NAV_R + POP_NAV_ARROW_HALF
+/** 尖尖落点：锚点从顶 3/4 高度处（above 镜像为 1/4） */
+const POP_NAV_TIP_RATIO = 0.75
 
 /**
  * 气球外形路径：圆角矩形加一侧尖，坐标系与面板同盒（左上 0,0）。旁路 SVG 的
@@ -85,6 +84,10 @@ function balloonPath(
 }
 
 type PopNavOwnProps = {
+  /**
+   * 受控开合。⚠️ 配套动作别忘：触发器孩子是 <Button> 时传 pressed={open}——
+   * 弹层开着时触发钮保持按压观感、关窗即释（详见 PopNavTrigger 注释）。
+   */
   open: boolean
   /** 关闭通知（外部点按 / Esc）；面板仅隐藏不销毁，Nav 状态保留 */
   onClose: () => void
@@ -147,7 +150,8 @@ function anchorRectOf(el: Element | null): DOMRect | null {
 /**
  * 强制 Nav 的大弹出窗：尺寸可传（width / height，默认 320×280），内容只能是
  * Nav 页面（controller + 渲染属性原样透传给内部 <Nav>）。有锚点时贴锚点弹出、
- * 尖端指向它：下面完整装得下就放下面，装不下而上面装得下就放上面；上下都
+ * 尖端指向它（尖落在锚点从顶 3/4 高度处，翻到上方时镜像为 1/4）：下面完整
+ * 装得下就放下面，装不下而上面装得下就放上面；上下都
  * 装不下才按屏幕钳制挑更宽敞的一侧。水平整层跟着锚点，会伸出宿主窗口也
  * 不往里推，只有快飞出屏幕才收。无锚点时在视口内居中。关闭 = 外部点按 /
  * Esc；面板仅隐藏不销毁——Nav 停在第几页下次开还在第几页。
@@ -218,7 +222,6 @@ export function PopNav({
       return
     }
     const pad = FLOATING_PANEL_VIEWPORT_PADDING
-    const gap = FLOATING_PANEL_GAP
     const anchorEl = resolveAnchorEl()
     const anchorRect = anchorRectOf(anchorEl)
     const hasArrow = Boolean(anchorRect)
@@ -244,18 +247,20 @@ export function PopNav({
       setPlacement('below')
     } else {
       const anchorCenterX = anchorRect.left + anchorRect.width / 2
-      // 垂直：按上下「未钳候选」判断哪一侧完整装得下（尖端与锚点留 GAP）。
-      // 优先下面；下面装不下且上面装得下就放上面（上面的桌面空间可用，
-      // 不为「留在宿主窗口里」硬往下塞）；两侧都装不下才退化为屏幕钳制，
-      // 挑钳完离锚点更近（更宽敞）的一侧。
+      // 垂直：按上下「未钳候选」判断哪一侧完整装得下（尖端落在锚点从顶
+      // 3/4 高度处，above 镜像为 1/4）。优先下面；下面装不下且上面装得下
+      // 就放上面（上面的桌面空间可用，不为「留在宿主窗口里」硬往下塞）；
+      // 两侧都装不下才退化为屏幕钳制，挑钳完离锚点更近（更宽敞）的一侧。
       const clampTop = (t: number) => Math.min(Math.max(t, pad), Math.max(pad, vh - height - pad))
-      const belowTop = clampTop(anchorRect.bottom + gap)
-      const aboveTop = clampTop(anchorRect.top - height - gap)
-      const belowFits = belowTop === anchorRect.bottom + gap
-      const aboveFits = aboveTop === anchorRect.top - height - gap
+      const belowTipY = anchorRect.top + anchorRect.height * POP_NAV_TIP_RATIO
+      const aboveTipY = anchorRect.top + anchorRect.height * (1 - POP_NAV_TIP_RATIO)
+      const belowTop = clampTop(belowTipY)
+      const aboveTop = clampTop(aboveTipY - height)
+      const belowFits = belowTop === belowTipY
+      const aboveFits = aboveTop === aboveTipY - height
       let preferBelow = belowFits || !aboveFits
-      const belowDrift = Math.abs(belowTop - (anchorRect.bottom + gap))
-      const aboveDrift = Math.abs(aboveTop + height - (anchorRect.top - gap))
+      const belowDrift = Math.abs(belowTop - belowTipY)
+      const aboveDrift = Math.abs(aboveTop + height - aboveTipY)
       if (!belowFits && !aboveFits) {
         preferBelow = belowDrift <= aboveDrift
       }
@@ -430,6 +435,9 @@ export function PopNav({
  * 透明壳。
  * 注意：用了 anchorRef 逃生口时，触发器元素须位于锚点内部——外点关闭守卫
  * 只放过锚点内的点按，触发器在锚点外会被「外点关闭」抢先、又被点按重开。
+ * 提醒：孩子是 <Button> 时记得传 pressed={open}——弹层开着时触发钮保持按压
+ * 观感、关窗即释。开合真源在调用方（triggerApi 恒定、不随开合触发重渲染），
+ * 这里不做自动注入；漏了这步不会报错，只会少一块观感。
  */
 export function PopNavTrigger({ children }: { children: ComponentChildren }) {
   const api = useContext(PopNavTriggerContext)

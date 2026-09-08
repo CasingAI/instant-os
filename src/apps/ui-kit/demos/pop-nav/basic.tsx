@@ -81,10 +81,10 @@ function AnchoredPopNav() {
         renderPage={(page) => renderDemoPages(page, demo)}
       >
         <PopNavTrigger>
-          <Button>打开弹窗</Button>
+          <Button pressed={open}>打开弹窗</Button>
         </PopNavTrigger>
       </PopNav>
-      <span class="ui-kit-demo__hint">点按钮弹出：列表推入详情；下面不够自动放到上面，尖仍对着按钮</span>
+      <span class="ui-kit-demo__hint">点按钮弹出：列表推入详情；弹窗开着时触发钮保持按压态，关窗即释放</span>
     </div>
   )
 }
@@ -105,7 +105,7 @@ function StatefulPopNav() {
         renderPage={(page) => renderDemoPages(page, demo)}
       >
         <PopNavTrigger>
-          <Button>打开弹窗</Button>
+          <Button pressed={open}>打开弹窗</Button>
         </PopNavTrigger>
       </PopNav>
       <span class="ui-kit-demo__hint">进详情 → 点弹窗外面收起 → 再打开：仍停在详情页（hide 不 destroy）</span>

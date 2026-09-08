@@ -282,7 +282,7 @@ function TocPopNav({
       )}
     >
       <PopNavTrigger>
-        <Button icon={<Icon name="format_list_bulleted" />} title="页内导航" aria-label="页内导航" />
+        <Button icon={<Icon name="format_list_bulleted" />} title="页内导航" aria-label="页内导航" pressed={open} />
       </PopNavTrigger>
     </PopNav>
   )

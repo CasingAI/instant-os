@@ -39,6 +39,8 @@ export type ButtonProps = {
   showBothIconAndText?: boolean
   /** 异步进行中：菊花转圈覆盖在原内容之上（原内容隐形占位，按钮尺寸不变）并标记 aria-busy */
   busy?: boolean
+  /** 受控按压：持续保持按下观感（粘滞按压，如工具栏当前项）；样式与 :active 同源（:is 并列命中），disabled 仍优先。纯视觉，不带 aria-pressed 开关语义 */
+  pressed?: boolean
   type?: 'button' | 'submit' | 'reset'
   disabled?: boolean
   title?: string
@@ -103,6 +105,7 @@ export function Button({
   icon,
   showBothIconAndText = false,
   busy = false,
+  pressed = false,
   type = 'button',
   disabled = false,
   title,
@@ -131,6 +134,7 @@ export function Button({
       ? 'ios-button--icon-text-lg'
       : undefined,
     busy ? 'ios-button--busy' : undefined,
+    pressed ? 'ios-button--pressed' : undefined,
     className,
   ]
     .filter(Boolean)

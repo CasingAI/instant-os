@@ -184,7 +184,8 @@
   height: 20px;
 }
 
-.ios-button--secondary:active:not(:disabled) {
+/* 受控按压（Button 的 pressed prop → .ios-button--pressed）：与 :active 同源并列命中，观感一致；disabled 仍优先 */
+.ios-button--secondary:is(:active, .ios-button--pressed):not(:disabled) {
   color: var(--ios-button-color-active);
   background: var(--ios-button-bg-active);
   box-shadow: var(--ios-button-shadow-active);
@@ -198,7 +199,7 @@
   text-shadow: var(--ios-button-primary-text-shadow);
 }
 
-.ios-button--primary:active:not(:disabled) {
+.ios-button--primary:is(:active, .ios-button--pressed):not(:disabled) {
   background: var(--ios-button-primary-bg-active);
   box-shadow: var(--ios-button-primary-shadow-active);
 }
@@ -211,7 +212,7 @@
   text-shadow: var(--ios-button-danger-text-shadow);
 }
 
-.ios-button--danger:active:not(:disabled) {
+.ios-button--danger:is(:active, .ios-button--pressed):not(:disabled) {
   background: var(--ios-button-danger-bg-active);
   box-shadow: var(--ios-button-danger-shadow-active);
 }
@@ -227,7 +228,7 @@
   box-shadow: inset 0 0px 2px rgba(0, 0, 0, 0.18);
 }
 
-.ios-button--sunken.ios-button--secondary:active:not(:disabled) {
+.ios-button--sunken.ios-button--secondary:is(:active, .ios-button--pressed):not(:disabled) {
   background-image: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)),
     linear-gradient(180deg, #fff 0%, #e2e2e2 100%);
   box-shadow:
@@ -240,7 +241,7 @@
   box-shadow: inset 0 0px 2px rgba(0, 0, 0, 0.25);
 }
 
-.ios-button--sunken.ios-button--primary:active:not(:disabled) {
+.ios-button--sunken.ios-button--primary:is(:active, .ios-button--pressed):not(:disabled) {
   background-image: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)),
     var(--ios-button-primary-bg);
   box-shadow:
@@ -253,7 +254,7 @@
   box-shadow: inset 0 0px 2px rgba(0, 0, 0, 0.28);
 }
 
-.ios-button--sunken.ios-button--danger:active:not(:disabled) {
+.ios-button--sunken.ios-button--danger:is(:active, .ios-button--pressed):not(:disabled) {
   background-image: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)),
     var(--ios-button-danger-bg);
   box-shadow:
@@ -286,7 +287,7 @@
   color: var(--ios-button-borderless-color);
 }
 
-.ios-button--borderless:active:not(:disabled) {
+.ios-button--borderless:is(:active, .ios-button--pressed):not(:disabled) {
   /* color 一并钉住：secondary tone 的 :active 换深字色规则特异性相同，靠源序压回白字 */
   color: var(--ios-button-borderless-color);
   background: none;
@@ -311,7 +312,7 @@
   z-index: -1;
 }
 
-.ios-button--borderless:active:not(:disabled)::after {
+.ios-button--borderless:is(:active, .ios-button--pressed):not(:disabled)::after {
   opacity: 1;
   transition: none;
 }
@@ -328,7 +329,7 @@
   color: var(--ios-button-borderless-light-color);
 }
 
-.ios-button--borderless-light:active:not(:disabled) {
+.ios-button--borderless-light:is(:active, .ios-button--pressed):not(:disabled) {
   color: var(--ios-button-borderless-light-color);
   text-shadow: var(--ios-button-borderless-light-text-shadow-active);
 }

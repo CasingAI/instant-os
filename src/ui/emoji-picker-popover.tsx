@@ -207,6 +207,9 @@ export function EmojiPickerPopover({
     <>
       <div class="emoji-picker-popover">
         {child ? (
+          // 提醒：触发钮按压观感（pressed）未接——open 在组件内部，调用方够不着、
+          // 没法手传；若要「弹层开着触发钮保持按压」，需在此对 Button 孩子注入
+          // pressed: open（child.type === Button 判定，普通元素别塞以免漏成属性）。
           cloneElement(child, {
             ref: setTriggerRef,
             onClick: (event: JSX.TargetedMouseEvent<HTMLElement>) => {

@@ -6,6 +6,7 @@ import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 export default function ButtonBasicDemo() {
   const [saving, setSaving] = useState(false)
   const [hexagons, setHexagons] = useState(false)
+  const [pinned, setPinned] = useState(false)
   const timer = useRef<number | undefined>(undefined)
 
   const save = () => {
@@ -31,7 +32,7 @@ export default function ButtonBasicDemo() {
           <Button variant="borderless" darkMode={!hexagons} onClick={() => setHexagons(!hexagons)}>切换背景</Button>
         </div>
       </DemoVariant>
-      <DemoVariant label="凹凸（sunken 静止即凹样，按住变白一档）" wide>
+      <DemoVariant label="凹凸（sunken 静止即凹样，按住压暗一档）" wide>
         <div class="ui-kit-demo__row">
           <Button relief="sunken">次要</Button>
           <Button relief="sunken" tone="primary">主要</Button>
@@ -55,6 +56,15 @@ export default function ButtonBasicDemo() {
           <Button busy>保存中</Button>
           <Button onClick={save} busy={saving}>
             保存
+          </Button>
+        </div>
+      </DemoVariant>
+      <DemoVariant label="pressed 受控按压（粘滞按下观感，disabled 仍优先）">
+        <div class="ui-kit-demo__row">
+          <Button pressed>常按态</Button>
+          <Button relief="sunken" pressed>常按态 · sunken</Button>
+          <Button pressed={pinned} onClick={() => setPinned(!pinned)}>
+            {pinned ? '松开' : '按住固定'}
           </Button>
         </div>
       </DemoVariant>
