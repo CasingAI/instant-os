@@ -16,14 +16,14 @@ import {
 } from './use-app-narrow-layout.ts'
 import { usePageStack, type PageStackTransition } from './page-stack.tsx'
 import { Page } from './page.tsx'
-import { PageHeader } from './page-header.tsx'
+import { NavHeader } from './nav-header.tsx'
 import { hitsNavFrameIndex, wideNavFrameIndices } from './nav-model.ts'
 import './nav.css'
 import './theme.css'
 
 /**
  * 导航：布局原语（类 Ant Design 抽屉/分栏）。
- * Header（返回键 / 操作区，PageHeader 套件）与全部正文内容由应用自行渲染，
+ * Header（返回键 / 操作区，私有 NavHeader）与全部正文内容由应用自行渲染，
  * 本组件不强加任何外壳样式——应用想写什么就写什么。
  *
  * 平铺单实例：每页 id 一个常驻宿主（host），窄/宽只是同一骨架下 host 盒子
@@ -412,7 +412,7 @@ function NavHeaderImpl({
   const back = useChromeBack(backLabel, onBack)
   const classes = [className, back.fadeClass].filter(Boolean).join(' ')
   return (
-    <PageHeader
+    <NavHeader
       title={title}
       backLabel={back.backLabel}
       onBack={back.onBack}

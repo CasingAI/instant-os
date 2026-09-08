@@ -307,20 +307,12 @@
 /*
  * 本应用的暗色自成一套：.settings--dark 的 --settings-* token 给内容
  * 整体换深灰，与暗色页壳「深蓝壳 + 浅色内凹内容区」的新设计相抵
- * （深灰列表摆在浅色面板上会打架）。这里在应用作用域内把系统页壳
- * token 拉回旧的整页变暗观感：body 恢复深灰平铺、去内凹，标题栏/
- * 返回键恢复旧深灰值，只有 action 钮沿用新暗色值（色系相近）。
+ * （深灰列表摆在浅色面板上会打架）。这里在应用作用域内把正文底色
+ * 拉回旧的整页变暗观感：body 恢复深灰平铺、去内凹。标题栏与返回键
+ * 已换 Nav 私有件（nav-header.css 自带亮暗配色），不再消费页壳变量。
  */
 [data-theme='dark'] .vscode__settings {
   --page-bg: linear-gradient(180deg, #2c2c30 0%, #1e1e22 100%);
-  --page-header-bg: linear-gradient(180deg, #323238 0%, #28282e 100%);
-  --page-header-border: 1px solid rgba(255, 255, 255, 0.08);
-  --page-header-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06),
-    0 5px 14px -8px rgba(0, 0, 0, 0.55);
-  --page-back-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
-  --page-back-bg-hover: linear-gradient(180deg, #52525a 0%, #42424a 55%, #3a3a42 100%);
-  --page-back-bg-active: linear-gradient(180deg, #2e2e34 0%, #3a3a42 100%);
 }
 
 [data-theme='dark'] .vscode__settings .page__body {

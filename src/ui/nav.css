@@ -59,7 +59,7 @@
   position: relative;
 }
 
-.nav--safe .page-header {
+.nav--safe :is(.nav-header, .page-header) {
   padding-top: calc(6px + var(--nav-safe-top, 0px));
 }
 
@@ -360,10 +360,10 @@
 
 .nav[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-under
-  .page-header,
+  :is(.nav-header, .page-header),
 .nav[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-over
-  .page-header {
+  :is(.nav-header, .page-header) {
   grid-row: 1;
   grid-column: 1;
   position: relative;
@@ -376,7 +376,7 @@
 
 .nav[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-over
-  .page-header {
+  :is(.nav-header, .page-header) {
   z-index: 4;
 }
 
@@ -402,25 +402,25 @@
 /* 窄屏子页栈转场：0.35s 与 PageStack 同拍 */
 .nav[data-stack-transition='push']:not(.nav--morphing)
   .nav__host.is-under
-  .page-header__bar {
+  :is(.nav-header__bar, .page-header__bar) {
   animation: page-nav-leave-push 0.35s ease-in-out both;
 }
 
 .nav[data-stack-transition='push']:not(.nav--morphing)
   .nav__host.is-over
-  .page-header__bar {
+  :is(.nav-header__bar, .page-header__bar) {
   animation: page-nav-enter-push 0.35s ease-in-out both;
 }
 
 .nav[data-stack-transition='pop']:not(.nav--morphing)
   .nav__host.is-over
-  .page-header__bar {
+  :is(.nav-header__bar, .page-header__bar) {
   animation: page-nav-leave-pop 0.35s ease-in-out both;
 }
 
 .nav[data-stack-transition='pop']:not(.nav--morphing)
   .nav__host.is-under
-  .page-header__bar {
+  :is(.nav-header__bar, .page-header__bar) {
   animation: page-nav-enter-pop 0.35s ease-in-out both;
 }
 
@@ -504,10 +504,10 @@
 
 .nav[data-frame-nav]:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-under
-  .page-header,
+  :is(.nav-header, .page-header),
 .nav[data-frame-nav]:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-over
-  .page-header {
+  :is(.nav-header, .page-header) {
   grid-row: 1;
   grid-column: 1;
   position: relative;
@@ -520,7 +520,7 @@
 
 .nav[data-frame-nav]:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-over
-  .page-header {
+  :is(.nav-header, .page-header) {
   z-index: 4;
 }
 
@@ -547,25 +547,25 @@
  * 列表即使被误标也不参与拆盒动画（它的标题栏/正文必须留在左栏盒子） */
 .nav[data-frame-nav='push']:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-under
-  .page-header__bar {
+  :is(.nav-header__bar, .page-header__bar) {
   animation: page-nav-leave-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
 .nav[data-frame-nav='push']:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-over
-  .page-header__bar {
+  :is(.nav-header__bar, .page-header__bar) {
   animation: page-nav-enter-push var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
 .nav[data-frame-nav='pop']:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-over
-  .page-header__bar {
+  :is(.nav-header__bar, .page-header__bar) {
   animation: page-nav-leave-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
 .nav[data-frame-nav='pop']:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-under
-  .page-header__bar {
+  :is(.nav-header__bar, .page-header__bar) {
   animation: page-nav-enter-pop var(--nav-frame-ms, 380ms) ease-in-out both;
 }
 
@@ -677,9 +677,9 @@
     transition: none;
   }
 
-  .nav[data-stack-transition] .page-header__bar,
+  .nav[data-stack-transition] :is(.nav-header__bar, .page-header__bar),
   .nav[data-stack-transition] .page__body,
-  .nav[data-frame-nav] .page-header__bar,
+  .nav[data-frame-nav] :is(.nav-header__bar, .page-header__bar),
   .nav[data-frame-nav] .page__body {
     animation: none !important;
     transform: none !important;
@@ -695,7 +695,7 @@
 
 /* ── 返回键形变编排（全系统唯一一份，Nav.Page/Nav.Header 统一挂类）：
    A 型随滑轨淡出、C 型落定短淡入。此前各应用各抄一份，已全部收编至此 ── */
-.nav__back-fade-out .page-back-button {
+.nav__back-fade-out .nav-header__back {
   pointer-events: none;
   animation: nav-back-out var(--nav-frame-ms, 380ms)
     cubic-bezier(0.22, 0.61, 0.36, 1) both;
@@ -711,8 +711,8 @@
   }
 }
 
-.nav__back-fade-in-0 .page-back-button,
-.nav__back-fade-in-1 .page-back-button {
+.nav__back-fade-in-0 .nav-header__back,
+.nav__back-fade-in-1 .nav-header__back {
   animation: nav-back-in 240ms ease-out both;
 }
 
@@ -727,9 +727,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nav__back-fade-out .page-back-button,
-  .nav__back-fade-in-0 .page-back-button,
-  .nav__back-fade-in-1 .page-back-button {
+  .nav__back-fade-out .nav-header__back,
+  .nav__back-fade-in-0 .nav-header__back,
+  .nav__back-fade-in-1 .nav-header__back {
     animation: none;
   }
 }

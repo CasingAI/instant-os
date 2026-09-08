@@ -219,7 +219,7 @@
 /*
  * sunken 凹凸形态（relief="sunken"，仅 filled 生效）：三层结构从外到内——
  * ① 灰色边框（沿用 .ios-button 的 --ios-button-border）→ ② 一圈对内的内阴影 → ③ 底色（次要款为单纯的白色→浅灰渐变；primary/danger 沿用各自 *-bg 渐变）。
- * 按下不换阴影，在底色上叠一层白色遮罩（变白一档）。
+ * 按下在底色上叠一层黑色遮罩（压暗一档），并把内阴影加深一档——按压语言与凸起款一致（压暗 + 沉 shadow）。
  * 规则放在 borderless 区块之前，borderless 靠源序压回无底无影，传 relief 不生效。
  */
 .ios-button--sunken.ios-button--secondary {
@@ -228,8 +228,11 @@
 }
 
 .ios-button--sunken.ios-button--secondary:active:not(:disabled) {
-  background-image: linear-gradient(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.45)),
+  background-image: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)),
     linear-gradient(180deg, #fff 0%, #e2e2e2 100%);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.16),
+    inset 0 0px 2px rgba(0, 0, 0, 0.18);
 }
 
 .ios-button--sunken.ios-button--primary {
@@ -238,8 +241,11 @@
 }
 
 .ios-button--sunken.ios-button--primary:active:not(:disabled) {
-  background-image: linear-gradient(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.45)),
+  background-image: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)),
     var(--ios-button-primary-bg);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 0px 2px rgba(0, 0, 0, 0.25);
 }
 
 .ios-button--sunken.ios-button--danger {
@@ -248,8 +254,11 @@
 }
 
 .ios-button--sunken.ios-button--danger:active:not(:disabled) {
-  background-image: linear-gradient(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.45)),
+  background-image: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)),
     var(--ios-button-danger-bg);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.22),
+    inset 0 0px 2px rgba(0, 0, 0, 0.28);
 }
 
 /*
