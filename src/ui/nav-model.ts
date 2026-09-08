@@ -13,6 +13,28 @@ export function wideNavFrameIndices(
   return { navUnder, navOver }
 }
 
+export function wideNavExitingIds(
+  frames: readonly string[],
+  previous: readonly string[],
+  previousLength: number,
+  exiting: readonly string[],
+  reset: boolean,
+): string[] {
+  if (reset || Math.abs(frames.length - previousLength) > 1) return []
+  const removed = frames.length < previousLength ? previous.slice(frames.length) : exiting
+  return removed.filter((id) => !frames.includes(id))
+}
+
+/** 退出页复用上次内容，不能再用已更新的应用状态生成空页。 */
+export function wideNavPage<T>(
+  id: string,
+  exiting: boolean,
+  previous: ReadonlyMap<string, T>,
+  render: () => T,
+): T {
+  return exiting && previous.has(id) ? previous.get(id)! : render()
+}
+
 /** host 是否命中窗口下标。host 不在帧序列里时 indexOf 是 -1，必须与
  * 「这一侧没有帧」的 -1 区分，否则从列表点进首个子页（push、active=0）
  * 时左栏列表会被误标成 under，拆盒后变成并排卡片。 */

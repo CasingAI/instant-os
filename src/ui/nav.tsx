@@ -17,7 +17,7 @@ import {
 import { usePageStack, type PageStackTransition } from './page-stack.tsx'
 import { Page } from './page.tsx'
 import { NavHeader } from './nav-header.tsx'
-import { hitsNavFrameIndex, wideNavFrameIndices } from './nav-model.ts'
+import { hitsNavFrameIndex, wideNavFrameIndices, wideNavExitingIds, wideNavPage } from './nav-model.ts'
 import './nav.css'
 import './theme.css'
 
@@ -337,6 +337,10 @@ type NavChromeScope = {
 
 const NavChromeContext = createContext<NavChromeScope | null>(null)
 
+/** 页壳内凹边框开关（Nav pageInset → Page inset）：Nav 级配置经此下发
+ * 给每个 Nav.Page，页面渲染处统一取用 */
+const NavPageInsetContext = createContext(false)
+
 /**
  * 返回键统一编排（全系统唯一一份，替代此前各应用手抄的 showBack + fade）：
  * - 窄屏栈：非根页恒有返回；C 型形变（面板扩张交棒）期间先隐，落定后
@@ -431,10 +435,12 @@ function NavPageImpl({
   dataTheme,
   children,
 }: NavPageProps) {
+  const pageInset = useContext(NavPageInsetContext)
   return (
     <Page
       class={className}
       dataTheme={dataTheme}
+      inset={pageInset}
       header={
         <NavHeaderImpl
           title={title}
@@ -496,9 +502,14 @@ type NavSharedProps = {
   frameAnimationMs?: number
   /** 安全区（px，如刘海/小白条预留，或 PopNav 把尖端那一侧垫进壳里）。
    * 传一个数则顶/底同值；也可只指定一侧。顶部由各页标题栏材质自身向上
-   * 延伸无缝占满；底部仅在暗色页壳下处理——加进内容井的底边框（8px 壳
-   * 边变 8px + 安全区），亮色正文直接铺到窗口底。任一侧大于 0 即生效。 */
+   * 延伸无缝占满；底部仅在页壳内凹边框（pageInset）开启时处理——加进
+   * 内容井的底边框（8px 壳边变 8px + 安全区），边框关闭时正文直接铺到
+   * 窗口底。任一侧大于 0 即生效。 */
   safeArea?: NavSafeArea
+  /** 页壳内凹边框（默认关）：每页正文左/右/底围一圈壳色粗边框、面板
+   * 内凹嵌进壳里（暗色即 PopNav 弹窗的原生观感，亮色为对称的浅灰壳）。
+   * 经 Context 下发给每个 Nav.Page；PopNav 缺省开启，其余场景缺省关闭 */
+  pageInset?: boolean
   class?: string
 }
 
@@ -613,6 +624,7 @@ function NavView(props: NavProps) {
     listRatio = DEFAULT_LIST_RATIO,
     frameAnimationMs = DEFAULT_FRAME_MS,
     safeArea = 0,
+    pageInset = false,
     class: className,
   } = props
   const { narrowLayout, layoutReady, hostRef } = controller
@@ -627,7 +639,7 @@ function NavView(props: NavProps) {
   // 结构签名：只有帧 id 序列变化才进入时序分支（同结构的内容刷新不触发动画）
   const liveSig = frames.join('\0')
 
-  /** pop 离场的帧 id：保帧播完滑出动画后才卸载（内容随 id 天然稳定） */
+  /** pop 离场的帧 id：保帧播完滑出动画后才卸载。 */
   const [exitingIds, setExitingIds] = useState<string[]>([])
   const exitingRef = useRef(exitingIds)
   exitingRef.current = exitingIds
@@ -635,6 +647,11 @@ function NavView(props: NavProps) {
   const prevLiveLenRef = useRef(0)
   const resetKeyRef = useRef(framesResetKey)
   const lastViewIdsRef = useRef<string[]>([])
+  const previousPagesRef = useRef(new Map<string, VNode>())
+  const renderedPages = new Map<string, VNode>()
+  useLayoutEffect(() => {
+    previousPagesRef.current = renderedPages
+  })
 
   // 帧转场窗口：右栏进/退子页的那一段时间（时长 = 帧动画时长）。窗口期
   // 两台 host 的 header 交叉淡移、正文整页滑（page-stack 同款 keyframes）。
@@ -1016,9 +1033,16 @@ function NavView(props: NavProps) {
   const transition = controller.stackView.transition
   const morphing = controller.morphing
   const frameIdSet = new Set(frames)
-  const exitingSet = new Set(exitingIds)
-  // 渲染视图 = 帧（最新内容）+ 与帧不重号的退场帧（id 稳定，内容不快照）
-  const viewIds = [...frames, ...exitingIds.filter((id) => !frameIdSet.has(id))]
+  // effect 补记退出状态前就保住 host，不能先卸载再挂回。
+  const renderExitingIds = narrowLayout ? exitingIds : wideNavExitingIds(
+    frames,
+    lastViewIdsRef.current,
+    prevLiveLenRef.current,
+    exitingIds,
+    resetKeyRef.current !== framesResetKey,
+  )
+  const exitingSet = new Set(renderExitingIds)
+  const viewIds = [...frames, ...renderExitingIds.filter((id) => !frameIdSet.has(id))]
   const active = Math.min(wideIndex, Math.max(0, viewIds.length - 1))
   const hostIds: string[] = []
   for (const id of stack) if (!hostIds.includes(id)) hostIds.push(id)
@@ -1094,12 +1118,13 @@ function NavView(props: NavProps) {
   } as Record<string, string>
 
   return (
+    <NavPageInsetContext.Provider value={pageInset}>
     <div
       ref={(node) => {
         rootRef.current = node
         hostRef(node)
       }}
-      class={`nav${safeTop > 0 || safeBottom > 0 ? ' nav--safe' : ''}${className ? ` ${className}` : ''}`}
+      class={`nav${safeTop > 0 || safeBottom > 0 ? ' nav--safe' : ''}${pageInset ? ' nav--page-inset' : ''}${className ? ` ${className}` : ''}`}
       style={styleVars}
       data-stack-transition={transition ? transition.direction : undefined}
       data-frame-nav={frameNav}
@@ -1131,6 +1156,10 @@ function NavView(props: NavProps) {
       <div class="nav__stage" data-form={narrowLayout ? 'stack' : 'split'}>
         {hostIds.map((id) => {
           const exiting = !frameIdSet.has(id) && exitingSet.has(id)
+          const page = wideNavPage(id, exiting, previousPagesRef.current, () =>
+            assertNavPage(renderPage(id, pageCtx), `renderPage("${id}")`),
+          )
+          renderedPages.set(id, page)
           const pos: HostPos = exiting ? 'detail' : roleOf(id)
           const fi = viewIds.indexOf(id)
           const isUnder =
@@ -1183,7 +1212,7 @@ function NavView(props: NavProps) {
             >
               <div class="nav__host-slider" style={slideStyle}>
                 <NavChromeContext.Provider value={hostScope(id)}>
-                  {assertNavPage(renderPage(id, pageCtx), `renderPage("${id}")`)}
+                  {page}
                 </NavChromeContext.Provider>
               </div>
             </div>
@@ -1199,5 +1228,6 @@ function NavView(props: NavProps) {
         {footer ? <div class="nav__footer">{footer}</div> : undefined}
       </div>
     </div>
+    </NavPageInsetContext.Provider>
   )
 }

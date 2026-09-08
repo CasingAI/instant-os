@@ -620,10 +620,10 @@
  * 内缘圆角、clip-path 裁切与窄屏舞台框同式，亮暗配方与 page.css 静止
  * 态同值。
  */
-.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+.nav[data-frame-nav]:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-under
   .page__body-shell,
-.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+.nav[data-frame-nav]:not(.nav--morphing)
   .nav__host[data-pos='detail'].is-over
   .page__body-shell {
   display: contents;
