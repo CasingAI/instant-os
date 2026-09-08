@@ -28,8 +28,8 @@ const POP_NAV_ARROW_HALF = 7
 const POP_NAV_EXIT_WIDE_MS = 120
 /** 尖心距面板两边的最小距离：圆角 + 半宽，尖底边不吃进角弧 */
 const POP_NAV_ARROW_SAFE_INSET = POP_NAV_R + POP_NAV_ARROW_HALF
-/** 尖尖落点：锚点从顶 3/4 高度处（above 镜像为 1/4） */
-const POP_NAV_TIP_RATIO = 0.75
+/** 尖尖咬进锚点的深度：2px（below 从底边往上咬，above 镜像） */
+const POP_NAV_TIP_OVERLAP = 2
 
 /**
  * 气球外形路径：圆角矩形加一侧尖，坐标系与面板同盒（左上 0,0）。旁路 SVG 的
@@ -150,7 +150,7 @@ function anchorRectOf(el: Element | null): DOMRect | null {
 /**
  * 强制 Nav 的大弹出窗：尺寸可传（width / height，默认 320×280），内容只能是
  * Nav 页面（controller + 渲染属性原样透传给内部 <Nav>）。有锚点时贴锚点弹出、
- * 尖端指向它（尖落在锚点从顶 3/4 高度处，翻到上方时镜像为 1/4）：下面完整
+ * 尖端指向它（尖咬进锚点 2px，上下两形态同深度）：下面完整
  * 装得下就放下面，装不下而上面装得下就放上面；上下都
  * 装不下才按屏幕钳制挑更宽敞的一侧。水平整层跟着锚点，会伸出宿主窗口也
  * 不往里推，只有快飞出屏幕才收。无锚点时在视口内居中。关闭 = 外部点按 /
@@ -247,13 +247,13 @@ export function PopNav({
       setPlacement('below')
     } else {
       const anchorCenterX = anchorRect.left + anchorRect.width / 2
-      // 垂直：按上下「未钳候选」判断哪一侧完整装得下（尖端落在锚点从顶
-      // 3/4 高度处，above 镜像为 1/4）。优先下面；下面装不下且上面装得下
-      // 就放上面（上面的桌面空间可用，不为「留在宿主窗口里」硬往下塞）；
+      // 垂直：按上下「未钳候选」判断哪一侧完整装得下（尖端咬进锚点 2px，
+      // below 从底边往上咬、above 镜像）。优先下面；下面装不下且上面装得
+      // 下就放上面（上面的桌面空间可用，不为「留在宿主窗口里」硬往下塞）；
       // 两侧都装不下才退化为屏幕钳制，挑钳完离锚点更近（更宽敞）的一侧。
       const clampTop = (t: number) => Math.min(Math.max(t, pad), Math.max(pad, vh - height - pad))
-      const belowTipY = anchorRect.top + anchorRect.height * POP_NAV_TIP_RATIO
-      const aboveTipY = anchorRect.top + anchorRect.height * (1 - POP_NAV_TIP_RATIO)
+      const belowTipY = anchorRect.bottom - POP_NAV_TIP_OVERLAP
+      const aboveTipY = anchorRect.top + POP_NAV_TIP_OVERLAP
       const belowTop = clampTop(belowTipY)
       const aboveTop = clampTop(aboveTipY - height)
       const belowFits = belowTop === belowTipY
