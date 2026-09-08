@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'preact/hooks'
 import { useOs } from '../../os/os-context.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import { Button } from '../../ui/button.tsx'
+import { List } from '../../ui/list.tsx'
+import { ListItem } from '../../ui/list-item.tsx'
+import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'
 import { PageButtonGroup } from '../../ui/page-button-group.tsx'
 import { PageActionButton } from '../../ui/page-action-button.tsx'
 import { Icon } from '../../ui/icon.tsx'
@@ -112,6 +115,66 @@ function parseAbout(id: DemoPageId): number | null {
   return m ? Number(m[1]) : null
 }
 
+/** 安全区档位（0 = 关），演示 Nav 的 safeArea 纵深 */
+const SAFE_AREA_PRESETS = [0, 12, 24, 34, 47]
+
+/** Header 上的 Select：PopNavTrigger 包 Button 挂进 Nav.Page 的 actions 槽；
+ * 触发器文案固定（宽度不随档位变），当前档只在弹层列表里打勾——点选写回并收起 */
+function SafeAreaPopNavSelect({
+  value,
+  onChange,
+}: {
+  value: number
+  onChange: (px: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const popNav = useNav({ narrowPageForState: () => 'safe-area' })
+  const options = [
+    { px: 0, label: '关闭' },
+    ...SAFE_AREA_PRESETS.filter((px) => px > 0).map((px) => ({ px, label: `${px}px` })),
+  ]
+  return (
+    <PopNav
+      open={open}
+      onOpen={() => setOpen(true)}
+      onClose={() => setOpen(false)}
+      width={200}
+      height={230}
+      ariaLabel="选择安全区档位"
+      controller={popNav}
+      frames={[]}
+      renderPage={() => (
+        <Nav.Page title="安全区">
+          <List
+            variant="plain"
+            selectedId={String(value)}
+            onSelect={(id) => {
+              const option = options.find((item) => String(item.px) === id)
+              if (option) {
+                onChange(option.px)
+                setOpen(false)
+              }
+            }}
+          >
+            {options.map((option) => (
+              <ListItem
+                key={option.px}
+                id={String(option.px)}
+                label={option.label}
+                accessory="check"
+              />
+            ))}
+          </List>
+        </Nav.Page>
+      )}
+    >
+      <PopNavTrigger>
+        <Button pressed={open}>安全区</Button>
+      </PopNavTrigger>
+    </PopNav>
+  )
+}
+
 export function NavKitDemoApp() {
   const { setAppWindowTitle } = useOs()
   useAppMenuBar('nav-kit-demo', [])
@@ -123,12 +186,12 @@ export function NavKitDemoApp() {
   const [pos, setPos] = useState<Pos>({ kind: 'shelf' })
   const [favorites, setFavorites] = useState<ReadonlySet<string>>(new Set())
   const [readChapters, setReadChapters] = useState<ReadonlySet<string>>(new Set())
-  // 安全区演示：点书架页标题栏的「安全区」钮循环调档（0 = 关），34 档模拟
-  // 真机底部小白条预留高度
-  const SAFE_AREA_PRESETS = [0, 12, 24, 34, 47]
+  // 安全区演示：书架页标题栏「安全区」钮弹 PopNav 选档（0 = 关），34 档模拟
+  // 真机底部小白条预留高度。PopNav + 标题栏按钮组合 = Header 上的 Select。
   const [safeAreaPx, setSafeAreaPx] = useState(0)
-  const cycleSafeArea = () =>
-    setSafeAreaPx((px) => SAFE_AREA_PRESETS[(SAFE_AREA_PRESETS.indexOf(px) + 1) % SAFE_AREA_PRESETS.length])
+  // 页壳内凹边框演示：点书架页标题栏的「边框」钮开关（边框 = 正文围一圈
+  // 壳色粗边框、面板内凹；亮暗两档观感随主题）
+  const [pageInset, setPageInset] = useState(false)
 
   const nav = useNav({
     split: true,
@@ -191,12 +254,15 @@ export function NavKitDemoApp() {
     <Nav.Page
       title="书架"
       actions={
-        <PageActionButton
-          activated={safeAreaPx > 0}
-          onClick={cycleSafeArea}
-        >
-          {safeAreaPx > 0 ? `安全区 ${safeAreaPx}` : '安全区'}
-        </PageActionButton>
+        <>
+          <Button
+            pressed={pageInset}
+            onClick={() => setPageInset((v) => !v)}
+          >
+            边框
+          </Button>
+          <SafeAreaPopNavSelect value={safeAreaPx} onChange={setSafeAreaPx} />
+        </>
       }
     >
       <div class="nav-kit-demo__rows">
@@ -431,6 +497,7 @@ export function NavKitDemoApp() {
       frames={frames}
       renderPage={renderPage}
       framesResetKey={pos.kind === 'shelf' ? 'shelf' : `b:${pos.b}`}
+      pageInset={pageInset}
       safeArea={safeAreaPx}
     />
   )

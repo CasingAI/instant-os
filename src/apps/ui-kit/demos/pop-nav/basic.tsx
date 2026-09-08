@@ -113,6 +113,61 @@ function StatefulPopNav() {
   )
 }
 
+/**
+ * 标题栏选择器（Header + Select）：PopNav 与 <Nav.Page> 的 actions 槽组合——
+ * 触发器是系统 Button（显示当前值），弹层是选项列表（当前项打勾），点选写回
+ * 并收起。PopNav 放在标题栏上非常适合充当 Select / 下拉选择器，导航演示
+ * 首屏的「安全区」选档就是同款用法。
+ */
+const HEADER_SELECT_OPTIONS = [
+  { id: 'e', label: '简单' },
+  { id: 'm', label: '中等' },
+  { id: 'h', label: '困难' },
+]
+
+function HeaderSelectPopNav() {
+  const [open, setOpen] = useState(false)
+  const [selectedId, setSelectedId] = useState('m')
+  const selectNav = useNav({ narrowPageForState: () => 'choice' })
+  const selectedLabel =
+    HEADER_SELECT_OPTIONS.find((option) => option.id === selectedId)?.label ?? selectedId
+  return (
+    <div class="ui-kit-demo__row">
+      <PopNav
+        open={open}
+        onOpen={() => setOpen(true)}
+        onClose={() => setOpen(false)}
+        width={200}
+        height={230}
+        ariaLabel="选择难度"
+        controller={selectNav}
+        frames={[]}
+        renderPage={() => (
+          <Nav.Page title="难度">
+            <List
+              variant="plain"
+              selectedId={selectedId}
+              onSelect={(id) => {
+                setSelectedId(id)
+                setOpen(false)
+              }}
+            >
+              {HEADER_SELECT_OPTIONS.map((option) => (
+                <ListItem key={option.id} id={option.id} label={option.label} accessory="check" />
+              ))}
+            </List>
+          </Nav.Page>
+        )}
+      >
+        <PopNavTrigger>
+          <Button pressed={open}>难度：{selectedLabel}</Button>
+        </PopNavTrigger>
+      </PopNav>
+      <span class="ui-kit-demo__hint">模拟挂进 Nav.Page actions 槽：按钮显示当前值，点选打勾写回并收起</span>
+    </div>
+  )
+}
+
 export default function PopNavDemo() {
   return (
     <DemoVariants>
@@ -121,6 +176,9 @@ export default function PopNavDemo() {
       </DemoVariant>
       <DemoVariant label="关窗不销毁" wide>
         <StatefulPopNav />
+      </DemoVariant>
+      <DemoVariant label="标题栏选择器（Header + Select）" wide>
+        <HeaderSelectPopNav />
       </DemoVariant>
       <DemoVariant label="窄窗不退化">
         <span class="ui-kit-demo__hint">窗口再窄也不会变模态：始终锚定触发器弹出，面板可伸出窗口、只钳在屏幕内</span>

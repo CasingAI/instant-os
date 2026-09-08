@@ -105,6 +105,13 @@ type PopNavOwnProps = {
 
 export type PopNavProps = PopNavOwnProps & NavProps
 
+/**
+ * Header + Select：PopNav 与 <Nav.Page> 的 actions 槽（标题栏操作区）组合后，
+ * 非常适合充当标题栏上的 Select / 下拉选择器——触发器用系统 <Button pressed>，
+ * 弹层里放一页 <Nav.Page> + List 选项列表，点选写回并收起。
+ * 样板见 demos/pop-nav/basic.tsx 的「标题栏选择器」变体。
+ */
+
 type PopNavTriggerApi = {
   /** 主锚点登记：cloneElement 注入孩子、由 ref 回调报到（元素或组件实例原样收下，解析见 anchorElementOf） */
   registerAnchor: (el: unknown) => void
@@ -155,6 +162,11 @@ function anchorRectOf(el: Element | null): DOMRect | null {
  * 装不下才按屏幕钳制挑更宽敞的一侧。水平整层跟着锚点，会伸出宿主窗口也
  * 不往里推，只有快飞出屏幕才收。无锚点时在视口内居中。关闭 = 外部点按 /
  * Esc；面板仅隐藏不销毁——Nav 停在第几页下次开还在第几页。
+ *
+ * 推荐用法（Header + Select）：把整棵 PopNav（PopNavTrigger 包系统 Button
+ * 作触发器）放进 <Nav.Page> 的 actions 槽，弹层里放 List 做选项列表——
+ * PopNav 与标题栏组合后非常适合充当 Select / 下拉选择器：按钮显示当前值、
+ * 点开弹层、点选某项写回并收起。见 demos/pop-nav/basic.tsx 的组合示例。
  */
 export function PopNav({
   open,

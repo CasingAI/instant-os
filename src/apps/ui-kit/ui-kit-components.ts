@@ -421,14 +421,14 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'pop-nav',
     name: 'PopNav',
     description:
-      '强制 Nav 的大弹出窗：宽高可传（width / height，默认 320×280），内容只能是 Nav 页面；锚定形态把尖裁进整盒、指向触发器（尖端那一侧由 Nav 安全区把壳材质垫进尖里）；下面完整装得下就放下面，装不下而上面装得下就放上面，上下都不够才按屏幕钳制挑更宽敞的一侧；水平整层跟着触发器，伸出宿主窗口也不往里推，只有快飞出屏幕才收；无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留。内部固定暗色——面板与尖为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项',
+      '强制 Nav 的大弹出窗：宽高可传（width / height，默认 320×280），内容只能是 Nav 页面；锚定形态把尖裁进整盒、指向触发器（尖端那一侧由 Nav 安全区把壳材质垫进尖里）；下面完整装得下就放下面，装不下而上面装得下就放上面，上下都不够才按屏幕钳制挑更宽敞的一侧；水平整层跟着触发器，伸出宿主窗口也不往里推，只有快飞出屏幕才收；无锚点时视口居中；关闭（外点/Esc）仅隐藏不销毁，Nav 状态保留。内部固定暗色——面板与尖为深蓝壳材质（theme.css --page-shell-bg），内部 Nav 整页按暗色主题渲染，暂不提供对外配置项。与 <Nav.Page> 的 actions 槽组合后非常适合在标题栏上充当 Select：触发器用系统 Button 显示当前值，弹层放 List 选项列表，点选写回并收起',
     category: 'navigation',
     importPath: "import { PopNav, PopNavTrigger } from '../../ui/pop-nav.tsx'",
     demos: [
       {
         id: 'basic',
         title: '基础用法',
-        description: '锚定弹窗：尖跟随触发器，下面不够就放到上面，水平跟着按钮、伸出窗口不内推，只钳屏幕；翻页后关窗再开仍在原页',
+        description: '锚定弹窗：尖跟随触发器，下面不够就放到上面，水平跟着按钮、伸出窗口不内推，只钳屏幕；翻页后关窗再开仍在原页；含「标题栏选择器」变体演示 PopNav 挂 Header 充当 Select',
       },
     ],
     props: [
