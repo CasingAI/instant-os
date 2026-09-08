@@ -414,7 +414,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'narrowPageForState', type: '() => string', description: 'useNav：由领域状态推导当前子页 id', defaultValue: '—' },
       { name: 'listPage', type: 'string?', description: 'useNav：分栏左栏根列表页 id', defaultValue: '—' },
       { name: 'frameAnimationMs', type: 'number?', description: '形变/帧动画时长', defaultValue: '380' },
-      { name: 'safeArea', type: 'number | { top?: number; bottom?: number }?', description: '安全区（px）：一个数则顶/底同值，对象则分侧。顶部由标题栏材质向上延伸无缝占满；底部仅暗色页壳处理（加进内容井底边框成 8px + 安全区），亮色不处理。任一侧大于 0 即生效', defaultValue: '—' },
+      { name: 'pageInset', type: 'boolean?', description: '页壳内凹边框（默认 false）：每页正文四周围一圈壳色粗边框、面板内凹嵌进壳里；经 Context 下发给每个 Nav.Page。PopNav 内部缺省开启', defaultValue: 'false' },
+      { name: 'safeArea', type: 'number | { top?: number; bottom?: number }?', description: '安全区（px）：一个数则顶/底同值，对象则分侧。顶部由标题栏材质向上延伸无缝占满；底部仅 pageInset 开启时处理（加进内容井底边框成 8px + 安全区）。任一侧大于 0 即生效', defaultValue: '—' },
     ],
   },
   {
@@ -439,7 +440,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'onOpen', type: '() => void?', description: 'PopNavTrigger 点按时的开窗请求', defaultValue: '—' },
       { name: 'anchorRef', type: 'RefObject<HTMLElement>?', description: '逃生口：直接指定锚点元素（锚点不是 PopNavTrigger 包着的东西时用）', defaultValue: '—' },
       { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
-      { name: '…NavProps', type: 'NavProps', description: 'controller 与 renderPage/frames 原样透传给内部 Nav——页面必须是 <Nav.Page>（统一标题栏外壳，运行时强制），没有塞任意组件的口子', defaultValue: '—' },
+      { name: '…NavProps', type: 'NavProps', description: 'controller 与 renderPage/frames 原样透传给内部 Nav——页面必须是 <Nav.Page>（统一标题栏外壳，运行时强制），没有塞任意组件的口子；pageInset 缺省 true（壳边框随弹窗原生开启）', defaultValue: '—' },
       { name: '<PopNavTrigger>', type: 'ComponentChildren', description: '触发器：包住按钮等元素，ref 与点按自动接好，尖指向它；孩子须是原生元素或接 ref 的组件，否则退回透明壳', defaultValue: '—' },
     ],
   },
@@ -699,20 +700,13 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     id: 'page-curl',
     name: '地图卷页 Page Curl',
     description:
-      'iOS 6 地图右下角卷页（page curl）的网页复刻对比：同一场景——假地图页从右下角卷起、露出底下设置页——三种实现各跑一遍，纯 CSS 3D 折叠（每帧只写 transform/clip-path，全走合成器）、纯 2D 裁剪镜像（clip-path + matrix 反射 + 假光源，零 3D 零 WebGL）、WebGL 连续卷曲（柱面卷曲网格，每帧只更新一个 uniform，最接近原版观感）。支持拖住右下角跟手卷页、松手弹簧回弹、点击折角开合与自动演示；每档说明写明每帧成本与保真度',
+      'iOS 6 地图右下角卷页（page curl）的 WebGL 网页复刻：假地图页从右下角卷起、露出底下设置页；支持拖住右下角跟手卷页、松手弹簧回弹、点击折角开合与自动演示，并可分别开关设置页投影、纸边阴影、卷筒正面暗部和纸背曲面暗部。',
     category: 'page-curl',
     importPath: "import { PageCurlDemo } from './page-curl-demo.tsx'",
     demos: [
-      { id: 'basic', title: '三种实现对比', description: 'css3d / clip2d / webgl 三档切换；拖右下角跟手卷页、松手弹簧回弹、点击折角开合与自动演示' },
+      { id: 'basic', title: 'WebGL 阴影分层', description: '只显示 WebGL 卷曲；4 个 Switch 分别控制投影、纸边、卷筒正面和纸背曲面暗部' },
     ],
-    props: [
-      {
-        name: 'initialVariant',
-        type: "'css3d' | 'clip2d' | 'webgl'",
-        description: '初始展示的实现方案；默认 css3d，运行中用顶部分段器切换',
-        defaultValue: "'css3d'",
-      },
-    ],
+    props: [],
   },
 ]
 
