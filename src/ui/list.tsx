@@ -57,7 +57,7 @@ type ListProps = {
   /**
    * 选择行（ListItem 传 options）的宽窄行为覆盖：'wide' 强制弹菜单、
    * 'narrow' 强制走行回调。缺省由本容器自测宽度自动判定
-   * （≤520 判窄、≥580 判宽，中间滞回区维持现态）。
+   * （≤360 判窄、≥420 判宽，中间滞回）。
    */
   choiceLayout?: 'wide' | 'narrow'
 } & Omit<JSX.HTMLAttributes<HTMLDivElement>, 'class' | 'onSelect'>
@@ -171,10 +171,12 @@ export function List({
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const indexStripRef = useRef<HTMLDivElement>(null)
-  // 选择行宽窄自动判定：量本容器内容宽（520/580 滞回），结果经 Context 发给行。
-  // 组合 ref 必须 useCallback 稳定身份——ref 每次渲染都换会反复走 hostRef 的
-  // 挂载/卸载（内部含 setState），造成无意义的重渲染循环。
-  const choiceWidth = useAppNarrowLayout()
+  // 选择行宽窄自动判定：量本容器内容宽，结果经 Context 发给行。阈值用栏尺度
+  // （≤360 判窄、≥420 判宽，滞回）——选择行住在分栏/卡片里，用窗口级的
+  // 520/580 会把常规桌面栏宽误判成窄。组合 ref 必须 useCallback 稳定身份——
+  // ref 每次渲染都换会反复走 hostRef 的挂载/卸载（内部含 setState），造成
+  // 无意义的重渲染循环。
+  const choiceWidth = useAppNarrowLayout({ enterWidth: 360, exitWidth: 420 })
   const choiceHostRef = choiceWidth.hostRef
   const setRootRef = useCallback(
     (node: HTMLDivElement | null) => {

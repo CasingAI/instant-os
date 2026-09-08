@@ -201,11 +201,11 @@ export function ListItem({
       return
     }
     if (list.editing) return
-    // 选择行独占点击：宽形态开合菜单、窄形态走跳转回调；不参与行选中与点闪
-    // （反馈由菜单/跳转承载）
+    // 选择行独占点击：宽形态开合菜单、窄形态走跳转回调（没传回调则回退弹
+    // 菜单，永不出现点了没反应）；不参与行选中与点闪（反馈由菜单/跳转承载）
     if (isChoice) {
-      if (choiceNarrow) {
-        onChoiceNavigate?.()
+      if (choiceNarrow && onChoiceNavigate) {
+        onChoiceNavigate()
         return
       }
       setChoiceOpen((open) => !open)
