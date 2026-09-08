@@ -310,15 +310,38 @@
  * （深灰列表摆在浅色面板上会打架）。这里在应用作用域内把正文底色
  * 拉回旧的整页变暗观感：body 恢复深灰平铺、去内凹。标题栏与返回键
  * 已换 Nav 私有件（nav-header.css 自带亮暗配色），不再消费页壳变量。
+ *
+ * 两颗钉子（对照 page.tsx 与 page.css 暗色块）：
+ * 1. data-theme='dark' 由面板根自己挂，往上没有祖先挂它，纯后代
+ *    选择器匹配不到自身——每条都补 .vscode__settings[data-theme=…]
+ *    自匹配臂（机制同 page.css 对 .page 的处理）；
+ * 2. .page__body 自带 data-theme='light'（page.tsx 钉死的浅色内凹
+ *    面板），--page-bg 的浅色值定义在 body 自身，根上覆盖继承不进
+ *    去——深灰值必须直接命中 body，特异性压过 [data-theme='light']。
  */
-[data-theme='dark'] .vscode__settings {
+[data-theme='dark'] .vscode__settings,
+.vscode__settings[data-theme='dark'] {
   --page-bg: linear-gradient(180deg, #2c2c30 0%, #1e1e22 100%);
 }
 
-[data-theme='dark'] .vscode__settings .page__body {
+[data-theme='dark'] .vscode__settings .page__body,
+.vscode__settings[data-theme='dark'] .page__body {
+  --page-bg: linear-gradient(180deg, #2c2c30 0%, #1e1e22 100%);
   margin: 0;
   border-radius: 0;
   box-shadow: none;
+}
+
+/* 内凹是壳画的：8px 井边距与 ::after 内凹阴影层都挂在 body-shell 上
+   （page.css 暗色块），只动 body 够不着 */
+[data-theme='dark'] .vscode__settings .page__body-shell,
+.vscode__settings[data-theme='dark'] .page__body-shell {
+  margin: 0;
+}
+
+[data-theme='dark'] .vscode__settings .page__body-shell::after,
+.vscode__settings[data-theme='dark'] .page__body-shell::after {
+  content: none;
 }
 
 .vscode__settings-textarea {
