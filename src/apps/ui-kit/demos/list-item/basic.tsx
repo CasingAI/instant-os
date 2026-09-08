@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks'
 import { List } from '../../../../ui/list.tsx'
 import { ListItem } from '../../../../ui/list-item.tsx'
+import { HelpHint } from '../../../../ui/help-hint.tsx'
 import { DemoVariants, DemoVariant } from '../../ui-kit-demo-shared.tsx'
 
 export default function ListItemDemo() {
@@ -39,18 +40,26 @@ export default function ListItemDemo() {
         </List>
         {tapped && <p class="ui-kit-demo__status">已点按：{tapped}</p>}
       </DemoVariant>
-      <DemoVariant label="配件：蓝色 ⓘ 详情钮（点击不触发行）">
+      <DemoVariant label="行内说明钮：extra 槽放 HelpHint（点说明钮不触发行）">
         <List>
           <ListItem
             label="iCloud 云盘"
-            value="已开启"
-            accessory="detail"
+            extra={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span class="list-item__value">已开启</span>
+                <HelpHint text="开启后本机的文档与桌面数据会同步到 iCloud 云盘。" />
+              </span>
+            }
             onClick={() => setTapped('iCloud 云盘')}
           />
           <ListItem
             label="查找我的 iPhone"
-            value="关闭"
-            accessory="detail"
+            extra={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span class="list-item__value">关闭</span>
+                <HelpHint text="开启后设备丢失时可在「查找」App 里定位、锁定或抹掉它。" />
+              </span>
+            }
             onClick={() => setTapped('查找我的 iPhone')}
           />
         </List>

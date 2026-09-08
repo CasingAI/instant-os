@@ -359,7 +359,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'value', type: 'ComponentChildren?', description: '右侧值文本（与 extra 二选一）', defaultValue: '—' },
       { name: 'extra', type: 'ComponentChildren?', description: '右侧自定义内容（与 value 二选一）', defaultValue: '—' },
       { name: 'control', type: 'ComponentChildren?', description: '控件槽（Switch 等）；点击不触发行选中', defaultValue: '—' },
-      { name: 'accessory', type: "'none' | 'disclosure' | 'check' | 'detail'?", description: '右侧配件；check 跟随选中态', defaultValue: "'none'" },
+      { name: 'accessory', type: "'none' | 'disclosure' | 'check'?", description: '右侧配件；check 跟随选中态', defaultValue: "'none'" },
       { name: 'badge', type: 'string?', description: '名称旁徽章文本，见「节标题/脚注」与 plain 变体演示', defaultValue: "'新'" },
       { name: 'selected', type: 'boolean?', description: '强制选中态；缺省由 List selectedId + id 推导', defaultValue: '—' },
       { name: 'disabled', type: 'boolean?', description: '禁用', defaultValue: 'false' },

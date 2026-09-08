@@ -164,8 +164,9 @@
 
 /* hover 触达反馈与按下同源：只属于真正可点的行（button，onClick / id+onSelect）。
    静态行（无任何动作的展示行）零反馈——iOS 原版不可点的 cell 不高亮；
+   悬在行内 HelpHint 说明钮上也不算悬行（:has 排除），钮自己的 hover 反馈在 help-hint.css；
    选中行也不参与淡灰 hover（浅灰 hover 会把反白墨水泡掉），仅微调亮度示意仍可交互 */
-.plain-list:not(.plain-list--editing) .plain-list-item--button:hover:not(:disabled):not(.plain-list-item--selected) {
+.plain-list:not(.plain-list--editing) .plain-list-item--button:hover:not(:disabled):not(.plain-list-item--selected):not(:has(.help-hint:hover)) {
   background: linear-gradient(
     180deg,
     var(--plain-list-hover-top, #fbfbfd) 0%,
@@ -181,8 +182,10 @@
    hover——否则按下时两个伪类同时命中，淡灰底盖掉蓝底、只剩 active 的白字浮在
    浅灰上。按下用选中蓝（与点闪覆盖层同色）：快速点按松开后高亮只是从「保持」
    进入「淡出」，颜色不变——iOS 原版按下高亮与松开残留本是同一个蓝。选中行排除
-   在外：按下色即选中色，压上去本就无变化 */
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) {
+   在外：按下色即选中色，压上去本就无变化。按在行内 HelpHint 说明钮上不算按行：
+   末尾 :not(:has(.help-hint:active)) 守卫排除（同 tree-view 箭头块），说明钮
+   的按压反馈由 help-hint.css 自带 */
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected):not(:has(.help-hint:active)) {
   background: linear-gradient(
     180deg,
     var(--plain-list-selected-top, #4089d4) 0%,
@@ -219,38 +222,38 @@
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__name,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected):not(:has(.help-hint:active)) .plain-list-item__name,
 .plain-list-item--flashed .plain-list-item__name,
 .plain-list-item--selected:not(:disabled) .plain-list-item__name,
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__trailing,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected):not(:has(.help-hint:active)) .plain-list-item__trailing,
 .plain-list-item--flashed .plain-list-item__trailing,
 .plain-list-item--selected:not(:disabled) .plain-list-item__trailing {
   color: #fff;
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__subtitle,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected):not(:has(.help-hint:active)) .plain-list-item__subtitle,
 .plain-list-item--flashed .plain-list-item__subtitle,
 .plain-list-item--selected:not(:disabled) .plain-list-item__subtitle {
   color: rgba(255, 255, 255, 0.85);
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__preview,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected):not(:has(.help-hint:active)) .plain-list-item__preview,
 .plain-list-item--flashed .plain-list-item__preview,
 .plain-list-item--selected:not(:disabled) .plain-list-item__preview {
   color: rgba(255, 255, 255, 0.72);
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__disclosure,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected):not(:has(.help-hint:active)) .plain-list-item__disclosure,
 .plain-list-item--flashed .plain-list-item__disclosure,
 .plain-list-item--selected:not(:disabled) .plain-list-item__disclosure {
   color: rgba(255, 255, 255, 0.88);
   transition: none;
 }
 
-.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected) .plain-list-item__badge,
+.plain-list:not(.plain-list--editing) .plain-list-item--button:active:not(:disabled):not(.plain-list-item--selected):not(:has(.help-hint:active)) .plain-list-item__badge,
 .plain-list-item--flashed .plain-list-item__badge,
 .plain-list-item--selected:not(:disabled) .plain-list-item__badge {
   color: #fff;
@@ -415,22 +418,6 @@
   /* 只保留 transform 通道：颜色不设过渡——墨水进向由状态规则的 transition:none
      硬切，退向由 --flash-out 相统一驱动；留 0.1s 会让箭头比其他文字慢半拍 */
   transition: transform 0.15s ease;
-}
-
-.plain-list-item__detail {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-  transition: filter 0.1s ease;
-}
-
-.plain-list-item__detail:hover {
-  filter: brightness(1.15);
-}
-
-.plain-list-item__detail:active {
-  filter: brightness(0.92);
 }
 
 /* 未读：标题/副标题置粗（iOS 6 邮件同款信号） */

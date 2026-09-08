@@ -159,8 +159,9 @@
 
 /* hover 触达反馈与按下同源：只属于真正可点的行（button，onClick / id+onSelect）。
    静态行（无任何动作的展示行）零反馈——iOS 原版不可点的 cell 不高亮；
+   悬在行内 HelpHint 说明钮上也不算悬行（:has 排除），钮自己的 hover 反馈在 help-hint.css；
    选中行也不参与淡灰 hover——浅灰会把反白墨水泡掉。 */
-.list:not(.list--editing) .list-item--button:hover:not(:disabled):not(.list-item--selected) {
+.list:not(.list--editing) .list-item--button:hover:not(:disabled):not(.list-item--selected):not(:has(.help-hint:hover)) {
   background: linear-gradient(
     180deg,
     var(--list-hover-top, #fbfbfd) 0%,
@@ -172,8 +173,10 @@
    hover——否则按下时两个伪类同时命中，淡灰底盖掉蓝底、只剩 active 的白字浮在
    浅灰上。按下用选中蓝（与点闪覆盖层同色）：快速点按松开后高亮只是从「保持」
    进入「淡出」，颜色不变——iOS 原版按下高亮与松开残留本是同一个蓝。选中行排除
-   在外：按下色即选中色，压上去本就无变化 */
-.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) {
+   在外：按下色即选中色，压上去本就无变化。按在行内 HelpHint 说明钮上不算按行：
+   末尾 :not(:has(.help-hint:active)) 守卫排除（同 tree-view 箭头块），说明钮
+   的按压反馈由 help-hint.css 自带 */
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected):not(:has(.help-hint:active)) {
   background: linear-gradient(
     180deg,
     var(--list-selected-top, #4089d4) 0%,
@@ -210,28 +213,28 @@
   transition: none;
 }
 
-.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) .list-item__value,
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected):not(:has(.help-hint:active)) .list-item__value,
 .list-item--flashed .list-item__value,
 .list-item--selected:not(:disabled) .list-item__value {
   color: rgba(255, 255, 255, 0.85);
   transition: none;
 }
 
-.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) .list-item__subtitle,
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected):not(:has(.help-hint:active)) .list-item__subtitle,
 .list-item--flashed .list-item__subtitle,
 .list-item--selected:not(:disabled) .list-item__subtitle {
   color: rgba(255, 255, 255, 0.75);
   transition: none;
 }
 
-.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) .list-item__disclosure,
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected):not(:has(.help-hint:active)) .list-item__disclosure,
 .list-item--flashed .list-item__disclosure,
 .list-item--selected:not(:disabled) .list-item__disclosure {
   color: rgba(255, 255, 255, 0.88);
   transition: none;
 }
 
-.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected) .list-item__badge,
+.list:not(.list--editing) .list-item--button:active:not(:disabled):not(.list-item--selected):not(:has(.help-hint:active)) .list-item__badge,
 .list-item--flashed .list-item__badge,
 .list-item--selected:not(:disabled) .list-item__badge {
   color: #fff;
@@ -382,22 +385,6 @@
   /* 只保留 transform 通道：颜色不设过渡——墨水进向由状态规则的 transition:none
      硬切，退向由 --flash-out 相统一驱动；留 0.1s 会让箭头比其他文字慢半拍 */
   transition: transform 0.15s ease;
-}
-
-.list-item__detail {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-  transition: filter 0.1s ease;
-}
-
-.list-item__detail:hover {
-  filter: brightness(1.15);
-}
-
-.list-item__detail:active {
-  filter: brightness(0.92);
 }
 
 /* ── 编辑模式 ── */

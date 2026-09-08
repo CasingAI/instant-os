@@ -1,11 +1,11 @@
 import type { ComponentChildren, JSX } from 'preact'
 import { useContext, useEffect, useRef, useState } from 'preact/hooks'
-import { ForwardIcon, GrabberIcon, InfoIcon } from '../icons/app-icons.tsx'
+import { ForwardIcon, GrabberIcon } from '../icons/app-icons.tsx'
 import { SettingsChoicePopoverMenu } from './settings-choice-popover-menu.tsx'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
 import { ListContext, type ListPointerEvent } from './list.tsx'
 
-export type ListItemAccessory = 'none' | 'disclosure' | 'check' | 'detail'
+export type ListItemAccessory = 'none' | 'disclosure' | 'check'
 
 /** 选择行的一个选项（与 SettingsChoiceOption 同构，独立定义避免跨家族耦合）。 */
 export type ListChoiceOption = { id: string; label: string }
@@ -31,7 +31,7 @@ type ListItemProps = {
   extra?: ComponentChildren
   /** 控件槽：放 Switch / Input 等，点击不再触发行选中。grouped 专属槽位，plain 忽略。 */
   control?: ComponentChildren
-  /** 右侧配件：chevron 箭头 / 选中勾（跟随选中态）/ 蓝色 ⓘ 详情钮。 */
+  /** 右侧配件：chevron 箭头 / 选中勾（跟随选中态）。 */
   accessory?: ListItemAccessory
   /** 名称旁的徽章文本。 */
   badge?: string
@@ -285,17 +285,6 @@ export function ListItem({
           <ForwardIcon size={13} />
         </span>
       )}
-      {effectiveAccessory === 'detail' && (
-        <span
-          class={`${cp}__detail`}
-          role="button"
-          tabIndex={0}
-          aria-label="详情"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <InfoIcon size={18} />
-        </span>
-      )}
       {hasReorder && (
         <span
           class={`${cp}__grabber`}
@@ -380,17 +369,6 @@ export function ListItem({
       {effectiveAccessory === 'disclosure' && (
         <span class="list-item__disclosure" aria-hidden="true">
           <ForwardIcon size={13} />
-        </span>
-      )}
-      {effectiveAccessory === 'detail' && (
-        <span
-          class="list-item__detail"
-          role="button"
-          tabIndex={0}
-          aria-label="详情"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <InfoIcon size={18} />
         </span>
       )}
       {hasReorder && (
