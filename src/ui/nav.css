@@ -232,6 +232,16 @@
   border-bottom: 0;
 }
 
+/* 内凹边框开启时标题栏无底边（nav-header.css .page--inset 臂：底边与
+ * 投影会横切左右粗边框），转场条带同步关底边，首尾帧与静止态一致。
+ * 条带底色不动：标题栏颜色不随边框开关变化，条带照常吃 --page-header-bg。 */
+.nav.nav--page-inset[data-stack-transition]:not(.nav--morphing)
+  .nav__stage::before,
+.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under::before {
+  border-bottom: 0;
+}
+
 /* 参与拆盒的两页：盒模型逐层打平进网格（host → slider → 页根） */
 .nav[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-under,
@@ -289,12 +299,10 @@
   display: contents;
 }
 
-[data-theme='dark']
-  .nav[data-stack-transition]:not(.nav--morphing)
+.nav.nav--page-inset[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-under
   .page__body,
-[data-theme='dark']
-  .nav[data-stack-transition]:not(.nav--morphing)
+.nav.nav--page-inset[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-over
   .page__body {
   margin: 8px;
@@ -307,19 +315,17 @@
   border-radius: 0;
 }
 
-[data-theme='dark']
-  .nav[data-stack-transition]:not(.nav--morphing)
+.nav.nav--page-inset[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-under
   .page__body-shell::after,
-[data-theme='dark']
-  .nav[data-stack-transition]:not(.nav--morphing)
+.nav.nav--page-inset[data-stack-transition]:not(.nav--morphing)
   .nav__host.is-over
   .page__body-shell::after {
   content: none;
 }
 
 /*
- * 暗色边框钉在舞台上（PageStack 栈根同款）：body 的 margin 只保内容几
+ * 边框钉在舞台上（PageStack 栈根同款）：body 的 margin 只保内容几
  * 何，本身随正文一起平移，浅色井滑到面板边沿会把左右边框顶没（PopNav
  * 弹窗切页露白）。可见边框改画在不动的舞台 ::after 上，盖住边框区域、
  * 中间井口透出滑动的正文。上沿贴标题栏（不画上边），左右底随安全区
@@ -336,10 +342,10 @@
  * （井口透出滑动正文），壳色只向盒外铺开，再按正文行网格矩形裁回——
  * 顶边裁在井沿（不铺进标题栏）、左右底外角被裁成直角，内角仍是圆的，
  * 几何与静止态井口逐像素一致。内凹阴影与静止态壳 ::after 同值，画在
- * 这层不动的框上：壳窗口期无盒，阴影不能跟页走。
+ * 这层不动的框上：壳窗口期无盒，阴影不能跟页走。亮暗各一档配方
+ * （与 page.css 静止态同值），壳色外铺走 --page-shell-bg token。
  */
-[data-theme='dark']
-  .nav[data-stack-transition]:not(.nav--morphing)
+.nav.nav--page-inset[data-stack-transition]:not(.nav--morphing)
   .nav__stage::after {
   content: '';
   grid-row: 2;
@@ -350,12 +356,21 @@
   margin: 0 8px calc(8px + var(--nav-safe-bottom, 0px));
   border-radius: 5px;
   box-shadow:
-    inset 0 2px 5px rgba(0, 0, 0, 0.5),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
-    0 0 0 48px var(--page-shell-bg, #161d2b);
+    inset 0 2px 5px rgba(0, 0, 0, 0.18),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.5),
+    0 0 0 48px var(--page-shell-bg, #e0e0e0);
   clip-path: inset(
     0 -8px calc(-8px - var(--nav-safe-bottom, 0px)) -8px
   );
+}
+
+[data-theme='dark']
+  .nav.nav--page-inset[data-stack-transition]:not(.nav--morphing)
+  .nav__stage::after {
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 48px var(--page-shell-bg, #161d2b);
 }
 
 .nav[data-stack-transition]:not(.nav--morphing)
@@ -594,6 +609,76 @@
 }
 
 /*
+ * 内凹边框开启时的宽屏帧转场：与窄屏栈同一套交班（见上文 data-stack-
+ * transition 段）。页根在窗口期打平、壳底色消失，壳必须同步打平，8px
+ * 内衬改由 body 接班（同值，首尾帧与静止态逐像素一致），壳 ::after 的
+ * 定位基准会跳到 host、糊出整圈晕影，关掉。可见边框钉在 host 自身的
+ * ::after 上：帧转场里 under/over 两个 host 是同一右栏矩形叠放（host
+ * 盒子不动，正文在盒内 translateX），只在 over 上画一份框，避免两份
+ * 内阴影叠加变深；滑动正文压不到框上（框 z3 在本 host 正文之上）。
+ * 井口镂空 + 壳色外铺的画法、
+ * 内缘圆角、clip-path 裁切与窄屏舞台框同式，亮暗配方与 page.css 静止
+ * 态同值。
+ */
+.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
+  .page__body-shell,
+.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
+  .page__body-shell {
+  display: contents;
+}
+
+.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
+  .page__body,
+.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
+  .page__body {
+  margin: 8px;
+  margin-top: 0;
+  margin-bottom: calc(8px + var(--nav-safe-bottom, 0px));
+  border-radius: 0;
+}
+
+.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-under
+  .page__body-shell::after,
+.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over
+  .page__body-shell::after {
+  content: none;
+}
+
+.nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over::after {
+  content: '';
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 3;
+  pointer-events: none;
+  margin: 0 8px calc(8px + var(--nav-safe-bottom, 0px));
+  border-radius: 5px;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.18),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.5),
+    0 0 0 48px var(--page-shell-bg, #e0e0e0);
+  clip-path: inset(
+    0 -8px calc(-8px - var(--nav-safe-bottom, 0px)) -8px
+  );
+}
+
+[data-theme='dark']
+  .nav.nav--page-inset[data-frame-nav]:not(.nav--morphing)
+  .nav__host[data-pos='detail'].is-over::after {
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 48px var(--page-shell-bg, #161d2b);
+}
+
+/*
  * 宽窄形变（滑轨 A~D）：host 盒子的几何全部由 tsx 内联钉住 + WAAPI 驱动，
  * 这里只负责把常态过渡关干净——slider 的叠放位移过渡、A 型列表的宽度
  * 过渡（B/C/D 的列表宽度过渡是滑轨的一半，保留与面板同拍联动）。
@@ -624,12 +709,16 @@
  * 与列表栏 border-right 同像素换手，恒定无闪断。A 型例外不加：列表 host
  * 的 border-right 随刚性滑入平移，恰好贴住 detail host 左缘提供缝隙线，
  * 再叠即成 2px。
+ *
+ * 内凹边框模式（nav--page-inset）整段不用：框与井口内凹阴影已经负责
+ * 分层，这条平铺设计的深色界线叠在框边上是静止态没有的多余阴影（动画
+ * 中内阴影「变了样」的来源），软投影还会扫过框区把它弄脏。
  */
 @media (prefers-reduced-motion: no-preference) {
-  .nav[data-stack-transition]:not(.nav--morphing)
+  .nav:not(.nav--page-inset)[data-stack-transition]:not(.nav--morphing)
     .nav__host.is-over
     .page__body,
-  .nav[data-frame-nav]:not(.nav--morphing)
+  .nav:not(.nav--page-inset)[data-frame-nav]:not(.nav--morphing)
     .nav__host[data-pos='detail'].is-over
     .page__body {
     box-shadow:
@@ -638,7 +727,7 @@
     clip-path: inset(0 0 0 -40px);
   }
 
-  .nav--morphing:not([data-morph-kind='A'])
+  .nav--morphing:not([data-morph-kind='A']):not(.nav--page-inset)
     .nav__host[data-pos='detail'] {
     box-shadow: -1px 0 0 rgba(0, 0, 0, 0.18);
   }
