@@ -15,6 +15,8 @@
 | `vmmouse.sys` + `vmmouse.inf` + `vmmouse.cat` | VMware 绝对坐标鼠标驱动 12.4.0.2（vendor 二进制，见 `vmmouse/README.md`）：装好后客机光标 1:1 跟随宿主光标 | 由安装脚本放进 `C:\Windows\System32\drivers\` 并注册 |
 | `install-agent-v2.bat` | **推荐安装方式**：右键管理员运行，一键装全家桶（agent 服务 + 信箱驱动 + 登录自启 + vmmouse 鼠标驱动 + SB16 声卡驱动；会自动清掉旧的 res-agent.exe / clipboard-bridge.exe 旧装） | 和 exe/sys 放同一目录，双击运行 |
 | `check-mouse.bat` | vmmouse 过滤驱动诊断：双击弹报告窗（驱动文件 / 服务 / 每个 PS/2 鼠标实例的过滤链），同文落 `C:\Tools\mouse-install.log`；`0=已挂 1=未挂 2=文件/服务缺失` | 和 exe 放同一目录，双击运行 |
+| `clip-dav-probe.bat` + `clip-dav-http.vbs` | 一期真机探针（dav_clipboard_paste 计划）：环境/WebClient 服务/HTTP 与 DAV 探测/盘符与 UNC 路径逐项量测/小目录拷回 `C:\clip-dav-dest`，全程追加 `C:\Tools\clip-dav-probe.log`；末段把真实路径挂上剪贴板交助手做粘贴验证。**跑之前别从宿主文件 APP 复制任何东西**（桥会抢成空占位） | 三个 clip-dav 文件放同一目录，双击 bat |
+| `clip-dav-hdrop.exe` | 探针的剪贴板助手：把真实路径挂成 CF_HDROP + Preferred DropEffect，只出路径绝不写盘；每次被取数（FETCH/QUERY，含时间与格式名）记 `C:\Tools\clip-dav-hdrop.log`，4 分钟自动退出。手动用法 `clip-dav-hdrop.exe <路径> [/cut]` | 被 bat 调用；也可手动单跑 |
 | `install.reg` | 旧安装方式（仅 HKCU Run 自启；无驱动无剪贴板）；不推荐，仅兼容保留 | 双击导入即可 |
 | `boxvideo.sys` + `vidmini.inf` | 显卡驱动（boxvnt，分辨率自动对齐用） | 设备管理器装驱动，见 `boxvnt/README.md` |
 
@@ -141,13 +143,25 @@ sh scripts/collect-guest-files.sh
 sh scripts/build-ivm-agent.sh          # ivm-agent.exe → out/（合编五个 .c）
 sh scripts/build-ivm-shm.sh            # ivm-shm.sys → out/（需要 Open Watcom，见脚本头注释）
 sh scripts/build-boxvnt.sh             # boxvideo.sys + vidmini.inf → out/
+sh scripts/build-clip-dav-hdrop.sh     # clip-dav-hdrop.exe → out/（一期探针剪贴板助手）
 ```
 
 改了任一客机源码之后：重新跑对应构建脚本，把新产物拷进 XP 覆盖旧的，
 然后跑一遍 `install-agent-v2.bat`（或重启 XP）。
 
-`out/` 里的产物不进 git（见 `out/.gitignore`），换机器克隆后先跑一次
-`collect-guest-files.sh` 即可。
+`out/` 里的产物随 git 入库（exe/sys 都在仓库里）；改了源码必须重新构建
+并一起提交，绝不让产物落后于源码（2026-08 旧 exe 事故的教训，构建脚本
+里的 marker 防呆就是为它设的）。
+
+### 一期探针怎么跑（dav_clipboard_paste）
+
+1. 把 `out/` 整夹拷进 XP（例如 `C:\Tools\clip-dav\`），双击
+   `clip-dav-probe.bat`；**之前别碰宿主文件 APP 的复制**；
+2. bat 跑完 [1]-[4] 步后按屏幕提示操作：桌面右键只看菜单 → 点粘贴 /
+   Ctrl+V → 观察文件是否出现、进度窗是系统自带还是桥弹的；
+3. 把三份发回来：`C:\Tools\clip-dav-probe.log`、
+   `C:\Tools\clip-dav-hdrop.log`、宿主浏览器控制台同时段的
+   `[vm-webdav]` 请求行。没有这三份，不进二期。
 
 ## 源码与文档在哪
 
@@ -157,5 +171,6 @@ sh scripts/build-boxvnt.sh             # boxvideo.sys + vidmini.inf → out/
 | `clipboard-bridge/` | 剪贴板桥源码（信箱布局与 ivm-shm、Instant-virtual-machine 的 ivm-shm.ts 三方一致） |
 | `ivm-agent/` | `/mouse-install`、`/audio-install`（注册）与 `/mouse-check`、`/audio-check`（诊断）驱动助手源码；Aero Snap 吸附（`ivm-aero-snap.c`）；`ivm-agent-binary.test.ts` 产物校验 |
 | `ivm-shm/` | 共享内存信箱驱动源码（信箱布局见文件头注释） |
+| `clip-dav-probe/` | 一期探针源码：剪贴板助手 `clip-dav-hdrop.c` + 探针批处理/HTTP 脚本 + 产物校验单测 |
 | `vmmouse/` | VMware 鼠标驱动 vendor 二进制 + 说明；见 `vmmouse/README.md` |
 | `boxvnt/` | 显卡驱动源码；见 `boxvnt/README.md` |

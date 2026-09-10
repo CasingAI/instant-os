@@ -14,10 +14,11 @@ import {
 import {
   INSTANT_VM_MESSAGE_TYPE,
   isInstantVmWebdavRequestMessage,
+  type InstantVmWebdavRequestMessage,
   type InstantVmWebdavResultMessage,
 } from './virtual-machine-protocol.ts'
 import { isRuntimeOrigin, postSource } from './virtual-machine-disk-stream-host.ts'
-import { createWebdavHandler, type WebdavFs } from './virtual-machine-webdav.ts'
+import { createWebdavHandler, formatWebdavRequestLine, type WebdavFs } from './virtual-machine-webdav.ts'
 
 /**
  * 宿主侧 WebDAV 消息监听器（共享文件夹）。
@@ -25,6 +26,10 @@ import { createWebdavHandler, type WebdavFs } from './virtual-machine-webdav.ts'
  * 与 disk-stream-host 同款模式：独立 message 监听 + 运行时 origin 校验 +
  * postSource 直气回执（不走 pending map），GET 响应体以 transfer 交接。
  * 共享根由设置流程注入（setWebdavSharedRoot）；未配置时对请求回 503。
+ *
+ * 每条请求在浏览器控制台打一行「时间 方法 URL 状态 字节 耗时」
+ * （formatWebdavRequestLine，[vm-webdav] 前缀）——dav_clipboard_paste
+ * 一期探针要求与客机 C:\Tools 日志按时刻对齐，503/500 也各留一行。
  */
 
 const realFs: WebdavFs = {
@@ -87,6 +92,25 @@ function isSourcePostable(source: MessageEvent['source']):
   return typeof candidate.postMessage === 'function' ? candidate : undefined
 }
 
+function logWebdavRequestLine(
+  request: InstantVmWebdavRequestMessage,
+  result: { status: number; body?: ArrayBuffer },
+  startedAt: number,
+  note?: string,
+): void {
+  console.info(
+    formatWebdavRequestLine({
+      at: new Date(),
+      method: request.method,
+      url: request.url,
+      status: result.status,
+      bytes: result.body?.byteLength ?? 0,
+      durationMs: Date.now() - startedAt,
+      note,
+    }),
+  )
+}
+
 function onWebdavMessage(event: MessageEvent): void {
   if (!isInstantVmWebdavRequestMessage(event.data)) {
     return
@@ -103,7 +127,9 @@ function onWebdavMessage(event: MessageEvent): void {
   const origin = event.origin
 
   void (async () => {
+    const startedAt = Date.now()
     let result: InstantVmWebdavResultMessage
+    let note: string | undefined
     if (!sharedRoot) {
       result = {
         type: INSTANT_VM_MESSAGE_TYPE.webdavResult,
@@ -112,6 +138,7 @@ function onWebdavMessage(event: MessageEvent): void {
         statusText: 'Service Unavailable',
         headers: {},
       }
+      note = 'no-shared-root (拦截器开着但共享根未配置)'
     } else {
       try {
         const response = await handler(request)
@@ -133,8 +160,10 @@ function onWebdavMessage(event: MessageEvent): void {
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
           body: new TextEncoder().encode(detail || 'WebDAV failed').buffer as ArrayBuffer,
         }
+        note = 'handler error'
       }
     }
+    logWebdavRequestLine(request, result, startedAt, note)
     postSource(target, result, origin, result.body ? [result.body] : [])
   })()
 }

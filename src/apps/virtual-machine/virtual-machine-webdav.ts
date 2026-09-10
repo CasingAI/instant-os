@@ -637,3 +637,46 @@ export function createWebdavHandler(root: string, fs: WebdavFs): (request: Webda
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// 请求行日志（dav_clipboard_paste 一期探针）
+// ---------------------------------------------------------------------------
+
+export type WebdavRequestLineInput = {
+  at: Date
+  method: string
+  url: string
+  status: number
+  bytes: number
+  durationMs: number
+  /** 附加说明（如 503 no-shared-root），追加在行尾。 */
+  note?: string
+}
+
+/**
+ * 一条 WebDAV 请求的可复制单行（浏览器控制台）。宿主每拦截到一条就打一行，
+ * 与客机 C:\Tools\clip-dav-probe.log / clip-dav-hdrop.log 按时刻对齐——
+ * 探针要回答「资源管理器对哪种路径发起了真目录查询/读取」就看这三方对时。
+ * 纯函数：host 模块只管调用，字面量断言在 node 里跑。
+ */
+export function formatWebdavRequestLine(input: WebdavRequestLineInput): string {
+  const pad = (n: number, width = 2): string => String(n).padStart(width, '0')
+  const at = `${pad(input.at.getHours())}:${pad(input.at.getMinutes())}:${pad(input.at.getSeconds())}.${pad(input.at.getMilliseconds(), 3)}`
+  let path = input.url
+  try {
+    const parsed = new URL(input.url)
+    path = parsed.pathname + parsed.search
+    try {
+      path = decodeURI(path)
+    } catch {
+      /* 畸形百分号序列：保留编码原样 */
+    }
+  } catch {
+    /* 相对路径等非全 URL：原样输出 */
+  }
+  if (path.length > 120) {
+    path = path.slice(0, 117) + '...'
+  }
+  const note = input.note ? ` ${input.note}` : ''
+  return `[vm-webdav] ${at} ${input.method.toUpperCase()} ${path} ${input.status} ${input.bytes}B ${input.durationMs}ms${note}`
+}

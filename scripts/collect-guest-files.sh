@@ -78,5 +78,20 @@ cp -f "$GUEST_DIR/install-agent-v2.bat" "$OUT_DIR/install-agent-v2.bat"
 # check-mouse.bat：vmmouse 过滤驱动诊断（双击弹报告窗，调 /mouse-check）。
 cp -f "$GUEST_DIR/check-mouse.bat" "$OUT_DIR/check-mouse.bat"
 
+# clip-dav 探针三件套（dav_clipboard_paste 一期，真机量「资源管理器认哪种
+# WebDAV 路径」）：exe 缺则现编 + marker 防呆；bat/vbs 是脚本直接拷。
+CLIP_DAV_BUILD="$ROOT/scripts/build-clip-dav-hdrop.sh"
+if [ ! -f "$OUT_DIR/clip-dav-hdrop.exe" ]; then
+  sh "$CLIP_DAV_BUILD" "$OUT_DIR"
+fi
+for marker in "clip-dav-hdrop.log" "Preferred DropEffect" "clip-dav-hdrop build="; do
+  LC_ALL=C grep -aq "$marker" "$OUT_DIR/clip-dav-hdrop.exe" || {
+    echo "error: $OUT_DIR/clip-dav-hdrop.exe lacks '$marker' — stale build? rerun scripts/build-clip-dav-hdrop.sh" >&2
+    exit 1
+  }
+done
+cp -f "$GUEST_DIR/clip-dav-probe/clip-dav-probe.bat" "$OUT_DIR/clip-dav-probe.bat"
+cp -f "$GUEST_DIR/clip-dav-probe/clip-dav-http.vbs" "$OUT_DIR/clip-dav-http.vbs"
+
 echo "collected guest deliverables into $OUT_DIR:"
 ls -la "$OUT_DIR"

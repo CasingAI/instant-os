@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   buildPropfindMultistatus,
   createWebdavHandler,
+  formatWebdavRequestLine,
   parseWebdavRange,
   webdavTargetPath,
   type WebdavFs,
@@ -301,5 +302,51 @@ assert.ok(manifestText.includes('F\thello2.txt\thello2.txt'), manifestText)
 assert.ok(manifestText.includes('D\tdocs'), manifestText)
 assert.ok(manifestText.includes('F\tdocs/hello2.txt\tdocs\\hello2.txt'), manifestText)
 assert.equal((await request('POST', '/__sync_manifest')).status, 405)
+
+// ---------------------------------------------------------------------------
+// 请求行日志（dav_clipboard_paste 一期探针：宿主控制台一行对客机日志按时刻对齐）
+// ---------------------------------------------------------------------------
+
+// Date(y, m, d, ...) 按本地时区构造，格式化也读本地字段，字面量与时区无关。
+const lineAt = new Date(2026, 8, 10, 14, 3, 5, 123)
+assert.equal(
+  formatWebdavRequestLine({
+    at: lineAt,
+    method: 'propfind',
+    url: 'http://instant-vm-files.local/DavWWWRoot/a%20b.txt',
+    status: 207,
+    bytes: 1832,
+    durationMs: 4,
+  }),
+  '[vm-webdav] 14:03:05.123 PROPFIND /DavWWWRoot/a b.txt 207 1832B 4ms',
+)
+assert.equal(
+  formatWebdavRequestLine({
+    at: lineAt,
+    method: 'GET',
+    url: 'http://instant-vm-files.local/big.bin',
+    status: 503,
+    bytes: 0,
+    durationMs: 0,
+    note: 'no-shared-root (拦截器开着但共享根未配置)',
+  }),
+  '[vm-webdav] 14:03:05.123 GET /big.bin 503 0B 0ms no-shared-root (拦截器开着但共享根未配置)',
+)
+// 非 URL 形态（相对请求目标）原样保留
+assert.equal(
+  formatWebdavRequestLine({ at: lineAt, method: 'get', url: '/DavWWWRoot', status: 404, bytes: 0, durationMs: 1 }),
+  '[vm-webdav] 14:03:05.123 GET /DavWWWRoot 404 0B 1ms',
+)
+// 超长路径截断到 117+...，单行永远保持可复制
+const longLine = formatWebdavRequestLine({
+  at: lineAt,
+  method: 'GET',
+  url: `http://instant-vm-files.local/${'a'.repeat(300)}`,
+  status: 200,
+  bytes: 1,
+  durationMs: 1,
+})
+assert.ok(longLine.length <= 160, `超长路径应截断：${longLine.length}`)
+assert.ok(longLine.includes('...'), `截断标记丢失：${longLine}`)
 
 console.log('virtual-machine-webdav.test.ts ok')
