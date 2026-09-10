@@ -379,7 +379,7 @@ export function PopNav({
       ? { top: POP_NAV_ARROW_H }
       : { bottom: POP_NAV_ARROW_H }
     : 0
-  const content = <Nav {...navProps} safeArea={navSafeArea} />
+  const content = <Nav {...navProps} pageInset={navProps.pageInset ?? true} safeArea={navSafeArea} />
   // 有尖形态的气球路径：旁路 SVG 描边与内容层裁剪同吃这一条
   const balloon = centered ? null : balloonPath(size.width, size.height, arrowX, placement)
 

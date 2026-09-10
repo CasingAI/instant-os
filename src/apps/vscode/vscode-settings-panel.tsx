@@ -553,7 +553,7 @@ export function VscodeSettingsPanel({
 
     if (target === 'completion') {
       return (
-        <Nav.Page title="代码补全" onBack={back('root')}>
+        <Nav.Page title="代码补全" backLabel="设置" onBack={back('root')}>
           <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
@@ -627,7 +627,7 @@ export function VscodeSettingsPanel({
 
     if (target === 'agent') {
       return (
-        <Nav.Page title="Agent" onBack={back('root')}>
+        <Nav.Page title="Agent" backLabel="设置" onBack={back('root')}>
           <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <div class="settings__list">
@@ -666,6 +666,7 @@ export function VscodeSettingsPanel({
       return (
         <Nav.Page
           title="Sub Agent"
+          backLabel="设置"
           onBack={back('root')}
           actions={
             prefs.subAgentsEnabled ? (

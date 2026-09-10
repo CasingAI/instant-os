@@ -51,6 +51,19 @@
   background-clip: padding-box;
 }
 
+/*
+ * 页壳内凹边框（Page inset / Nav pageInset）开启时的标题栏：颜色保持
+ * 原样——亮暗各走上面的常规配方，边框开关不动标题栏材质。只把底边与
+ * 投影直接关掉：不关的话，1px 底边下那道白色亮线（box-shadow 的
+ * 0 1px 0 rgba(255,255,255,.72)）会横切过左右粗边框的灰壳，就是暗色
+ * 当年踩过的「神秘横线」坑。不能写 none 进变量再消费，理由同上面暗色块。
+ */
+.page--inset .nav-header {
+  border-bottom: 0;
+  box-shadow: none;
+  background-clip: padding-box;
+}
+
 .nav-header__bar {
   display: grid;
   /*

@@ -27,22 +27,19 @@
 }
 
 /*
- * 暗色页壳（老 iOS 弹窗式双层）：壳底色（--page-shell-bg，深蓝）从
- * body 左/右/底露出来形成 U 形粗边框，上沿贴标题栏（再留一道上边
- * 会把标题栏撑高）。body 本身浅色底（暗色块的 --page-bg）、收进框
- * 内，上缘一道压进来的内阴影 + 下缘一丝反光做出凹嵌在壳里的感觉
- * （内阴影画在壳伪元素的覆盖层上、浮在滚动内容之上，通栏内容也盖
- * 不住）。标题栏无底边、渐变底端收进壳底同色（见 theme.css /
- * page-header.css），与 U 形边框连成一块，不在左右边框上划横线。
+ * 页壳内凹边框（Page inset / Nav pageInset 开启时，老 iOS 弹窗式双层）：
+ * 壳底色（--page-shell-bg）从 body 左/右/底露出来形成 U 形粗边框，上沿
+ * 贴标题栏（再留一道上边会把标题栏撑高）。body 收进框内，上缘一道压
+ * 进来的内阴影 + 下缘一丝反光做出凹嵌在壳里的感觉（内阴影画在壳伪元素
+ * 的覆盖层上、浮在滚动内容之上，通栏内容也盖不住）。亮暗各一档配方：
+ * 亮色壳灰见 theme.css 亮色块，暗色走下方暗色臂。关闭 inset 时本块
+ * 全部不生效，正文整页平铺。
  */
-/* 页根本身挂作用域时（Page dataTheme）同色：属性在 .page 上，后代选择器
-   匹配不到自身，补自匹配 */
-[data-theme='dark'] .page,
-.page[data-theme='dark'] {
-  background: var(--page-shell-bg, #161d2b);
+.page--inset {
+  background: var(--page-shell-bg, #e0e0e0);
 }
 
-[data-theme='dark'] .page__body-shell {
+.page--inset .page__body-shell {
   margin: 8px;
   margin-top: 0;
   /* Nav 底部安全区（--nav-safe-bottom 只在 .nav--safe 根上非零）：井底边
@@ -54,23 +51,33 @@
 /* 嵌套在外层正文里的页（流程子栈等）已坐在外层井内，底部加厚只算一次：
    就地归零安全区变量，嵌套页的井底边回到 8px（转场窗口的 margin 换算
    随之同值，收尾不跳变） */
-[data-theme='dark'] .page__body .page {
+.page--inset .page__body .page {
   --nav-safe-bottom: 0px;
 }
 
-[data-theme='dark'] .page__body {
+.page--inset .page__body {
   border-radius: 5px;
 }
 
 /* 内凹阴影画在壳的伪元素上：它不在滚动容器内，浮在滚动内容之上，
    通栏铺满 body 的内容也盖不住。不得挪回 .page__body——inset 阴影
-   画在背景层，会被不透明子内容盖住，且会随滚动滚走。 */
-[data-theme='dark'] .page__body-shell::after {
+   画在背景层，会被不透明子内容盖住，且会随滚动滚走。亮色配方：
+   上缘压暗 + 下缘一丝反光。 */
+.page--inset .page__body-shell::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: 5px;
   pointer-events: none;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.18),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* 暗色臂：页根本身挂暗色作用域时（Page dataTheme / 内层 DarkMode）同色。
+   属性在 .page 上，后代选择器匹配不到自身，补自匹配 */
+[data-theme='dark'] .page--inset .page__body-shell::after,
+.page--inset[data-theme='dark'] .page__body-shell::after {
   box-shadow:
     inset 0 2px 5px rgba(0, 0, 0, 0.5),
     inset 0 -1px 0 rgba(255, 255, 255, 0.06);

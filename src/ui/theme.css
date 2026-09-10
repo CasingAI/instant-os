@@ -4,13 +4,14 @@
  * PageStack 转场 / Nav，均消费同一套 --page-* token）
  * 原生联动暗色，无需各 App 自行桥接。
  *
- * 暗色页壳取老 iOS 弹窗的双层设计：标题栏与内容左/右/底的粗边框
- * 是同一块深蓝材质（--page-shell-bg 打底，标题栏渐变底端收进同一
- * 色，中间无分割线），内容区（.page__body）反而是浅色底、上沿贴
- * 标题栏、左右底留框、上缘内凹嵌在壳里（内凹规则在 page.css 的暗
- * 色作用域）。
- * 因此暗色块的 --page-bg 是「浅色」值——它只被 body 及其内部
- * 消费方读到，壳本身由 --page-shell-bg 负责。
+ * 页壳内凹边框（老 iOS 弹窗的双层设计）改为属性开关：Page inset /
+ * Nav pageInset（默认关）开启时，标题栏与内容左/右/底的粗边框是同一
+ * 块壳材质（--page-shell-bg 打底，标题栏渐变底端收进同一色，中间无
+ * 分割线），内容区（.page__body）收进框内、上缘内凹嵌在壳里（内凹
+ * 规则在 page.css 的 .page--inset 块），body 同时钉亮色作用域、读
+ * 亮色块的 --page-bg；关闭时正文整页平铺，直接吃本作用域的 --page-bg。
+ * 因此暗色块的 --page-bg 是「整页平铺」的深灰值——只有 inset 关闭的
+ * 页面读到它，壳与内凹面板各由 --page-shell-bg 与亮色块负责。
  *
  * 自定义属性按「最近的定义祖先」继承，天然压过各组件 :root 的
  * 亮色默认值。亮色另有对称作用域 data-theme='light'（下方第二块，
@@ -21,8 +22,9 @@
 [data-theme='dark'] {
   /* 壳（粗边框 + 标题栏共用的深蓝材质）；body 四周露出的就是它 */
   --page-shell-bg: #161d2b;
-  /* 内容区：浅色底、内凹嵌在深蓝壳里 */
-  --page-bg: linear-gradient(180deg, #f4f4f6 0%, #e9e9ee 100%);
+  /* 内容区：inset 关闭时整页平铺的深灰（内凹面板的浅色底在亮色块，
+     由 .page__body 的亮色钉定读取） */
+  --page-bg: linear-gradient(180deg, #2c2c30 0%, #1e1e22 100%);
   --page-header-bg: linear-gradient(
     180deg,
     #414f6e 0%,
@@ -69,6 +71,10 @@
  * page-action-button.css 的 :root，无需在此出现。
  */
 [data-theme='light'] {
+  /* 亮色壳灰取标题栏渐变的底色（#e0e0e0）：框是标题栏往下延伸的同一块
+     材质，比正文顶 (#ececec) 深一档、比正文底 (#d8d8d8) 浅一档，坐在
+     中间不突兀；不能用更深的冷灰（#d2d2d8 一族），色相与周围暖灰不合 */
+  --page-shell-bg: #e0e0e0;
   --page-bg: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
   --page-header-bg: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
   --page-header-border: 1px solid rgba(0, 0, 0, 0.14);
