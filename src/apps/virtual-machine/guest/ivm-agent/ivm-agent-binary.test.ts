@@ -160,7 +160,9 @@ function main() {
   // 行数守卫：res-agent v3 放宽到 800，并入合并入口后放宽到 900，v5 加
   // OP_SNAP_EDGE 分发后放宽到 950；剪贴板桥 v4 放宽到 1700（v5 加共享文
   // 件夹收敛钩子一行）；v8 改为桥接管方案（空 CF_HDROP + 目标路径探测 +
-  // XP 进度对话框 + 自写文件引擎）放宽到 1900；鼠标安装助手（安装+/
+  // XP 进度对话框 + 自写文件引擎）放宽到 1900，v8b 加接管探测标记复位、
+  // 同名冲突「是否替换」询问与递归删目录树，v8c 改真粘贴判定（忽略菜单/
+  // 右键/剪贴板查看器探询）并加固写盘路径放宽到 2300；鼠标安装助手（安装+/
   // mouse-check 诊断+自愈三职责）放宽到 500；声卡驱动助手（三职责+就地提
   // 取+显式自建设备+/audio-uninstall 回滚，v6 加服务解禁+回滚标记+
   // self-heal 冻结，v7 再加根实例 LogConf 启动资源补写）放宽到 950；
@@ -172,7 +174,7 @@ function main() {
     assert.ok(lines < limit, `${label} 应保持 < ${limit} 行，当前 ${lines} 行`)
   }
   sourceLines('res-agent/res-agent.c', 950, 'res-agent.c')
-  sourceLines('clipboard-bridge/clipboard-bridge.c', 1900, 'clipboard-bridge.c')
+  sourceLines('clipboard-bridge/clipboard-bridge.c', 2300, 'clipboard-bridge.c')
   sourceLines('ivm-agent/ivm-mouse-install.c', 500, 'ivm-mouse-install.c')
   sourceLines('ivm-agent/ivm-audio-install.c', 950, 'ivm-audio-install.c')
   sourceLines('ivm-agent/ivm-aero-snap.c', 900, 'ivm-aero-snap.c')

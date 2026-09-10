@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import {
   fileTransferTestHooks,
   handleVmFileEvent,
+  peekVmPushSessionId,
   pushFilesToVm,
   registerVmFileTransferBackend,
 } from './virtual-machine-file-transfer.ts'
@@ -354,6 +355,58 @@ async function main() {
       { path: 'empty-file.txt', size: 0 },
       { path: 'folder/', size: 0 },
     ])
+  }
+
+  // #10 粘贴失败不拆供块会话（用户可以再贴）
+  {
+    reset()
+    registerVmFileTransferBackend(makeMockAgent([]))
+    fileTransferTestHooks({
+      pushSession: {
+        session: 7,
+        mode: 'copy',
+        files: [{ name: 'x.txt', hostPath: '/src/x.txt', size: 2, isDir: false }],
+        currentFile: 0,
+        windows: [],
+        queuedWindows: new Set(),
+        windowQueue: Promise.resolve(),
+      },
+    })
+    handleVmFileEvent({ kind: 'done', session: 7, result: 'error' })
+    assert.equal(peekVmPushSessionId(), 7)
+  }
+
+  // #11 复制成功也不拆会话（可再贴到别处）；剪切成功才拆
+  {
+    reset()
+    registerVmFileTransferBackend(makeMockAgent([]))
+    fileTransferTestHooks({
+      pushSession: {
+        session: 8,
+        mode: 'copy',
+        files: [{ name: 'x.txt', hostPath: '/src/x.txt', size: 2, isDir: false }],
+        currentFile: 0,
+        windows: [],
+        queuedWindows: new Set(),
+        windowQueue: Promise.resolve(),
+      },
+    })
+    handleVmFileEvent({ kind: 'done', session: 8, result: 'ok' })
+    assert.equal(peekVmPushSessionId(), 8)
+
+    fileTransferTestHooks({
+      pushSession: {
+        session: 9,
+        mode: 'cut',
+        files: [{ name: 'y.txt', hostPath: '/src/y.txt', size: 2, isDir: false }],
+        currentFile: 0,
+        windows: [],
+        queuedWindows: new Set(),
+        windowQueue: Promise.resolve(),
+      },
+    })
+    handleVmFileEvent({ kind: 'done', session: 9, result: 'ok' })
+    assert.equal(peekVmPushSessionId(), undefined)
   }
 
   reset()

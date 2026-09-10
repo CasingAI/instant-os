@@ -7,9 +7,8 @@
  *         H2G REQ 向桥拉数据，落盘到粘贴目录。
  *   宿主→XP：文件APP复制/剪切 → pushFilesToVm 推元数据（PENDING，只有
  *         名字+大小）→ 桥在 XP 侧挂一个空 CF_HDROP 占位；用户在 XP 里
- *         Ctrl+V → Explorer 调用 data_GetData → 桥拦截并自己当复制引擎：
- *         探测目标路径、弹出 XP 风格进度对话框、逐文件 REQ 回宿主拉数据
- *         并直接 CreateDirectory/CreateFile/WriteFile 写入目标位置。
+ *         真正粘贴（不是右键探询）后桥自己当复制引擎写盘。复制可多次粘贴，
+ *         供块会话一直留到宿主剪贴板换成别的；剪切成功才 DONE{ok} 删源。
  *
  * 后端注册：VM 应用持有运行时池与 agent 门面，displayedId 变化时注册/
  * 注销（虚拟机未运行时 requireAgent 抛错，UI 层转成提示）。同一时刻
@@ -37,8 +36,8 @@ import type { VmGuestFileEvent } from './virtual-machine-protocol.ts'
 const MAX_PUSH_NAME_CHARS = 260
 /** 与 ivm-shm.ts IVM_FILE_MAX_CHUNK 一致：单块拉取上限。 */
 const FILE_CHUNK_BYTES = 32724
-/** 与 ivm-shm.ts FILE_DATA_HEADER 一致：PENDING 帧固定头部（sub+count+mode+session）。 */
-const PENDING_FRAME_HEADER_BYTES = 8
+/** 与桥 PENDING 帧头一致：sub+count+mode+session 共 16 字节。 */
+const PENDING_FRAME_HEADER_BYTES = 16
 /** PENDING 帧里 entries 区可用字节上限。 */
 const PENDING_FRAME_ENTRIES_BYTES = FILE_CHUNK_BYTES - PENDING_FRAME_HEADER_BYTES
 /** 等一块 DATA 的上限（桥侧 5s 超时会先报错）。 */
@@ -505,6 +504,11 @@ export function fileTransferTestHooks(hooks: {
   }
 }
 
+/** 仅供单测：看供块会话还在不在。 */
+export function peekVmPushSessionId(): number | undefined {
+  return pushSession?.session
+}
+
 /** 桥 REQ 上行：命中预读窗只推进消费位置；未命中读一个大窗、推窗并就地供块。
  * 导出仅供单测（全链路模拟）。 */
 export async function serveFileReq(event: Extract<VmGuestFileEvent, { kind: 'req' }>): Promise<void> {
@@ -652,6 +656,11 @@ export function handleVmFileEvent(event: VmGuestFileEvent): void {
       if (!session || session.session !== event.session) {
         break
       }
+      /* 失败/取消：供块会话留下，用户可以再贴。复制成功也不拆（可再贴到别处）。
+       * 只有剪切成功才收口并删源。 */
+      if (event.result !== 'ok' || session.mode !== 'cut') {
+        break
+      }
       pushSession = null
       forgetPushSession()
       const agent = backend.agent
@@ -659,8 +668,7 @@ export function handleVmFileEvent(event: VmGuestFileEvent): void {
         void agent.fileWindowsClear().catch(() => false)
       }
       const cutSourcePaths = session.cutSourcePaths
-      if (event.result === 'ok' && session.mode === 'cut' && cutSourcePaths) {
-        // 剪切语义：粘贴成功后源文件进废纸篓（移动）
+      if (cutSourcePaths) {
         void (async () => {
           for (const path of cutSourcePaths) {
             try {

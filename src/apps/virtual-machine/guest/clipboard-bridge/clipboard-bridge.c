@@ -7,11 +7,13 @@
  *   [宿主→XP] 文件APP复制/剪切 → H2G PENDING{session,mode,files}（只有名字+大小，
  *         目录条目以 / 结尾且 size=0；大清单按同 session 多帧追加，桥 150ms 无新帧
  *         判定收齐）→ 桥 OleSetClipboard 挂一个空 CF_HDROP 占位（Explorer 粘贴
- *         按钮立刻亮）→ 用户在目标位置 Ctrl+V → Explorer 调 IDataObject::GetData
- *         读 CF_HDROP → 桥探测到粘贴动作，不返回真实文件列表，而是启动接管：
- *         探测目标路径、弹出 XP 风格自绘进度对话框、逐目录 CreateDirectory、
- *         逐文件 REQ↔DATA 拉回宿主字节并 WriteFile 直接落盘 → 全部完成发
- *         DONE{ok}（cut 模式宿主据此删源）；用户取消/失败发 DONE{cancel|error}，
+ *         按钮立刻亮）。Explorer 组右键菜单、刷新粘贴钮、剪贴板查看器都会
+ *         GetData(CF_HDROP) / Preferred DropEffect，这不是粘贴——桥在
+ *         OleSetClipboard 重入、右键按下、菜单模式时忽略这次取数。Ctrl+V
+ *         或点了「粘贴」（菜单已关）时的 GetData 才启动接管：探测目标路径、
+ *         弹出 XP 风格进度对话框、逐目录 CreateDirectory、逐文件 REQ↔DATA
+ *         拉回宿主字节并 WriteFile 落盘。复制成功后清单保留可再贴；剪切成功
+ *         发 DONE{ok}（宿主据此删源）并撤占位。取消/失败不发 DONE，可重试；
  *         已写完的保留，半成品按对话框提示清理。
  *
  *   [XP→宿主] 用户在 XP 复制文件 → 序列号变化 → 读 CF_HDROP 元数据 →
@@ -148,6 +150,30 @@ static void log_line(const char *fmt, ...)
     }
     lstrcatA(buffer, "\r\n");
     OutputDebugStringA(buffer);
+    /* 落盘（排障必需：实机没有调试器，OutputDebugString 看不见）。 */
+    HANDLE h = CreateFileA("C:\\Tools\\clip-bridge.log", GENERIC_WRITE,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    SetFilePointer(h, 0, NULL, FILE_END);
+    DWORD written = 0;
+    WriteFile(h, buffer, (DWORD)lstrlenA(buffer), &written, NULL);
+    CloseHandle(h);
+}
+
+/* 用户在同名冲突询问里选了「否」→ 中止整次粘贴。 */
+static int g_user_abort;
+
+/* 最近一次写入失败的具体原因（路径 + 错误码），失败弹窗直接展示，
+ * 实机截图即可定位，不用翻日志。 */
+static wchar_t g_fail_detail[280];
+
+static void set_fail_detail(const wchar_t *what, const wchar_t *path, unsigned long gle)
+{
+    wsprintfW(g_fail_detail, L"%s：%s（错误码 %lu）", what, path, gle);
+    log_line("clip-bridge: fail detail: %S", g_fail_detail);
 }
 
 static void fatal_box(const char *what, const char *detail)
@@ -386,6 +412,13 @@ static unsigned char g_h2g_buf[SHM_MAILBOX_DATA];
 static unsigned char g_pull_chunk[FILE_MAX_CHUNK];
 static wchar_t g_target_path[MAX_NAME_CHARS];
 
+/* Explorer 真粘贴时 GetData(CF_HDROP) 置位。组菜单 / 剪贴板查看器的探询
+ * 不置位。新 PENDING 必须清零，避免上一轮残留把「复制」误触发成写入。 */
+static int g_takeover_probe;
+static UINT g_cf_drop_effect;
+static int g_setting_clipboard; /* OleSetClipboard 重入期间的 GetData 一律忽略 */
+static DWORD g_ignore_getdata_until; /* 接管刚结束，忽略尾巴上的再取 */
+
 /* ---- PENDING 清单分片管理 ---- */
 
 static void pending_reset(void)
@@ -394,6 +427,7 @@ static void pending_reset(void)
         HeapFree(GetProcessHeap(), 0, g_pending.files);
     }
     memset(&g_pending, 0, sizeof(g_pending));
+    g_takeover_probe = 0;
 }
 
 static int pending_grow(void)
@@ -430,6 +464,7 @@ static int pending_append(unsigned long session, unsigned long mode,
         g_pending.done_sent = 0;
         g_pending.cancelled = 0;
         g_pending.in_progress = 0;
+        g_takeover_probe = 0;
     }
 
     unsigned long count = len >= 8 ? rd_u32(buf, 4) : 0;
@@ -494,8 +529,51 @@ static HGLOBAL make_empty_hdrop(void)
     return h;
 }
 
-/* Explorer 读 CF_HDROP 时触发接管探测。 */
-static int g_takeover_probe;
+#ifndef GUI_INMENUMODE
+#define GUI_INMENUMODE 0x00000004
+#endif
+#ifndef GUI_POPUPMENUMODE
+#define GUI_POPUPMENUMODE 0x00000010
+#endif
+#ifndef SWC_DESKTOP
+#define SWC_DESKTOP 8
+#endif
+#ifndef SWFO_NEEDDISPATCH
+#define SWFO_NEEDDISPATCH 1
+#endif
+
+/* 组菜单 / 右键按下 / 刚挂上占位时的取数都不是粘贴。 */
+static int clipboard_probe_only(void)
+{
+    if (g_setting_clipboard) {
+        return 1;
+    }
+    if ((long)(GetTickCount() - g_ignore_getdata_until) < 0) {
+        return 1;
+    }
+    if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) {
+        return 1;
+    }
+    GUITHREADINFO gi;
+    memset(&gi, 0, sizeof(gi));
+    gi.cbSize = sizeof(gi);
+    if (GetGUIThreadInfo(0, &gi)) {
+        if (gi.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE)) {
+            return 1;
+        }
+        if (gi.hwndMenuOwner) {
+            return 1;
+        }
+    }
+    HWND fg = GetForegroundWindow();
+    if (fg) {
+        wchar_t cls[32];
+        if (GetClassNameW(fg, cls, 32) > 0 && lstrcmpW(cls, L"#32768") == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static HRESULT render_empty_hdrop(HGLOBAL *out)
 {
@@ -504,7 +582,36 @@ static HRESULT render_empty_hdrop(HGLOBAL *out)
         return STG_E_MEDIUMFULL;
     }
     *out = h;
-    g_takeover_probe = 1;
+    if (!clipboard_probe_only()) {
+        g_takeover_probe = 1;
+        log_line("clip-bridge: paste intent (HDROP GetData)");
+    }
+    return S_OK;
+}
+
+static UINT drop_effect_format(void)
+{
+    if (g_cf_drop_effect == 0) {
+        g_cf_drop_effect = RegisterClipboardFormatW(L"Preferred DropEffect");
+    }
+    return g_cf_drop_effect;
+}
+
+/* 只告诉 Explorer 复制还是剪切，绝不当作「确认粘贴」。 */
+static HRESULT render_drop_effect(HGLOBAL *out)
+{
+    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(DWORD));
+    if (!h) {
+        return STG_E_MEDIUMFULL;
+    }
+    DWORD *val = (DWORD *)GlobalLock(h);
+    if (!val) {
+        GlobalFree(h);
+        return STG_E_MEDIUMFULL;
+    }
+    *val = g_pending.mode == FILE_MODE_CUT ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+    GlobalUnlock(h);
+    *out = h;
     return S_OK;
 }
 
@@ -512,7 +619,8 @@ typedef struct {
     IEnumFORMATETCVtbl *lpVtbl;
     ULONG refs;
     ULONG pos;
-    FORMATETC format;
+    ULONG count;
+    FORMATETC format[2];
 } vm_enum;
 
 static ULONG STDMETHODCALLTYPE enum_AddRef(IEnumFORMATETC *This)
@@ -553,8 +661,8 @@ static HRESULT STDMETHODCALLTYPE enum_Next(IEnumFORMATETC *This, ULONG celt, FOR
     if (fetched != NULL) {
         *fetched = 0;
     }
-    while (n < celt && e->pos < 1) {
-        rgelt[n] = e->format;
+    while (n < celt && e->pos < e->count) {
+        rgelt[n] = e->format[e->pos];
         n++;
         e->pos++;
     }
@@ -568,8 +676,8 @@ static HRESULT STDMETHODCALLTYPE enum_Skip(IEnumFORMATETC *This, ULONG celt)
 {
     vm_enum *e = (vm_enum *)This;
     e->pos += celt;
-    if (e->pos > 1) {
-        e->pos = 1;
+    if (e->pos > e->count) {
+        e->pos = e->count;
         return S_FALSE;
     }
     return S_OK;
@@ -656,6 +764,19 @@ static HRESULT STDMETHODCALLTYPE data_GetData(IDataObject *This, FORMATETC *fmt,
     if (fmt->dwAspect != DVASPECT_CONTENT) {
         return DV_E_DVASPECT;
     }
+    UINT cf_effect = drop_effect_format();
+    if (cf_effect != 0 && fmt->cfFormat == (CLIPFORMAT)cf_effect &&
+        (fmt->tymed & TYMED_HGLOBAL)) {
+        HGLOBAL h = NULL;
+        HRESULT hr = render_drop_effect(&h);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        medium->tymed = TYMED_HGLOBAL;
+        medium->hGlobal = h;
+        medium->pUnkForRelease = NULL;
+        return S_OK;
+    }
     if (fmt->cfFormat == CF_HDROP && (fmt->tymed & TYMED_HGLOBAL)) {
         HGLOBAL h = NULL;
         HRESULT hr = render_empty_hdrop(&h);
@@ -686,6 +807,10 @@ static HRESULT STDMETHODCALLTYPE data_QueryGetData(IDataObject *This, FORMATETC 
     }
     if (fmt->dwAspect != DVASPECT_CONTENT) {
         return DV_E_DVASPECT;
+    }
+    UINT cf_effect = drop_effect_format();
+    if (cf_effect != 0 && fmt->cfFormat == (CLIPFORMAT)cf_effect) {
+        return S_OK;
     }
     if (fmt->cfFormat == CF_HDROP) {
         return S_OK;
@@ -730,11 +855,23 @@ static HRESULT STDMETHODCALLTYPE data_EnumFormatEtc(IDataObject *This, DWORD dir
     e->lpVtbl = &g_enum_vtbl;
     e->refs = 1;
     e->pos = 0;
-    e->format.cfFormat = CF_HDROP;
-    e->format.ptd = NULL;
-    e->format.dwAspect = DVASPECT_CONTENT;
-    e->format.lindex = -1;
-    e->format.tymed = TYMED_HGLOBAL;
+    e->count = 1;
+    e->format[0].cfFormat = CF_HDROP;
+    e->format[0].ptd = NULL;
+    e->format[0].dwAspect = DVASPECT_CONTENT;
+    e->format[0].lindex = -1;
+    e->format[0].tymed = TYMED_HGLOBAL;
+    {
+        UINT cf_effect = drop_effect_format();
+        if (cf_effect != 0) {
+            e->format[1].cfFormat = (CLIPFORMAT)cf_effect;
+            e->format[1].ptd = NULL;
+            e->format[1].dwAspect = DVASPECT_CONTENT;
+            e->format[1].lindex = -1;
+            e->format[1].tymed = TYMED_HGLOBAL;
+            e->count = 2;
+        }
+    }
     *out = (IEnumFORMATETC *)e;
     return S_OK;
 }
@@ -788,7 +925,9 @@ static void own_clipboard(void)
     if (!g_ole_ok) {
         return;
     }
+    g_setting_clipboard = 1;
     HRESULT hr = OleSetClipboard((IDataObject *)&g_data_holder);
+    g_setting_clipboard = 0;
     if (FAILED(hr)) {
         log_line("clip-bridge: OleSetClipboard hr=0x%08lX", (unsigned long)hr);
         return;
@@ -812,63 +951,98 @@ static int get_special_folder_path(int csidl, wchar_t *out, unsigned long cap)
     return SHGetFolderPathW(NULL, csidl, NULL, 0, out) == S_OK;
 }
 
-/* 通过 IShellWindows::FindWindowSW 拿前台 Explorer/桌面窗口对应的文件夹路径。 */
+static int folder_path_from_view(IDispatch *view, wchar_t *out, unsigned long cap)
+{
+    DISPID dispid = 0;
+    LPOLESTR name = (LPOLESTR)L"Folder";
+    DISPPARAMS params = {NULL, NULL, 0, 0};
+    VARIANT result;
+    VariantInit(&result);
+    if (FAILED(view->lpVtbl->GetIDsOfNames(view, &kIID_NULL, &name, 1,
+                                           LOCALE_USER_DEFAULT, &dispid))) {
+        return 0;
+    }
+    if (FAILED(view->lpVtbl->Invoke(view, dispid, &kIID_NULL, LOCALE_USER_DEFAULT,
+                                    DISPATCH_PROPERTYGET, &params, &result, NULL, NULL))) {
+        return 0;
+    }
+    int ok = 0;
+    if (V_VT(&result) == VT_DISPATCH && V_DISPATCH(&result)) {
+        IDispatch *folder = V_DISPATCH(&result);
+        DISPID path_id = 0;
+        LPOLESTR path_name = (LPOLESTR)L"Path";
+        if (SUCCEEDED(folder->lpVtbl->GetIDsOfNames(folder, &kIID_NULL, &path_name, 1,
+                                                    LOCALE_USER_DEFAULT, &path_id))) {
+            VARIANT path;
+            VariantInit(&path);
+            if (SUCCEEDED(folder->lpVtbl->Invoke(folder, path_id, &kIID_NULL,
+                                                   LOCALE_USER_DEFAULT, DISPATCH_PROPERTYGET,
+                                                   &params, &path, NULL, NULL))) {
+                if (V_VT(&path) == VT_BSTR && V_BSTR(&path)) {
+                    lstrcpynW(out, V_BSTR(&path), cap);
+                    ok = 1;
+                }
+                VariantClear(&path);
+            }
+        }
+    }
+    VariantClear(&result);
+    return ok;
+}
+
+/* 通过 IShellWindows::FindWindowSW 拿 Explorer/文件夹窗口路径。
+ * XP 文件夹窗口多数是 SWC_BROWSER，桌面是 SWC_DESKTOP；pvarLocRoot 必须
+ * 传空 VARIANT，传 NULL 会直接失败。 */
+static int find_shell_path(IShellWindows *sw, HWND hwnd, wchar_t *out, unsigned long cap)
+{
+    VARIANT vloc, vroot;
+    VariantInit(&vloc);
+    VariantInit(&vroot);
+    V_VT(&vloc) = VT_I4;
+    V_I4(&vloc) = (LONG)(LONG_PTR)hwnd;
+    static const int k_classes[3] = {SWC_EXPLORER, SWC_BROWSER, SWC_DESKTOP};
+    int i;
+    for (i = 0; i < 3; i++) {
+        long found_hwnd = 0;
+        IDispatch *view = NULL;
+        HRESULT hr = sw->lpVtbl->FindWindowSW(sw, &vloc, &vroot, k_classes[i],
+                                              &found_hwnd, SWFO_NEEDDISPATCH, &view);
+        if (SUCCEEDED(hr) && view) {
+            int ok = folder_path_from_view(view, out, cap);
+            view->lpVtbl->Release(view);
+            if (ok) {
+                VariantClear(&vloc);
+                VariantClear(&vroot);
+                return 1;
+            }
+        }
+    }
+    VariantClear(&vloc);
+    VariantClear(&vroot);
+    return 0;
+}
+
 static int resolve_shell_window_path(HWND hwnd, wchar_t *out, unsigned long cap)
 {
-    (void)cap;
     IShellWindows *sw = NULL;
     if (FAILED(CoCreateInstance(&kCLSID_ShellWindows, NULL, CLSCTX_ALL,
                                 &kIID_IShellWindows, (void **)&sw))) {
         return 0;
     }
-    VARIANT vloc;
-    VariantInit(&vloc);
-    V_VT(&vloc) = VT_I4;
-    V_I4(&vloc) = (LONG)(LONG_PTR)hwnd;
-    long found_hwnd = 0;
-    IDispatch *view = NULL;
-    HRESULT hr = sw->lpVtbl->FindWindowSW(sw, &vloc, NULL, SWC_EXPLORER,
-                                          &found_hwnd, 1, &view);
-    VariantClear(&vloc);
-    sw->lpVtbl->Release(sw);
-    if (FAILED(hr) || view == NULL) {
-        return 0;
-    }
-
-    DISPID dispid = 0;
-    LPOLESTR name = (LPOLESTR)L"Folder";
-    if (SUCCEEDED(view->lpVtbl->GetIDsOfNames(view, &kIID_NULL, &name, 1,
-                                              LOCALE_USER_DEFAULT, &dispid))) {
-        DISPPARAMS params = {NULL, NULL, 0, 0};
-        VARIANT result;
-        VariantInit(&result);
-        hr = view->lpVtbl->Invoke(view, dispid, &kIID_NULL,
-                                  LOCALE_USER_DEFAULT, DISPATCH_PROPERTYGET,
-                                  &params, &result, NULL, NULL);
-        if (SUCCEEDED(hr) && V_VT(&result) == VT_DISPATCH && V_DISPATCH(&result)) {
-            IDispatch *folder = V_DISPATCH(&result);
-            DISPID path_id = 0;
-            LPOLESTR path_name = (LPOLESTR)L"Path";
-            if (SUCCEEDED(folder->lpVtbl->GetIDsOfNames(folder, &kIID_NULL, &path_name, 1,
-                                                        LOCALE_USER_DEFAULT, &path_id))) {
-                VARIANT path;
-                VariantInit(&path);
-                if (SUCCEEDED(folder->lpVtbl->Invoke(folder, path_id, &kIID_NULL,
-                                                       LOCALE_USER_DEFAULT, DISPATCH_PROPERTYGET,
-                                                       &params, &path, NULL, NULL))) {
-                    if (V_VT(&path) == VT_BSTR && V_BSTR(&path)) {
-                        lstrcpynW(out, V_BSTR(&path), cap);
-                        VariantClear(&path);
-                        view->lpVtbl->Release(view);
-                        return 1;
-                    }
-                    VariantClear(&path);
-                }
-            }
+    HWND cur = hwnd;
+    int depth;
+    for (depth = 0; cur && depth < 4; depth++) {
+        if (find_shell_path(sw, cur, out, cap)) {
+            sw->lpVtbl->Release(sw);
+            return 1;
         }
-        VariantClear(&result);
+        HWND next = GetWindow(cur, GW_OWNER);
+        if (!next) {
+            next = GetParent(cur);
+        }
+        cur = next;
     }
-    view->lpVtbl->Release(view);
+    sw->lpVtbl->Release(sw);
     return 0;
 }
 
@@ -1074,6 +1248,80 @@ static void progress_pump(void)
 
 /* ---- 写文件引擎：按清单创建目录 / REQ 拉数据写文件 ---- */
 
+static int is_directory_path(const wchar_t *path)
+{
+    DWORD attr = GetFileAttributesW(path);
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+/* 递归删除目录树（替换同名文件夹时用）。全部删干净返回 1。 */
+static int delete_directory_tree(const wchar_t *path)
+{
+    wchar_t pattern[MAX_NAME_CHARS * 2];
+    wchar_t child[MAX_NAME_CHARS * 2];
+    int i = 0;
+    while (path[i] && i < MAX_NAME_CHARS * 2 - 3) {
+        pattern[i] = path[i];
+        i++;
+    }
+    pattern[i++] = L'\\';
+    pattern[i++] = L'*';
+    pattern[i] = 0;
+
+    WIN32_FIND_DATAW fd;
+    HANDLE find = FindFirstFileW(pattern, &fd);
+    if (find == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+    do {
+        if (fd.cFileName[0] == L'.') {
+            if (fd.cFileName[1] == 0) {
+                continue;
+            }
+            if (fd.cFileName[1] == L'.' && fd.cFileName[2] == 0) {
+                continue;
+            }
+        }
+        int j = 0;
+        while (path[j] && j < MAX_NAME_CHARS * 2 - 2) {
+            child[j] = path[j];
+            j++;
+        }
+        child[j++] = L'\\';
+        int k = 0;
+        while (fd.cFileName[k] && j < MAX_NAME_CHARS * 2 - 1) {
+            child[j++] = fd.cFileName[k++];
+        }
+        child[j] = 0;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            delete_directory_tree(child);
+        } else if (!DeleteFileW(child)) {
+            FindClose(find);
+            return 0;
+        }
+    } while (FindNextFileW(find, &fd));
+    FindClose(find);
+    return RemoveDirectoryW(path);
+}
+
+/* 同名冲突询问（Explorer 式「是否替换」）。选「否」置 g_user_abort 中止粘贴。 */
+static int confirm_replace(const wchar_t *path, int existing_is_dir)
+{
+    wchar_t text[640];
+    wsprintfW(text, existing_is_dir
+                        ? L"目标位置已存在同名文件夹：\n%s\n\n替换将删除该文件夹及其全部内容。要替换吗？（选「否」中止本次粘贴）"
+                        : L"目标位置已存在同名文件：\n%s\n\n要替换它吗？（选「否」中止本次粘贴）",
+              path);
+    int id = MessageBoxW(g_progress_hwnd, text, L"确认替换",
+                         MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+    if (id != IDYES) {
+        g_user_abort = 1;
+        log_line("clip-bridge: user declined replace of %S", path);
+        return 0;
+    }
+    return 1;
+}
+
 /* 去掉路径末尾的 \ 或 /，供 CreateDirectoryW 使用（带末尾分隔符会报
  * ERROR_INVALID_NAME/目录名无效）。 */
 static void strip_trailing_seps(wchar_t *s)
@@ -1142,7 +1390,16 @@ static int ensure_directory(const wchar_t *path)
         if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
             return 1;
         }
+        /* 同名文件挡路：问用户是否替换（Explorer 式语义）。 */
+        if (confirm_replace(norm, 0) && DeleteFileW(norm)) {
+            if (CreateDirectoryW(norm, NULL)) {
+                return 1;
+            }
+            err = GetLastError();
+        }
     }
+    /* 父目录已就位还建不出来，这才是真实失败点（INVALID_NAME / ACCESS_DENIED 等）。 */
+    set_fail_detail(L"无法创建目录", norm, err);
     return 0;
 }
 
@@ -1203,16 +1460,60 @@ static unsigned long long total_pending_bytes(void)
     return total;
 }
 
+#define XP_MAX_PATH 260
+
+static int join_target_path(wchar_t *out, unsigned long cap, const wchar_t *dir,
+                            const wchar_t *rel)
+{
+    unsigned long i = 0;
+    while (dir[i] && i + 1 < cap) {
+        out[i] = dir[i];
+        i++;
+    }
+    if (i > 0 && out[i - 1] != L'\\' && i + 1 < cap) {
+        out[i++] = L'\\';
+    }
+    unsigned long j = 0;
+    while (rel[j] && i + 1 < cap) {
+        out[i++] = rel[j] == L'/' ? L'\\' : rel[j];
+        j++;
+    }
+    out[i] = 0;
+    if (rel[j] || i >= XP_MAX_PATH) {
+        set_fail_detail(L"路径过长", out, 206);
+        return 0;
+    }
+    return 1;
+}
+
+static int ensure_parent_directory(const wchar_t *full_path)
+{
+    const wchar_t *slash = my_wcsrchr(full_path, L'\\');
+    if (!slash || slash == full_path) {
+        return 1;
+    }
+    unsigned long len = (unsigned long)(slash - full_path);
+    wchar_t parent[MAX_NAME_CHARS * 2];
+    if (len >= MAX_NAME_CHARS * 2) {
+        return 0;
+    }
+    unsigned long i;
+    for (i = 0; i < len; i++) {
+        parent[i] = full_path[i];
+    }
+    parent[len] = 0;
+    return ensure_directory(parent);
+}
+
 static int write_file_to_target(const wchar_t *target_dir, const pending_file *pf,
                                 unsigned long long *done_bytes)
 {
     wchar_t full_path[MAX_NAME_CHARS * 2];
-    wsprintfW(full_path, L"%s\\%s", target_dir, pf->name);
-    /* 名字里的 / 换成 \ */
-    for (wchar_t *p = full_path; *p; p++) {
-        if (*p == L'/') {
-            *p = L'\\';
-        }
+    if (!join_target_path(full_path, MAX_NAME_CHARS * 2, target_dir, pf->name)) {
+        return 0;
+    }
+    if (!ensure_parent_directory(full_path)) {
+        return 0;
     }
 
     progress_update(*done_bytes, total_pending_bytes(), pf->name);
@@ -1220,7 +1521,19 @@ static int write_file_to_target(const wchar_t *target_dir, const pending_file *p
     HANDLE h = CreateFileW(full_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
                            FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) {
-        return 0;
+        DWORD gle = GetLastError();
+        /* 同名文件夹挡路：问用户是否替换（Explorer 式语义）。 */
+        if (is_directory_path(full_path)) {
+            if (confirm_replace(full_path, 1) && delete_directory_tree(full_path)) {
+                h = CreateFileW(full_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL, NULL);
+                gle = h == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+            }
+        }
+        if (h == INVALID_HANDLE_VALUE) {
+            set_fail_detail(L"无法创建文件", full_path, gle);
+            return 0;
+        }
     }
 
     unsigned long long offset = 0;
@@ -1233,12 +1546,15 @@ static int write_file_to_target(const wchar_t *target_dir, const pending_file *p
         unsigned long got = 0;
         int end = 0;
         if (!pull_block(g_pending.session, pf->name, offset, g_pull_chunk, want, &got, &end)) {
+            set_fail_detail(g_await.failed ? L"宿主报传输错误" : L"拉取数据超时", full_path,
+                            g_await.failed ? 1 : 0);
             ok = 0;
             break;
         }
         if (got > 0) {
             DWORD written = 0;
             if (!WriteFile(h, g_pull_chunk, got, &written, NULL) || written != got) {
+                set_fail_detail(L"写入文件失败", full_path, GetLastError());
                 ok = 0;
                 break;
             }
@@ -1266,18 +1582,27 @@ static int write_pending_files(const wchar_t *target_dir)
 {
     unsigned long long done_bytes = 0;
     int all_ok = 1;
+    g_fail_detail[0] = 0;
+    g_user_abort = 0;
+    for (unsigned long i = 0; i < g_pending.count; i++) {
+        g_pending.files[i].done = 0;
+    }
+    log_line("clip-bridge: write start target=%S entries=%lu",
+             target_dir, g_pending.count);
     for (unsigned long i = 0; i < g_pending.count && !g_pending.cancelled; i++) {
+        if (g_user_abort) {
+            all_ok = 0;
+            break;
+        }
         pending_file *pf = &g_pending.files[i];
         if (pf->done) {
             done_bytes += pf->size;
             continue;
         }
         wchar_t full_path[MAX_NAME_CHARS * 2];
-        wsprintfW(full_path, L"%s\\%s", target_dir, pf->name);
-        for (wchar_t *p = full_path; *p; p++) {
-            if (*p == L'/') {
-                *p = L'\\';
-            }
+        if (!join_target_path(full_path, MAX_NAME_CHARS * 2, target_dir, pf->name)) {
+            all_ok = 0;
+            break;
         }
 
         if (pf->is_dir) {
@@ -1379,6 +1704,7 @@ static void h2g_process(void)
             unsigned long count = len >= 8 ? rd_u32(buf, 4) : 0;
             unsigned long mode = len >= 12 ? rd_u32(buf, 8) : 0;
             unsigned long session = len >= 16 ? rd_u32(buf, 12) : 0;
+            int first_slice = !g_pending.active || g_pending.session != session;
             if (count == 0 || count > MAX_OFFER_FILES || session == 0) {
                 log_line("clip-bridge: bad PENDING count=%lu session=%lu", count, session);
                 continue;
@@ -1389,8 +1715,8 @@ static void h2g_process(void)
             }
             log_line("clip-bridge: pending partial session=%lu total=%lu mode=%s",
                      session, g_pending.count, mode == FILE_MODE_CUT ? "cut" : "copy");
-            if (g_ole_ok) {
-                own_clipboard(); /* 空 CF_HDROP 占位 */
+            if (g_ole_ok && first_slice) {
+                own_clipboard();
                 log_line("clip-bridge: empty HDROP placeholder set (paste button active)");
             }
             continue;
@@ -1399,7 +1725,9 @@ static void h2g_process(void)
             if (g_pending.active) {
                 pending_reset();
                 if (g_ole_ok) {
+                    g_setting_clipboard = 1;
                     OleSetClipboard(NULL);
+                    g_setting_clipboard = 0;
                     g_own_seq = GetClipboardSequenceNumber();
                     g_last_seq = g_own_seq;
                 }
@@ -1632,6 +1960,7 @@ static void run_takeover(void)
         return;
     }
     g_pending.in_progress = 1;
+    g_pending.cancelled = 0;
 
     int resolved = resolve_target_path(g_target_path, MAX_NAME_CHARS);
     if (!resolved) {
@@ -1639,8 +1968,7 @@ static void run_takeover(void)
     }
     if (!resolved) {
         g_pending.in_progress = 0;
-        g_pending.cancelled = 1;
-        send_done(FILE_RESULT_CANCEL);
+        g_ignore_getdata_until = GetTickCount() + 400;
         return;
     }
 
@@ -1650,16 +1978,30 @@ static void run_takeover(void)
     int ok = write_pending_files(g_target_path);
     progress_destroy();
 
-    if (g_pending.cancelled) {
-        send_done(FILE_RESULT_CANCEL);
+    if (g_pending.cancelled || g_user_abort) {
+        log_line("clip-bridge: takeover cancelled, retry allowed");
     } else if (!ok) {
-        send_done(FILE_RESULT_ERROR);
-        MessageBoxW(NULL, L"粘贴过程中写入文件失败。", L"复制失败",
-                    MB_OK | MB_ICONERROR);
-    } else {
+        wchar_t text[560];
+        wsprintfW(text, L"粘贴过程中写入文件失败。\n%s",
+                  g_fail_detail[0] ? g_fail_detail
+                                   : L"原因未知，详情见 C:\\Tools\\clip-bridge.log");
+        MessageBoxW(NULL, text, L"复制失败", MB_OK | MB_ICONERROR);
+    } else if (g_pending.mode == FILE_MODE_CUT) {
         send_done(FILE_RESULT_OK);
+        pending_reset();
+        if (g_ole_ok) {
+            g_setting_clipboard = 1;
+            OleSetClipboard(NULL);
+            g_setting_clipboard = 0;
+            g_own_seq = GetClipboardSequenceNumber();
+            g_last_seq = g_own_seq;
+        }
+    } else {
+        log_line("clip-bridge: copy paste ok, keep pending for another paste");
     }
     g_pending.in_progress = 0;
+    g_takeover_probe = 0;
+    g_ignore_getdata_until = GetTickCount() + 400;
 }
 
 /* ---- XP 复制检测 + H2G 消费的组合 tick ---- */
@@ -1684,7 +2026,7 @@ static void bridge_tick(void)
         }
     }
 
-    /* Explorer 调 GetData(CF_HDROP) 触发接管。 */
+    /* 真粘贴的 GetData(HDROP) 才接管；组菜单 / 右键探询在 GetData 里已被丢掉。 */
     if (g_takeover_probe && g_pending.active && g_pending.collected &&
         !g_pending.in_progress && !g_pending.done_sent) {
         g_takeover_probe = 0;
