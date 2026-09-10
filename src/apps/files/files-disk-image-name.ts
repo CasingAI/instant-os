@@ -1,5 +1,8 @@
 const DISK_IMAGE_EXTENSIONS = ['.img', '.raw', '.ima', '.dsk'] as const
 
+/** 镜像后缀集合（导出供打开方式登记等复用） */
+export { DISK_IMAGE_EXTENSIONS }
+
 export function isDiskImageFileName(name: string): boolean {
   const lower = name.trim().toLowerCase()
   return DISK_IMAGE_EXTENSIONS.some((extension) => lower.endsWith(extension))

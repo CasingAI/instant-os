@@ -18,6 +18,7 @@ import {
   drainImageMountWrites,
   getCachedImageMount,
   getImageMountByPath,
+  getImageMountsByPath,
   imageMountPendingWork,
   openImageMount,
   type ImageMountRecord,
@@ -25,6 +26,7 @@ import {
 import { openQuietBlobWriter } from './files-quiet-blob-write.ts'
 import {
   isImageLocationId,
+  isImagePartitionLocationId,
   makeImageLocationId,
   parseImagePartitionLocationId,
   type ImageFilesLocationId,
@@ -183,3 +185,25 @@ export async function drainImageMountWritesForLocation(locationId: ImageFilesLoc
   if (!mounted) return
   await drainImageMountWrites(mounted.imagePath)
 }
+
+/**
+ * 挂载后应浏览的位置：有分区则取分区号最小、真正挂上且可浏览的分区；
+ * 无分区表（整盘一个文件系统）取整盘卷。整盘占位（isPartitionAnchor）不会
+ * 出现在侧栏容器里，永远不作为浏览目标；分区全不可读时返回 undefined，由调用方报错。
+ */
+export function firstBrowsableImageLocation(imagePath: string): ImageFilesLocationId | undefined {
+  const sessions = getImageMountsByPath(imagePath)
+  const partitions = sessions
+    .filter((item) => isImagePartitionLocationId(item.id))
+    .sort((a, b) => {
+      const left = parseImagePartitionLocationId(a.id)?.partition ?? 0
+      const right = parseImagePartitionLocationId(b.id)?.partition ?? 0
+      return left - right
+    })
+  const readablePartition = partitions.find((item) => !item.unreadableReason)
+  if (readablePartition) return readablePartition.id
+  const wholeDisk = sessions.find((item) => !isImagePartitionLocationId(item.id) && !item.isPartitionAnchor)
+  if (wholeDisk && !wholeDisk.unreadableReason) return wholeDisk.id
+  return undefined
+}
+

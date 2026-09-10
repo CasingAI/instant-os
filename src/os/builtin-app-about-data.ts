@@ -274,6 +274,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '启动时选择要扫描的卷或文件夹。单击文件夹可在原框内细分；双击可放大进入。右键可在「文件」中显示对应位置。',
     ],
   },
+  'disk-image': {
+    version: '虚拟硬盘',
+    paragraphs: [
+      '虚拟硬盘是系统登记的磁盘镜像打开程序，没有自己的界面。',
+      '双击 .img / .raw 等磁盘镜像文件即由它挂载，随后自动在文件中打开第一个可浏览的分区；修改会写回镜像文件。',
+    ],
+  },
   'disk-utility': {
     version: '磁盘与卷信息',
     paragraphs: [

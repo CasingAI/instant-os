@@ -332,6 +332,15 @@ export const APP_REGISTRY: AppDefinition[] = [
     dockWhenRunning: true,
     desktop: false,
   }),
+  // 无窗口程序：登记为磁盘镜像的打开方式；被打开时挂载镜像并把文件带到第一个分区。
+  withAbout({
+    id: 'disk-image',
+    name: BUILTIN_APP_DISPLAY_NAMES['disk-image'],
+    icon: DiskUtilityIcon,
+    dock: false,
+    desktop: false,
+    windowless: true,
+  }),
   withAbout({
     id: 'keychain',
     name: BUILTIN_APP_DISPLAY_NAMES['keychain'],

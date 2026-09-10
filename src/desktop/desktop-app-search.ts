@@ -23,6 +23,8 @@ const EXCLUDED_BUILTIN_IDS = new Set<BuiltinAppId>([
   'page-devtools',
   'webview',
   'files-op-progress',
+  // 无窗口程序：没有可聚焦的窗口，从搜索打开只会无动作
+  'disk-image',
 ])
 
 export function isBuiltinAppSearchable(

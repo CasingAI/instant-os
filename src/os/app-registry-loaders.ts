@@ -1,9 +1,15 @@
 import type { ComponentType } from 'preact'
+import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
 import type { BuiltinAppId, ExtAppId, GeneratedAppId } from './types.ts'
 
 export type WindowAppComponent = ComponentType<{ windowId?: string }>
 
-const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = {
+/** 无窗口内置应用：有身份、无窗口组件，只通过打开意图登记参与系统（见 windowless-open-registry.ts） */
+const WINDOWLESS_APP_IDS = new Set<BuiltinAppId>(['disk-image'])
+
+type WindowAppId = Exclude<BuiltinAppId, 'disk-image'>
+
+const WINDOW_APP_LOADER_FACTORIES: Record<WindowAppId, () => Promise<WindowAppComponent>> = {
   appstore: () => import('../apps/appstore/appstore-app.tsx').then((m) => m.MarketplaceApp),
   browser: () => import('../apps/browser/browser-app.tsx').then((m) => m.BrowserApp),
   chromo: () => import('../apps/chromo/chromo-app.tsx').then((m) => m.ChromoApp),
@@ -81,6 +87,13 @@ const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = {
   'welcome-hello': () =>
     import('../apps/welcome-hello/welcome-hello-app.tsx').then((m) => m.WelcomeHelloApp),
 }
+
+/** 有窗口内置应用的窗口组件加载表；无窗口应用不出现在此表 */
+const APP_LOADERS: Record<BuiltinAppId, () => Promise<WindowAppComponent>> = Object.fromEntries(
+  (Object.keys(BUILTIN_APP_DISPLAY_NAMES) as BuiltinAppId[])
+    .filter((appId) => !WINDOWLESS_APP_IDS.has(appId))
+    .map((appId) => [appId, WINDOW_APP_LOADER_FACTORIES[appId as WindowAppId]!]),
+) as Record<BuiltinAppId, () => Promise<WindowAppComponent>>
 
 const builtinInflight = new Map<BuiltinAppId, Promise<WindowAppComponent>>()
 let generatedAppPromise: Promise<WindowAppComponent> | undefined

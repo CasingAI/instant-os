@@ -56,6 +56,7 @@ import {
 import { enqueueTerminalPendingAction } from '../terminal/terminal-pending-actions.ts'
 import { WEBVIEW_OFFSCREEN_VIEWPORT } from '../apps/webview/webview-constants.ts'
 import { isBuiltinAppId } from './builtin-app-display-names.ts'
+import { getWindowlessOpenHandler } from './windowless-open-registry.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, OpenAppOptions, WindowState, WindowRestoredBounds } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
 
@@ -108,7 +109,7 @@ type OsContextValue = {
 
 const OsContext = createContext<OsContextValue | undefined>(undefined)
 
-const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' | 'height'>> = {
+const DEFAULT_WINDOWS: Partial<Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' | 'height'>>> = {
   browser: { title: '网页浏览器', width: 880, height: 720 },
   chromo: { title: 'Chromo', width: 960, height: 720 },
   'page-devtools': { title: '开发者工具', width: 720, height: 480 },
@@ -232,8 +233,8 @@ function createWindow(
     ? { title: titleOverride ?? '微应用', ...GENERATED_APP_DEFAULTS }
     : { ...DEFAULT_WINDOWS[appId], title: titleOverride ?? DEFAULT_WINDOWS[appId]?.title ?? '应用' }
   const { width, height } = resolveWindowDimensions(appId, {
-    width: defaults.width,
-    height: defaults.height,
+    width: defaults.width ?? 480,
+    height: defaults.height ?? 360,
   })
   const offset = (windowCounter % 6) * 28
   const cascadeX = 80 + offset
@@ -704,6 +705,13 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     }
     if (!isBuiltinAppId(appId)) {
       throw new Error(`未找到应用: ${appId}`)
+    }
+
+    // 无窗口应用：执行登记的打开意图即可，不建窗、不进窗口列表
+    const windowlessHandler = getWindowlessOpenHandler(appId)
+    if (windowlessHandler) {
+      void windowlessHandler(options)
+      return undefined
     }
 
     prefetchWindowApp(appId)

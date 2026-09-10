@@ -2,7 +2,7 @@ import type { ComponentType } from 'preact'
 import type { BuiltinAppAbout } from './builtin-app-about-data.ts'
 import type { TerminalPrivilegeRequest } from '../terminal/terminal-privilege-types.ts'
 
-export type BuiltinAppId = 'browser' | 'chromo' | 'page-devtools' | 'webview' | 'settings' | 'files' | 'file-info' | 'files-op-progress' | 'textedit' | 'pages' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'registry' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'produde' | 'gomoku' | 'books' | 'music' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'services' | 'event-log' | 'keychain' | 'keychain-next' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'virtual-machine' | 'packages' | 'archive-utility' | 'downloader' | 'space-sniffer' | 'disk-utility' | 'ui-kit' | 'stems' | 'srml-demo' | 'nav-kit-demo' | 'midi-demo' | 'llm-playground' | 'attunebench' | 'welcome' | 'welcome-next' | 'welcome-hello'
+export type BuiltinAppId = 'browser' | 'chromo' | 'page-devtools' | 'webview' | 'settings' | 'files' | 'file-info' | 'files-op-progress' | 'textedit' | 'pages' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'registry' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'produde' | 'gomoku' | 'books' | 'music' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'services' | 'event-log' | 'keychain' | 'keychain-next' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'virtual-machine' | 'packages' | 'archive-utility' | 'downloader' | 'space-sniffer' | 'disk-utility' | 'disk-image' | 'ui-kit' | 'stems' | 'srml-demo' | 'nav-kit-demo' | 'midi-demo' | 'llm-playground' | 'attunebench' | 'welcome' | 'welcome-next' | 'welcome-hello'
 
 export type OpenAppOptions = {
   /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
@@ -69,6 +69,11 @@ export type AppDefinition = {
   desktop?: boolean
   /** 允许同一应用同时打开多扇窗口（文档类应用） */
   multiWindow?: boolean
+  /**
+   * 无窗口应用：被打开时执行登记的打开意图，不建窗、不进窗口列表。
+   * 应用仍是一个可被点名的程序（可出现在「打开方式」与应用目录）。
+   */
+  windowless?: boolean
   /** 图标装饰（右上角丝带 / 底部套子）；注册表构建时自动包一层，所有渲染点生效。 */
   iconDecoration?: AppIconDecorationConfig
 }

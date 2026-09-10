@@ -55,10 +55,12 @@ import {
 } from './files-mount-store.ts'
 import {
   FILES_IMAGE_MOUNTS_CHANGED_EVENT,
+  getCachedImageMount,
   getImageMountReadError,
 } from './files-image-mount-store.ts'
 import {
   drainImageMountWritesForLocation,
+  firstBrowsableImageLocation,
   isDiskImageFileName,
   mountDiskImage,
   imageMountPendingWorkForLocation,
@@ -1234,10 +1236,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
   useEffect(() => {
     if (locations.length === 0) return
-    if (!locations.some((item) => item.id === locationId)) {
-      setLocationId('local')
-      setFolderId(undefined)
-    }
+    if (locations.some((item) => item.id === locationId)) return
+    // 活着的镜像挂载（含分区卷）：侧栏列表这一拍可能尚未带上，不要打回用户文件
+    if (isImageLocationId(locationId) && getCachedImageMount(locationId)) return
+    setLocationId('local')
+    setFolderId(undefined)
   }, [locationId, locations])
 
   useEffect(() => {
@@ -1785,7 +1788,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         const path = await resolveFilesAbsolutePath(node)
         const mounted = await mountDiskImage(path)
         await refreshLocations()
-        selectLocation(mounted.id)
+        // 多分区镜像的挂载锚点不在侧栏（侧栏只列分区），须跳第一个可浏览分区
+        const browsable = firstBrowsableImageLocation(mounted.imagePath) ?? mounted.id
+        selectLocation(browsable)
       } catch (err) {
         await modal.alert({ title: '无法挂载', message: formatError(err), themeColor: THEME })
       }
