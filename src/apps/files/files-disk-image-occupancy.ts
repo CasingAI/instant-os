@@ -5,6 +5,10 @@
  * 声明后自动获得互斥、删除/改名/移动守卫与冲突文案，无需修改本模块。
  * 已知 kind（files-mount / vm）有专门的定制文案；其它 kind 走通用文案。
  * 不是通用文件锁；复制、当普通文件打开不走这里。
+ *
+ * 互斥分两层：内存 Map 只在本 JS 上下文有效（同页签，同步查询全走它）；
+ * Web Locks 补跨页签——两个浏览器窗口各开一台 VM 用同一镜像会互不可见、
+ * 双双写坏。navigator.locks 不可用（非安全上下文）时退化为仅内存互斥。
  */
 
 /** 内置文案的 kind；其它字符串值视为第三方占用方（建议 claim 时提供 label/releaseHint） */
@@ -21,6 +25,64 @@ export type DiskImageOccupant = {
 }
 
 const occupants = new Map<string, DiskImageOccupant>()
+
+/** 跨页签锁句柄：resolve 内部持锁 promise 即释放 Web Lock */
+const webLockReleases = new Map<string, () => void>()
+
+const WEB_LOCK_PREFIX = 'instant-vm-disk:'
+
+/** 不依赖 lib.dom 版本的 Web Locks 最小类型（ifAvailable 模式） */
+type WebLockManagerLike = {
+  request(
+    name: string,
+    options: { mode: 'exclusive'; ifAvailable: true },
+    callback: (lock: unknown) => Promise<void> | void,
+  ): Promise<unknown>
+}
+
+function webLockManager(): WebLockManagerLike | undefined {
+  return (globalThis as { navigator?: { locks?: WebLockManagerLike } }).navigator?.locks
+}
+
+/**
+ * 长持锁获取：回调内返回永不 resolve 的 promise，锁一直持有到调用释放句柄。
+ * 返回 null = 锁被别人（通常是另一页签）持有；句柄抛错视为没拿到。
+ */
+function acquireWebLock(name: string): Promise<(() => void) | null> {
+  return new Promise((resolve) => {
+    let settled = false
+    const settle = (value: (() => void) | null) => {
+      if (!settled) {
+        settled = true
+        resolve(value)
+      }
+    }
+    webLockManager()!
+      .request(name, { mode: 'exclusive', ifAvailable: true }, (lock) => {
+        if (!lock) {
+          settle(null)
+          return
+        }
+        return new Promise<void>((releaseLock) => {
+          settle(releaseLock)
+        })
+      })
+      .catch(() => settle(null))
+  })
+}
+
+function releaseWebLock(normalized: string): void {
+  const release = webLockReleases.get(normalized)
+  if (!release) return
+  webLockReleases.delete(normalized)
+  release()
+}
+
+function crossTabOccupiedError(path: string): Error {
+  return new Error(
+    `无法打开 ${path}：这份镜像已被另一个窗口占用。请先在那个窗口里关闭虚拟机或卸载镜像。`,
+  )
+}
 
 export function normalizeDiskImagePath(path: string): string {
   const trimmed = path.trim()
@@ -93,7 +155,14 @@ export function findOccupiedDiskImagePathUnder(
   return undefined
 }
 
-export function claimDiskImagePath(path: string, occupant: DiskImageOccupant): void {
+/**
+ * 声明占用（跨页签互斥生效，故为异步）：路径被不同占用方（本页签或另一窗口）
+ * 占用时 throw；同 kind 同 id 重复 claim 幂等。失败时不产生半份声明。
+ */
+export async function claimDiskImagePath(
+  path: string,
+  occupant: DiskImageOccupant,
+): Promise<void> {
   const normalized = normalizeDiskImagePath(path)
   if (!normalized) {
     throw new Error('镜像路径无效')
@@ -108,6 +177,20 @@ export function claimDiskImagePath(path: string, occupant: DiskImageOccupant): v
     }
     throw new Error(genericDiskImageOccupiedError(normalized, existing))
   }
+  if (existing) {
+    // 同占用方幂等重入：跨页签锁已持有，只刷新记录
+    occupants.set(normalized, occupant)
+    return
+  }
+  const manager = webLockManager()
+  if (manager) {
+    // 先拿跨页签锁再写内存表：锁是互斥点，两个窗口竞争时只有一个能成功
+    const release = await acquireWebLock(WEB_LOCK_PREFIX + normalized)
+    if (!release) {
+      throw crossTabOccupiedError(normalized)
+    }
+    webLockReleases.set(normalized, release)
+  }
   occupants.set(normalized, occupant)
 }
 
@@ -117,12 +200,14 @@ export function releaseDiskImagePath(path: string, occupant: DiskImageOccupant):
   if (!existing) return
   if (existing.kind !== occupant.kind || existing.id !== occupant.id) return
   occupants.delete(normalized)
+  releaseWebLock(normalized)
 }
 
 export function releaseDiskImagePathsForOccupant(occupant: DiskImageOccupant): void {
   for (const [path, current] of occupants) {
     if (current.kind === occupant.kind && current.id === occupant.id) {
       occupants.delete(path)
+      releaseWebLock(path)
     }
   }
 }
@@ -130,4 +215,8 @@ export function releaseDiskImagePathsForOccupant(occupant: DiskImageOccupant): v
 /** 仅测试用 */
 export function resetDiskImageOccupancyForTests(): void {
   occupants.clear()
+  for (const release of webLockReleases.values()) {
+    release()
+  }
+  webLockReleases.clear()
 }

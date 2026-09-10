@@ -1,5 +1,5 @@
 /**
- * 磁盘加载失败清理、释放过程中新消息 404。
+ * 磁盘加载失败清理、释放闸门语义（release 前已入队的写照常落盘、release 后读拒绝/写给宽限）。
  * 运行：node --experimental-strip-types src/apps/virtual-machine/virtual-machine-disks.test.ts
  */
 import 'fake-indexeddb/auto'
@@ -118,7 +118,7 @@ async function testSuccessfulLoadThenReleaseClearsStreams(): Promise<void> {
   assert.equal(countVirtualMachineDiskStreams(), 0)
 }
 
-async function testReleaseInProgressReplies404(): Promise<void> {
+async function testReleaseInProgressDropsReadsButGracesWrites(): Promise<void> {
   await resetFiles()
   const replies: Posted[] = []
   await createDisk('/user/hda.img')
@@ -150,10 +150,65 @@ async function testReleaseInProgressReplies404(): Promise<void> {
     replies,
   )
   releaseHold()
-  await releasing
+  const discarded = await releasing
   const readReply = replies.find((item) => item.type === INSTANT_VM_MESSAGE_TYPE.diskReadResult)
   const writeReply = replies.find((item) => item.type === INSTANT_VM_MESSAGE_TYPE.diskWriteResult)
+  // 读在 release 开始后没有意义，照旧拒绝；写处在宽限期内，必须照常接收落盘
   assert.equal(readReply?.status, 404)
+  assert.equal(writeReply?.status, 200)
+  assert.equal(discarded, 0)
+  assert.equal(countVirtualMachineDiskStreams(), 0)
+}
+
+async function testQueuedWriteBeforeReleaseIsFlushed(): Promise<void> {
+  await resetFiles()
+  const replies: Posted[] = []
+  await createDisk('/user/hda.img')
+  const streamId = await registerVirtualMachineDiskStream('/user/hda.img', { writable: true })
+  let holdQueue = () => undefined
+  const held = new Promise<void>((resolve) => {
+    holdQueue = resolve
+  })
+  void enqueueStreamWork(streamId, () => held)
+  // release 开始前已接收、但排在慢任务后面还没执行的写：丢弃等于丢掉已向客机
+  // ack 的数据（hive 半提交根因），必须排干后照常落盘。
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskWrite,
+      requestId: 'write-queued-before-release',
+      streamId,
+      offset: 0,
+      bytes: new Uint8Array([5, 6, 7, 8]).buffer,
+    },
+    replies,
+  )
+  const releasing = releaseVirtualMachineDiskStream(streamId)
+  holdQueue()
+  const discarded = await releasing
+  const writeReply = replies.find((item) => item.type === INSTANT_VM_MESSAGE_TYPE.diskWriteResult)
+  assert.equal(writeReply?.status, 200)
+  assert.equal(discarded, 0)
+  assert.equal(countVirtualMachineDiskStreams(), 0)
+}
+
+async function testWriteAfterReleaseCompletesIs404(): Promise<void> {
+  await resetFiles()
+  const replies: Posted[] = []
+  await createDisk('/user/hda.img')
+  const streamId = await registerVirtualMachineDiskStream('/user/hda.img', { writable: true })
+  await releaseVirtualMachineDiskStream(streamId)
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskWrite,
+      requestId: 'write-after-release',
+      streamId,
+      offset: 0,
+      bytes: new Uint8Array([1, 1, 1, 1]).buffer,
+    },
+    replies,
+  )
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const writeReply = replies.find((item) => item.type === INSTANT_VM_MESSAGE_TYPE.diskWriteResult)
   assert.equal(writeReply?.status, 404)
   assert.equal(countVirtualMachineDiskStreams(), 0)
 }
@@ -170,11 +225,11 @@ async function testConnectedFlagSkipsLoadAndOccupancy(): Promise<void> {
   assert.equal(countVirtualMachineDiskStreams(), 0)
 
   // 弹出的设备不声明镜像占用；同一镜像连着的设备照旧会撞占用
-  claimDiskImagePath('/user/cd.img', { kind: 'vm', id: 'other-vm' })
-  claimVirtualMachineDiskImageOccupancy('vm-a', [
+  await claimDiskImagePath('/user/cd.img', { kind: 'vm', id: 'other-vm' })
+  await claimVirtualMachineDiskImageOccupancy('vm-a', [
     { id: 'c', type: 'cdrom', source: 'local', path: '/user/cd.img', connected: false },
   ])
-  assert.throws(() =>
+  await assert.rejects(() =>
     claimVirtualMachineDiskImageOccupancy('vm-a', [
       { id: 'c', type: 'cdrom', source: 'local', path: '/user/cd.img' },
     ]),
@@ -243,7 +298,7 @@ async function testRemovableMediaMountCommitRollback(): Promise<void> {
       }),
     /文件不存在/,
   )
-  // 可写的软驱不能落在挂载卷上
+  // 挂载卷上的软盘不回写，因此不会因「无法回写」拒挂；文件不存在才失败
   await assert.rejects(
     () =>
       mountVirtualMachineRemovableMedia({
@@ -252,7 +307,7 @@ async function testRemovableMediaMountCommitRollback(): Promise<void> {
         slot: 'fda',
         diskWriteMode: 'live',
       }),
-    /无法回写/,
+    /不存在/,
   )
   assert.equal(countVirtualMachineDiskStreams(), 0)
 
@@ -307,7 +362,9 @@ async function testRemovableMediaReleaseScopedToSlot(): Promise<void> {
 
 await testLoadFailureReleasesRegisteredStreams()
 await testSuccessfulLoadThenReleaseClearsStreams()
-await testReleaseInProgressReplies404()
+await testReleaseInProgressDropsReadsButGracesWrites()
+await testQueuedWriteBeforeReleaseIsFlushed()
+await testWriteAfterReleaseCompletesIs404()
 await testConnectedFlagSkipsLoadAndOccupancy()
 testEmptyDeviceConsumesSlotIndex()
 await testDisconnectedDeviceSkipsItsSlotAtBoot()

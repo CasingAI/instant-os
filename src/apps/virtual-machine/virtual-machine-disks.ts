@@ -138,14 +138,31 @@ function isMountPath(path: string): boolean {
   return path.startsWith('/mount/')
 }
 
+/**
+ * 挂载目录上的镜像允许回写的体积上限。挂载卷的写入会话在打开时整拷一次正文，
+ * 会话结束再原子替换；小体积投递盘能接受，大系统盘会付出整盘拷贝代价，故设上限。
+ */
+export const MOUNT_DISK_WRITE_BACK_MAX_BYTES = 256 * 1024 * 1024
+
 export function virtualMachineMountWriteBackError(label: string, path: string): string {
-  return `无法回写${label} ${path}：镜像在挂载目录上。挂载卷按偏移写会重写整份文件，不能用于实时或关机回写。请把镜像放到内部卷，或将硬盘写入设为不写入。`
+  return `无法回写${label} ${path}：镜像在挂载目录上，挂载卷按整文件替换写回。超过 ${
+    MOUNT_DISK_WRITE_BACK_MAX_BYTES / (1024 * 1024)
+  }MB 的镜像请放到内部卷。`
 }
 
-export function assertVirtualMachineDiskCanPersistWrites(path: string, label: string): void {
-  if (isMountPath(path.trim())) {
-    throw new Error(virtualMachineMountWriteBackError(label, path.trim()))
+export function assertVirtualMachineDiskCanPersistWrites(
+  path: string,
+  label: string,
+  byteSize?: number,
+): void {
+  const trimmed = path.trim()
+  if (!isMountPath(trimmed)) {
+    return
   }
+  if (byteSize !== undefined && byteSize <= MOUNT_DISK_WRITE_BACK_MAX_BYTES) {
+    return
+  }
+  throw new Error(virtualMachineMountWriteBackError(label, trimmed))
 }
 
 type LoadedDisk = {
@@ -261,10 +278,11 @@ function fileNameOfPath(path: string): string {
   return slash >= 0 ? path.slice(slash + 1) : path
 }
 
-export function claimVirtualMachineDiskImageOccupancy(
+/** 遍历设备声明镜像占用（跨页签互斥，异步）；失败回滚已 claim 的路径。 */
+export async function claimVirtualMachineDiskImageOccupancy(
   machineId: string,
   devices: readonly VmStorageDevice[],
-): void {
+): Promise<void> {
   const occupant = { kind: 'vm' as const, id: machineId }
   const claimed: string[] = []
   try {
@@ -274,7 +292,7 @@ export function claimVirtualMachineDiskImageOccupancy(
       const path = device.path.trim()
       if (!path || isHttpDiskUrl(path)) continue
       if (!isDiskImageFileName(fileNameOfPath(path))) continue
-      claimDiskImagePath(path, occupant)
+      await claimDiskImagePath(path, occupant)
       claimed.push(path)
     }
   } catch (error) {
@@ -309,7 +327,7 @@ async function loadDisk(
 
   const persist = options.persist === true
   if (persist) {
-    assertVirtualMachineDiskCanPersistWrites(trimmed, label)
+    assertVirtualMachineDiskCanPersistWrites(trimmed, label, stat.byteSize)
     const id = await registerVirtualMachineDiskStream(trimmed, { writable: true })
     return { stream: { id, size: stat.byteSize } }
   }
@@ -455,13 +473,16 @@ export async function mountVirtualMachineRemovableMedia(options: {
 }): Promise<VmRemovableMediaMount> {
   const path = options.device.path.trim()
   const label = deviceTypeLabel(options.device.type)
-  const writable = virtualMachineDiskPersistsWrites(options.device.type, options.diskWriteMode)
-  if (writable) {
-    assertVirtualMachineDiskCanPersistWrites(path, label)
-  }
   const stat = await filesStat(path)
   if (!stat || stat.kind !== 'file') {
     throw new Error(`无法读取${label} ${path}：文件不存在`)
+  }
+  const writable = virtualMachineDiskPersistsWrites(
+    options.device.type,
+    options.diskWriteMode,
+  )
+  if (writable) {
+    assertVirtualMachineDiskCanPersistWrites(path, label, stat.byteSize)
   }
   const key = removableMediaKey(options.machineId, options.slot)
   const previous = removableMediaStreams.get(key)

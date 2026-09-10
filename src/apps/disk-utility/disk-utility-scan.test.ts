@@ -255,18 +255,18 @@ async function testOccupancyPolicies(): Promise<void> {
   await resetFiles()
   const path = await putImage('occupied.img', createFat12Image())
 
-  claimDiskImagePath(path, { kind: 'files-mount', id: 'image:test' })
+  await claimDiskImagePath(path, { kind: 'files-mount', id: 'image:test' })
   assert.equal((await runDiskImageScan({ path })).status, 'clean')
   releaseDiskImagePath(path, { kind: 'files-mount', id: 'image:test' })
 
-  claimDiskImagePath(path, { kind: 'vm', id: 'vm-test' })
+  await claimDiskImagePath(path, { kind: 'vm', id: 'vm-test' })
   await assert.rejects(
     () => runDiskImageScan({ path }),
     /虚拟机正在把这份镜像当硬盘使用/,
   )
   releaseDiskImagePath(path, { kind: 'vm', id: 'vm-test' })
 
-  claimDiskImagePath(path, { kind: 'writer-app', id: 'writer-test', label: '写入工具' })
+  await claimDiskImagePath(path, { kind: 'writer-app', id: 'writer-test', label: '写入工具' })
   await assert.rejects(
     () => runDiskImageScan({ path }),
     /正在被「写入工具」使用/,

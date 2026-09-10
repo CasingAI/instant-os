@@ -33,6 +33,7 @@ import {
   type VmRemovableMediaMount,
 } from './virtual-machine-disks.ts'
 import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
+import { getVirtualMachineDiskFlushProgress } from './virtual-machine-disk-stream-host.ts'
 import { setWebdavSharedRoot } from './virtual-machine-webdav-host.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
@@ -308,6 +309,8 @@ type VirtualMachineListProps = {
   selectedId: string | undefined
   runningIds: readonly string[]
   startingIds: readonly string[]
+  /** 关机收尾落盘中的机器：状态点显示黄色「写入中」。 */
+  flushingIds: readonly string[]
   onFocus: (machineId: string) => void
   onOpenSettings: (machineId: string) => void
   /** 松手落位：fromIndex 行移到 toIndex（钥匙串同款插入位语义）。 */
@@ -319,6 +322,7 @@ function VirtualMachineList({
   selectedId,
   runningIds,
   startingIds,
+  flushingIds,
   onFocus,
   onOpenSettings,
   onMove,
@@ -493,12 +497,21 @@ function VirtualMachineList({
         const active = machine.id === selectedId
         const running = runningIds.includes(machine.id)
         const starting = startingIds.includes(machine.id)
-        const statusClass = starting
-          ? 'virtual-machine__status-dot virtual-machine__status-dot--starting'
-          : running
-            ? 'virtual-machine__status-dot virtual-machine__status-dot--running'
-            : 'virtual-machine__status-dot'
-        const statusLabel = starting ? '启动中' : running ? '运行中' : '已停止'
+        const flushing = flushingIds.includes(machine.id)
+        const statusClass = flushing
+          ? 'virtual-machine__status-dot virtual-machine__status-dot--flushing'
+          : starting
+            ? 'virtual-machine__status-dot virtual-machine__status-dot--starting'
+            : running
+              ? 'virtual-machine__status-dot virtual-machine__status-dot--running'
+              : 'virtual-machine__status-dot'
+        const statusLabel = flushing
+          ? '写入中'
+          : starting
+            ? '启动中'
+            : running
+              ? '运行中'
+              : '已停止'
         return (
           <li
             key={machine.id}
@@ -576,6 +589,13 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       void modal.alert({
         title: '关机落盘未完成',
         message: DISK_IMAGE_INCOMPLETE_HINT,
+        themeColor: THEME,
+      })
+    },
+    onDiskWriteDirty: (_id, detail) => {
+      void modal.alert({
+        title: '关机写入不完整',
+        message: `关机收尾时有 ${detail.discardedWrites} 条磁盘写入未能写入镜像，镜像可能不一致。建议重新开机让系统自检修复，修复前请勿直接使用或导出该镜像。`,
         themeColor: THEME,
       })
     },
@@ -876,14 +896,18 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   }, [pool.agentCommand, selectedId, selectedRunning, verifyAgentAlive])
 
   const agentVersionSuffix = agentVersion !== null ? ` · agent v${agentVersion}` : ''
+  const selectedFlushing =
+    selectedId !== undefined && pool.flushingIds.includes(selectedId)
   const statusHint =
-    powerHint ??
-    selectedHint ??
-    (agentLink === 'full'
-      ? `体验已增强${agentVersionSuffix}`
-      : agentLink === 'command'
-        ? `体验已增强${agentVersionSuffix} · 剪贴板信箱未就绪`
-        : undefined)
+    selectedFlushing
+      ? '正在写入虚拟磁盘，完成前请勿关闭页面…'
+      : powerHint ??
+        selectedHint ??
+        (agentLink === 'full'
+          ? `体验已增强${agentVersionSuffix}`
+          : agentLink === 'command'
+            ? `体验已增强${agentVersionSuffix} · 剪贴板信箱未就绪`
+            : undefined)
   const hasSelection = selected !== undefined
   const settingsOpen = settingsSession !== undefined
   settingsOpenRef.current = settingsOpen
@@ -914,6 +938,52 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   )
 
   const displayedId = pickDisplayedMachineId(selected?.id, pool.runningIds)
+  // 关机收尾落盘中的机器：屏幕叠「正在写入」覆盖层，占用声明到刷完才释放。
+  const displayedFlushing = displayedId !== undefined && pool.flushingIds.includes(displayedId)
+  const [flushPendingBytes, setFlushPendingBytes] = useState<number | undefined>(undefined)
+  const flushBaselineRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (displayedId === undefined || !pool.flushingIds.includes(displayedId)) {
+      flushBaselineRef.current = null
+      setFlushPendingBytes(undefined)
+      return
+    }
+    let cancelled = false
+    const poll = () => {
+      const { pendingBytes } = getVirtualMachineDiskFlushProgress(
+        listVmDiskStreamIds(pool.startMessages.get(displayedId)),
+      )
+      if (cancelled) return
+      flushBaselineRef.current =
+        flushBaselineRef.current === null ? Math.max(pendingBytes, 1) : flushBaselineRef.current
+      setFlushPendingBytes(pendingBytes)
+    }
+    poll()
+    const timer = window.setInterval(poll, 500)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [displayedId, pool.flushingIds, pool.startMessages])
+  const flushProgress =
+    displayedFlushing &&
+    flushPendingBytes !== undefined &&
+    flushBaselineRef.current !== null &&
+    flushBaselineRef.current > 0
+      ? Math.max(0, Math.min(1, 1 - flushPendingBytes / flushBaselineRef.current))
+      : undefined
+  // 关机刷盘期间拦一下页面关闭：浏览器无法保证异步收尾完成，至少给用户反悔机会
+  useEffect(() => {
+    if (pool.flushingIds.length === 0) {
+      return
+    }
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [pool.flushingIds])
   const selectedSnapshot = pool.snapshots.get(selectedId ?? '')
   const selectedDiskStreamIds = listVmDiskStreamIds(
     selectedId ? pool.startMessages.get(selectedId) : undefined,
@@ -1349,7 +1419,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       const running = pool.runningIds.includes(machine.id)
       if (nextConnected && (pathChanged || !prevConnected)) {
         // 换成新镜像 / 重新连接：先声明占用，镜像被别处占用时立刻报错。
-        claimVirtualMachineDiskImageOccupancy(machine.id, [next])
+        await claimVirtualMachineDiskImageOccupancy(machine.id, [next])
       }
       if (!running) {
         return
@@ -1725,9 +1795,17 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           if (action === 'stop') {
             const forced = await pool.shutdown(machine.id)
             trace('power-stop-done', { forced })
-            setPowerHint(
-              forced && machine.diskWriteMode === 'poweroff' ? FORCED_OFF_UNFLUSHED_HINT : undefined,
-            )
+            if (forced && machine.diskWriteMode === 'poweroff') {
+              setPowerHint(FORCED_OFF_UNFLUSHED_HINT)
+              // 右上角小字没人看：强拆丢掉整个会话的磁盘改动，必须打断告知
+              void modal.alert({
+                title: '强制断电',
+                message: `客机无响应，已强制断电。${FORCED_OFF_UNFLUSHED_HINT}，本次开机对磁盘的所有改动都会丢失。`,
+                themeColor: THEME,
+              })
+            } else {
+              setPowerHint(undefined)
+            }
             return
           }
           if (action === 'reset') {
@@ -1738,6 +1816,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             trace('power-reset-done', { forced })
             if (forced && machine.diskWriteMode === 'poweroff') {
               setPowerHint(FORCED_OFF_UNFLUSHED_HINT)
+              void modal.alert({
+                title: '强制断电',
+                message: `客机无响应，已强制断电。${FORCED_OFF_UNFLUSHED_HINT}，本次开机对磁盘的所有改动都会丢失。`,
+                themeColor: THEME,
+              })
             } else {
               setPowerHint(undefined)
             }
@@ -2156,6 +2239,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               selectedId={selectedId}
               runningIds={pool.runningIds}
               startingIds={startingIds}
+              flushingIds={pool.flushingIds}
               onFocus={focusMachine}
               onOpenSettings={handleOpenSettings}
               onMove={handleListMove}
@@ -2216,6 +2300,34 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             ) : null}
             {displayedBusy ? (
               <div class="virtual-machine__screen-message">正在连接模拟器…</div>
+            ) : null}
+            {displayedFlushing ? (
+              <div class="virtual-machine__flush-overlay" role="status">
+                <div class="virtual-machine__flush-title">正在写入虚拟磁盘…</div>
+                <div class="virtual-machine__flush-bar">
+                  <div
+                    class={
+                      flushProgress !== undefined
+                        ? 'virtual-machine__flush-bar-fill virtual-machine__flush-bar-fill--determinate'
+                        : 'virtual-machine__flush-bar-fill'
+                    }
+                    style={
+                      flushProgress !== undefined
+                        ? `transform: scaleX(${flushProgress})`
+                        : undefined
+                    }
+                  />
+                </div>
+                <div class="virtual-machine__flush-detail">
+                  {flushProgress !== undefined
+                    ? `${Math.round(flushProgress * 100)}%`
+                    : '正在写回镜像文件…'}
+                  {flushPendingBytes !== undefined && flushPendingBytes > 0
+                    ? ` · 剩余 ${Math.max(1, Math.ceil(flushPendingBytes / (1024 * 1024)))} MB`
+                    : ''}
+                </div>
+                <div class="virtual-machine__flush-warn">完成前请勿关闭窗口或页面</div>
+              </div>
             ) : null}
           </div>
           <div

@@ -194,6 +194,12 @@ function makeFakeClock() {
 /** 等微任务排空，让 promise.then 侧的 settled 标志可见。 */
 const flushMicrotasks = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
+function testStopDrainMaxWaitGivesFlushTimeToFinish(): void {
+  // drain 活跃（数据在刷）时的等待上限要够 GB 级关机大 flush 用：
+  // 上限太短会截断尾部写，制造 hive 半提交（XP 报 SYSTEM 损坏的根因之一）。
+  assert.equal(STOP_DRAIN_MAX_WAIT_MS, 120_000)
+}
+
 async function testWithAckDeadlineAcksFirst(): Promise<void> {
   const clock = makeFakeClock()
   const promise = withAckDeadline({ command: async () => {}, schedule: clock.schedule })
@@ -277,6 +283,7 @@ testShouldSurfaceUnsolicitedVmError()
 testDiskWriteFailedWatchdogForceStopsWhenStillRunning()
 testDiskWriteFailedWatchdogCancelsWhenStopped()
 testTransientBootHint()
+testStopDrainMaxWaitGivesFlushTimeToFinish()
 await testWithAckDeadlineAcksFirst()
 await testWithAckDeadlineForcesWhenSilent()
 await testWithAckDeadlineWaitsWhileActive()

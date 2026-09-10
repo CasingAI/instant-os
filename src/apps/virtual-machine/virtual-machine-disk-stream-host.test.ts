@@ -10,9 +10,13 @@ import {
   diskWriteReplyStatus,
   drainThenFlushThenClose,
   DirtyOverlay,
+  evaluateReleaseGate,
+  getVirtualMachineDiskFlushProgress,
   OVERLAY_FLUSH_MAX_ATTEMPTS,
   OVERLAY_HIGH_WATER_BYTES,
   OVERLAY_LOW_WATER_BYTES,
+  RELEASE_WRITE_GRACE_MAX_MS,
+  type StreamReleaseState,
 } from './virtual-machine-disk-stream-host.ts'
 import type { QuietBlobWriter } from '../files/files-quiet-blob-write.ts'
 
@@ -104,6 +108,7 @@ function stubEntry(writer: QuietBlobWriter) {
     size: OVERLAY_HIGH_WATER_BYTES + 4096,
     writable: true,
     quietWriter: writer,
+    deferFlush: false,
   }
 }
 
@@ -332,6 +337,62 @@ async function testFlushUntilEmptyKeepsReadDuringBackpressure(): Promise<void> {
   assert.ok(overlay.dirtyBytes <= OVERLAY_LOW_WATER_BYTES)
 }
 
+function releaseState(overrides: Partial<StreamReleaseState> = {}): StreamReleaseState {
+  return {
+    startedAt: 1_000,
+    closing: false,
+    acceptedWriteCount: 0,
+    discardedWrites: 0,
+    ...overrides,
+  }
+}
+
+function testReleaseGatePassesMessagesReceivedBeforeRelease(): void {
+  const state = releaseState({ closing: true })
+  // release 前接收的消息（含排队中还没执行的写）必须照常执行，不许丢
+  assert.equal(evaluateReleaseGate(state, 900, true), 'process')
+  assert.equal(evaluateReleaseGate(state, 900, false), 'process')
+  assert.equal(state.discardedWrites, 0)
+}
+
+function testReleaseGateDropsReadsAfterRelease(): void {
+  const state = releaseState()
+  assert.equal(evaluateReleaseGate(state, 1_500, false), 'drop')
+  assert.equal(state.discardedWrites, 0)
+}
+
+function testReleaseGateGracesWritesWithinWindow(): void {
+  const state = releaseState()
+  assert.equal(evaluateReleaseGate(state, 1_000 + RELEASE_WRITE_GRACE_MAX_MS, true), 'process')
+  assert.equal(state.acceptedWriteCount, 1)
+  assert.equal(state.discardedWrites, 0)
+}
+
+function testReleaseGateDropsWritesAfterGraceOrClose(): void {
+  const expired = releaseState()
+  assert.equal(
+    evaluateReleaseGate(expired, 1_000 + RELEASE_WRITE_GRACE_MAX_MS + 1, true),
+    'drop',
+  )
+  assert.equal(expired.discardedWrites, 1)
+
+  const closed = releaseState({ closing: true })
+  assert.equal(evaluateReleaseGate(closed, 1_100, true), 'drop')
+  assert.equal(closed.discardedWrites, 1)
+}
+
+function testReleaseGatePassesWithoutState(): void {
+  assert.equal(evaluateReleaseGate(undefined, 5_000, true), 'process')
+  assert.equal(evaluateReleaseGate(undefined, 5_000, false), 'process')
+}
+
+function testFlushProgressSumsEmptyIds(): void {
+  assert.deepEqual(getVirtualMachineDiskFlushProgress([]), { pendingBytes: 0 })
+  assert.deepEqual(getVirtualMachineDiskFlushProgress([undefined, undefined]), {
+    pendingBytes: 0,
+  })
+}
+
 testMissingStreamIs404()
 testReadonlyStreamIs403()
 testOutOfRangeIs416()
@@ -350,4 +411,10 @@ await testFlushUntilEmptySerializesConcurrentCallers()
 await testFlushUntilEmptyGivesUpAfterMaxAttempts()
 await testFlushFailureRecoversOnRetry()
 await testFlushUntilEmptyKeepsReadDuringBackpressure()
+testReleaseGatePassesMessagesReceivedBeforeRelease()
+testReleaseGateDropsReadsAfterRelease()
+testReleaseGateGracesWritesWithinWindow()
+testReleaseGateDropsWritesAfterGraceOrClose()
+testReleaseGatePassesWithoutState()
+testFlushProgressSumsEmptyIds()
 console.log('virtual-machine-disk-stream-host.test.ts ok')

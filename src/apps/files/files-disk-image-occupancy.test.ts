@@ -1,5 +1,5 @@
 /**
- * 磁盘镜像占用：文件挂载与虚拟机互斥。
+ * 磁盘镜像占用：文件挂载与虚拟机互斥（含 Web Locks 跨页签层）。
  * 运行：node --experimental-strip-types src/apps/files/files-disk-image-occupancy.test.ts
  */
 import assert from 'node:assert/strict'
@@ -17,53 +17,109 @@ import {
 } from './files-disk-image-occupancy.ts'
 
 const PATH = '/user/Disks/win.img'
+const WEB_LOCK_NAME = `instant-vm-disk:${PATH}`
+
+/**
+ * Web Locks mock：同源语义简化为按名字互斥，锁被持有直到 claim 回调返回的
+ * promise resolve（与真实 API 一致，模块靠长持锁 promise 占住锁）。
+ */
+function installWebLocksMock(): {
+  /** 模拟另一个窗口拿锁：拿到（回调立即返回释放）返回 true，被占用返回 false */
+  tryLockFromOtherWindow: (name: string) => Promise<boolean>
+  isHeld: (name: string) => boolean
+} {
+  const held = new Set<string>()
+  const manager = {
+    request(
+      name: string,
+      options: { mode: 'exclusive'; ifAvailable: true },
+      callback: (lock: unknown) => Promise<void> | void,
+    ): Promise<unknown> {
+      if (options.ifAvailable && held.has(name)) {
+        return Promise.resolve().then(() => callback(null))
+      }
+      held.add(name)
+      return Promise.resolve().then(async () => {
+        try {
+          await callback({ name, mode: options.mode })
+          return undefined
+        } finally {
+          held.delete(name)
+        }
+      })
+    },
+  }
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    writable: true,
+    value: { locks: manager },
+  })
+  return {
+    async tryLockFromOtherWindow(name: string) {
+      let acquired = false
+      await manager.request(name, { mode: 'exclusive', ifAvailable: true }, (lock) => {
+        acquired = lock !== null
+      })
+      return acquired
+    },
+    isHeld: (name: string) => held.has(name),
+  }
+}
+
+function uninstallWebLocksMock(): void {
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    writable: true,
+    value: {},
+  })
+}
 
 function reset(): void {
   resetDiskImageOccupancyForTests()
 }
 
-function testSameOccupantCanReclaim(): void {
+async function testSameOccupantCanReclaim(): Promise<void> {
   reset()
   const occupant = { kind: 'files-mount' as const, id: 'image:win' }
-  claimDiskImagePath(PATH, occupant)
-  claimDiskImagePath(PATH, occupant)
+  await claimDiskImagePath(PATH, occupant)
+  await claimDiskImagePath(PATH, occupant)
   assert.deepEqual(getDiskImageOccupant(PATH), occupant)
 }
 
-function testVmBlocksFilesMount(): void {
+async function testVmBlocksFilesMount(): Promise<void> {
   reset()
-  claimDiskImagePath(PATH, { kind: 'vm', id: 'vm-1' })
-  assert.throws(
+  await claimDiskImagePath(PATH, { kind: 'vm', id: 'vm-1' })
+  await assert.rejects(
     () => claimDiskImagePath(PATH, { kind: 'files-mount', id: 'image:win' }),
     (error: unknown) =>
       error instanceof Error && error.message === diskImageOccupiedByVmError(PATH),
   )
 }
 
-function testFilesMountBlocksVm(): void {
+async function testFilesMountBlocksVm(): Promise<void> {
   reset()
-  claimDiskImagePath(PATH, { kind: 'files-mount', id: 'image:win' })
-  assert.throws(
+  await claimDiskImagePath(PATH, { kind: 'files-mount', id: 'image:win' })
+  await assert.rejects(
     () => claimDiskImagePath(PATH, { kind: 'vm', id: 'vm-1' }),
     (error: unknown) =>
       error instanceof Error && error.message === diskImageOccupiedByFilesMountError(PATH),
   )
 }
 
-function testReleaseAllowsTheOtherSide(): void {
+async function testReleaseAllowsTheOtherSide(): Promise<void> {
   reset()
   const files = { kind: 'files-mount' as const, id: 'image:win' }
-  claimDiskImagePath(PATH, files)
+  await claimDiskImagePath(PATH, files)
   releaseDiskImagePath(PATH, files)
-  claimDiskImagePath(PATH, { kind: 'vm', id: 'vm-1' })
+  await claimDiskImagePath(PATH, { kind: 'vm', id: 'vm-1' })
   assert.equal(getDiskImageOccupant(PATH)?.kind, 'vm')
 }
 
-function testReleaseByOccupantClearsAllPaths(): void {
+async function testReleaseByOccupantClearsAllPaths(): Promise<void> {
   reset()
   const vm = { kind: 'vm' as const, id: 'vm-1' }
-  claimDiskImagePath('/user/a.img', vm)
-  claimDiskImagePath('/user/b.img', vm)
+  await claimDiskImagePath('/user/a.img', vm)
+  await claimDiskImagePath('/user/b.img', vm)
   releaseDiskImagePathsForOccupant(vm)
   assert.equal(getDiskImageOccupant('/user/a.img'), undefined)
   assert.equal(getDiskImageOccupant('/user/b.img'), undefined)
@@ -71,8 +127,8 @@ function testReleaseByOccupantClearsAllPaths(): void {
 
 function testKnownKindFileOpWordingUnchanged(): void {
   reset()
-  const vm = { kind: 'vm' as const, id: 'vm-1' }
-  const files = { kind: 'files-mount' as const, id: 'image:win' }
+  const vm = { kind: 'vm', id: 'vm-1' }
+  const files = { kind: 'files-mount', id: 'image:win' }
   assert.equal(
     diskImageOccupiedForFileOpError(PATH, vm, '删除'),
     `无法删除 ${PATH}：虚拟机正在使用这份磁盘镜像。请先关机或从虚拟机里去掉这块盘再删除。`,
@@ -83,7 +139,7 @@ function testKnownKindFileOpWordingUnchanged(): void {
   )
 }
 
-function testThirdPartyOccupantGenericMessaging(): void {
+async function testThirdPartyOccupantGenericMessaging(): Promise<void> {
   reset()
   const burner = {
     kind: 'burner',
@@ -91,13 +147,13 @@ function testThirdPartyOccupantGenericMessaging(): void {
     label: '刻录工具',
     releaseHint: '请先在刻录工具中结束任务',
   }
-  claimDiskImagePath(PATH, burner)
+  await claimDiskImagePath(PATH, burner)
   // 同一占用方幂等重入
-  claimDiskImagePath(PATH, burner)
+  await claimDiskImagePath(PATH, burner)
   assert.deepEqual(getDiskImageOccupant(PATH), burner)
 
   // 与内置占用方互斥，冲突文案带第三方展示名与释放建议
-  assert.throws(
+  await assert.rejects(
     () => claimDiskImagePath(PATH, { kind: 'vm', id: 'vm-1' }),
     (error: unknown) =>
       error instanceof Error &&
@@ -119,11 +175,11 @@ function testThirdPartyOccupantGenericMessaging(): void {
   assert.equal(getDiskImageOccupant(PATH), undefined)
 }
 
-function testThirdPartyWithoutLabelFallsBackToKind(): void {
+async function testThirdPartyWithoutLabelFallsBackToKind(): Promise<void> {
   reset()
   const editor = { kind: 'editor', id: 'e1' }
-  claimDiskImagePath(PATH, editor)
-  assert.throws(
+  await claimDiskImagePath(PATH, editor)
+  await assert.rejects(
     () => claimDiskImagePath(PATH, { kind: 'files-mount', id: 'image:win' }),
     (error: unknown) => {
       if (!(error instanceof Error)) return false
@@ -135,12 +191,89 @@ function testThirdPartyWithoutLabelFallsBackToKind(): void {
   )
 }
 
-testSameOccupantCanReclaim()
-testVmBlocksFilesMount()
-testFilesMountBlocksVm()
-testReleaseAllowsTheOtherSide()
-testReleaseByOccupantClearsAllPaths()
+async function testClaimHoldsWebLockUntilRelease(): Promise<void> {
+  const mock = installWebLocksMock()
+  try {
+    reset()
+    const vm = { kind: 'vm' as const, id: 'vm-1' }
+    await claimDiskImagePath(PATH, vm)
+    assert.equal(mock.isHeld(WEB_LOCK_NAME), true, 'claim 后跨页签锁应被持有')
+    // 另一个窗口拿不到这把锁
+    assert.equal(await mock.tryLockFromOtherWindow(WEB_LOCK_NAME), false)
+    releaseDiskImagePath(PATH, vm)
+    // 释放经微任务链传播到 mock 的锁登记，先排空再断言
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    assert.equal(mock.isHeld(WEB_LOCK_NAME), false, 'release 后跨页签锁应让出')
+    assert.equal(await mock.tryLockFromOtherWindow(WEB_LOCK_NAME), true)
+  } finally {
+    uninstallWebLocksMock()
+    reset()
+  }
+}
+
+async function testClaimFailsWhenOtherWindowHoldsLock(): Promise<void> {
+  const mock = installWebLocksMock()
+  try {
+    reset()
+    // 模拟另一个窗口长持锁不放手
+    let foreignRelease = () => undefined
+    const manager = (globalThis as { navigator: { locks: { request: Function } } }).navigator.locks
+    const foreign = manager.request(
+      WEB_LOCK_NAME,
+      { mode: 'exclusive', ifAvailable: true },
+      () =>
+        new Promise<void>((resolve) => {
+          foreignRelease = resolve
+        }),
+    )
+    await assert.rejects(
+      () => claimDiskImagePath(PATH, { kind: 'vm', id: 'vm-2' }),
+      /已被另一个窗口占用/,
+    )
+    // 内存表也不能留下半份声明
+    assert.equal(getDiskImageOccupant(PATH), undefined)
+    foreignRelease()
+    await foreign
+    // 锁让出后本窗口可以正常 claim
+    const vm = { kind: 'vm' as const, id: 'vm-1' }
+    await claimDiskImagePath(PATH, vm)
+    assert.equal(mock.isHeld(WEB_LOCK_NAME), true)
+    releaseDiskImagePath(PATH, vm)
+  } finally {
+    uninstallWebLocksMock()
+    reset()
+  }
+}
+
+async function testClaimDegradesWithoutWebLocks(): Promise<void> {
+  installWebLocksMock()
+  try {
+    // navigator.locks 缺失（非安全上下文）：退化为仅内存互斥，claim 照常成功
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      writable: true,
+      value: {},
+    })
+    reset()
+    const vm = { kind: 'vm' as const, id: 'vm-1' }
+    await claimDiskImagePath(PATH, vm)
+    assert.deepEqual(getDiskImageOccupant(PATH), vm)
+    releaseDiskImagePath(PATH, vm)
+  } finally {
+    uninstallWebLocksMock()
+    reset()
+  }
+}
+
+await testSameOccupantCanReclaim()
+await testVmBlocksFilesMount()
+await testFilesMountBlocksVm()
+await testReleaseAllowsTheOtherSide()
+await testReleaseByOccupantClearsAllPaths()
 testKnownKindFileOpWordingUnchanged()
-testThirdPartyOccupantGenericMessaging()
-testThirdPartyWithoutLabelFallsBackToKind()
+await testThirdPartyOccupantGenericMessaging()
+await testThirdPartyWithoutLabelFallsBackToKind()
+await testClaimHoldsWebLockUntilRelease()
+await testClaimFailsWhenOtherWindowHoldsLock()
+await testClaimDegradesWithoutWebLocks()
 console.log('files-disk-image-occupancy.test.ts ok')

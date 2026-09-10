@@ -1,5 +1,6 @@
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
 import { openQuietBlobWriter, type QuietBlobWriter } from '../files/files-quiet-blob-write.ts'
+import { openMountRangeWriter, type MountRangeWriter } from '../files/files-location-mount.ts'
 import {
   countSystemDebugHot,
   recordSystemDebugHot,
@@ -19,11 +20,19 @@ import {
 } from './virtual-machine-protocol.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 
+/** 镜像正文写入会话：内部卷走 OPFS 安静写，挂载卷走整段暂存写。 */
+type DiskQuietWriter = QuietBlobWriter | MountRangeWriter
+
 type StreamEntry = {
   path: string
   size: number
   writable: boolean
-  quietWriter: QuietBlobWriter | undefined
+  quietWriter: DiskQuietWriter | undefined
+  /**
+   * 挂载卷镜像：正文在会话结束前不更新，脏段必须一直留在覆盖层供读，
+   * 不能中途刷盘（否则读回旧正文）。
+   */
+  deferFlush: boolean
 }
 
 export const OVERLAY_FLUSH_INTERVAL_MS = 50
@@ -423,6 +432,9 @@ export function createOverlayFlusher(
   }
 
   async function acknowledgeGuestWrite(): Promise<void> {
+    if (entry.deferFlush) {
+      return
+    }
     if (overlay.dirtyBytes > OVERLAY_HIGH_WATER_BYTES) {
       // 高水位：客机写被卡到低水位才 ack，客机会停顿——这是一次强信号
       recordSystemDebugHot({
@@ -591,7 +603,57 @@ export function postSource(
 
 const overlays = new Map<string, DirtyOverlay>()
 const flushers = new Map<string, OverlayFlusher>()
-const releasingIds = new Set<string>()
+
+/** 释放闸门状态：按流记录 release 起点与宽限期内写入的接收情况。 */
+export type StreamReleaseState = {
+  /** release 开始时刻（performance.now() 时钟），此前接收的消息一律放行 */
+  startedAt: number
+  /** 收尾窗口结束：此后到达的写一律拒绝 */
+  closing: boolean
+  /** release 开始后被放行的写条数（静默检测用） */
+  acceptedWriteCount: number
+  /** 被拒绝的写条数（>0 说明镜像缺了可能已向客机 ack 的数据） */
+  discardedWrites: number
+}
+
+// release 开始后仍放行新写的总宽限：强拆路径下 CPU 尚未停，尾部数据能收多少收多少
+export const RELEASE_WRITE_GRACE_MAX_MS = 10_000
+// 宽限期内连续这么久没有新写即认为收尾完成，立即关门进入 flush/close
+export const RELEASE_WRITE_QUIESCE_MS = 500
+
+const releaseStates = new Map<string, StreamReleaseState>()
+
+/**
+ * 释放期间的消息闸门：
+ * - release 开始前接收的消息（含已入队还没执行的写）一律放行——它们是停机前
+ *   v86 发出的合法数据，可能已向客机 ack；执行时才丢弃等于制造 hive 半提交。
+ * - release 开始后的读没有意义，直接拒绝；写给宽限期，到期或关门后拒绝并计数。
+ */
+export function evaluateReleaseGate(
+  state: StreamReleaseState | undefined,
+  receivedAt: number,
+  isWrite: boolean,
+): 'process' | 'drop' {
+  if (!state) {
+    return 'process'
+  }
+  if (receivedAt < state.startedAt) {
+    return 'process'
+  }
+  if (!isWrite) {
+    return 'drop'
+  }
+  if (state.closing || receivedAt - state.startedAt > RELEASE_WRITE_GRACE_MAX_MS) {
+    state.discardedWrites += 1
+    return 'drop'
+  }
+  state.acceptedWriteCount += 1
+  return 'process'
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 function onDiskStreamMessage(event: MessageEvent): void {
   const isRead = isInstantVmDiskReadMessage(event.data)
@@ -604,7 +666,6 @@ function onDiskStreamMessage(event: MessageEvent): void {
     return
   }
   const streamId = event.data.streamId
-  const entry = streams.get(streamId)
   const source = event.source
   if (!source || typeof source !== 'object' || !('postMessage' in source)) {
     return
@@ -632,7 +693,10 @@ function onDiskStreamMessage(event: MessageEvent): void {
       countSystemDebugHot('vm', 'stream-queue-wait', queueWaitMs)
     }
     try {
-      if (releasingIds.has(streamId)) {
+      // entry 在执行时现查：消息可能在 release 完成后才轮到执行，旧引用会写向已 close 的会话
+      const entry = streams.get(streamId)
+      const release = releaseStates.get(streamId)
+      if (release && evaluateReleaseGate(release, receivedAt, isWrite) === 'drop') {
         if (isInstantVmDiskWriteMessage(event.data)) {
           postSource(
             target,
@@ -774,13 +838,24 @@ export async function registerVirtualMachineDiskStream(
     throw new Error(`文件不存在：${path}`)
   }
   const writable = options?.writable === true
-  const quietWriter = writable ? await openQuietBlobWriter(path) : undefined
+  let quietWriter: DiskQuietWriter | undefined
+  let deferFlush = false
+  if (writable) {
+    const mountWriter = await openMountRangeWriter(path)
+    if (mountWriter) {
+      quietWriter = mountWriter
+      deferFlush = true
+    } else {
+      quietWriter = await openQuietBlobWriter(path)
+    }
+  }
   const id = `ds-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`
   streams.set(id, {
     path,
     size: stat.byteSize,
     writable,
     quietWriter,
+    deferFlush,
   })
   ensureListener()
   recordSystemDebugTimeline({
@@ -837,14 +912,42 @@ export async function drainThenFlushThenClose(params: {
   await params.close()
 }
 
-export async function releaseVirtualMachineDiskStream(streamId: string | undefined): Promise<void> {
+export async function releaseVirtualMachineDiskStream(
+  streamId: string | undefined,
+): Promise<number> {
   if (!streamId) {
-    return
+    return 0
   }
   const releaseStartedAt = performance.now()
-  releasingIds.add(streamId)
+  const state: StreamReleaseState = {
+    startedAt: releaseStartedAt,
+    closing: false,
+    acceptedWriteCount: 0,
+    discardedWrites: 0,
+  }
+  releaseStates.set(streamId, state)
   const entry = streams.get(streamId)
   const flusher = flushers.get(streamId)
+  try {
+    // 收尾窗口：先排干 release 前积压的任务；宽限期内有新写到达则静默观察，
+    // 连续安静或宽限到期才关门。关门与最后一轮 drain 的完成落在同一同步段，
+    // 迟到写要么已被排干、要么撞上 closing 被拒绝，不会掉进 flush/close 之后。
+    await drainStreamWork(streamId)
+    let seenAccepted = state.acceptedWriteCount
+    while (
+      seenAccepted > 0 &&
+      performance.now() < releaseStartedAt + RELEASE_WRITE_GRACE_MAX_MS
+    ) {
+      await delay(RELEASE_WRITE_QUIESCE_MS)
+      await drainStreamWork(streamId)
+      if (state.acceptedWriteCount === seenAccepted) {
+        break
+      }
+      seenAccepted = state.acceptedWriteCount
+    }
+  } finally {
+    state.closing = true
+  }
   try {
     await drainThenFlushThenClose({
       drain: () => drainStreamWork(streamId),
@@ -874,15 +977,25 @@ export async function releaseVirtualMachineDiskStream(streamId: string | undefin
     streams.delete(streamId)
     overlays.delete(streamId)
     flushers.delete(streamId)
-    releasingIds.delete(streamId)
+    releaseStates.delete(streamId)
     releaseVmDiskStreamMetrics(streamId)
     streamWorkTails.delete(streamId)
   }
+  if (state.discardedWrites > 0) {
+    recordSystemDebugTimeline({
+      layer: 'vm',
+      op: 'disk-stream-release-discarded',
+      detail: `${state.discardedWrites} writes dropped, image may miss acked data`,
+    })
+  }
+  return state.discardedWrites
 }
 
 export function countVirtualMachineDiskStreams(): number {
   return streams.size
 }
+
+export type DiskStreamsReleaseResult = { discardedWrites: number }
 
 export async function releaseVirtualMachineDiskStreams(
   message: Partial<{
@@ -893,8 +1006,8 @@ export async function releaseVirtualMachineDiskStreams(
     fdbStream?: { id: string }
     stateStream?: { id: string }
   }>,
-): Promise<void> {
-  await Promise.all([
+): Promise<DiskStreamsReleaseResult> {
+  const discarded = await Promise.all([
     releaseVirtualMachineDiskStream(message.hdaStream?.id),
     releaseVirtualMachineDiskStream(message.hdbStream?.id),
     releaseVirtualMachineDiskStream(message.cdromStream?.id),
@@ -902,4 +1015,22 @@ export async function releaseVirtualMachineDiskStreams(
     releaseVirtualMachineDiskStream(message.fdbStream?.id),
     releaseVirtualMachineDiskStream(message.stateStream?.id),
   ])
+  return { discardedWrites: discarded.reduce((sum, count) => sum + count, 0) }
+}
+
+export type VirtualMachineDiskFlushProgress = {
+  /** 覆盖层中尚未落盘的字节数（挂载卷在 close 原子替换前包含全部脏段） */
+  pendingBytes: number
+}
+
+/** 关机刷盘进度查询：按流 id 汇总覆盖层剩余脏字节，给 UI 轮询用。 */
+export function getVirtualMachineDiskFlushProgress(
+  streamIds: readonly (string | undefined)[],
+): VirtualMachineDiskFlushProgress {
+  let pendingBytes = 0
+  for (const id of streamIds) {
+    if (!id) continue
+    pendingBytes += overlays.get(id)?.dirtyBytes ?? 0
+  }
+  return { pendingBytes }
 }

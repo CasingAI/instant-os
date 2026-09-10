@@ -126,7 +126,7 @@ export async function openImageMount(params: {
   const id = remembered && !taken.has(remembered.id)
     ? remembered.id
     : makeImageLocationId(newImageLocationKey(params.fileName, taken))
-  claimDiskImagePath(imagePath, { kind: 'files-mount', id })
+  await claimDiskImagePath(imagePath, { kind: 'files-mount', id })
   const label = diskImageLabelFromFileName(params.fileName)
 
   try {

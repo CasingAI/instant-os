@@ -256,6 +256,14 @@
   animation: vm-status-pulse 1.5s ease-in-out infinite;
 }
 
+.virtual-machine__status-dot--flushing {
+  background: #e0b000;
+  box-shadow:
+    0 0 6px rgba(224, 176, 0, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  animation: vm-status-pulse 1.5s ease-in-out infinite;
+}
+
 @keyframes vm-status-pulse {
   0%, 100% {
     opacity: 1;
@@ -381,6 +389,79 @@
   letter-spacing: 0.03em;
   text-align: center;
   pointer-events: none;
+}
+
+/* 关机收尾落盘覆盖层：压在画面上，落盘完成才消失（期间占用声明不解除） */
+.virtual-machine__flush-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: linear-gradient(180deg, rgba(20, 22, 28, 0.92), rgba(8, 9, 12, 0.96));
+  color: #d6d8df;
+  text-align: center;
+  pointer-events: none;
+}
+
+.virtual-machine__flush-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f0f1f4;
+  letter-spacing: 0.02em;
+}
+
+.virtual-machine__flush-bar {
+  width: min(320px, 70%);
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.virtual-machine__flush-bar-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  background: #e0b000;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.virtual-machine__flush-bar-fill--determinate {
+  transition: transform 0.3s ease-out;
+}
+
+/* 拿不到进度基准时的不确定态：左右扫动的光带 */
+.virtual-machine__flush-bar-fill:not(.virtual-machine__flush-bar-fill--determinate) {
+  animation: vm-flush-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes vm-flush-indeterminate {
+  0% {
+    transform: translateX(-100%) scaleX(0.4);
+  }
+  50% {
+    transform: translateX(60%) scaleX(0.4);
+  }
+  100% {
+    transform: translateX(160%) scaleX(0.4);
+  }
+}
+
+.virtual-machine__flush-detail {
+  font-size: 12px;
+  color: #9aa0ab;
+  font-variant-numeric: tabular-nums;
+}
+
+.virtual-machine__flush-warn {
+  font-size: 12px;
+  color: #e0b000;
 }
 
 .virtual-machine__iframe-error {

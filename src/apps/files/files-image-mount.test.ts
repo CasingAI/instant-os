@@ -193,7 +193,7 @@ async function testMountWriteUnmountRemount(): Promise<void> {
   const mounted = await mountDiskImage('/user/disk.img')
   assert.equal(isImageLocationId(mounted.id), true)
   assert.equal(getDiskImageOccupant('/user/disk.img')?.kind, 'files-mount')
-  assert.throws(() => claimDiskImagePath('/user/disk.img', { kind: 'vm', id: 'vm-1' }))
+  await assert.rejects(() => claimDiskImagePath('/user/disk.img', { kind: 'vm', id: 'vm-1' }))
   const root = filesLocationPathRoot(mounted.id)
   await filesMkdir(`${root}/docs`)
   await filesCreateText(`${root}/docs/note.txt`, 'from files app')
@@ -225,7 +225,7 @@ async function testVmOccupancyBlocksMount(): Promise<void> {
     image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength),
   )
   const vm = { kind: 'vm' as const, id: 'vm-1' }
-  claimDiskImagePath('/user/disk.img', vm)
+  await claimDiskImagePath('/user/disk.img', vm)
   // 占用冲突必须在打开 OPFS 写通道之前拦截，报友好文案而不是底层锁定错误
   await assert.rejects(
     () => mountDiskImage('/user/disk.img'),
@@ -268,7 +268,7 @@ async function testOccupiedImageProtectedFromFileOps(): Promise<void> {
   // VM 占用同样拦截，文案区分占用方
   await unmountDiskImage(mounted.id)
   const vm = { kind: 'vm' as const, id: 'vm-1' }
-  claimDiskImagePath('/user/disks/disk.img', vm)
+  await claimDiskImagePath('/user/disks/disk.img', vm)
   await assert.rejects(() => removeNode(imgNode.id), /虚拟机正在使用这份磁盘镜像/)
   releaseDiskImagePath('/user/disks/disk.img', vm)
 
@@ -292,7 +292,7 @@ async function testUnreadableImageDegradesGracefully(): Promise<void> {
 
   // 占用保持，VM 被拒
   assert.equal(getDiskImageOccupant('/user/blank.img')?.kind, 'files-mount')
-  assert.throws(() => claimDiskImagePath('/user/blank.img', { kind: 'vm', id: 'vm-1' }))
+  await assert.rejects(() => claimDiskImagePath('/user/blank.img', { kind: 'vm', id: 'vm-1' }))
 
   // getImageMountReadError 返回原因
   assert.equal(typeof getImageMountReadError(mounted.id) === 'string', true)
@@ -314,7 +314,7 @@ async function testUnreadableImageDegradesGracefully(): Promise<void> {
 
   // VM 现在可以正常 claim
   const vm = { kind: 'vm' as const, id: 'vm-1' }
-  claimDiskImagePath('/user/blank.img', vm)
+  await claimDiskImagePath('/user/blank.img', vm)
   releaseDiskImagePath('/user/blank.img', vm)
 }
 

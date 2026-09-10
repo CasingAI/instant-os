@@ -153,8 +153,10 @@ export const STOP_ACK_DEADLINE_MS = 3_000
 // 到点后先观察 iframe 消息活动再强拆：真卡死（事件循环被占满）时任何消息都
 // 发不出，持续静默即拆；消息仍在流动说明写回 drain 在推进，多等可把数据刷完。
 export const STOP_ACTIVITY_SILENCE_MS = 1_500
-// drain 推进中的最长等待：超过即放弃尾部数据照常强拆（断电语义允许丢数据）。
-export const STOP_DRAIN_MAX_WAIT_MS = 30_000
+// drain 推进中的最长等待：数据仍在刷（消息活跃）就陪它刷完，正常 XP 关机几秒
+// 完成，触顶即病态场景（GB 级镜像慢盘）；超过即放弃尾部数据照常强拆（断电语义
+// 允许丢数据，UI 会弹窗告知镜像可能不一致）。
+export const STOP_DRAIN_MAX_WAIT_MS = 120_000
 const STOP_ACTIVITY_POLL_MS = 500
 
 export type AckDeadlineOutcome = 'acked' | 'command-failed' | 'forced'
@@ -880,6 +882,8 @@ export type VmRuntimePoolOptions = {
   onDiskWriteForceStop?: (id: string) => void
   /** 关机落盘失败（磁盘流释放异常）后触发。 */
   onDiskWriteIncomplete?: (id: string) => void
+  /** 关机收尾丢弃了已接收的客机写（宽限期后仍到达），镜像可能缺已 ack 的数据。 */
+  onDiskWriteDirty?: (id: string, detail: { discardedWrites: number }) => void
 }
 
 export function useVirtualMachineRuntimePool(
@@ -895,6 +899,8 @@ export function useVirtualMachineRuntimePool(
   const [snapshots, setSnapshots] = useState<ReadonlyMap<string, VmRuntimeSnapshot>>(new Map())
   const [startedIds, setStartedIds] = useState<ReadonlySet<string>>(new Set())
   const [hints, setHints] = useState<ReadonlyMap<string, string>>(new Map())
+  /** 正在收尾落盘（drain→flush→close）的机器：UI 据此显示「正在写入」覆盖层。 */
+  const [flushingIds, setFlushingIds] = useState<readonly string[]>([])
   const runningIdsRef = useRef(new Set<string>())
   const startMessagesRef = useRef(new Map<string, InstantVmStartMessage>())
   const apiByIdRef = useRef(new Map<string, VmRuntimeApi>())
@@ -909,44 +915,59 @@ export function useVirtualMachineRuntimePool(
 
   const removeRunningId = useCallback(async (id: string) => {
     watchdogRef.current?.cancel(id)
-    const message = startMessagesRef.current.get(id)
-    let releaseError: unknown
+    setFlushingIds((current) => (current.includes(id) ? current : [...current, id]))
     try {
-      if (message) {
-        await releaseVirtualMachineDiskStreams(message)
+      const message = startMessagesRef.current.get(id)
+      let releaseError: unknown
+      try {
+        if (message) {
+          // 顺序不变量：磁盘流排干→刷盘→关会话全部完成后，才释放占用声明并卸载
+          // iframe——最后一字节落盘永远先于「这块镜像可以被别人打开」。
+          const { discardedWrites } = await releaseVirtualMachineDiskStreams(message)
+          if (discardedWrites > 0) {
+            recordSystemDebugTimeline({
+              layer: 'vm',
+              op: 'disk-writes-discarded',
+              detail: { id, discardedWrites },
+            })
+            optionsRef.current.onDiskWriteDirty?.(id, { discardedWrites })
+          }
+        }
+      } catch (error) {
+        releaseError = error
+        console.error('[vm] 释放磁盘流失败', id, error)
       }
-    } catch (error) {
-      releaseError = error
-      console.error('[vm] 释放磁盘流失败', id, error)
-    }
-    // 运行期间热插上的光盘/软盘流不在 start 消息里，随停机一并释放。
-    await releaseVirtualMachineRemovableMedia(id).catch((error: unknown) => {
-      console.error('[vm] 释放热插媒体流失败', id, error)
-    })
-    releaseVirtualMachineDiskImageOccupancy(id)
-    runningIdsRef.current.delete(id)
-    setRunningIds([...runningIdsRef.current])
-    const nextMessages = new Map(startMessagesRef.current)
-    nextMessages.delete(id)
-    startMessagesRef.current = nextMessages
-    setStartMessages(nextMessages)
-    setSnapshots((current) => {
-      const next = new Map(current)
-      next.delete(id)
-      return next
-    })
-    setHints((current) => {
-      const next = new Map(current)
-      next.delete(id)
-      return next
-    })
-    setStartedIds((current) => {
-      const next = new Set(current)
-      next.delete(id)
-      return next
-    })
-    if (releaseError !== undefined) {
-      throw releaseError instanceof Error ? releaseError : new Error(String(releaseError))
+      // 运行期间热插上的光盘/软盘流不在 start 消息里，随停机一并释放。
+      await releaseVirtualMachineRemovableMedia(id).catch((error: unknown) => {
+        console.error('[vm] 释放热插媒体流失败', id, error)
+      })
+      releaseVirtualMachineDiskImageOccupancy(id)
+      runningIdsRef.current.delete(id)
+      setRunningIds([...runningIdsRef.current])
+      const nextMessages = new Map(startMessagesRef.current)
+      nextMessages.delete(id)
+      startMessagesRef.current = nextMessages
+      setStartMessages(nextMessages)
+      setSnapshots((current) => {
+        const next = new Map(current)
+        next.delete(id)
+        return next
+      })
+      setHints((current) => {
+        const next = new Map(current)
+        next.delete(id)
+        return next
+      })
+      setStartedIds((current) => {
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
+      if (releaseError !== undefined) {
+        throw releaseError instanceof Error ? releaseError : new Error(String(releaseError))
+      }
+    } finally {
+      setFlushingIds((current) => current.filter((value) => value !== id))
     }
   }, [])
 
@@ -1040,7 +1061,7 @@ export function useVirtualMachineRuntimePool(
       try {
         // 上次运行可能异常退出，残留的热插媒体流在这里兜底清理。
         await releaseVirtualMachineRemovableMedia(id)
-        claimVirtualMachineDiskImageOccupancy(id, machine.devices)
+        await claimVirtualMachineDiskImageOccupancy(id, machine.devices)
         disks = await withTimeout(
           loadVirtualMachineDisks(machine),
           DISK_LOAD_TIMEOUT_MS,
@@ -1104,8 +1125,9 @@ export function useVirtualMachineRuntimePool(
   )
 
   // 断电：给运行时 3 秒 ack 窗口，到点后看 iframe 消息活动——真卡死（静默）立即
-  // 强拆，写回 drain 还在推进（活跃）则最多等 30 秒把数据刷完，再不陪请求超时
-  // 干等。finally 里的 removeRunningId 卸载运行时表面销毁 iframe，达成断电。
+  // 强拆，写回 drain 还在推进（活跃）则最多等 120 秒把数据刷完，再不陪请求超时
+  // 干等。finally 里的 removeRunningId 排干刷盘后才卸载运行时表面销毁 iframe，
+  // 达成断电；期间 flushingIds 置位，UI 显示「正在写入」覆盖层。
   // 返回是否走了强拆路径，只进调试时间线；用户提示由调用方按需决定。
   const shutdown = useCallback(
     async (id: string): Promise<boolean> => {
@@ -1266,6 +1288,7 @@ export function useVirtualMachineRuntimePool(
   return {
     origin,
     runningIds,
+    flushingIds,
     startMessages,
     snapshots,
     startedIds,
