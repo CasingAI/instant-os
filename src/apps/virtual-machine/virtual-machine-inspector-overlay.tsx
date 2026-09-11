@@ -11,7 +11,7 @@ import {
   formatVmPathSummary,
   formatVmPointerModeRuntimeLabel,
 } from './virtual-machine-config.ts'
-import { formatVmVgaResolution } from './virtual-machine-stats-format.ts'
+import { formatVmDisplayScale, formatVmVgaResolution } from './virtual-machine-stats-format.ts'
 import type { VirtualMachineRecord } from './virtual-machine-types.ts'
 import type { VmRuntimeSnapshot } from './virtual-machine-runtime.ts'
 
@@ -111,6 +111,10 @@ export function VirtualMachineInspectorOverlay({
             <Row label="分辨率" value={running && stats ? formatVmVgaResolution(stats) : '—'} />
             <Row label="已运行" value={running && stats ? `${Math.round(stats.runningMs / 1000)}s` : '—'} />
             <Row label="速度" value={running && stats ? `${stats.speedMips.toFixed(1)} mIPS` : '—'} />
+            <Row
+              label="画布缩放（v86）"
+              value={running && stats ? formatVmDisplayScale(stats.displayScale) : '—'}
+            />
           </Section>
 
           <Section title="外设">

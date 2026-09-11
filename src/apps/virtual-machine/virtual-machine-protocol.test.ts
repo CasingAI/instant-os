@@ -11,12 +11,14 @@ import {
   buildStartMessage,
   settingsToStartConfig,
   assertVirtualMachineDiskCanPersistWrites,
+  MOUNT_DISK_WRITE_BACK_MAX_BYTES,
   virtualMachineDiskPersistsWrites,
   virtualMachineHasBootMedia,
   virtualMachineMountWriteBackError,
   vmMountedDiskSlots,
 } from './virtual-machine-disks.ts'
 import {
+  formatVmDisplayScale,
   formatVmMips,
   formatVmRunningDuration,
   formatVmVgaResolution,
@@ -137,15 +139,28 @@ function testRefuseMountWriteBack(): void {
   assert.doesNotThrow(() =>
     assertVirtualMachineDiskCanPersistWrites('/user/Disks/xp.img', '硬盘'),
   )
+  // 挂载卷上的小投递盘允许回写（整段会话一次性替换）
+  assert.doesNotThrow(() =>
+    assertVirtualMachineDiskCanPersistWrites('/mount/Temp/probe.img', '硬盘', 100 * 1024 * 1024),
+  )
+  // 未给体积（无法判断）或超过上限仍拒绝
   assert.throws(
     () => assertVirtualMachineDiskCanPersistWrites('/mount/otter/xp.img', '硬盘'),
     (error: unknown) => {
       assert.ok(error instanceof Error)
       assert.equal(error.message, virtualMachineMountWriteBackError('硬盘', '/mount/otter/xp.img'))
       assert.match(error.message, /挂载目录/)
-      assert.match(error.message, /不写入/)
       return true
     },
+  )
+  assert.throws(
+    () =>
+      assertVirtualMachineDiskCanPersistWrites(
+        '/mount/otter/xp.img',
+        '硬盘',
+        MOUNT_DISK_WRITE_BACK_MAX_BYTES + 1,
+      ),
+    /挂载目录/,
   )
 }
 
@@ -268,6 +283,9 @@ function testStatsFormatting(): void {
     }),
     '800×600×16',
   )
+  assert.equal(formatVmDisplayScale(undefined), '—')
+  assert.equal(formatVmDisplayScale(1), '1:1')
+  assert.equal(formatVmDisplayScale(2), '×2（已归一化）')
 }
 
 function testNetworkFields(): void {
@@ -403,6 +421,13 @@ function testStatsMessage(): void {
   assert.equal(isInstantVmRuntimeToHostMessage(stats), true)
   assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, mouse: 'no' }), false)
   assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, absoluteMouse: 'no' }), false)
+  assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, displayScale: 2 }), true)
+  assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, displayScale: 0 }), false)
+  assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, displayScale: -1 }), false)
+  assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, displayScale: 'x' }), false)
+  const omitted: Record<string, unknown> = { ...stats }
+  delete omitted.displayScale
+  assert.equal(isInstantVmRuntimeToHostMessage(omitted), true)
 }
 
 function testSaveStateMessage(): void {

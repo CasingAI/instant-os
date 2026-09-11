@@ -79,3 +79,14 @@ export function diskActivityTitle(
   }
   return `${label}空闲`
 }
+
+export function formatVmDisplayScale(scale: number | undefined): string {
+  if (scale === undefined || !Number.isFinite(scale) || scale <= 0) {
+    return '—'
+  }
+  if (scale === 1) {
+    return '1:1'
+  }
+  const shown = Number.isInteger(scale) ? String(scale) : String(Number(scale.toFixed(2)))
+  return `×${shown}（已归一化）`
+}

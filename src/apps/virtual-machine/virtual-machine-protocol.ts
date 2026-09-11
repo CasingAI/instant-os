@@ -563,6 +563,7 @@ export type InstantVmStatsSnapshot = {
   vga: InstantVmVgaStats
   mouse: boolean
   absoluteMouse: boolean
+  displayScale?: number
 }
 
 export type InstantVmStatsMessage = InstantVmStatsSnapshot & {
@@ -1277,6 +1278,7 @@ export function emptyVmStatsSnapshot(): InstantVmStatsSnapshot {
     vga: { mode: 'text', width: 0, height: 0, bpp: 0 },
     mouse: false,
     absoluteMouse: false,
+    displayScale: 1,
   }
 }
 
@@ -1326,6 +1328,9 @@ export function isInstantVmStatsMessage(value: unknown): value is InstantVmStats
     return false
   }
   if (!isVmIdeLabel(value.ideLabel) || typeof value.mouse !== 'boolean' || typeof value.absoluteMouse !== 'boolean') {
+    return false
+  }
+  if (value.displayScale !== undefined && (!isNonNegFinite(value.displayScale) || value.displayScale <= 0)) {
     return false
   }
   return (
