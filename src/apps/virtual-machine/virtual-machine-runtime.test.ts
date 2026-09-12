@@ -12,6 +12,8 @@ import {
   createDiskWriteFailedWatchdog,
   DISK_WRITE_FAILED_FORCE_STOP_MS,
   DISK_WRITE_FAILED_FORCE_STOP_HINT,
+  DRAIN_STALL_FORCE_STOP_MS,
+  shouldDeferForceStop,
   DISK_IMAGE_INCOMPLETE_HINT,
   READING_DISK_IMAGE_HINT,
   STARTING_EMULATOR_HINT,
@@ -19,6 +21,9 @@ import {
   withAckDeadline,
   STOP_ACK_DEADLINE_MS,
   STOP_DRAIN_MAX_WAIT_MS,
+  STOP_ACTIVITY_SILENCE_MS,
+  DRAIN_STALL_ASK_INTERVAL_MS,
+  createDrainStallAlerter,
 } from './virtual-machine-runtime.ts'
 import { INSTANT_VM_MESSAGE_TYPE } from './virtual-machine-protocol.ts'
 
@@ -131,6 +136,16 @@ function testDiskWriteFailedWatchdogCancelsWhenStopped(): void {
   watchdog.cancel('vm-1')
   assert.equal(scheduled.length, 0)
   assert.deepEqual(forced, [])
+}
+
+function testShouldDeferForceStopWhileDraining(): void {
+  // 整盘回写中且批次还在流：不让 watchdog 强拆（否则撕出半提交镜像）。
+  assert.equal(shouldDeferForceStop({ draining: true, silentMs: 0 }), true)
+  assert.equal(shouldDeferForceStop({ draining: true, silentMs: DRAIN_STALL_FORCE_STOP_MS - 1 }), true)
+  // 静默到阈值：认定真卡死，照旧强拆。
+  assert.equal(shouldDeferForceStop({ draining: true, silentMs: DRAIN_STALL_FORCE_STOP_MS }), false)
+  // 不在回写中：保持原有 30s 强拆语义。
+  assert.equal(shouldDeferForceStop({ draining: false, silentMs: 0 }), false)
 }
 
 function testTransientBootHint(): void {
@@ -275,6 +290,52 @@ async function testWithAckDeadlineCommandFailed(): Promise<void> {
   assert.equal(clock.pendingCount, 0)
 }
 
+function testDrainStallAlerterRepeatsWhileStalled(): void {
+  // poweroff 模式「不设上限、不自动强拆」的落点：停滞就问，选了继续等待后每 10s 再问，
+  // 一直问到回写有进展或机器被收口为止。
+  assert.equal(DRAIN_STALL_ASK_INTERVAL_MS, 10_000)
+  const ticks = new Map<number, () => void>()
+  let nextId = 1
+  const schedule = (callback: () => void, ms: number) => {
+    assert.equal(ms, DRAIN_STALL_ASK_INTERVAL_MS, '询问间隔就是 10s')
+    const id = nextId
+    nextId += 1
+    ticks.set(id, callback)
+    return () => {
+      ticks.delete(id)
+    }
+  }
+  const stalled = new Set<string>(['vm-a'])
+  const asks: string[] = []
+  const alerter = createDrainStallAlerter({
+    isStalled: (id) => stalled.has(id),
+    onStall: (id) => asks.push(id),
+    schedule,
+  })
+  alerter.arm('vm-a')
+  alerter.arm('vm-a')
+  assert.equal(alerter.isArmed('vm-a'), true)
+  assert.equal(ticks.size, 1, '重复 arm 不该叠加轮询')
+
+  const tick = () => {
+    for (const callback of [...ticks.values()]) {
+      callback()
+    }
+  }
+  tick()
+  tick()
+  assert.deepEqual(asks, ['vm-a', 'vm-a'], '停滞就一直问下去，没有次数上限')
+
+  // 回写一旦恢复进展：不再打扰用户。
+  stalled.clear()
+  tick()
+  assert.deepEqual(asks, ['vm-a', 'vm-a'])
+
+  alerter.cancel('vm-a')
+  assert.equal(alerter.isArmed('vm-a'), false)
+  assert.equal(ticks.size, 0, '收口后必须撤掉轮询')
+}
+
 testRequestIdFormat()
 testPickDisplayedMachineId()
 testPickBackgroundMachineIds()
@@ -282,6 +343,8 @@ testUnsolicitedStopped()
 testShouldSurfaceUnsolicitedVmError()
 testDiskWriteFailedWatchdogForceStopsWhenStillRunning()
 testDiskWriteFailedWatchdogCancelsWhenStopped()
+testShouldDeferForceStopWhileDraining()
+testDrainStallAlerterRepeatsWhileStalled()
 testTransientBootHint()
 testStopDrainMaxWaitGivesFlushTimeToFinish()
 await testWithAckDeadlineAcksFirst()

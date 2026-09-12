@@ -428,6 +428,21 @@ function testStatsMessage(): void {
   const omitted: Record<string, unknown> = { ...stats }
   delete omitted.displayScale
   assert.equal(isInstantVmRuntimeToHostMessage(omitted), true)
+  // diskWrite 可选：none 模式没有回写器，缺席是正常情况，不能因此判整条 stats 非法。
+  const noDiskWrite: Record<string, unknown> = { ...stats }
+  delete noDiskWrite.diskWrite
+  assert.equal(isInstantVmRuntimeToHostMessage(noDiskWrite), true)
+  const diskWrite = { pendingBytes: 4096, pendingRanges: 2, droppedWrites: 0, droppedBytes: 0 }
+  assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, diskWrite }), true)
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({ ...stats, diskWrite: { ...diskWrite, pendingBytes: -1 } }),
+    false,
+  )
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({ ...stats, diskWrite: { ...diskWrite, droppedBytes: 'x' } }),
+    false,
+  )
+  assert.equal(isInstantVmRuntimeToHostMessage({ ...stats, diskWrite: {} }), false)
 }
 
 function testSaveStateMessage(): void {
@@ -590,6 +605,15 @@ function testDiskWriteFailedMessage(): void {
   )
 }
 
+function testGuestPoweroffDrainingMessage(): void {
+  // 客机自行切电、整盘回写开始：宿主只认这一个消息型别，无附加字段。
+  assert.equal(
+    isInstantVmRuntimeToHostMessage({ type: INSTANT_VM_MESSAGE_TYPE.guestPoweroffDraining }),
+    true,
+  )
+  assert.equal(isInstantVmHostToRuntimeMessage({ type: INSTANT_VM_MESSAGE_TYPE.guestPoweroffDraining }), false)
+}
+
 function testAgentCommandMessages(): void {
   const command = {
     type: INSTANT_VM_MESSAGE_TYPE.agentCommand,
@@ -750,6 +774,7 @@ testNativeKeyMessage()
 testPointerHintMessage()
 testDiskWriteMessages()
 testDiskWriteFailedMessage()
+testGuestPoweroffDrainingMessage()
 testAgentCommandMessages()
 testGuestClipboardMessage()
 testFileEntryList()

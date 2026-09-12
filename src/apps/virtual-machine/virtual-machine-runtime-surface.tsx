@@ -26,6 +26,8 @@ export type VmRuntimeSurfaceProps = {
   onStateChange: (machineId: string, snapshot: VmRuntimeSnapshot) => void
   onStarted: (machineId: string) => void
   onGuestPoweredOff: (machineId: string) => void
+  /** 客机自行切电、整盘回写开始：宿主应立刻显示「正在写入」覆盖层。 */
+  onGuestPoweroffDraining: (machineId: string) => void
   onBootError: (machineId: string, message: string, detail?: string) => void
   onIframeLoadFailed: (machineId: string, detail: string) => void
   onDiskWriteFailed: (machineId: string, message: string) => void
@@ -52,6 +54,7 @@ export function VmRuntimeSurface({
   onStateChange,
   onStarted,
   onGuestPoweredOff,
+  onGuestPoweroffDraining,
   onBootError,
   onIframeLoadFailed,
   onDiskWriteFailed,
@@ -77,6 +80,7 @@ export function VmRuntimeSurface({
     start,
     stop,
     lastMessageAt,
+    latestStats,
     saveState,
     setDisplayMode,
     setPointerMode,
@@ -100,6 +104,7 @@ export function VmRuntimeSurface({
     (text) => onGuestClipboard(machineId, text),
     (event) => onGuestFileEvent(machineId, event),
     (message) => onNativeKey(machineId, message),
+    () => onGuestPoweroffDraining(machineId),
   )
   const processedRef = useRef<InstantVmStartMessage | undefined>(undefined)
 
@@ -108,6 +113,7 @@ export function VmRuntimeSurface({
       start,
       stop,
       lastMessageAt,
+      latestStats,
       saveState,
       setDisplayMode,
       setPointerMode,
@@ -132,6 +138,7 @@ export function VmRuntimeSurface({
     start,
     stop,
     lastMessageAt,
+    latestStats,
     setDisplayMode,
     setPointerMode,
     setAbsoluteMouse,

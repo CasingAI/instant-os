@@ -17,9 +17,11 @@ import {
   normalizeVirtualMachineRecord,
   normalizeVirtualMachineSettings,
   normalizeVirtualMachines,
+  normalizeDiskWriteLoss,
   readVirtualMachineStore,
   removeVirtualMachine,
   setLastSelectedVirtualMachine,
+  setVirtualMachineDiskWriteLoss,
   updateVirtualMachine,
   writeVirtualMachineStore,
 } from './virtual-machine-store.ts'
@@ -266,6 +268,71 @@ function testNormalizeRecordRejectsInvalid(): void {
   assert.equal(normalizeVirtualMachineSettings({ name: '   ' }), undefined)
 }
 
+function testNormalizeDiskWriteLoss(): void {
+  // 形状不对的标记一律丢弃：宁可少一个警告，也不能显示假数字。
+  assert.equal(normalizeDiskWriteLoss(undefined), undefined)
+  assert.equal(normalizeDiskWriteLoss('x'), undefined)
+  assert.equal(normalizeDiskWriteLoss({ at: 1, droppedWrites: 0, droppedBytes: 0 }), undefined)
+  assert.equal(normalizeDiskWriteLoss({ at: 0, droppedWrites: 2, droppedBytes: 0 }), undefined)
+  assert.equal(normalizeDiskWriteLoss({ at: 1, droppedWrites: -2, droppedBytes: 0 }), undefined)
+  assert.equal(
+    normalizeDiskWriteLoss({ at: 1, droppedWrites: 2, droppedBytes: Number.NaN }),
+    undefined,
+  )
+  assert.deepEqual(normalizeDiskWriteLoss({ at: 1, droppedWrites: 2, droppedBytes: 0 }), {
+    at: 1,
+    droppedWrites: 2,
+    droppedBytes: 0,
+  })
+}
+
+async function testDiskWriteLossRoundTrip(): Promise<void> {
+  const created = await addVirtualMachine(defaultVirtualMachineSettings('丢写测试'))
+  assert.equal(created.diskWriteLoss, undefined)
+
+  await setVirtualMachineDiskWriteLoss(created.id, {
+    at: 1700000000000,
+    droppedWrites: 7,
+    droppedBytes: 4096,
+  })
+  // 走一遍读盘：标记必须真的落进存储，而不是只活在返回值里。
+  const reread = await readVirtualMachineStore()
+  assert.deepEqual(reread.machines.find((m) => m.id === created.id)?.diskWriteLoss, {
+    at: 1700000000000,
+    droppedWrites: 7,
+    droppedBytes: 4096,
+  })
+
+  // 改设置不能顺手把这条警告冲掉（它和 createdAt 同级，不属于 settings）。
+  await updateVirtualMachine(created.id, defaultVirtualMachineSettings('丢写测试改名'))
+  const afterUpdate = await readVirtualMachineStore()
+  assert.equal(
+    afterUpdate.machines.find((m) => m.id === created.id)?.diskWriteLoss?.droppedWrites,
+    7,
+  )
+
+  await setVirtualMachineDiskWriteLoss(created.id, undefined)
+  const cleared = await readVirtualMachineStore()
+  assert.equal(cleared.machines.find((m) => m.id === created.id)?.diskWriteLoss, undefined)
+}
+
+async function testConcurrentWritesDoNotClobber(): Promise<void> {
+  await writeVirtualMachineStore({ machines: [] })
+  const a = await addVirtualMachine(defaultVirtualMachineSettings('并发A'))
+  const b = await addVirtualMachine(defaultVirtualMachineSettings('并发B'))
+  // 两台机器同时收口：两个「读整表 → 改一处 → 写回整表」若交错，后写的会把先写的整表覆盖掉，
+  // 其中一台的丢弃记录凭空消失——而这条记录的唯一价值就是跨会话不丢。
+  await Promise.all([
+    setVirtualMachineDiskWriteLoss(a.id, { at: 1000, droppedWrites: 3, droppedBytes: 12 }),
+    setVirtualMachineDiskWriteLoss(b.id, { at: 2000, droppedWrites: 5, droppedBytes: 20 }),
+  ])
+  const store = await readVirtualMachineStore()
+  assert.equal(store.machines.length, 2)
+  assert.equal(store.machines.find((m) => m.id === a.id)?.diskWriteLoss?.droppedWrites, 3)
+  assert.equal(store.machines.find((m) => m.id === b.id)?.diskWriteLoss?.droppedWrites, 5)
+  await writeVirtualMachineStore({ machines: [] })
+}
+
 function testNormalizeKeyMappings(): void {
   const mapping = {
     from: { key: 'Meta', code: 'MetaLeft', keyCode: 91, location: 1 },
@@ -443,6 +510,9 @@ testNormalizeMemoryMbRange()
 testNormalizeCpuModelFallback()
 testNormalizeKeyMappings()
 testNextMachineName()
+testNormalizeDiskWriteLoss()
+await testDiskWriteLossRoundTrip()
+await testConcurrentWritesDoNotClobber()
 await testFirstReadPersistsDefault()
 await testEmptyWriteDoesNotReseed()
 await testAddUpdateAndRemoveRoundTrip()

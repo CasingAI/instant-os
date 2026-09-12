@@ -6,6 +6,12 @@ import {
 } from '../../os/files-io-metrics.ts'
 import type { VmMountedDiskSlots } from './virtual-machine-disks.ts'
 import type { InstantVmDiskStats, InstantVmStatsSnapshot } from './virtual-machine-protocol.ts'
+import { formatVmDiskWriteModeLabel } from './virtual-machine-config.ts'
+import type { VmDiskWriteModeId } from './virtual-machine-types.ts'
+import {
+  formatVmDiskBytes,
+  vmDiskWriteStatus,
+} from './virtual-machine-disk-write-status.ts'
 import {
   emptyVmDiskStreamIoSnapshot,
   getVmDiskStreamIoSnapshot,
@@ -126,11 +132,14 @@ export function VirtualMachineActivity({
   running,
   diskStreamIds = [],
   mountedSlots,
+  diskWriteMode = 'none',
 }: {
   stats: InstantVmStatsSnapshot | undefined
   running: boolean
   diskStreamIds?: readonly string[]
   mountedSlots?: VmMountedDiskSlots
+  /** 该机的「硬盘写入」模式；状态行按模式给出不同的落盘语义。 */
+  diskWriteMode?: VmDiskWriteModeId
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -198,6 +207,10 @@ export function VirtualMachineActivity({
         ? stats.cdrom
         : undefined
     : undefined
+  // 运行期看不见的落盘风险在这里现形：poweroff 攒了多少、live 丢了几条。
+  const diskWriteStatus = vmDiskWriteStatus({ mode: diskWriteMode, running, diskWrite: stats?.diskWrite })
+  const diskWrite = stats?.diskWrite
+  const modeLabel = formatVmDiskWriteModeLabel(diskWriteMode)
 
   return (
     <div class="virtual-machine__activity" ref={rootRef}>
@@ -254,6 +267,14 @@ export function VirtualMachineActivity({
             }
           />
         </div>
+        {diskWriteStatus ? (
+          <div
+            class={`virtual-machine__disk-write virtual-machine__disk-write--${diskWriteStatus.tone}`}
+            role="status"
+          >
+            {diskWriteStatus.text}
+          </div>
+        ) : undefined}
         <button
           type="button"
           class="virtual-machine__stats-toggle"
@@ -281,6 +302,26 @@ export function VirtualMachineActivity({
                 <DetailRow label="已读字节" value={String(ide?.bytesRead ?? 0)} />
                 <DetailRow label="已写扇区" value={String(ide?.sectorsWritten ?? 0)} />
                 <DetailRow label="已写字节" value={String(ide?.bytesWritten ?? 0)} />
+              </DetailSection>
+              <DetailSection title="落盘状态">
+                <DetailRow label="写入模式" value={modeLabel} />
+                <DetailRow
+                  label="未落盘"
+                  value={diskWrite ? formatVmDiskBytes(diskWrite.pendingBytes) : '—'}
+                />
+                <DetailRow
+                  label="未落盘区间"
+                  value={diskWrite ? `${diskWrite.pendingRanges} 段` : '—'}
+                  stale={diskWriteMode === 'none'}
+                />
+                <DetailRow
+                  label="已丢弃写入"
+                  value={diskWrite && diskWrite.droppedWrites > 0
+                    ? `${diskWrite.droppedWrites} 条 · ${formatVmDiskBytes(diskWrite.droppedBytes)}`
+                    : '无'}
+                  stale={!diskWrite}
+                />
+                <DetailRow label="说明" value={diskWriteStatus.text} />
               </DetailSection>
               <DetailSection title="宿主磁盘">
                 <DetailRow

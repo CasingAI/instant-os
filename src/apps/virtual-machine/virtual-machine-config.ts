@@ -320,6 +320,21 @@ export function formatVmDiskWriteModeLabel(id: VmDiskWriteModeId): string {
   return DISK_WRITE_MODE_LABELS[id]
 }
 
+/**
+ * 每个模式的完整说明：什么时候落盘、什么时候会丢、关页面/断电会怎样。
+ * 设置对话框按当前选中项显示这一段——模式差异直接决定数据安全性，一句话带过不够。
+ */
+const DISK_WRITE_MODE_DESCRIPTIONS: Record<VmDiskWriteModeId, string> = {
+  none: '运行中完全不改镜像文件，改动只留在内存里；关机或关闭页面都会丢弃，要保留就用快照。',
+  live: '运行中把扇区实时写回镜像，意外断电最多丢掉最后正在写的一小段；代价是磁盘写入更频繁。',
+  poweroff:
+    '运行中一条都不写，全部攒在内存里，关机或断电时一次性写入镜像。攒着这段时间里关闭页面、刷新或关掉浏览器，都会把本次开机的改动全部丢掉。',
+}
+
+export function formatVmDiskWriteModeDescription(id: VmDiskWriteModeId): string {
+  return DISK_WRITE_MODE_DESCRIPTIONS[id]
+}
+
 export function formatVmPointerModeRuntimeLabel(
   policy: VmPointerModeId,
   absoluteMouse: boolean | undefined,

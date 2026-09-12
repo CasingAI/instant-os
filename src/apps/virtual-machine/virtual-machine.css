@@ -464,6 +464,89 @@
   color: #e0b000;
 }
 
+/* 运行期落盘状态：一眼看清「现在关掉页面会不会丢东西」。
+   off/info 低调陈述，warn 用黄色盯着，danger 用红色点名已经丢了数据。 */
+.virtual-machine__disk-write {
+  flex: 1 1 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 2px 4px 0;
+}
+
+.virtual-machine__disk-write--off,
+.virtual-machine__disk-write--info {
+  color: #9aa0ab;
+}
+
+.virtual-machine__disk-write--warn {
+  color: #e0b000;
+}
+
+.virtual-machine__disk-write--danger {
+  color: #ff5f56;
+  font-weight: 600;
+}
+
+/* 「上次有写入没落盘」常驻横幅：跨会话保留，直到用户点「知道了」。 */
+.virtual-machine__loss-banner {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 4;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #ff5f56;
+  border-radius: 6px;
+  background: rgba(60, 16, 16, 0.92);
+  color: #ffd9d6;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.virtual-machine__loss-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ff5f56;
+  color: #3c1010;
+  font-weight: 700;
+  text-align: center;
+  line-height: 16px;
+}
+
+.virtual-machine__loss-text {
+  flex: 1 1 auto;
+}
+
+.virtual-machine__loss-dismiss {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 217, 214, 0.5);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.virtual-machine__loss-dismiss:hover {
+  background: rgba(255, 217, 214, 0.14);
+}
+
+.virtual-machine__row-loss {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(255, 95, 86, 0.18);
+  color: #ff8a80;
+  font-size: 11px;
+}
+
 .virtual-machine__iframe-error {
   flex-direction: column;
   gap: 4px;

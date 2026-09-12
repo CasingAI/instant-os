@@ -28,6 +28,7 @@ import {
   type VirtualMachineRecord,
   type VirtualMachineSettings,
   type VirtualMachineStore,
+  type VmDiskWriteLoss,
   type VmStorageDevice,
 } from './virtual-machine-types.ts'
 
@@ -267,11 +268,29 @@ export function normalizeVirtualMachineRecord(raw: unknown): VirtualMachineRecor
     typeof record.createdAt === 'number' && Number.isFinite(record.createdAt)
       ? record.createdAt
       : 0
+  const diskWriteLoss = normalizeDiskWriteLoss(record.diskWriteLoss)
   return {
     ...settings,
     id: record.id.trim(),
     createdAt,
+    ...(diskWriteLoss ? { diskWriteLoss } : {}),
   }
+}
+
+/** 「上次未落盘」标记：形状不对就整条丢弃——宁可少一个警告，也不能显示一个假数字。 */
+export function normalizeDiskWriteLoss(raw: unknown): VmDiskWriteLoss | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined
+  }
+  const record = raw as Record<string, unknown>
+  const valid = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0
+  const { at, droppedWrites, droppedBytes } = record
+  // droppedWrites <= 0 的标记没有信息量，等同于「没丢过」，不该留在记录里。
+  if (!valid(at) || at <= 0 || !valid(droppedWrites) || !valid(droppedBytes) || droppedWrites <= 0) {
+    return undefined
+  }
+  return { at, droppedWrites, droppedBytes }
 }
 
 export function normalizeVirtualMachines(raw: unknown): VirtualMachineRecord[] {
@@ -337,7 +356,25 @@ export function subscribeVirtualMachineStore(listener: () => void): () => void {
   return registryStore.subscribe(listener)
 }
 
-export async function readVirtualMachineStore(): Promise<VirtualMachineStore> {
+/**
+ * store 的每个写入口都是「读整表 → 改一处 → 写回整表」，而 registryStore.write 内部没有互斥：
+ * A 读、B 读、A 写、B 写的交错会让 A 的修改凭空消失。触发场景真实存在——多台机器同时收口
+ * 各自触发 onDiskWriteLoss、或收口瞬间用户保存设置——而这条记录的唯一价值就是跨会话不丢。
+ * 所以把整个读写面串成一条链，一次只跑一个。
+ */
+let storeChain: Promise<unknown> = Promise.resolve()
+
+function serializeStoreTask<T>(task: () => Promise<T>): Promise<T> {
+  // 前一个任务失败也必须继续跑后面的：同一个 task 同时挂 onFulfilled / onRejected。
+  const run = storeChain.then(task, task)
+  storeChain = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+async function readVirtualMachineStoreUnsafe(): Promise<VirtualMachineStore> {
   const store = await registryStore.read()
   const keys = await registryStore.keys()
   if (!keys.includes('machines')) {
@@ -346,9 +383,13 @@ export async function readVirtualMachineStore(): Promise<VirtualMachineStore> {
   return store
 }
 
-export async function writeVirtualMachineStore(store: VirtualMachineStore): Promise<void> {
+export function readVirtualMachineStore(): Promise<VirtualMachineStore> {
+  return serializeStoreTask(readVirtualMachineStoreUnsafe)
+}
+
+async function writeVirtualMachineStoreUnsafe(store: VirtualMachineStore): Promise<void> {
   // 调用方通常只传 machines；合并当前值，避免把 lastSelectedId 等其他字段清掉。
-  const current = await readVirtualMachineStore()
+  const current = await readVirtualMachineStoreUnsafe()
   await registryStore.write({
     ...current,
     ...store,
@@ -356,69 +397,114 @@ export async function writeVirtualMachineStore(store: VirtualMachineStore): Prom
   })
 }
 
-export async function addVirtualMachine(
-  settings: VirtualMachineSettings,
-): Promise<VirtualMachineRecord> {
-  const store = await readVirtualMachineStore()
-  const machine = createVirtualMachineRecord(settings)
-  await writeVirtualMachineStore({
-    machines: [...store.machines, machine],
-  })
-  return machine
+export function writeVirtualMachineStore(store: VirtualMachineStore): Promise<void> {
+  return serializeStoreTask(() => writeVirtualMachineStoreUnsafe(store))
 }
 
-export async function updateVirtualMachine(
+export function addVirtualMachine(
+  settings: VirtualMachineSettings,
+): Promise<VirtualMachineRecord> {
+  return serializeStoreTask(async () => {
+    const store = await readVirtualMachineStoreUnsafe()
+    const machine = createVirtualMachineRecord(settings)
+    await writeVirtualMachineStoreUnsafe({
+      machines: [...store.machines, machine],
+    })
+    return machine
+  })
+}
+
+export function updateVirtualMachine(
   id: string,
   settings: VirtualMachineSettings,
 ): Promise<VirtualMachineRecord | undefined> {
-  const store = await readVirtualMachineStore()
-  const index = store.machines.findIndex((machine) => machine.id === id)
-  const current = store.machines[index]
-  if (!current) {
-    return undefined
-  }
-  const normalized =
-    normalizeVirtualMachineSettings(settings) ?? settingsFromRecord(current)
-  const next: VirtualMachineRecord = {
-    ...current,
-    ...normalized,
-    id: current.id,
-    createdAt: current.createdAt,
-  }
-  const machines = [...store.machines]
-  machines[index] = next
-  await writeVirtualMachineStore({ machines })
-  return next
+  return serializeStoreTask(async () => {
+    const store = await readVirtualMachineStoreUnsafe()
+    const index = store.machines.findIndex((machine) => machine.id === id)
+    const current = store.machines[index]
+    if (!current) {
+      return undefined
+    }
+    const normalized =
+      normalizeVirtualMachineSettings(settings) ?? settingsFromRecord(current)
+    const next: VirtualMachineRecord = {
+      ...current,
+      ...normalized,
+      id: current.id,
+      createdAt: current.createdAt,
+    }
+    const machines = [...store.machines]
+    machines[index] = next
+    await writeVirtualMachineStoreUnsafe({ machines })
+    return next
+  })
 }
 
-export async function removeVirtualMachine(id: string): Promise<VirtualMachineRecord[]> {
-  const store = await readVirtualMachineStore()
-  const machines = store.machines.filter((machine) => machine.id !== id)
-  await writeVirtualMachineStore({ machines })
-  return machines
+/**
+ * 记下/清除「本次会话有写入没能落盘」。
+ *
+ * 单独一个写入口而不是走 updateVirtualMachine：那个函数只吃 VirtualMachineSettings，
+ * 而这条标记属于记录级状态（和 createdAt 同级），不该混进设置里被规范化冲掉。
+ * 传 undefined 表示用户已确认、清除标记。
+ */
+export function setVirtualMachineDiskWriteLoss(
+  id: string,
+  loss: VmDiskWriteLoss | undefined,
+): Promise<VirtualMachineRecord | undefined> {
+  return serializeStoreTask(async () => {
+    const store = await readVirtualMachineStoreUnsafe()
+    const index = store.machines.findIndex((machine) => machine.id === id)
+    const current = store.machines[index]
+    if (!current) {
+      return undefined
+    }
+    const next: VirtualMachineRecord = { ...current }
+    if (loss) {
+      next.diskWriteLoss = loss
+    } else {
+      delete next.diskWriteLoss
+    }
+    const machines = [...store.machines]
+    machines[index] = next
+    await writeVirtualMachineStoreUnsafe({ machines })
+    return next
+  })
 }
 
-export async function setLastSelectedVirtualMachine(id: string): Promise<void> {
-  const store = await readVirtualMachineStore()
-  if (store.lastSelectedId === id) {
-    return
-  }
-  await registryStore.write({ ...store, lastSelectedId: id })
+export function removeVirtualMachine(id: string): Promise<VirtualMachineRecord[]> {
+  return serializeStoreTask(async () => {
+    const store = await readVirtualMachineStoreUnsafe()
+    const machines = store.machines.filter((machine) => machine.id !== id)
+    await writeVirtualMachineStoreUnsafe({ machines })
+    return machines
+  })
 }
 
-export async function moveVirtualMachine(
+export function setLastSelectedVirtualMachine(id: string): Promise<void> {
+  return serializeStoreTask(async () => {
+    const store = await readVirtualMachineStoreUnsafe()
+    if (store.lastSelectedId === id) {
+      return
+    }
+    await registryStore.write({ ...store, lastSelectedId: id })
+  })
+}
+
+export function moveVirtualMachine(
   id: string,
   toIndex: number,
 ): Promise<VirtualMachineRecord[]> {
-  const store = await readVirtualMachineStore()
-  const from = store.machines.findIndex((machine) => machine.id === id)
-  if (from === -1) {
-    return store.machines
-  }
-  const machines = [...store.machines]
-  const [moved] = machines.splice(from, 1)
-  const target = Math.min(Math.max(toIndex, 0), machines.length)
-  machines.splice(target, 0, moved)
-  await writeVirtualMachineStore({ machines })
-  return machines
+  return serializeStoreTask(async () => {
+    const store = await readVirtualMachineStoreUnsafe()
+    const from = store.machines.findIndex((machine) => machine.id === id)
+    if (from === -1) {
+      return store.machines
+    }
+    const machines = [...store.machines]
+    const [moved] = machines.splice(from, 1)
+    const target = Math.min(Math.max(toIndex, 0), machines.length)
+    machines.splice(target, 0, moved)
+    await writeVirtualMachineStoreUnsafe({ machines })
+    return machines
+  })
 }

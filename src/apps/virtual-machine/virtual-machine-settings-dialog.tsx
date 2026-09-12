@@ -55,6 +55,7 @@ import {
   VM_STORAGE_DEVICE_LIMITS,
   VM_SHARED_FOLDER_DRIVE_CHOICES,
   VM_VGA_MEMORY_CHOICES,
+  formatVmDiskWriteModeDescription,
 } from './virtual-machine-config.ts'
 import {
   createBlankVirtualMachineDisk,
@@ -709,7 +710,7 @@ export function VirtualMachineSettingsDialog({
               disabled={busy || running}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
-              hint="不写入：客户机改动只留在内存，要保留就靠快照，不改镜像文件。实时写入：运行中把扇区写回镜像。关机时写入：关机或断电时一次性刷入。带快照启动时回写会改底盘镜像，容易和快照对不上；XP 这类机建议不写入。"
+              hint={`${formatVmDiskWriteModeDescription(draft.diskWriteMode)} 带快照启动时回写会改底盘镜像，容易和快照对不上；XP 这类机建议不写入。`}
             />
             <div class="virtual-machine-settings__storage">
               <div class="virtual-machine-settings__drives" role="listbox" aria-label="存储设备">

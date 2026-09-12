@@ -18,6 +18,7 @@ import {
   defaultVirtualMachineSettings,
   deviceAcceptExtensions,
   devicePickTitle,
+  formatVmDiskWriteModeLabel,
   formatVmDisplayModeLabel,
   formatVmMemoryLabel,
   isSharedFolderActive,
@@ -85,6 +86,7 @@ import {
   readVirtualMachineStore,
   removeVirtualMachine,
   setLastSelectedVirtualMachine,
+  setVirtualMachineDiskWriteLoss,
   subscribeVirtualMachineStore,
   updateVirtualMachine,
 } from './virtual-machine-store.ts'
@@ -93,7 +95,10 @@ import type {
   VirtualMachineSettings,
   VmStorageDevice,
 } from './virtual-machine-types.ts'
+import { totalUnflushedDiskBytes, shouldGuardVmUnload, vmDiskWriteLossText } from './virtual-machine-disk-write-status.ts'
+import type { InstantVmStatsSnapshot } from './virtual-machine-protocol.ts'
 import {
+  DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE,
   VM_DISPLAY_MODE_IDS,
   VM_OS_PRESET_AGENT_SUPPORTED,
   VM_SNAP_EDGE_PX_DEFAULT,
@@ -270,7 +275,7 @@ const VM_CLIPBOARD_READ_WARN_AFTER_FAILURES = 5
 const VM_CLIPBOARD_WRITE_MAX_ATTEMPTS = 30
 /** 「关机」（XP 软关机）命令发出后，等客机断电的最大时限；超时安静解锁，不提示不指挥。 */
 const GUEST_SHUTDOWN_TIMEOUT_MS = 90_000
-const GUEST_SHUTDOWN_SENT_HINT = '正在关机（XP 软关机）…'
+const GUEST_SHUTDOWN_SENT_HINT = '正在关机（客机完成后自动断电并写入磁盘）…'
 
 const DISPLAY_MODE_SEGMENTS: readonly { id: VmDisplayModeId; label: string }[] =
   VM_DISPLAY_MODE_IDS.map((id) => ({
@@ -283,7 +288,12 @@ type SettingsSession =
   | { mode: 'edit'; id: string; initial: VirtualMachineSettings }
 
 function formatMachineMeta(machine: VirtualMachineRecord): string {
-  return formatVmMemoryLabel(machine.memoryMb)
+  const memory = formatVmMemoryLabel(machine.memoryMb)
+  // 默认的「不写入」不标（列表会全是噪音）；另外两种会改镜像，值得在列表上就能看见。
+  if (machine.diskWriteMode === DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE) {
+    return memory
+  }
+  return `${memory} · ${formatVmDiskWriteModeLabel(machine.diskWriteMode)}`
 }
 
 function formatStatus(machine: VirtualMachineRecord | undefined, running: boolean): string {
@@ -556,6 +566,15 @@ function VirtualMachineList({
                 </span>
                 <span class="virtual-machine__row-meta">
                   {formatMachineMeta(machine)}
+                  {machine.diskWriteLoss ? (
+                    // 列表上一眼能看出这台机器的镜像可能不完整，不用逐台点开看横幅。
+                    <span
+                      class="virtual-machine__row-loss"
+                      title="上次运行有磁盘写入没能写入镜像，镜像可能不完整"
+                    >
+                      镜像可能不完整
+                    </span>
+                  ) : null}
                 </span>
               </span>
             </button>
@@ -599,6 +618,31 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         themeColor: THEME,
       })
     },
+    // 「镜像可能不完整」不能只在丢的那一刻弹一次：iframe 一销毁、标签页一关，这个事实
+    // 就没了。写进机器记录，用户下次开机还能看见，直到他确认处理过。
+    onDiskWriteLoss: (id, detail) => {
+      void setVirtualMachineDiskWriteLoss(id, { at: Date.now(), ...detail })
+    },
+    // 要不要放弃剩余写入由用户点头：「继续等待」永远安全，选它就继续等，
+    // 停滞后每 10s 会再问一次（无次数上限）；关掉对话框/按 Esc 一律按继续等待处理。
+    onForceStopRequest: async (id, detail) => {
+      const machineName = machines.find((machine) => machine.id === id)?.name
+      const waitedSeconds = Math.max(1, Math.round(detail.waitedMs / 1000))
+      const pendingMb = Math.ceil(detail.pendingBytes / (1024 * 1024))
+      const progress = pendingMb > 0 ? `还剩约 ${pendingMb} MB 没有写进镜像。` : '磁盘写入已经没有进展。'
+      const answer = await modal.choose({
+        title: '磁盘写入还没完成',
+        message: `${
+          machineName ? `「${machineName}」` : '这台虚拟机'
+        }正在把本次开机的改动写入镜像，已经等了约 ${waitedSeconds} 秒，${progress}\n继续等待不会丢数据；选择强制断电会放弃尚未写入的部分，镜像可能停在半提交状态（系统盘可能无法启动）。`,
+        options: [
+          { key: 'wait', label: '继续等待', tone: 'primary' },
+          { key: 'force', label: '强制断电', tone: 'danger' },
+        ],
+        themeColor: THEME,
+      })
+      return answer?.key === 'force' ? 'force' : 'wait'
+    },
   })
   const [machines, setMachines] = useState<VirtualMachineRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
@@ -606,6 +650,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const [powerHint, setPowerHint] = useState<string | undefined>(undefined)
   /** 客机关机命令已发出、正等客机断电的时间点；null = 无待收口的关机。 */
   const guestShutdownAtRef = useRef<number | null>(null)
+  /** 软关机进行中（命令已送达、客机尚未断电）。是 state 而非只读 ref：
+   *  兜底解锁 effect 必须靠它触发重跑，否则 ref 赋值不会让 90 秒 setTimeout 被安排。 */
+  const [awaitingGuestShutdown, setAwaitingGuestShutdown] = useState(false)
   const selected = useMemo(
     () => machines.find((machine) => machine.id === selectedId),
     [machines, selectedId],
@@ -681,6 +728,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     if (!selectedRunning) {
       guestShutdownAtRef.current = null
       setPowerBusy(false)
+      setAwaitingGuestShutdown(false)
       setPowerHint(undefined)
       return
     }
@@ -690,11 +738,14 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     const timer = window.setTimeout(() => {
       guestShutdownAtRef.current = null
       setPowerBusy(false)
+      setAwaitingGuestShutdown(false)
       // 不提示：用户自己会看到机器仍在运行。
       setPowerHint(undefined)
     }, GUEST_SHUTDOWN_TIMEOUT_MS)
     return () => window.clearTimeout(timer)
-  }, [selectedRunning])
+    // awaitingGuestShutdown 必须在依赖里：它是唯一会因「发出关机命令」而变化的值，
+    // 少了它这条超时兜底就永远不会被安排（powerBusy/ref 都不触发 effect 重跑）。
+  }, [selectedRunning, awaitingGuestShutdown])
 
   // 运行时存活探测：未就绪期间每 2 秒重试，服务器慢启动也能自动恢复为可点；
   // 一旦就绪就停止重试（正常运行零后台流量），只在窗口聚焦时复查一次。
@@ -940,6 +991,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const displayedId = pickDisplayedMachineId(selected?.id, pool.runningIds)
   // 关机收尾落盘中的机器：屏幕叠「正在写入」覆盖层，占用声明到刷完才释放。
   const displayedFlushing = displayedId !== undefined && pool.flushingIds.includes(displayedId)
+  // 软关机进行中（命令已送达、客机尚未断电）：整段窗口也要有覆盖层。
+  // 这段可能持续几十秒到几分钟（客机自己关机 + 运行时整盘回写），此前界面
+  // 只有一行小字、按钮还被禁用，用户会误判为「没反应」而去找手动断电。
+  const displayedShutdownPending =
+    awaitingGuestShutdown && displayedId !== undefined && displayedId === selected?.id
   const [flushPendingBytes, setFlushPendingBytes] = useState<number | undefined>(undefined)
   const flushBaselineRef = useRef<number | null>(null)
   useEffect(() => {
@@ -972,9 +1028,26 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     flushBaselineRef.current > 0
       ? Math.max(0, Math.min(1, 1 - flushPendingBytes / flushBaselineRef.current))
       : undefined
-  // 关机刷盘期间拦一下页面关闭：浏览器无法保证异步收尾完成，至少给用户反悔机会
+  // 所有在跑机器里还没落盘到镜像的字节合计。「关机时写入」模式下这些数据只存在于
+  // iframe 内存，关页面/刷新就是静默丢弃——以前这一刻完全没有拦截。
+  const unflushedDiskBytes = useMemo(() => {
+    const snapshots: (InstantVmStatsSnapshot | undefined)[] = []
+    for (const id of pool.runningIds) {
+      snapshots.push(pool.snapshots.get(id)?.stats)
+    }
+    return totalUnflushedDiskBytes(snapshots)
+  }, [pool.runningIds, pool.snapshots])
+  // 关机刷盘期间拦一下页面关闭：浏览器无法保证异步收尾完成，至少给用户反悔机会。
+  // 软关机等待期（awaitingGuestShutdown）同样要拦——此刻 iframe 内存里可能攒着
+  // 整次开机的磁盘改动，关页面等于直接丢。运行期有未落盘数据时同理（见上）。
   useEffect(() => {
-    if (pool.flushingIds.length === 0) {
+    if (
+      !shouldGuardVmUnload({
+        flushing: pool.flushingIds.length > 0,
+        awaitingGuestShutdown,
+        unflushedBytes: unflushedDiskBytes,
+      })
+    ) {
       return
     }
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -983,7 +1056,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [pool.flushingIds])
+  }, [pool.flushingIds, awaitingGuestShutdown, unflushedDiskBytes])
   const selectedSnapshot = pool.snapshots.get(selectedId ?? '')
   const selectedDiskStreamIds = listVmDiskStreamIds(
     selectedId ? pool.startMessages.get(selectedId) : undefined,
@@ -1745,17 +1818,28 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       const machine = selected
       void (async () => {
         if (action === 'stop') {
-          // 硬断电立即切电源、未保存数据会丢：二次确认后动手。
+          // 正在把本次开机的改动写入镜像时点断电：这一下点下去等于放弃没写完的改动，
+          // 必须把代价说清楚（此前是「未保存的数据会丢失」这种含糊说法）。
+          const flushing = pool.flushingIds.includes(machine.id)
           const confirmed = await modal.confirm({
-            title: '断电',
-            message: `要立即切断「${machine.name}」的电源吗？未保存的数据会丢失。`,
-            confirmLabel: '断电',
-            cancelLabel: '取消',
+            title: flushing ? '放弃写入并强制断电' : '断电',
+            message: flushing
+              ? `「${machine.name}」还在往镜像里写入本次开机的改动。现在强制断电会放弃尚未写入的部分，镜像可能停在半提交状态。要继续等它写完，请点「取消」。`
+              : `要立即切断「${machine.name}」的电源吗？未保存的数据会丢失。`,
+            confirmLabel: flushing ? '强制断电' : '断电',
+            cancelLabel: flushing ? '继续等待' : '取消',
             confirmTone: 'danger',
             themeColor: THEME,
           })
           if (!confirmed) {
-            trace('power-skipped', { reason: 'stop-not-confirmed' })
+            trace('power-skipped', { reason: flushing ? 'force-stop-not-confirmed' : 'stop-not-confirmed' })
+            return
+          }
+          if (flushing) {
+            // 用户已经明确选择放弃剩余写入：直接收口，不再走「等回写完成」那条路。
+            setPowerHint(FORCED_OFF_UNFLUSHED_HINT)
+            await pool.forceStop(machine.id)
+            trace('power-force-stop-done')
             return
           }
         }
@@ -1789,18 +1873,21 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             trace('power-guest-shutdown-sent')
             setPowerHint(GUEST_SHUTDOWN_SENT_HINT)
             guestShutdownAtRef.current = Date.now()
+            setAwaitingGuestShutdown(true)
             waitForGuestShutdown = true
             return
           }
           if (action === 'stop') {
-            const forced = await pool.shutdown(machine.id)
+            const forced = await pool.shutdown(machine.id, {
+              volatileDiskWrites: machine.diskWriteMode === 'poweroff',
+            })
             trace('power-stop-done', { forced })
             if (forced && machine.diskWriteMode === 'poweroff') {
               setPowerHint(FORCED_OFF_UNFLUSHED_HINT)
               // 右上角小字没人看：强拆丢掉整个会话的磁盘改动，必须打断告知
               void modal.alert({
                 title: '强制断电',
-                message: `客机无响应，已强制断电。${FORCED_OFF_UNFLUSHED_HINT}，本次开机对磁盘的所有改动都会丢失。`,
+                message: `已强制断电。${FORCED_OFF_UNFLUSHED_HINT}，本次开机对磁盘的所有改动都会丢失；镜像可能停在半提交状态，建议重新开机让系统自检修复，修复前请勿直接使用或导出该镜像。`,
                 themeColor: THEME,
               })
             } else {
@@ -1811,14 +1898,17 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           if (action === 'reset') {
             // 软重置（v86 cpu.reboot_internal）对假死客机不可靠：ack 秒回但 CPU
             // 可能根本不会重新跑，宿主也无法验证成败。重置一律走硬路径：断电
-            // （自带 3 秒期限＋活动观察）后冷启动，等效按机箱重置键。
-            const forced = await pool.shutdown(machine.id)
+            // （等整盘回写刷完，期间停滞每 10s 问一次「继续等待 / 强制断电」）后冷启动，
+            // 等效按机箱重置键。
+            const forced = await pool.shutdown(machine.id, {
+              volatileDiskWrites: machine.diskWriteMode === 'poweroff',
+            })
             trace('power-reset-done', { forced })
             if (forced && machine.diskWriteMode === 'poweroff') {
               setPowerHint(FORCED_OFF_UNFLUSHED_HINT)
               void modal.alert({
                 title: '强制断电',
-                message: `客机无响应，已强制断电。${FORCED_OFF_UNFLUSHED_HINT}，本次开机对磁盘的所有改动都会丢失。`,
+                message: `已强制断电。${FORCED_OFF_UNFLUSHED_HINT}，本次开机对磁盘的所有改动都会丢失；镜像可能停在半提交状态，建议重新开机让系统自检修复，修复前请勿直接使用或导出该镜像。`,
                 themeColor: THEME,
               })
             } else {
@@ -2279,6 +2369,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                     onStateChange={pool.onStateChange}
                     onStarted={pool.onStarted}
                     onGuestPoweredOff={pool.onGuestPoweredOff}
+                    onGuestPoweroffDraining={pool.onGuestPoweroffDraining}
                     onBootError={handleBootError}
                     onIframeLoadFailed={handleIframeLoadFailed}
                     onDiskWriteFailed={handleDiskWriteFailed}
@@ -2291,6 +2382,32 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                 </div>
               )
             })}
+            {selected?.diskWriteLoss ? (
+              // 常驻横幅：上次会话有写入没能落盘。挂在这里而不是弹一次就过——
+              // 用户需要它在下一次开机时仍然看得见。
+              <div class="virtual-machine__loss-banner" role="alert">
+                <span class="virtual-machine__loss-icon" aria-hidden="true">
+                  !
+                </span>
+                <span class="virtual-machine__loss-text">
+                  {vmDiskWriteLossText(selected.diskWriteLoss)}
+                </span>
+                <button
+                  type="button"
+                  class="virtual-machine__loss-dismiss"
+                  onClick={() => {
+                    void setVirtualMachineDiskWriteLoss(selected.id, undefined)
+                    recordSystemDebugTimeline({
+                      layer: 'vm',
+                      op: 'disk-write-loss-dismissed',
+                      detail: selected.id,
+                    })
+                  }}
+                >
+                  知道了
+                </button>
+              </div>
+            ) : null}
             {displayedId === undefined ? (
               <div class="virtual-machine__screen virtual-machine__screen--single">
                 {screenMessage ? (
@@ -2301,30 +2418,33 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
             {displayedBusy ? (
               <div class="virtual-machine__screen-message">正在连接模拟器…</div>
             ) : null}
-            {displayedFlushing ? (
+            {displayedFlushing || displayedShutdownPending ? (
               <div class="virtual-machine__flush-overlay" role="status">
-                <div class="virtual-machine__flush-title">正在写入虚拟磁盘…</div>
+                <div class="virtual-machine__flush-title">
+                  {displayedFlushing ? '正在写入虚拟磁盘…' : '正在关机…'}
+                </div>
                 <div class="virtual-machine__flush-bar">
                   <div
                     class={
-                      flushProgress !== undefined
+                      displayedFlushing && flushProgress !== undefined
                         ? 'virtual-machine__flush-bar-fill virtual-machine__flush-bar-fill--determinate'
                         : 'virtual-machine__flush-bar-fill'
                     }
                     style={
-                      flushProgress !== undefined
+                      displayedFlushing && flushProgress !== undefined
                         ? `transform: scaleX(${flushProgress})`
                         : undefined
                     }
                   />
                 </div>
                 <div class="virtual-machine__flush-detail">
-                  {flushProgress !== undefined
-                    ? `${Math.round(flushProgress * 100)}%`
-                    : '正在写回镜像文件…'}
-                  {flushPendingBytes !== undefined && flushPendingBytes > 0
-                    ? ` · 剩余 ${Math.max(1, Math.ceil(flushPendingBytes / (1024 * 1024)))} MB`
-                    : ''}
+                  {displayedFlushing
+                    ? `${flushProgress !== undefined ? `${Math.round(flushProgress * 100)}%` : '正在写回镜像文件…'}${
+                        flushPendingBytes !== undefined && flushPendingBytes > 0
+                          ? ` · 剩余 ${Math.max(1, Math.ceil(flushPendingBytes / (1024 * 1024)))} MB`
+                          : ''
+                      }`
+                    : '客机关机完成后自动断电并写入镜像'}
                 </div>
                 <div class="virtual-machine__flush-warn">完成前请勿关闭窗口或页面</div>
               </div>
@@ -2339,6 +2459,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               running={selectedRunning && !displayedBusy}
               diskStreamIds={selectedDiskStreamIds}
               mountedSlots={vmMountedDiskSlots(selected?.devices)}
+              diskWriteMode={selected?.diskWriteMode}
             />
           </div>
           {inspectorOpen && selected ? (

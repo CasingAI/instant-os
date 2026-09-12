@@ -7,7 +7,12 @@ import {
   releaseVirtualMachineRemovableMedia,
 } from './virtual-machine-disks.ts'
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
-import { releaseVirtualMachineDiskStreams } from './virtual-machine-disk-stream-host.ts'
+import {
+  getVirtualMachineDiskFlushProgress,
+  releaseVirtualMachineDiskStreams,
+} from './virtual-machine-disk-stream-host.ts'
+import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
+import { combineDiskWriteLoss } from './virtual-machine-disk-write-status.ts'
 import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
@@ -137,14 +142,34 @@ export function shouldSurfaceUnsolicitedVmError(
 }
 
 export const DISK_WRITE_FAILED_FORCE_STOP_MS = 30_000
+/**
+ * 整盘回写进行中（flushingIds 置位）时，只有 iframe 彻底静默这么久才认定卡死强拆。
+ * 批次还在流就说明回写在推进——此刻强拆只会把剩下的改动留在 iframe 里，撕出半提交镜像。
+ */
+export const DRAIN_STALL_FORCE_STOP_MS = 60_000
 export const DISK_WRITE_FAILED_FORCE_STOP_HINT =
   '硬盘回写失败，已强制标记为已关机；镜像可能不完整'
 export const DISK_IMAGE_INCOMPLETE_HINT = '硬盘回写未完成，镜像可能不完整'
 // 仅「硬盘写入=关机时写入」模式强拆时提示：该模式脏数据攒在 iframe 内存里，
 // 强拆等于丢掉本次开机的全部磁盘改动（真机断电同样如此），值得让用户知道。
-export const FORCED_OFF_UNFLUSHED_HINT = '客机无响应，本次磁盘改动未写入镜像'
+// 措辞不带原因：强拆可能来自客机无响应，也可能来自用户在「继续等待 / 强制断电」里
+// 自己选了后者，提示只陈述后果。
+export const FORCED_OFF_UNFLUSHED_HINT = '本次磁盘改动未写入镜像'
 export const READING_DISK_IMAGE_HINT = '正在读取镜像…'
 export const STARTING_EMULATOR_HINT = '正在启动模拟器…'
+
+/**
+ * 回写失败后是否先别强拆：整盘回写进行中、且 iframe 还没静默到阈值说明批次仍在流，
+ * 强拆只会把剩下的改动留在 iframe 里（半提交镜像）。真卡死（事件循环占满）时静默，
+ * 到点照旧强拆收场。
+ */
+export function shouldDeferForceStop(input: {
+  draining: boolean
+  silentMs: number
+  stallMs?: number
+}): boolean {
+  return input.draining && input.silentMs < (input.stallMs ?? DRAIN_STALL_FORCE_STOP_MS)
+}
 
 // 断电只给运行时 3 秒 ack 窗口：客机死循环等故障可能让 iframe 事件循环收不了
 // 消息，ack 永远不来；到点后由调用方强拆收场（断电＝removeRunningId 卸载
@@ -158,6 +183,72 @@ export const STOP_ACTIVITY_SILENCE_MS = 1_500
 // 允许丢数据，UI 会弹窗告知镜像可能不一致）。
 export const STOP_DRAIN_MAX_WAIT_MS = 120_000
 const STOP_ACTIVITY_POLL_MS = 500
+
+// 「关机时写入」模式（diskWriteMode=poweroff）专用：这个模式运行期一条磁盘写都不发，
+// 全部脏区间攒在 iframe 内存里，断电时按 16MB 一批 drain 给宿主 —— 这是本次开机唯一的
+// 落盘机会，所以**不设总时限、不自动强拆**。批次之间有真实往返间隔（写盘+flush+ack），
+// 远大于 live 模式 8ms 去抖的连续消息流：用 live 的 1.5s 静默窗口判定「卡死」会把正常
+// 推进的 drain 误判成死机，强拆 iframe → 已刷一部分、剩余全丢，镜像停在半提交状态
+//（正是 ntoskrnl 缺失这类损坏的成因）。
+// 改成：只要连续这么久没有新消息（= 回写没有进展），就问用户一次「继续等待 / 强制断电」；
+// 用户选继续等待就再等这么久再问，循环下去，用户是唯一出口。
+export const DRAIN_STALL_ASK_INTERVAL_MS = 10_000
+
+/**
+ * 整盘回写停滞提醒：对每个正在回写的机器按 intervalMs 轮询，停滞就回调；回调返回后
+ * 继续下一轮，直到 cancel ——「继续等待」的循环就落在这里（不设询问次数上限）。
+ * schedule 可注入，便于测试手动推进时间。
+ */
+export function createDrainStallAlerter(options: {
+  isStalled: (id: string) => boolean
+  onStall: (id: string) => void
+  intervalMs?: number
+  schedule?: (callback: () => void, ms: number) => () => void
+}): {
+  arm: (id: string) => void
+  cancel: (id: string) => void
+  cancelAll: () => void
+  isArmed: (id: string) => boolean
+} {
+  const intervalMs = options.intervalMs ?? DRAIN_STALL_ASK_INTERVAL_MS
+  const schedule =
+    options.schedule ??
+    ((callback, ms) => {
+      const timer = globalThis.setInterval(callback, ms)
+      return () => globalThis.clearInterval(timer)
+    })
+  const cancels = new Map<string, () => void>()
+  return {
+    arm(id) {
+      if (cancels.has(id)) {
+        return
+      }
+      cancels.set(
+        id,
+        schedule(() => {
+          if (options.isStalled(id)) {
+            options.onStall(id)
+          }
+        }, intervalMs),
+      )
+    },
+    cancel(id) {
+      const cancel = cancels.get(id)
+      if (cancel) {
+        cancels.delete(id)
+        cancel()
+      }
+    },
+    cancelAll() {
+      for (const id of [...cancels.keys()]) {
+        this.cancel(id)
+      }
+    },
+    isArmed(id) {
+      return cancels.has(id)
+    },
+  }
+}
 
 export type AckDeadlineOutcome = 'acked' | 'command-failed' | 'forced'
 
@@ -275,10 +366,18 @@ export function createDiskWriteFailedWatchdog(options: {
 
 export type VmRuntimeApi = {
   start(message: InstantVmStartMessage): Promise<void>
-  stop(): Promise<void>
+  stop(options?: { timeoutMs?: number | null }): Promise<void>
   saveState(): Promise<ArrayBuffer>
   /** 宿主最近收到该 iframe 一条消息的时刻（Date.now() 基准）；用于断电强拆前的活动判定。 */
   lastMessageAt(): number
+  /**
+   * 宿主最近收到的 stats 快照，**同步**可读（消息一进 handler 就更新，不等 React 渲染）。
+   *
+   * 收口需要读 drain 之后、`dispose()` 之前补发的那一份最终快照里的丢弃计数，
+   * 而那条 stats 与随后的 stopped 是背靠背到达的：走 state + effect 会输给 stopped
+   * 处理里的同步读取，只能从这条不经渲染的通道拿。
+   */
+  latestStats(): InstantVmStatsSnapshot | undefined
   setDisplayMode(mode: InstantVmDisplayMode): Promise<void>
   setPointerMode(mode: InstantVmPointerMode): Promise<void>
   /** 运行中切换「体验增强·绝对坐标鼠标」放行位。 */
@@ -324,6 +423,11 @@ export function useVirtualMachineRuntime(
   onGuestClipboard?: (text: string) => void,
   onGuestFileEvent?: (event: VmGuestFileEvent) => void,
   onNativeKey?: (message: InstantVmNativeKeyMessage) => void,
+  /**
+   * 客机自行切电、整盘回写即将开始。poweroff 模式的回写要几十秒到几分钟，
+   * 宿主据此立即进入「正在写入」状态，避免界面像卡死。
+   */
+  onGuestPoweroffDraining?: () => void,
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingRef = useRef(new Map<string, Pending>())
@@ -341,11 +445,15 @@ export function useVirtualMachineRuntime(
   onGuestFileEventRef.current = onGuestFileEvent
   const onNativeKeyRef = useRef(onNativeKey)
   onNativeKeyRef.current = onNativeKey
+  const onGuestPoweroffDrainingRef = useRef(onGuestPoweroffDraining)
+  onGuestPoweroffDrainingRef.current = onGuestPoweroffDraining
   const [ready, setReady] = useState(false)
   const readyRef = useRef(false)
   // 运行时最近一条消息（含 stats/diskWrite）的宿主收到时间：断电强拆前用它区分
   // 「事件循环真卡死（完全静默）」和「ack 慢但数据还在刷（活跃，值得多等）」。
   const lastMessageAtRef = useRef(0)
+  // stats 的同步副本：state 要等渲染+effect 才可见，而收口读最终丢弃计数时等不了。
+  const latestStatsRef = useRef<InstantVmStatsSnapshot | undefined>(undefined)
   const [stats, setStats] = useState<InstantVmStatsSnapshot | undefined>(undefined)
   const [bootProgress, setBootProgress] = useState<string | undefined>(undefined)
   const [iframeStatus, setIframeStatus] = useState<VmIframeStatus>('loading')
@@ -366,6 +474,7 @@ export function useVirtualMachineRuntime(
   useEffect(() => {
     setReady(false)
     readyRef.current = false
+    latestStatsRef.current = undefined
     setStats(undefined)
     setBootProgress(undefined)
     setIframeStatus('loading')
@@ -404,6 +513,11 @@ export function useVirtualMachineRuntime(
 
       if (message.type === INSTANT_VM_MESSAGE_TYPE.diskWriteFailed) {
         onDiskWriteFailedRef.current?.(message.message)
+        return
+      }
+
+      if (message.type === INSTANT_VM_MESSAGE_TYPE.guestPoweroffDraining) {
+        onGuestPoweroffDrainingRef.current?.()
         return
       }
 
@@ -452,6 +566,8 @@ export function useVirtualMachineRuntime(
       }
 
       if (message.type === INSTANT_VM_MESSAGE_TYPE.stats) {
+        // 同步落一份：收口时要在 stopped 处理的同一个任务里读到 drain 后的最终丢弃计数。
+        latestStatsRef.current = message
         setStats(message)
         return
       }
@@ -615,28 +731,37 @@ export function useVirtualMachineRuntime(
         args?: unknown[]
       },
       transfer: Transferable[] = [],
-      timeoutMs = REQUEST_TIMEOUT_MS,
+      /** null = 不设超时（整盘回写可能远超 60s，超时会假报失败）。 */
+      timeoutMs: number | null = REQUEST_TIMEOUT_MS,
       resolver?: (message: unknown) => T,
     ) => {
       return new Promise<T>((resolve, reject) => {
-        const timer = window.setTimeout(() => {
-          pendingRef.current.delete(message.requestId)
-          reject(new Error('运行时无响应'))
-        }, timeoutMs)
+        const timer =
+          timeoutMs === null
+            ? undefined
+            : window.setTimeout(() => {
+                pendingRef.current.delete(message.requestId)
+                reject(new Error('运行时无响应'))
+              }, timeoutMs)
+        const clearTimer = () => {
+          if (timer !== undefined) {
+            window.clearTimeout(timer)
+          }
+        }
         pendingRef.current.set(message.requestId, {
           resolve: (value) => {
-            window.clearTimeout(timer)
+            clearTimer()
             resolve(resolver ? resolver(value) : (undefined as T))
           },
           reject: (error) => {
-            window.clearTimeout(timer)
+            clearTimer()
             reject(error)
           },
         })
         try {
           post(message, transfer)
         } catch (error) {
-          window.clearTimeout(timer)
+          clearTimer()
           pendingRef.current.delete(message.requestId)
           reject(error instanceof Error ? error : new Error(String(error)))
         }
@@ -663,16 +788,24 @@ export function useVirtualMachineRuntime(
     [request, targetOrigin],
   )
 
-  const stop = useCallback(async () => {
-    try {
-      await request({ type: INSTANT_VM_MESSAGE_TYPE.stop, requestId: newVmRequestId() })
-    } finally {
-      setStats(undefined)
-      setBootProgress(undefined)
-    }
-  }, [request])
+  const stop = useCallback(
+    async (stopOptions?: { timeoutMs?: number | null }) => {
+      try {
+        await request(
+          { type: INSTANT_VM_MESSAGE_TYPE.stop, requestId: newVmRequestId() },
+          [],
+          stopOptions?.timeoutMs === undefined ? REQUEST_TIMEOUT_MS : stopOptions.timeoutMs,
+        )
+      } finally {
+        setStats(undefined)
+        setBootProgress(undefined)
+      }
+    },
+    [request],
+  )
 
   const lastMessageAt = useCallback(() => lastMessageAtRef.current, [])
+  const latestStats = useCallback(() => latestStatsRef.current, [])
 
   const setDisplayMode = useCallback(
     async (mode: InstantVmDisplayMode) => {
@@ -815,6 +948,9 @@ export function useVirtualMachineRuntime(
   // 注意：Chrome 对「连接被拒」也会用内置错误页完成一次文档加载，iframe 的 load
   // 事件照样触发，所以 load 不能作为「运行时可用」的依据；唯一可信信号是 ready 消息。
   const handleIframeLoad = useCallback(() => {
+    // iframe 文档重载（origin 不变时旧的 stats 副本会滞留到新会话第一条 stats）：
+    // 这里清一次，避免新会话还没发过 stats 就收口时读到上一会话的最终计数。
+    latestStatsRef.current = undefined
     recordSystemDebugTimeline({ layer: 'vm', op: 'iframe-doc-loaded' })
   }, [])
 
@@ -855,6 +991,7 @@ export function useVirtualMachineRuntime(
     start,
     stop,
     lastMessageAt,
+    latestStats,
     saveState,
     setDisplayMode,
     setPointerMode,
@@ -877,6 +1014,17 @@ export function useVirtualMachineRuntime(
  * - 每个运行中的 machineId 挂载一个 `VmRuntimeSurface`（独立 iframe，见 virtual-machine-runtime-surface.tsx）。
  * - 提供开机/关机/重置/显示比例等命令，命令按 machineId 路由到对应实例。
  */
+export type VmForceStopDecision = 'wait' | 'force'
+
+export type VmForceStopRequest = {
+  /** 触发询问的来源：回写停滞 / 回写失败 watchdog。 */
+  reason: 'drain-stall' | 'write-failed'
+  /** 从开始收尾（写入覆盖层点亮）到现在已经等了多少毫秒。 */
+  waitedMs: number
+  /** 宿主侧尚未落盘的字节数（供对话框告知进度）。 */
+  pendingBytes: number
+}
+
 export type VmRuntimePoolOptions = {
   /** 硬盘回写 30s 超时被强制停机后触发（App 层用它弹窗，替代右上角小字）。 */
   onDiskWriteForceStop?: (id: string) => void
@@ -884,6 +1032,19 @@ export type VmRuntimePoolOptions = {
   onDiskWriteIncomplete?: (id: string) => void
   /** 关机收尾丢弃了已接收的客机写（宽限期后仍到达），镜像可能缺已 ack 的数据。 */
   onDiskWriteDirty?: (id: string, detail: { discardedWrites: number }) => void
+  /**
+   * 本次会话存在没能写进镜像的写入（iframe 侧丢弃 + 宿主侧闸门丢弃合计）。
+   *
+   * 与上面三个「当场弹一次」的回调不同，这个用于**持久化**：iframe 一销毁计数就没了，
+   * 只有写进机器记录，「镜像可能不完整」才能活到用户下次开机。
+   */
+  onDiskWriteLoss?: (id: string, detail: { droppedWrites: number; droppedBytes: number }) => void
+  /**
+   * 要不要放弃剩余写入、立即断电：pool 把决定权交给用户（App 层弹「继续等待 / 强制断电」）。
+   * 返回 'wait' 就继续等，之后每停滞一次再问一次（无次数上限）；返回 'force' 才强拆丢数据。
+   * 没接这个回调时保持旧行为（= 'force'），避免调用方漏接导致机器卡死。
+   */
+  onForceStopRequest?: (id: string, detail: VmForceStopRequest) => Promise<VmForceStopDecision>
 }
 
 export function useVirtualMachineRuntimePool(
@@ -901,6 +1062,19 @@ export function useVirtualMachineRuntimePool(
   const [hints, setHints] = useState<ReadonlyMap<string, string>>(new Map())
   /** 正在收尾落盘（drain→flush→close）的机器：UI 据此显示「正在写入」覆盖层。 */
   const [flushingIds, setFlushingIds] = useState<readonly string[]>([])
+  // 回调（watchdog）里要同步读，不能只依赖渲染闭包。
+  const flushingIdsRef = useRef<readonly string[]>([])
+  flushingIdsRef.current = flushingIds
+  /** 已在提醒器上挂号的 id（避免重复 arm）。 */
+  const armedFlushIdsRef = useRef<Set<string>>(new Set())
+  /** 各机器进入收尾状态的时刻，用于告知用户已等待多久。 */
+  const flushStartedAtRef = useRef<Map<string, number>>(new Map())
+  /** 同一台机器在飞的「继续等待 / 强制断电」询问（去重，避免叠对话框）。 */
+  const forceDecisionRef = useRef<Map<string, Promise<VmForceStopDecision>>>(new Map())
+  /** 用户已确认放弃剩余写入的机器。 */
+  const forcedStopIdsRef = useRef<Set<string>>(new Set())
+  /** 同一台机器正在收口中的 promise（去重，避免重复释放磁盘流）。 */
+  const removeInFlightRef = useRef<Map<string, Promise<void>>>(new Map())
   const runningIdsRef = useRef(new Set<string>())
   const startMessagesRef = useRef(new Map<string, InstantVmStartMessage>())
   const apiByIdRef = useRef(new Map<string, VmRuntimeApi>())
@@ -913,17 +1087,24 @@ export function useVirtualMachineRuntimePool(
     setRunningIds([...runningIdsRef.current])
   }, [])
 
-  const removeRunningId = useCallback(async (id: string) => {
+  const removeRunningIdNow = useCallback(async (id: string) => {
     watchdogRef.current?.cancel(id)
     setFlushingIds((current) => (current.includes(id) ? current : [...current, id]))
     try {
       const message = startMessagesRef.current.get(id)
       let releaseError: unknown
+      // iframe 侧的丢弃计数只存在于它的 stats 里，收口后就再也读不到了——先取出来，
+      // 与宿主释放闸门丢掉的写入合并成一条会持久化的记录（见 onDiskWriteLoss）。
+      // 必须走 api.latestStats()：最终那份快照是 drain 结束后补发的，与 stopped 背靠背
+      // 到达，而 React state 要等渲染+effect 才更新，会输给这里的同步读取。
+      const runtimeLoss = apiByIdRef.current.get(id)?.latestStats()?.diskWrite
+      let hostDiscardedWrites = 0
       try {
         if (message) {
           // 顺序不变量：磁盘流排干→刷盘→关会话全部完成后，才释放占用声明并卸载
           // iframe——最后一字节落盘永远先于「这块镜像可以被别人打开」。
           const { discardedWrites } = await releaseVirtualMachineDiskStreams(message)
+          hostDiscardedWrites = discardedWrites
           if (discardedWrites > 0) {
             recordSystemDebugTimeline({
               layer: 'vm',
@@ -936,6 +1117,10 @@ export function useVirtualMachineRuntimePool(
       } catch (error) {
         releaseError = error
         console.error('[vm] 释放磁盘流失败', id, error)
+      }
+      const loss = combineDiskWriteLoss(runtimeLoss, hostDiscardedWrites)
+      if (loss) {
+        optionsRef.current.onDiskWriteLoss?.(id, loss)
       }
       // 运行期间热插上的光盘/软盘流不在 start 消息里，随停机一并释放。
       await releaseVirtualMachineRemovableMedia(id).catch((error: unknown) => {
@@ -971,24 +1156,167 @@ export function useVirtualMachineRuntimePool(
     }
   }, [])
 
+  /**
+   * 收口一台机器：去重 + 已收口直接返回。多个入口会同时想收口（客机 stopped、用户强拆、
+   * shutdown 的 finally），重复跑会二次释放已关的磁盘流、还会误报「落盘未完成」。
+   */
+  const removeRunningId = useCallback(
+    (id: string): Promise<void> => {
+      const existing = removeInFlightRef.current.get(id)
+      if (existing) {
+        return existing
+      }
+      if (!runningIdsRef.current.has(id) && !startMessagesRef.current.has(id)) {
+        return Promise.resolve()
+      }
+      const run = removeRunningIdNow(id).finally(() => {
+        removeInFlightRef.current.delete(id)
+      })
+      removeInFlightRef.current.set(id, run)
+      return run
+    },
+    [removeRunningIdNow],
+  )
+
+  /**
+   * 去重地发起「继续等待 / 强制断电」询问：同一台机器同时只能有一个对话框。
+   * 同一时刻可能有多个来源想问（回写停滞提醒 / 回写失败 watchdog），都汇到这里。
+   */
+  const askForceStopDecision = useCallback(
+    async (id: string, detail: VmForceStopRequest): Promise<VmForceStopDecision> => {
+      const existing = forceDecisionRef.current.get(id)
+      if (existing) {
+        return existing
+      }
+      const decide = optionsRef.current.onForceStopRequest
+      if (!decide) {
+        // 调用方没接询问通道：保持旧的自动强拆语义，别把机器永久卡在收尾里。
+        return 'force'
+      }
+      recordSystemDebugTimeline({ layer: 'vm', op: 'force-stop-ask', detail: { id, ...detail } })
+      const pending = decide(id, detail)
+        .then((answer) => (answer === 'wait' ? ('wait' as const) : ('force' as const)))
+        .catch(() => 'force' as const)
+        .finally(() => {
+          forceDecisionRef.current.delete(id)
+        })
+      forceDecisionRef.current.set(id, pending)
+      return pending
+    },
+    [],
+  )
+
+  /** 用户确认放弃剩余写入：标记后卸载 iframe 收口（回写由 iframe 侧 dispose 丢弃）。 */
+  const forceStop = useCallback(
+    (id: string): Promise<void> => {
+      if (!runningIdsRef.current.has(id)) {
+        return Promise.resolve()
+      }
+      forcedStopIdsRef.current.add(id)
+      recordSystemDebugTimeline({ layer: 'vm', op: 'force-stop', detail: id })
+      return removeRunningId(id).catch(() => undefined)
+    },
+    [removeRunningId],
+  )
+
+  const pendingBytesOf = useCallback((id: string): number => {
+    const message = startMessagesRef.current.get(id)
+    if (!message) {
+      return 0
+    }
+    return getVirtualMachineDiskFlushProgress(listVmDiskStreamIds(message)).pendingBytes
+  }, [])
+
+  /**
+   * 回写停滞就问用户（同一台机器同时只有一个对话框）。选「继续等待」就什么都不做：
+   * 提醒器下一轮（10s 后）若仍停滞会再问一次，无次数上限。
+   */
+  const drainStallAlerter = useMemo(
+    () =>
+      createDrainStallAlerter({
+        isStalled: (id) => {
+          const api = apiByIdRef.current.get(id)
+          if (!api) {
+            return false
+          }
+          return Date.now() - api.lastMessageAt() >= DRAIN_STALL_ASK_INTERVAL_MS
+        },
+        onStall: (id) => {
+          const startedAt = flushStartedAtRef.current.get(id)
+          void askForceStopDecision(id, {
+            reason: 'drain-stall',
+            waitedMs: startedAt === undefined ? 0 : Date.now() - startedAt,
+            pendingBytes: pendingBytesOf(id),
+          }).then((decision) => {
+            if (decision === 'force') {
+              void forceStop(id)
+            }
+          })
+        },
+      }),
+    [askForceStopDecision, forceStop, pendingBytesOf],
+  )
+
+  // 收尾开始时上提醒、结束（机器被收口）时撤掉；同时记录等待起点。
+  useEffect(() => {
+    const armed = armedFlushIdsRef.current
+    for (const id of flushingIds) {
+      if (!armed.has(id)) {
+        armed.add(id)
+        flushStartedAtRef.current.set(id, Date.now())
+        drainStallAlerter.arm(id)
+      }
+    }
+    for (const id of [...armed]) {
+      if (!flushingIds.includes(id)) {
+        armed.delete(id)
+        flushStartedAtRef.current.delete(id)
+        drainStallAlerter.cancel(id)
+      }
+    }
+  }, [flushingIds, drainStallAlerter])
+
+  useEffect(() => () => drainStallAlerter.cancelAll(), [drainStallAlerter])
+
   const diskWriteFailedWatchdog = useMemo(
     () =>
       createDiskWriteFailedWatchdog({
         isRunning: (id) => runningIdsRef.current.has(id),
         onForceStop: (id) => {
-          recordSystemDebugTimeline({
-            layer: 'vm',
-            op: 'disk-write-force-stop',
-            detail: { id, hint: DISK_WRITE_FAILED_FORCE_STOP_HINT },
-          })
-          void removeRunningId(id)
-            .catch(() => undefined)
-            .finally(() => {
-              optionsRef.current.onDiskWriteForceStop?.(id)
+          // 正在整盘回写且批次还在往外发：强拆等于把剩下的改动留在 iframe 里，先不动它。
+          const api = apiByIdRef.current.get(id)
+          const silentMs = api ? Date.now() - api.lastMessageAt() : Number.POSITIVE_INFINITY
+          if (shouldDeferForceStop({ draining: flushingIdsRef.current.includes(id), silentMs })) {
+            recordSystemDebugTimeline({
+              layer: 'vm',
+              op: 'disk-write-force-stop-deferred',
+              detail: { id, silentMs },
             })
+            watchdogRef.current?.arm(id)
+            return
+          }
+          // 回写失败 + 已停滞：丢数据的事交给用户点头，别替他决定。
+          const startedAt = flushStartedAtRef.current.get(id)
+          void askForceStopDecision(id, {
+            reason: 'write-failed',
+            waitedMs: startedAt === undefined ? 0 : Date.now() - startedAt,
+            pendingBytes: pendingBytesOf(id),
+          }).then((decision) => {
+            if (decision !== 'force') {
+              // 继续等待：回写停滞提醒器会接管后续询问。
+              return
+            }
+            recordSystemDebugTimeline({
+              layer: 'vm',
+              op: 'disk-write-force-stop',
+              detail: { id, hint: DISK_WRITE_FAILED_FORCE_STOP_HINT },
+            })
+            optionsRef.current.onDiskWriteForceStop?.(id)
+            void forceStop(id)
+          })
         },
       }),
-    [removeRunningId],
+    [askForceStopDecision, forceStop, pendingBytesOf],
   )
   watchdogRef.current = diskWriteFailedWatchdog
 
@@ -1005,6 +1333,8 @@ export function useVirtualMachineRuntimePool(
   }, [])
 
   const onStateChange = useCallback((id: string, snapshot: VmRuntimeSnapshot) => {
+    // 收口要读的最终丢弃计数走 api.latestStats()：那条 stats 与 stopped 背靠背到达，
+    // 等不到这里的 effect 刷新。
     setSnapshots((current) => new Map(current).set(id, snapshot))
   }, [])
 
@@ -1029,6 +1359,16 @@ export function useVirtualMachineRuntimePool(
     },
     [removeRunningId],
   )
+
+  /**
+   * 客机自行切电、整盘回写即将开始。置 flushingIds 让 UI 立刻进入「正在写入」状态：
+   * poweroff 模式的回写（可能几十秒到几分钟）全部发生在 iframe 内，宿主直到 stopped
+   * 才知道，期间界面和卡死没有区别——用户会去点断电，把回写打断成半提交镜像。
+   */
+  const onGuestPoweroffDraining = useCallback((id: string) => {
+    recordSystemDebugTimeline({ layer: 'vm', op: 'guest-poweroff-draining', detail: id })
+    setFlushingIds((current) => (current.includes(id) ? current : [...current, id]))
+  }, [])
 
   const onBootError = useCallback((id: string, message: string, detail?: string) => {
     recordSystemDebugTimeline({
@@ -1129,25 +1469,53 @@ export function useVirtualMachineRuntimePool(
   // 干等。finally 里的 removeRunningId 排干刷盘后才卸载运行时表面销毁 iframe，
   // 达成断电；期间 flushingIds 置位，UI 显示「正在写入」覆盖层。
   // 返回是否走了强拆路径，只进调试时间线；用户提示由调用方按需决定。
+  // volatileDiskWrites=true（diskWriteMode=poweroff）时用宽阈值等 drain 走完：
+  // 该模式强拆等于丢掉 iframe 内存里整次开机的磁盘改动，宁等不拆。
   const shutdown = useCallback(
-    async (id: string): Promise<boolean> => {
+    async (id: string, shutdownOptions?: { volatileDiskWrites?: boolean }): Promise<boolean> => {
       if (!runningIdsRef.current.has(id)) {
         return false
       }
       const api = apiByIdRef.current.get(id)
+      const volatileDiskWrites = shutdownOptions?.volatileDiskWrites === true
+      // 从下发 stop 起就点亮「正在写入」覆盖层：poweroff 模式的 drain 可能跑几十秒，
+      // 期间 UI 不能只显示一个卡住的客机画面（否则用户会再点断电/关页面，反而丢数据）。
+      setFlushingIds((current) => (current.includes(id) ? current : [...current, id]))
       let forced = false
       try {
         if (api) {
-          const outcome = await withAckDeadline({
-            command: () => api.stop(),
-            isRecentlyActive: () => Date.now() - api.lastMessageAt() < STOP_ACTIVITY_SILENCE_MS,
-          })
-          forced = outcome === 'forced'
-          if (forced) {
-            recordSystemDebugTimeline({ layer: 'vm', op: 'stop-ack-deadline', detail: id })
+          if (volatileDiskWrites) {
+            // 「关机时写入」模式：这是本次开机唯一的落盘机会，不设总时限、不自动强拆。
+            // 断开默认 60s 回执超时（长回写会假报失败），等 iframe 把整盘刷完再收口；
+            // 期间停滞由 drainStallAlerter 每 10s 问一次「继续等待 / 强制断电」，用户是唯一出口。
+            // 用户选强制断电时会 removeRunningId 卸载 iframe → 这个 promise 以拒绝收场。
+            const stopPromise = api.stop({ timeoutMs: null })
+            const acked = await stopPromise.then(
+              () => true,
+              () => false,
+            )
+            if (forcedStopIdsRef.current.delete(id)) {
+              // 用户在「继续等待 / 强制断电」里选了后者：照样把 forced 交给 App，
+              // 好让「本次开机改动全丢」这条不能错过的告知照弹（提示措辞只陈述后果，
+              // 不再说「客机无响应」——这次是用户自己的选择）。
+              forced = true
+              recordSystemDebugTimeline({ layer: 'vm', op: 'stop-forced-by-user', detail: id })
+            } else if (!acked) {
+              recordSystemDebugTimeline({ layer: 'vm', op: 'stop-ack-lost', detail: id })
+            }
+          } else {
+            const outcome = await withAckDeadline({
+              command: () => api.stop(),
+              isRecentlyActive: () => Date.now() - api.lastMessageAt() < STOP_ACTIVITY_SILENCE_MS,
+            })
+            forced = outcome === 'forced'
+            if (forced) {
+              recordSystemDebugTimeline({ layer: 'vm', op: 'stop-ack-deadline', detail: id })
+            }
           }
         }
       } finally {
+        drainStallAlerter.cancel(id)
         try {
           await removeRunningId(id)
         } catch {
@@ -1156,7 +1524,7 @@ export function useVirtualMachineRuntimePool(
       }
       return forced
     },
-    [removeRunningId],
+    [removeRunningId, drainStallAlerter],
   )
 
   const saveInstanceState = useCallback(async (id: string): Promise<ArrayBuffer> => {
@@ -1314,6 +1682,8 @@ export function useVirtualMachineRuntimePool(
     onStateChange,
     onStarted,
     onGuestPoweredOff,
+    onGuestPoweroffDraining,
+    forceStop,
     onBootError,
     armDiskWriteFailedWatchdog,
   }

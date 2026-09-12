@@ -28,6 +28,7 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   diskWrite: 'instant-vm:disk-write',
   diskWriteResult: 'instant-vm:disk-write-result',
   diskWriteFailed: 'instant-vm:disk-write-failed',
+  guestPoweroffDraining: 'instant-vm:guest-poweroff-draining',
   keyboard: 'instant-vm:keyboard',
   nativeKey: 'instant-vm:native-key',
   pointerHint: 'instant-vm:pointer-hint',
@@ -522,6 +523,15 @@ export type InstantVmDiskWriteFailedMessage = {
   message: string
 }
 
+/**
+ * 客机自行切电（XP 软关机走到 HLT / ACPI 端口）后、宿主侧整盘回写开始前的通知。
+ * poweroff 模式的回写是本次开机唯一的落盘机会，可能持续几十秒到几分钟；收到后宿主应立即
+ * 置「正在写入」状态，否则界面看起来像卡死，用户会点断电打断回写——半提交镜像。
+ */
+export type InstantVmGuestPoweroffDrainingMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.guestPoweroffDraining
+}
+
 export const INSTANT_VM_IDE_LABELS = ['none', 'hdd', 'cdrom'] as const
 
 export type InstantVmIdeLabel = (typeof INSTANT_VM_IDE_LABELS)[number]
@@ -550,6 +560,17 @@ export type InstantVmVgaStats = {
   bpp: number
 }
 
+export type InstantVmDiskWriteStats = {
+  /** 尚未发出的脏字节。并集度量（重叠区间只算一次），poweroff 运行期即本次开机全部改动。 */
+  pendingBytes: number
+  /** 尚未发出的脏区间段数（合并后的段数）。 */
+  pendingRanges: number
+  /** 本次开机回写失败、已被丢弃的写入条数（按合并后的段计，一段算一条）。 */
+  droppedWrites: number
+  /** 被丢弃写入的累计字节数。与 droppedWrites 同口径：按并集算，重叠区间只计一次。 */
+  droppedBytes: number
+}
+
 export type InstantVmStatsSnapshot = {
   runningMs: number
   speedMips: number
@@ -564,6 +585,8 @@ export type InstantVmStatsSnapshot = {
   mouse: boolean
   absoluteMouse: boolean
   displayScale?: number
+  /** 可回写模式（live/poweroff）才有：本次开机的落盘进度与丢失量，供透明展示。 */
+  diskWrite?: InstantVmDiskWriteStats
 }
 
 export type InstantVmStatsMessage = InstantVmStatsSnapshot & {
@@ -596,6 +619,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmErrorMessage
   | InstantVmProgressMessage
   | InstantVmDiskWriteFailedMessage
+  | InstantVmGuestPoweroffDrainingMessage
   | InstantVmStatsMessage
   | InstantVmDiskReadMessage
   | InstantVmDiskWriteMessage
@@ -1320,6 +1344,18 @@ function isVmVgaStats(value: unknown): value is InstantVmVgaStats {
   return isNonNegFinite(value.width) && isNonNegFinite(value.height) && isNonNegFinite(value.bpp)
 }
 
+function isVmDiskWriteStats(value: unknown): value is InstantVmDiskWriteStats {
+  if (!isRecord(value)) {
+    return false
+  }
+  return (
+    isNonNegFinite(value.pendingBytes) &&
+    isNonNegFinite(value.pendingRanges) &&
+    isNonNegFinite(value.droppedWrites) &&
+    isNonNegFinite(value.droppedBytes)
+  )
+}
+
 export function isInstantVmStatsMessage(value: unknown): value is InstantVmStatsMessage {
   if (!isRecord(value) || value.type !== INSTANT_VM_MESSAGE_TYPE.stats) {
     return false
@@ -1331,6 +1367,9 @@ export function isInstantVmStatsMessage(value: unknown): value is InstantVmStats
     return false
   }
   if (value.displayScale !== undefined && (!isNonNegFinite(value.displayScale) || value.displayScale <= 0)) {
+    return false
+  }
+  if (value.diskWrite !== undefined && !isVmDiskWriteStats(value.diskWrite)) {
     return false
   }
   return (
@@ -1396,6 +1435,9 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.diskWriteFailed) {
     return typeof value.message === 'string' && value.message.trim().length > 0
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.guestPoweroffDraining) {
+    return true
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.stats) {
     return isInstantVmStatsMessage(value)

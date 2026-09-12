@@ -243,6 +243,23 @@ export type VirtualMachineSettings = {
 export type VirtualMachineRecord = VirtualMachineSettings & {
   id: string
   createdAt: number
+  /**
+   * 上一次会话收尾时没能写进镜像的写入量。
+   *
+   * 有值 = 镜像可能停在半提交状态。这条记录必须活过会话（iframe 一销毁，运行期的计数
+   * 就没了），也要活过标签页与重启——否则「镜像可能不完整」只在丢的那一瞬出现一次，
+   * 用户下次开机时已无从得知。由用户手动确认后才清除。
+   */
+  diskWriteLoss?: VmDiskWriteLoss
+}
+
+export type VmDiskWriteLoss = {
+  /** 记录时刻（epoch ms）。 */
+  at: number
+  /** 未能写入的写入条数（iframe 侧丢弃 + 宿主侧释放闸门丢弃）。 */
+  droppedWrites: number
+  /** 对应的字节数（重叠区间按多次计，是丢失量的上界）。 */
+  droppedBytes: number
 }
 
 export type VirtualMachineStore = {
