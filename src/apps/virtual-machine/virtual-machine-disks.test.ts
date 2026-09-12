@@ -9,30 +9,35 @@ import {
   releaseDiskImagePath,
   resetDiskImageOccupancyForTests,
 } from '../files/files-disk-image-occupancy.ts'
-import { filesCreateBinary } from '../files/files-api.ts'
+import { filesCreateBinary, filesReadBlobRange } from '../files/files-api.ts'
 import { resetFilesDbForTests } from '../files/files-storage.ts'
 import { invalidateFilesVfsPathCaches } from '../files/files-vfs.ts'
 import { resetOpfsBlobsForTests, useMemoryOpfsForTests } from '../files/files-opfs-blobs.ts'
+import { resetDiskOverlayStoreForTests, useMemoryDiskOverlayStoreForTests } from './virtual-machine-disk-overlay-store.ts'
 import { INSTANT_VM_MESSAGE_TYPE } from './virtual-machine-protocol.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 import {
   claimVirtualMachineDiskImageOccupancy,
+  isRemovableMediumInserted,
   loadVirtualMachineDisks,
   mountVirtualMachineRemovableMedia,
   releaseVirtualMachineDiskImageOccupancy,
   releaseVirtualMachineRemovableMedia,
+  shouldSkipRemovableMediaPick,
   slotOfDevice,
   vmMountedDiskSlots,
 } from './virtual-machine-disks.ts'
 import {
   countVirtualMachineDiskStreams,
   enqueueStreamWork,
+  freezeVirtualMachineDiskStreamOverlays,
   registerVirtualMachineDiskStream,
   releaseVirtualMachineDiskStream,
   releaseVirtualMachineDiskStreams,
 } from './virtual-machine-disk-stream-host.ts'
 
 useMemoryOpfsForTests()
+useMemoryDiskOverlayStoreForTests()
 
 type Posted = { status?: number; type?: string }
 
@@ -73,9 +78,23 @@ function dispatchDiskMessage(data: object, replies: Posted[]): void {
   windowLike.dispatchEvent(event)
 }
 
+async function waitForDiskReply(
+  replies: Posted[],
+  predicate: (item: Posted) => boolean,
+): Promise<Posted> {
+  const deadline = Date.now() + 1000
+  while (Date.now() < deadline) {
+    const found = replies.find(predicate)
+    if (found) return found
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error('timed out waiting for disk reply')
+}
+
 async function resetFiles(): Promise<void> {
   await resetFilesDbForTests()
   await resetOpfsBlobsForTests()
+  resetDiskOverlayStoreForTests()
   invalidateFilesVfsPathCaches()
 }
 
@@ -95,7 +114,7 @@ async function testLoadFailureReleasesRegisteredStreams(): Promise<void> {
   await assert.rejects(
     () =>
       loadVirtualMachineDisks({
-        diskWriteMode: 'live',
+        diskWriteMode: 'persist',
         devices: [
           { id: 'd1', type: 'hdd', source: 'local', path: '/user/hda.img' },
           { id: 'd2', type: 'hdd', source: 'local', path: '/user/missing.img' },
@@ -110,7 +129,7 @@ async function testSuccessfulLoadThenReleaseClearsStreams(): Promise<void> {
   await resetFiles()
   await createDisk('/user/hda.img')
   const disks = await loadVirtualMachineDisks({
-    diskWriteMode: 'live',
+    diskWriteMode: 'persist',
     devices: [{ id: 'd1', type: 'hdd', source: 'local', path: '/user/hda.img' }],
   })
   assert.equal(countVirtualMachineDiskStreams(), 1)
@@ -217,7 +236,7 @@ async function testConnectedFlagSkipsLoadAndOccupancy(): Promise<void> {
   await resetFiles()
   await createDisk('/user/cd.img')
   const result = await loadVirtualMachineDisks({
-    diskWriteMode: 'live',
+    diskWriteMode: 'persist',
     devices: [{ id: 'c', type: 'cdrom', source: 'local', path: '/user/cd.img', connected: false }],
   })
   assert.equal(result.cdrom, undefined)
@@ -237,6 +256,21 @@ async function testConnectedFlagSkipsLoadAndOccupancy(): Promise<void> {
   releaseDiskImagePath('/user/cd.img', { kind: 'vm', id: 'other-vm' })
   releaseVirtualMachineDiskImageOccupancy('vm-a')
   resetDiskImageOccupancyForTests()
+}
+
+function testRemovableMediaPickSkip(): void {
+  const inserted = { id: 'c', type: 'cdrom' as const, source: 'local' as const, path: '/user/os.iso' }
+  const ejected = { ...inserted, connected: false }
+  const empty = { ...inserted, path: '' }
+  assert.equal(isRemovableMediumInserted(inserted), true)
+  assert.equal(isRemovableMediumInserted(ejected), false)
+  assert.equal(isRemovableMediumInserted(empty), false)
+  // 已挂着同一张：选盘确认同一路径是无操作
+  assert.equal(shouldSkipRemovableMediaPick(inserted, '/user/os.iso'), true)
+  // 弹出后再选同一张：必须重新插入，不能当无操作
+  assert.equal(shouldSkipRemovableMediaPick(ejected, '/user/os.iso'), false)
+  assert.equal(shouldSkipRemovableMediaPick(empty, '/user/other.iso'), false)
+  assert.equal(shouldSkipRemovableMediaPick(inserted, undefined), true)
 }
 
 function testEmptyDeviceConsumesSlotIndex(): void {
@@ -272,7 +306,7 @@ async function testDisconnectedDeviceSkipsItsSlotAtBoot(): Promise<void> {
   await createDisk('/user/fda.img')
   await createDisk('/user/fdb.img')
   const result = await loadVirtualMachineDisks({
-    diskWriteMode: 'live',
+    diskWriteMode: 'persist',
     devices: [
       { id: 'f1', type: 'floppy', source: 'local', path: '/user/fda.img', connected: false },
       { id: 'f2', type: 'floppy', source: 'local', path: '/user/fdb.img' },
@@ -294,7 +328,7 @@ async function testRemovableMediaMountCommitRollback(): Promise<void> {
         machineId: 'vm-m',
         device: { id: 'c', type: 'cdrom', source: 'local', path: '/user/missing.iso' },
         slot: 'cdrom',
-        diskWriteMode: 'live',
+        diskWriteMode: 'persist',
       }),
     /文件不存在/,
   )
@@ -305,7 +339,7 @@ async function testRemovableMediaMountCommitRollback(): Promise<void> {
         machineId: 'vm-m',
         device: { id: 'f', type: 'floppy', source: 'mount', path: '/mount/floppy.img' },
         slot: 'fda',
-        diskWriteMode: 'live',
+        diskWriteMode: 'persist',
       }),
     /不存在/,
   )
@@ -315,7 +349,7 @@ async function testRemovableMediaMountCommitRollback(): Promise<void> {
     machineId: 'vm-m',
     device: { id: 'c', type: 'cdrom', source: 'local', path: '/user/swap.iso' },
     slot: 'cdrom' as const,
-    diskWriteMode: 'live' as const,
+    diskWriteMode: 'persist' as const,
   }
   const first = await mountVirtualMachineRemovableMedia(mountOptions)
   assert.equal(first.stream.size, 8192)
@@ -360,14 +394,189 @@ async function testRemovableMediaReleaseScopedToSlot(): Promise<void> {
   assert.equal(countVirtualMachineDiskStreams(), 0)
 }
 
+async function testPersistOverlayMergesIntoImageOnRelease(): Promise<void> {
+  await resetFiles()
+  await createDisk('/user/merge.img')
+  const streamId = await registerVirtualMachineDiskStream('/user/merge.img', {
+    writable: true,
+    persist: true,
+    mergeOnRelease: true,
+  })
+  const replies: Posted[] = []
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskWrite,
+      requestId: 'merge-write',
+      streamId,
+      offset: 0,
+      bytes: new Uint8Array([9, 8, 7, 6]).buffer,
+    },
+    replies,
+  )
+  await waitForDiskReply(replies, (item) => item.status === 200)
+  await releaseVirtualMachineDiskStream(streamId)
+  const blob = await filesReadBlobRange('/user/merge.img', 0, 4)
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  assert.deepEqual([...bytes], [9, 8, 7, 6])
+}
+
+async function testPersistOverlayReplaysAfterReleaseWithoutMerge(): Promise<void> {
+  await resetFiles()
+  await createDisk('/user/replay.img')
+  const first = await registerVirtualMachineDiskStream('/user/replay.img', {
+    writable: true,
+    persist: true,
+    mergeOnRelease: false,
+  })
+  const replies: Posted[] = []
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskWrite,
+      requestId: 'replay-write',
+      streamId: first,
+      offset: 0,
+      bytes: new Uint8Array([3, 3, 3, 3]).buffer,
+    },
+    replies,
+  )
+  await waitForDiskReply(replies, (item) => item.status === 200)
+  await releaseVirtualMachineDiskStream(first)
+
+  const second = await registerVirtualMachineDiskStream('/user/replay.img', {
+    writable: true,
+    persist: true,
+    mergeOnRelease: false,
+  })
+  const reads: Posted[] = []
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskRead,
+      requestId: 'replay-read',
+      streamId: second,
+      offset: 0,
+      length: 4,
+    },
+    reads,
+  )
+  await waitForDiskReply(reads, (item) => item.type === INSTANT_VM_MESSAGE_TYPE.diskReadResult)
+  const read = reads.find((item) => item.type === INSTANT_VM_MESSAGE_TYPE.diskReadResult) as
+    | { bytes?: ArrayBuffer }
+    | undefined
+  assert.ok(read?.bytes)
+  assert.deepEqual([...new Uint8Array(read.bytes)], [3, 3, 3, 3])
+  await releaseVirtualMachineDiskStream(second)
+}
+
+async function testNoneOverlayDiscardedOnRelease(): Promise<void> {
+  await resetFiles()
+  await createDisk('/user/volatile.img')
+  const first = await registerVirtualMachineDiskStream('/user/volatile.img', {
+    writable: true,
+    persist: false,
+  })
+  const replies: Posted[] = []
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskWrite,
+      requestId: 'volatile-write',
+      streamId: first,
+      offset: 0,
+      bytes: new Uint8Array([7, 7, 7, 7]).buffer,
+    },
+    replies,
+  )
+  await waitForDiskReply(replies, (item) => item.status === 200)
+  await releaseVirtualMachineDiskStream(first)
+
+  const second = await registerVirtualMachineDiskStream('/user/volatile.img', {
+    writable: true,
+    persist: false,
+  })
+  const reads: Posted[] = []
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskRead,
+      requestId: 'volatile-read',
+      streamId: second,
+      offset: 0,
+      length: 4,
+    },
+    reads,
+  )
+  const read = (await waitForDiskReply(
+    reads,
+    (item) => item.type === INSTANT_VM_MESSAGE_TYPE.diskReadResult,
+  )) as { bytes?: ArrayBuffer }
+  assert.ok(read.bytes)
+  assert.deepEqual([...new Uint8Array(read.bytes)], [0x11, 0x11, 0x11, 0x11])
+  await releaseVirtualMachineDiskStream(second)
+}
+
+async function testFrozenOverlayRestoresWithSnapshotPath(): Promise<void> {
+  await resetFiles()
+  await createDisk('/user/freeze.img')
+  const live = await registerVirtualMachineDiskStream('/user/freeze.img', {
+    writable: true,
+    persist: true,
+    mergeOnRelease: false,
+  })
+  const replies: Posted[] = []
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskWrite,
+      requestId: 'freeze-write',
+      streamId: live,
+      offset: 0,
+      bytes: new Uint8Array([4, 5, 6, 7]).buffer,
+    },
+    replies,
+  )
+  await waitForDiskReply(replies, (item) => item.status === 200)
+  await freezeVirtualMachineDiskStreamOverlays([live], '/user/freeze.bin')
+  await releaseVirtualMachineDiskStream(live)
+
+  const restored = await registerVirtualMachineDiskStream('/user/freeze.img', {
+    writable: true,
+    persist: true,
+    mergeOnRelease: false,
+    snapshotPath: '/user/freeze.bin',
+  })
+  const reads: Posted[] = []
+  dispatchDiskMessage(
+    {
+      type: INSTANT_VM_MESSAGE_TYPE.diskRead,
+      requestId: 'freeze-read',
+      streamId: restored,
+      offset: 0,
+      length: 4,
+    },
+    reads,
+  )
+  const read = (await waitForDiskReply(
+    reads,
+    (item) => item.type === INSTANT_VM_MESSAGE_TYPE.diskReadResult,
+  )) as { bytes?: ArrayBuffer }
+  assert.ok(read.bytes)
+  assert.deepEqual([...new Uint8Array(read.bytes)], [4, 5, 6, 7])
+  const blob = await filesReadBlobRange('/user/freeze.img', 0, 4)
+  const base = new Uint8Array(await blob.arrayBuffer())
+  assert.deepEqual([...base], [0x11, 0x11, 0x11, 0x11])
+  await releaseVirtualMachineDiskStream(restored)
+}
+
 await testLoadFailureReleasesRegisteredStreams()
 await testSuccessfulLoadThenReleaseClearsStreams()
 await testReleaseInProgressDropsReadsButGracesWrites()
 await testQueuedWriteBeforeReleaseIsFlushed()
 await testWriteAfterReleaseCompletesIs404()
 await testConnectedFlagSkipsLoadAndOccupancy()
+testRemovableMediaPickSkip()
 testEmptyDeviceConsumesSlotIndex()
 await testDisconnectedDeviceSkipsItsSlotAtBoot()
 await testRemovableMediaMountCommitRollback()
 await testRemovableMediaReleaseScopedToSlot()
+await testPersistOverlayMergesIntoImageOnRelease()
+await testPersistOverlayReplaysAfterReleaseWithoutMerge()
+await testNoneOverlayDiscardedOnRelease()
+await testFrozenOverlayRestoresWithSnapshotPath()
 console.log('virtual-machine-disks.test.ts ok')

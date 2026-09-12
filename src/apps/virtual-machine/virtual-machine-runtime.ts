@@ -143,25 +143,21 @@ export function shouldSurfaceUnsolicitedVmError(
 
 export const DISK_WRITE_FAILED_FORCE_STOP_MS = 30_000
 /**
- * 整盘回写进行中（flushingIds 置位）时，只有 iframe 彻底静默这么久才认定卡死强拆。
- * 批次还在流就说明回写在推进——此刻强拆只会把剩下的改动留在 iframe 里，撕出半提交镜像。
+ * 差量合并进行中（flushingIds 置位）时，只有 iframe 彻底静默这么久才认定卡死强拆。
+ * 批次还在流就说明在途转发或合并在推进。
  */
 export const DRAIN_STALL_FORCE_STOP_MS = 60_000
 export const DISK_WRITE_FAILED_FORCE_STOP_HINT =
   '硬盘回写失败，已强制标记为已关机；镜像可能不完整'
 export const DISK_IMAGE_INCOMPLETE_HINT = '硬盘回写未完成，镜像可能不完整'
-// 仅「硬盘写入=关机时写入」模式强拆时提示：该模式脏数据攒在 iframe 内存里，
-// 强拆等于丢掉本次开机的全部磁盘改动（真机断电同样如此），值得让用户知道。
-// 措辞不带原因：强拆可能来自客机无响应，也可能来自用户在「继续等待 / 强制断电」里
-// 自己选了后者，提示只陈述后果。
-export const FORCED_OFF_UNFLUSHED_HINT = '本次磁盘改动未写入镜像'
+// 强制断电后的短提示：在途批次可能没进差量；已经写入差量的部分下次开机仍可合并。
+export const FORCED_OFF_UNFLUSHED_HINT = '尚未保存完的硬盘改动可能丢失'
 export const READING_DISK_IMAGE_HINT = '正在读取镜像…'
 export const STARTING_EMULATOR_HINT = '正在启动模拟器…'
 
 /**
- * 回写失败后是否先别强拆：整盘回写进行中、且 iframe 还没静默到阈值说明批次仍在流，
- * 强拆只会把剩下的改动留在 iframe 里（半提交镜像）。真卡死（事件循环占满）时静默，
- * 到点照旧强拆收场。
+ * 回写失败后是否先别强拆：差量合并进行中、且 iframe 还没静默到阈值说明批次仍在流。
+ * 真卡死（事件循环占满）时静默，到点照旧强拆收场。
  */
 export function shouldDeferForceStop(input: {
   draining: boolean
@@ -184,13 +180,7 @@ export const STOP_ACTIVITY_SILENCE_MS = 1_500
 export const STOP_DRAIN_MAX_WAIT_MS = 120_000
 const STOP_ACTIVITY_POLL_MS = 500
 
-// 「关机时写入」模式（diskWriteMode=poweroff）专用：这个模式运行期一条磁盘写都不发，
-// 全部脏区间攒在 iframe 内存里，断电时按 16MB 一批 drain 给宿主 —— 这是本次开机唯一的
-// 落盘机会，所以**不设总时限、不自动强拆**。批次之间有真实往返间隔（写盘+flush+ack），
-// 远大于 live 模式 8ms 去抖的连续消息流：用 live 的 1.5s 静默窗口判定「卡死」会把正常
-// 推进的 drain 误判成死机，强拆 iframe → 已刷一部分、剩余全丢，镜像停在半提交状态
-//（正是 ntoskrnl 缺失这类损坏的成因）。
-// 改成：只要连续这么久没有新消息（= 回写没有进展），就问用户一次「继续等待 / 强制断电」；
+// 差量合并停滞：连续这么久没有新消息就问一次「继续等待 / 强制断电」；
 // 用户选继续等待就再等这么久再问，循环下去，用户是唯一出口。
 export const DRAIN_STALL_ASK_INTERVAL_MS = 10_000
 
@@ -424,8 +414,7 @@ export function useVirtualMachineRuntime(
   onGuestFileEvent?: (event: VmGuestFileEvent) => void,
   onNativeKey?: (message: InstantVmNativeKeyMessage) => void,
   /**
-   * 客机自行切电、整盘回写即将开始。poweroff 模式的回写要几十秒到几分钟，
-   * 宿主据此立即进入「正在写入」状态，避免界面像卡死。
+   * 客机自行切电、差量合并即将开始。宿主据此立即进入「正在写入」状态。
    */
   onGuestPoweroffDraining?: () => void,
 ) {
@@ -1361,9 +1350,7 @@ export function useVirtualMachineRuntimePool(
   )
 
   /**
-   * 客机自行切电、整盘回写即将开始。置 flushingIds 让 UI 立刻进入「正在写入」状态：
-   * poweroff 模式的回写（可能几十秒到几分钟）全部发生在 iframe 内，宿主直到 stopped
-   * 才知道，期间界面和卡死没有区别——用户会去点断电，把回写打断成半提交镜像。
+   * 客机自行切电、差量合并即将开始。置 flushingIds 让 UI 立刻进入「正在写入」。
    */
   const onGuestPoweroffDraining = useCallback((id: string) => {
     recordSystemDebugTimeline({ layer: 'vm', op: 'guest-poweroff-draining', detail: id })
@@ -1465,53 +1452,28 @@ export function useVirtualMachineRuntimePool(
   )
 
   // 断电：给运行时 3 秒 ack 窗口，到点后看 iframe 消息活动——真卡死（静默）立即
-  // 强拆，写回 drain 还在推进（活跃）则最多等 120 秒把数据刷完，再不陪请求超时
-  // 干等。finally 里的 removeRunningId 排干刷盘后才卸载运行时表面销毁 iframe，
-  // 达成断电；期间 flushingIds 置位，UI 显示「正在写入」覆盖层。
-  // 返回是否走了强拆路径，只进调试时间线；用户提示由调用方按需决定。
-  // volatileDiskWrites=true（diskWriteMode=poweroff）时用宽阈值等 drain 走完：
-  // 该模式强拆等于丢掉 iframe 内存里整次开机的磁盘改动，宁等不拆。
+  // 强拆，在途差量转发还在推进则陪它刷完。finally 里 removeRunningId 把差量
+  // 合并进镜像后才卸 iframe。期间 flushingIds 置位，UI 显示「正在写入」。
   const shutdown = useCallback(
-    async (id: string, shutdownOptions?: { volatileDiskWrites?: boolean }): Promise<boolean> => {
+    async (id: string): Promise<boolean> => {
       if (!runningIdsRef.current.has(id)) {
         return false
       }
       const api = apiByIdRef.current.get(id)
-      const volatileDiskWrites = shutdownOptions?.volatileDiskWrites === true
-      // 从下发 stop 起就点亮「正在写入」覆盖层：poweroff 模式的 drain 可能跑几十秒，
-      // 期间 UI 不能只显示一个卡住的客机画面（否则用户会再点断电/关页面，反而丢数据）。
       setFlushingIds((current) => (current.includes(id) ? current : [...current, id]))
       let forced = false
       try {
         if (api) {
-          if (volatileDiskWrites) {
-            // 「关机时写入」模式：这是本次开机唯一的落盘机会，不设总时限、不自动强拆。
-            // 断开默认 60s 回执超时（长回写会假报失败），等 iframe 把整盘刷完再收口；
-            // 期间停滞由 drainStallAlerter 每 10s 问一次「继续等待 / 强制断电」，用户是唯一出口。
-            // 用户选强制断电时会 removeRunningId 卸载 iframe → 这个 promise 以拒绝收场。
-            const stopPromise = api.stop({ timeoutMs: null })
-            const acked = await stopPromise.then(
-              () => true,
-              () => false,
-            )
-            if (forcedStopIdsRef.current.delete(id)) {
-              // 用户在「继续等待 / 强制断电」里选了后者：照样把 forced 交给 App，
-              // 好让「本次开机改动全丢」这条不能错过的告知照弹（提示措辞只陈述后果，
-              // 不再说「客机无响应」——这次是用户自己的选择）。
-              forced = true
-              recordSystemDebugTimeline({ layer: 'vm', op: 'stop-forced-by-user', detail: id })
-            } else if (!acked) {
-              recordSystemDebugTimeline({ layer: 'vm', op: 'stop-ack-lost', detail: id })
-            }
-          } else {
-            const outcome = await withAckDeadline({
-              command: () => api.stop(),
-              isRecentlyActive: () => Date.now() - api.lastMessageAt() < STOP_ACTIVITY_SILENCE_MS,
-            })
-            forced = outcome === 'forced'
-            if (forced) {
-              recordSystemDebugTimeline({ layer: 'vm', op: 'stop-ack-deadline', detail: id })
-            }
+          const outcome = await withAckDeadline({
+            command: () => api.stop(),
+            isRecentlyActive: () => Date.now() - api.lastMessageAt() < STOP_ACTIVITY_SILENCE_MS,
+          })
+          forced = outcome === 'forced'
+          if (forcedStopIdsRef.current.delete(id)) {
+            forced = true
+            recordSystemDebugTimeline({ layer: 'vm', op: 'stop-forced-by-user', detail: id })
+          } else if (forced) {
+            recordSystemDebugTimeline({ layer: 'vm', op: 'stop-ack-deadline', detail: id })
           }
         }
       } finally {
@@ -1601,11 +1563,12 @@ export function useVirtualMachineRuntimePool(
     [],
   )
 
-  // 运行中热插光盘/软盘；机器未运行（无 api）时静默返回，调用方自行决定是否落盘。
+  // 运行中热插光盘/软盘。runningIds 在开机读盘阶段就会置位，iframe 控制面可能还没挂上；
+  // 没有 api 时必须抛错，不能静默当成功，否则调用方会落盘、客机托盘却是空的。
   const setActiveCdrom = useCallback(async (id: string, stream: InstantVmDiskStreamRef) => {
     const api = apiByIdRef.current.get(id)
     if (!api) {
-      return
+      throw new Error('虚拟机尚未就绪')
     }
     await api.setCdrom(stream)
   }, [])
@@ -1613,7 +1576,7 @@ export function useVirtualMachineRuntimePool(
   const ejectActiveCdrom = useCallback(async (id: string) => {
     const api = apiByIdRef.current.get(id)
     if (!api) {
-      return
+      throw new Error('虚拟机尚未就绪')
     }
     await api.ejectCdrom()
   }, [])
@@ -1622,7 +1585,7 @@ export function useVirtualMachineRuntimePool(
     async (id: string, slot: InstantVmFloppySlot, stream: InstantVmDiskStreamRef) => {
       const api = apiByIdRef.current.get(id)
       if (!api) {
-        return
+        throw new Error('虚拟机尚未就绪')
       }
       await api.setFloppy(slot, stream)
     },
@@ -1632,7 +1595,7 @@ export function useVirtualMachineRuntimePool(
   const ejectActiveFloppy = useCallback(async (id: string, slot: InstantVmFloppySlot) => {
     const api = apiByIdRef.current.get(id)
     if (!api) {
-      return
+      throw new Error('虚拟机尚未就绪')
     }
     await api.ejectFloppy(slot)
   }, [])

@@ -132,7 +132,7 @@ export function VirtualMachineActivity({
   running,
   diskStreamIds = [],
   mountedSlots,
-  diskWriteMode = 'none',
+  diskWriteMode = 'persist',
 }: {
   stats: InstantVmStatsSnapshot | undefined
   running: boolean
@@ -207,7 +207,7 @@ export function VirtualMachineActivity({
         ? stats.cdrom
         : undefined
     : undefined
-  // 运行期看不见的落盘风险在这里现形：poweroff 攒了多少、live 丢了几条。
+  // 运行详情里仍能看见写入模式和未落盘量；关机写入走系统 HUD。
   const diskWriteStatus = vmDiskWriteStatus({ mode: diskWriteMode, running, diskWrite: stats?.diskWrite })
   const diskWrite = stats?.diskWrite
   const modeLabel = formatVmDiskWriteModeLabel(diskWriteMode)
@@ -267,14 +267,6 @@ export function VirtualMachineActivity({
             }
           />
         </div>
-        {diskWriteStatus ? (
-          <div
-            class={`virtual-machine__disk-write virtual-machine__disk-write--${diskWriteStatus.tone}`}
-            role="status"
-          >
-            {diskWriteStatus.text}
-          </div>
-        ) : undefined}
         <button
           type="button"
           class="virtual-machine__stats-toggle"
@@ -321,7 +313,7 @@ export function VirtualMachineActivity({
                     : '无'}
                   stale={!diskWrite}
                 />
-                <DetailRow label="说明" value={diskWriteStatus.text} />
+                <DetailRow label="说明" value={diskWriteStatus.text || '—'} />
               </DetailSection>
               <DetailSection title="宿主磁盘">
                 <DetailRow

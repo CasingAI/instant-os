@@ -292,9 +292,8 @@ const POINTER_MODE_LABELS: Record<VmPointerModeId, string> = {
 }
 
 const DISK_WRITE_MODE_LABELS: Record<VmDiskWriteModeId, string> = {
-  none: '不写入',
-  live: '实时写入',
-  poweroff: '关机时写入',
+  none: '不保存硬盘改动',
+  persist: '保存硬盘改动',
 }
 
 const BUILD_MODE_LABELS: Record<VmBuildModeId, string> = {
@@ -325,10 +324,8 @@ export function formatVmDiskWriteModeLabel(id: VmDiskWriteModeId): string {
  * 设置对话框按当前选中项显示这一段——模式差异直接决定数据安全性，一句话带过不够。
  */
 const DISK_WRITE_MODE_DESCRIPTIONS: Record<VmDiskWriteModeId, string> = {
-  none: '运行中完全不改镜像文件，改动只留在内存里；关机或关闭页面都会丢弃，要保留就用快照。',
-  live: '运行中把扇区实时写回镜像，意外断电最多丢掉最后正在写的一小段；代价是磁盘写入更频繁。',
-  poweroff:
-    '运行中一条都不写，全部攒在内存里，关机或断电时一次性写入镜像。攒着这段时间里关闭页面、刷新或关掉浏览器，都会把本次开机的改动全部丢掉。',
+  none: '关机后丢弃本次改动，不改硬盘文件。',
+  persist: '运行中的改动会保存下来，关机后写入硬盘文件。关掉页面也不会丢。',
 }
 
 export function formatVmDiskWriteModeDescription(id: VmDiskWriteModeId): string {

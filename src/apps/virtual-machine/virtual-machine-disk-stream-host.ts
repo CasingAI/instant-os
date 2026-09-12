@@ -1,6 +1,12 @@
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
-import { openQuietBlobWriter, type QuietBlobWriter } from '../files/files-quiet-blob-write.ts'
-import { openMountRangeWriter, type MountRangeWriter } from '../files/files-location-mount.ts'
+import { openQuietBlobWriter } from '../files/files-quiet-blob-write.ts'
+import { openMountRangeWriter } from '../files/files-location-mount.ts'
+import {
+  openDiskOverlayStore,
+  replayDiskOverlayStore,
+  writeDiskOverlaySnapshot,
+  type DiskOverlayStore,
+} from './virtual-machine-disk-overlay-store.ts'
 import {
   countSystemDebugHot,
   recordSystemDebugHot,
@@ -20,25 +26,27 @@ import {
 } from './virtual-machine-protocol.ts'
 import { getVmRuntimeOrigin } from './virtual-machine-runtime-config.ts'
 
-/** 镜像正文写入会话：内部卷走 OPFS 安静写，挂载卷走整段暂存写。 */
-type DiskQuietWriter = QuietBlobWriter | MountRangeWriter
-
 type StreamEntry = {
   path: string
   size: number
   writable: boolean
-  quietWriter: DiskQuietWriter | undefined
-  /**
-   * 挂载卷镜像：正文在会话结束前不更新，脏段必须一直留在覆盖层供读，
-   * 不能中途刷盘（否则读回旧正文）。
-   */
-  deferFlush: boolean
+  /** 差量写入隐藏耐久层；false 时只留在内存，关机丢弃。 */
+  persist: boolean
+  /** 关机时把差量并进可见镜像。带快照启动为 false，避免改底盘。 */
+  mergeOnRelease: boolean
+  snapshotPath?: string
+  overlayStore?: DiskOverlayStore
 }
 
 export const OVERLAY_FLUSH_INTERVAL_MS = 50
 export const OVERLAY_FLUSH_DIRTY_BYTES = 256 * 1024
 export const OVERLAY_HIGH_WATER_BYTES = 4 * 1024 * 1024
 export const OVERLAY_LOW_WATER_BYTES = 1024 * 1024
+
+export type OverlayPersistSink = {
+  append: (offset: number, bytes: Uint8Array) => Promise<void>
+  flush: () => Promise<void>
+}
 
 export type OverlayFlusher = {
   afterWrite: () => void
@@ -254,14 +262,28 @@ export class DirtyOverlay {
   get dirtyBytes(): number {
     return this.totalDirtyBytes
   }
+
+  /** 当前差量段的只读快照，不挪走数据。合并进底盘必须整份成功后再清。 */
+  listRuns(): DirtyRun[] {
+    return this.runs.map((run) => ({ offset: run.offset, bytes: run.bytes }))
+  }
+
+  clear(): void {
+    this.runs = []
+    this.totalDirtyBytes = 0
+  }
 }
 
 export const OVERLAY_FLUSH_MAX_ATTEMPTS = 5
 
+/**
+ * 把尚未写入耐久差量的段刷进旁路存储。主覆盖层（读路径）全程不剪。
+ * 没有 sink 时（不保存）这是空操作。
+ */
 export function createOverlayFlusher(
-  _streamId: string,
-  entry: StreamEntry,
-  overlay: DirtyOverlay,
+  pending: DirtyOverlay,
+  sink: OverlayPersistSink | undefined,
+  logPath = '',
 ): OverlayFlusher {
   let timer: ReturnType<typeof setTimeout> | undefined
   let flushPromise: Promise<void> | undefined
@@ -283,22 +305,18 @@ export function createOverlayFlusher(
   }
 
   async function persistRuns(runs: DirtyRun[]): Promise<void> {
+    if (!sink) {
+      return
+    }
     let processed = 0
     const persistStartedAt = performance.now()
     try {
-      if (!entry.quietWriter) {
-        for (const run of runs) {
-          await filesWriteBytesRange(entry.path, run.offset, run.bytes)
-          processed += 1
-        }
-        return
-      }
       for (const run of runs) {
-        await entry.quietWriter.writeAt(run.offset, run.bytes)
+        await sink.append(run.offset, run.bytes)
         processed += 1
       }
       try {
-        await entry.quietWriter.flush()
+        await sink.flush()
       } catch (error) {
         processed = 0
         throw error
@@ -308,14 +326,14 @@ export function createOverlayFlusher(
         layer: 'vm',
         op: 'overlay-persist-failed',
         detail: {
-          path: entry.path,
+          path: logPath,
           runs: runs.length,
           processed,
           error: error instanceof Error ? error.message : String(error),
         },
       })
       for (const run of runs.slice(processed)) {
-        overlay.write(run.offset, run.bytes)
+        pending.write(run.offset, run.bytes)
       }
       throw error
     } finally {
@@ -335,21 +353,23 @@ export function createOverlayFlusher(
   }
 
   function flushRound(maxBytes?: number): Promise<void> {
+    if (!sink) return Promise.resolve()
     if (flushPromise) return flushPromise
-    if (overlay.dirtyBytes === 0) return Promise.resolve()
+    if (pending.dirtyBytes === 0) return Promise.resolve()
     cancelSchedule()
-    const runs = overlay.takeRunsForFlush(maxBytes)
+    const runs = pending.takeRunsForFlush(maxBytes)
     if (runs.length === 0) return Promise.resolve()
-    const pending = persistRuns(runs).finally(() => {
-      if (flushPromise === pending) {
+    const inflight = persistRuns(runs).finally(() => {
+      if (flushPromise === inflight) {
         flushPromise = undefined
       }
     })
-    flushPromise = pending
-    return pending
+    flushPromise = inflight
+    return inflight
   }
 
   async function flushUntilEmpty(): Promise<void> {
+    if (!sink) return
     if (flushUntilEmptyPromise) return flushUntilEmptyPromise
     flushUntilEmptyPromise = (async () => {
       const startedAt = performance.now()
@@ -360,11 +380,11 @@ export function createOverlayFlusher(
           try {
             await flushPromise
           } catch {
-            // 进行中的一轮已把未落盘段写回覆盖层，下面按失败次数重试
+            // 进行中的一轮已把未落段写回 pending，下面按失败次数重试
           }
         }
         let failures = 0
-        while (overlay.dirtyBytes > 0) {
+        while (pending.dirtyBytes > 0) {
           rounds += 1
           try {
             await flushRound()
@@ -374,7 +394,7 @@ export function createOverlayFlusher(
               recordSystemDebugTimeline({
                 layer: 'vm',
                 op: 'overlay-flush-giveup',
-                detail: { path: entry.path, rounds, failures },
+                detail: { path: logPath, rounds, failures },
               })
               throw new Error('覆盖层刷盘失败次数过多，已中止')
             }
@@ -397,23 +417,23 @@ export function createOverlayFlusher(
   }
 
   async function flushUntilBelow(limit: number): Promise<void> {
+    if (!sink) return
     const startedAt = performance.now()
     cancelSchedule()
     if (flushUntilEmptyPromise) await flushUntilEmptyPromise
     if (flushPromise) await flushPromise
     let rounds = 0
-    while (overlay.dirtyBytes > limit) {
+    while (pending.dirtyBytes > limit) {
       rounds += 1
-      await flushRound(Math.max(OVERLAY_FLUSH_DIRTY_BYTES, overlay.dirtyBytes - limit))
+      await flushRound(Math.max(OVERLAY_FLUSH_DIRTY_BYTES, pending.dirtyBytes - limit))
     }
     if (rounds > 0) {
-      // 高水位背压：直接决定客机写停顿时长
       const durationMs = performance.now() - startedAt
       if (durationMs > 100) {
         recordSystemDebugHot({
           layer: 'vm',
           op: 'flush-backpressure',
-          detail: `${rounds} rounds limit=${limit} ${(durationMs).toFixed(0)}ms`,
+          detail: `${rounds} rounds limit=${limit} ${durationMs.toFixed(0)}ms`,
           durationMs,
           thresholdMs: 100,
         })
@@ -424,23 +444,23 @@ export function createOverlayFlusher(
   }
 
   function afterWrite(): void {
-    if (overlay.dirtyBytes >= OVERLAY_FLUSH_DIRTY_BYTES) {
+    if (!sink) return
+    if (pending.dirtyBytes >= OVERLAY_FLUSH_DIRTY_BYTES) {
       void flushRound()
-    } else if (overlay.dirtyBytes > 0) {
+    } else if (pending.dirtyBytes > 0) {
       schedule()
     }
   }
 
   async function acknowledgeGuestWrite(): Promise<void> {
-    if (entry.deferFlush) {
+    if (!sink) {
       return
     }
-    if (overlay.dirtyBytes > OVERLAY_HIGH_WATER_BYTES) {
-      // 高水位：客机写被卡到低水位才 ack，客机会停顿——这是一次强信号
+    if (pending.dirtyBytes > OVERLAY_HIGH_WATER_BYTES) {
       recordSystemDebugHot({
         layer: 'vm',
         op: 'write-high-water',
-        detail: `dirty=${overlay.dirtyBytes} limit=${OVERLAY_LOW_WATER_BYTES}`,
+        detail: `dirty=${pending.dirtyBytes} limit=${OVERLAY_LOW_WATER_BYTES}`,
       })
       await flushUntilBelow(OVERLAY_LOW_WATER_BYTES)
       return
@@ -545,6 +565,7 @@ async function readDiskRange(
 async function writeDiskRange(
   entry: StreamEntry,
   overlay: DirtyOverlay,
+  pending: DirtyOverlay,
   flusher: OverlayFlusher,
   offset: number,
   bytes: ArrayBuffer,
@@ -560,7 +581,11 @@ async function writeDiskRange(
     }
   }
   try {
-    overlay.write(offset, new Uint8Array(bytes))
+    const view = new Uint8Array(bytes)
+    overlay.write(offset, view)
+    if (entry.persist) {
+      pending.write(offset, view)
+    }
     const writeStartedAt = performance.now()
     await flusher.acknowledgeGuestWrite()
     const durationMs = performance.now() - writeStartedAt
@@ -602,7 +627,31 @@ export function postSource(
 }
 
 const overlays = new Map<string, DirtyOverlay>()
+const pendingOverlays = new Map<string, DirtyOverlay>()
 const flushers = new Map<string, OverlayFlusher>()
+
+function overlaySink(entry: StreamEntry): OverlayPersistSink | undefined {
+  const store = entry.overlayStore
+  if (!store) {
+    return undefined
+  }
+  return {
+    append: (offset, bytes) => store.append(offset, bytes),
+    flush: () => store.flush(),
+  }
+}
+
+function ensureFlusher(streamId: string, entry: StreamEntry): OverlayFlusher {
+  const existing = flushers.get(streamId)
+  if (existing) {
+    return existing
+  }
+  const pending = pendingOverlays.get(streamId) ?? new DirtyOverlay()
+  pendingOverlays.set(streamId, pending)
+  const created = createOverlayFlusher(pending, overlaySink(entry), entry.path)
+  flushers.set(streamId, created)
+  return created
+}
 
 /** 释放闸门状态：按流记录 release 起点与宽限期内写入的接收情况。 */
 export type StreamReleaseState = {
@@ -744,13 +793,18 @@ function onDiskStreamMessage(event: MessageEvent): void {
         }
         const overlay = overlays.get(streamId) ?? new DirtyOverlay()
         overlays.set(streamId, overlay)
-        let flusher = flushers.get(streamId)
-        if (!flusher) {
-          flusher = createOverlayFlusher(streamId, entry, overlay)
-          flushers.set(streamId, flusher)
-        }
+        const pending = pendingOverlays.get(streamId) ?? new DirtyOverlay()
+        pendingOverlays.set(streamId, pending)
+        const flusher = ensureFlusher(streamId, entry)
         const writeBytes = write.bytes.byteLength
-        const result = await writeDiskRange(entry, overlay, flusher, write.offset, write.bytes)
+        const result = await writeDiskRange(
+          entry,
+          overlay,
+          pending,
+          flusher,
+          write.offset,
+          write.bytes,
+        )
         if (result.status === 200) {
           recordVmDiskStreamIo({
             streamId,
@@ -827,10 +881,15 @@ function ensureListener(): void {
   window.addEventListener('message', onDiskStreamMessage)
 }
 
-/** 为本地镜像注册按需范围读（及可选回写）会话；返回 stream id。 */
+/** 为本地镜像注册按需范围读（及可选差量回写）会话；返回 stream id。 */
 export async function registerVirtualMachineDiskStream(
   path: string,
-  options?: { writable?: boolean },
+  options?: {
+    writable?: boolean
+    persist?: boolean
+    mergeOnRelease?: boolean
+    snapshotPath?: string
+  },
 ): Promise<string> {
   const startedAt = performance.now()
   const stat = await filesStat(path)
@@ -838,15 +897,18 @@ export async function registerVirtualMachineDiskStream(
     throw new Error(`文件不存在：${path}`)
   }
   const writable = options?.writable === true
-  let quietWriter: DiskQuietWriter | undefined
-  let deferFlush = false
+  const persist = writable && options?.persist === true
+  const snapshotPath = options?.snapshotPath?.trim() || undefined
+  const mergeOnRelease = persist && options?.mergeOnRelease !== false && snapshotPath === undefined
+  const overlay = new DirtyOverlay()
+  let overlayStore: DiskOverlayStore | undefined
   if (writable) {
-    const mountWriter = await openMountRangeWriter(path)
-    if (mountWriter) {
-      quietWriter = mountWriter
-      deferFlush = true
-    } else {
-      quietWriter = await openQuietBlobWriter(path)
+    const key = { imagePath: path, snapshotPath }
+    if (snapshotPath || persist) {
+      await replayDiskOverlayStore(key, (offset, bytes) => overlay.write(offset, bytes))
+    }
+    if (persist) {
+      overlayStore = await openDiskOverlayStore(key)
     }
   }
   const id = `ds-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`
@@ -854,33 +916,85 @@ export async function registerVirtualMachineDiskStream(
     path,
     size: stat.byteSize,
     writable,
-    quietWriter,
-    deferFlush,
+    persist,
+    mergeOnRelease,
+    snapshotPath,
+    overlayStore,
   })
+  overlays.set(id, overlay)
+  pendingOverlays.set(id, new DirtyOverlay())
   ensureListener()
   recordSystemDebugTimeline({
     layer: 'vm',
     op: 'disk-stream-register',
-    detail: `${stat.byteSize}B writable=${writable}`,
+    detail: `${stat.byteSize}B writable=${writable} persist=${persist} merge=${mergeOnRelease}`,
     durationMs: Math.round(performance.now() - startedAt),
   })
   return id
 }
 
-export async function flushVirtualMachineDiskStream(streamId: string | undefined): Promise<void> {
-  if (!streamId) return
-  const overlay = overlays.get(streamId)
-  const flusher = flushers.get(streamId)
-  if (flusher) {
-    await flusher.flushUntilEmpty()
+export async function mergeOverlayIntoImage(
+  path: string,
+  overlay: DirtyOverlay,
+  store?: DiskOverlayStore,
+): Promise<void> {
+  const runs = overlay.listRuns()
+  if (runs.length === 0) {
+    await store?.remove()
+    overlay.clear()
     return
   }
-  if (!overlay) return
+  const mountWriter = await openMountRangeWriter(path)
+  const writer = mountWriter ?? (await openQuietBlobWriter(path))
+  try {
+    if (writer) {
+      for (const run of runs) {
+        await writer.writeAt(run.offset, run.bytes)
+      }
+      await writer.flush()
+      await writer.close()
+    } else {
+      for (const run of runs) {
+        await filesWriteBytesRange(path, run.offset, run.bytes)
+      }
+    }
+  } catch (error) {
+    await writer?.abort().catch(() => undefined)
+    throw error
+  }
+  await store?.remove()
+  overlay.clear()
+}
+
+export async function freezeVirtualMachineDiskStreamOverlays(
+  streamIds: readonly (string | undefined)[],
+  snapshotPath: string,
+): Promise<void> {
+  const trimmed = snapshotPath.trim()
+  if (!trimmed) {
+    return
+  }
+  for (const streamId of streamIds) {
+    if (!streamId) continue
+    const entry = streams.get(streamId)
+    const overlay = overlays.get(streamId)
+    if (!entry?.writable || !overlay) continue
+    const flusher = flushers.get(streamId)
+    if (flusher) {
+      await flusher.flushUntilEmpty()
+    }
+    await writeDiskOverlaySnapshot(
+      { imagePath: entry.path, snapshotPath: trimmed },
+      overlay.listRuns(),
+    )
+  }
+}
+
+export async function flushVirtualMachineDiskStream(streamId: string | undefined): Promise<void> {
+  if (!streamId) return
   const entry = streams.get(streamId)
   if (!entry) return
-  const created = createOverlayFlusher(streamId, entry, overlay)
-  flushers.set(streamId, created)
-  await created.flushUntilEmpty()
+  await ensureFlusher(streamId, entry).flushUntilEmpty()
 }
 
 async function drainStreamWork(streamId: string): Promise<void> {
@@ -927,7 +1041,6 @@ export async function releaseVirtualMachineDiskStream(
   }
   releaseStates.set(streamId, state)
   const entry = streams.get(streamId)
-  const flusher = flushers.get(streamId)
   try {
     // 收尾窗口：先排干 release 前积压的任务；宽限期内有新写到达则静默观察，
     // 连续安静或宽限到期才关门。关门与最后一轮 drain 的完成落在同一同步段，
@@ -952,19 +1065,18 @@ export async function releaseVirtualMachineDiskStream(
     await drainThenFlushThenClose({
       drain: () => drainStreamWork(streamId),
       flushUntilEmpty: async () => {
-        if (flusher) {
-          await flusher.flushUntilEmpty()
-          return
-        }
-        const overlay = overlays.get(streamId)
-        if (!overlay || !entry) return
-        const created = createOverlayFlusher(streamId, entry, overlay)
-        flushers.set(streamId, created)
-        await created.flushUntilEmpty()
+        if (!entry) return
+        await ensureFlusher(streamId, entry).flushUntilEmpty()
       },
       close: async () => {
-        if (entry?.quietWriter) {
-          await entry.quietWriter.close()
+        if (!entry) return
+        const overlay = overlays.get(streamId) ?? new DirtyOverlay()
+        if (entry.mergeOnRelease) {
+          await mergeOverlayIntoImage(entry.path, overlay, entry.overlayStore)
+          return
+        }
+        if (!entry.persist) {
+          overlay.clear()
         }
       },
     })
@@ -976,6 +1088,7 @@ export async function releaseVirtualMachineDiskStream(
   } finally {
     streams.delete(streamId)
     overlays.delete(streamId)
+    pendingOverlays.delete(streamId)
     flushers.delete(streamId)
     releaseStates.delete(streamId)
     releaseVmDiskStreamMetrics(streamId)

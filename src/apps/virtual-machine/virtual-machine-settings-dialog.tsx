@@ -710,7 +710,7 @@ export function VirtualMachineSettingsDialog({
               disabled={busy || running}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
-              hint={`${formatVmDiskWriteModeDescription(draft.diskWriteMode)} 带快照启动时回写会改底盘镜像，容易和快照对不上；XP 这类机建议不写入。`}
+              hint={`${formatVmDiskWriteModeDescription(draft.diskWriteMode)} 从快照启动时，改动不会写回原来的硬盘文件。`}
             />
             <div class="virtual-machine-settings__storage">
               <div class="virtual-machine-settings__drives" role="listbox" aria-label="存储设备">

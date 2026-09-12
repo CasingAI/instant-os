@@ -13,6 +13,7 @@ import {
   assertVirtualMachineDiskCanPersistWrites,
   MOUNT_DISK_WRITE_BACK_MAX_BYTES,
   virtualMachineDiskPersistsWrites,
+  virtualMachineDiskUsesOverlay,
   virtualMachineHasBootMedia,
   virtualMachineMountWriteBackError,
   vmMountedDiskSlots,
@@ -127,12 +128,14 @@ function testPersistWritesHonorsMode(): void {
   assert.equal(virtualMachineDiskPersistsWrites('hdd'), false)
   assert.equal(virtualMachineDiskPersistsWrites('hdd', 'none'), false)
   assert.equal(virtualMachineDiskPersistsWrites('floppy', 'none'), false)
-  assert.equal(virtualMachineDiskPersistsWrites('hdd', 'live'), true)
-  assert.equal(virtualMachineDiskPersistsWrites('floppy', 'live'), true)
-  assert.equal(virtualMachineDiskPersistsWrites('hdd', 'poweroff'), true)
-  assert.equal(virtualMachineDiskPersistsWrites('floppy', 'poweroff'), true)
-  assert.equal(virtualMachineDiskPersistsWrites('cdrom', 'live'), false)
-  assert.equal(virtualMachineDiskPersistsWrites('state', 'live'), false)
+  assert.equal(virtualMachineDiskPersistsWrites('hdd', 'persist'), true)
+  assert.equal(virtualMachineDiskPersistsWrites('floppy', 'persist'), true)
+  assert.equal(virtualMachineDiskPersistsWrites('cdrom', 'persist'), false)
+  assert.equal(virtualMachineDiskPersistsWrites('state', 'persist'), false)
+  assert.equal(virtualMachineDiskUsesOverlay('hdd'), true)
+  assert.equal(virtualMachineDiskUsesOverlay('floppy'), true)
+  assert.equal(virtualMachineDiskUsesOverlay('cdrom'), false)
+  assert.equal(virtualMachineDiskUsesOverlay('state'), false)
 }
 
 function testRefuseMountWriteBack(): void {
@@ -339,16 +342,23 @@ function testDefaultPointerModeInStartConfig(): void {
 
 function testDiskWriteModeInStartConfig(): void {
   const defaultCfg = settingsToStartConfig(sampleSettings())
-  assert.equal(defaultCfg.diskWriteMode, 'none')
+  assert.equal(defaultCfg.diskWriteMode, 'persist')
 
-  const live = settingsToStartConfig({ ...sampleSettings(), diskWriteMode: 'live' })
-  assert.equal(live.diskWriteMode, 'live')
+  const persist = settingsToStartConfig({ ...sampleSettings(), diskWriteMode: 'persist' })
+  assert.equal(persist.diskWriteMode, 'persist')
   assert.equal(
-    isInstantVmStartMessage(buildStartMessage('req-dw', { ...sampleSettings(), diskWriteMode: 'live' }, {})),
+    isInstantVmStartMessage(buildStartMessage('req-dw', { ...sampleSettings(), diskWriteMode: 'persist' }, {})),
     true,
   )
   assert.equal(
-    isInstantVmStartMessage(buildStartMessage('req-dw-off', { ...sampleSettings(), diskWriteMode: 'poweroff' }, {})),
+    isInstantVmStartMessage(buildStartMessage('req-dw-off', { ...sampleSettings(), diskWriteMode: 'none' }, {})),
+    true,
+  )
+  assert.equal(
+    isInstantVmStartMessage({
+      ...buildStartMessage('req-dw-legacy', sampleSettings(), {}),
+      config: { ...settingsToStartConfig(sampleSettings()), diskWriteMode: 'live' as never },
+    }),
     true,
   )
   assert.equal(

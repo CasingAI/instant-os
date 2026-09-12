@@ -117,12 +117,22 @@ export const INSTANT_VM_POINTER_MODES = ['auto', 'follow', 'lock'] as const
 export type InstantVmPointerMode = (typeof INSTANT_VM_POINTER_MODES)[number]
 
 /**
- * 硬盘回写时机。省略按 none（不回写镜像）。
- * Keep in sync with instant-app `VmDiskWriteModeId`。
+ * 硬盘差量是否在关机时并进可见镜像。省略按 none（只写差量、关机丢弃）。
+ * Keep in sync with Instant-virtual-machine `InstantVmDiskWriteMode`。
  */
-export const INSTANT_VM_DISK_WRITE_MODES = ['none', 'live', 'poweroff'] as const
+export const INSTANT_VM_DISK_WRITE_MODES = ['none', 'persist'] as const
 
 export type InstantVmDiskWriteMode = (typeof INSTANT_VM_DISK_WRITE_MODES)[number]
+
+export function coerceDiskWriteMode(value: unknown): InstantVmDiskWriteMode | undefined {
+  if (value === 'none' || value === 'persist') {
+    return value
+  }
+  if (value === 'live' || value === 'poweroff') {
+    return 'persist'
+  }
+  return undefined
+}
 
 export type InstantVmEffectivePointerMode = 'follow' | 'lock'
 
@@ -524,9 +534,8 @@ export type InstantVmDiskWriteFailedMessage = {
 }
 
 /**
- * 客机自行切电（XP 软关机走到 HLT / ACPI 端口）后、宿主侧整盘回写开始前的通知。
- * poweroff 模式的回写是本次开机唯一的落盘机会，可能持续几十秒到几分钟；收到后宿主应立即
- * 置「正在写入」状态，否则界面看起来像卡死，用户会点断电打断回写——半提交镜像。
+ * 客机自行切电后、宿主侧差量合并即将开始。合并可能持续一段时间；收到后宿主应立即
+ * 置「正在写入」状态，避免界面看起来像卡死。
  */
 export type InstantVmGuestPoweroffDrainingMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.guestPoweroffDraining
@@ -561,7 +570,7 @@ export type InstantVmVgaStats = {
 }
 
 export type InstantVmDiskWriteStats = {
-  /** 尚未发出的脏字节。并集度量（重叠区间只算一次），poweroff 运行期即本次开机全部改动。 */
+  /** 尚未交给宿主差量层的脏字节。并集度量（重叠区间只算一次）。 */
   pendingBytes: number
   /** 尚未发出的脏区间段数（合并后的段数）。 */
   pendingRanges: number
@@ -585,7 +594,7 @@ export type InstantVmStatsSnapshot = {
   mouse: boolean
   absoluteMouse: boolean
   displayScale?: number
-  /** 可回写模式（live/poweroff）才有：本次开机的落盘进度与丢失量，供透明展示。 */
+  /** 可回写模式才有：本次开机的在途落盘进度与丢失量。 */
   diskWrite?: InstantVmDiskWriteStats
 }
 
@@ -667,11 +676,8 @@ export function isPointerMode(value: unknown): value is InstantVmPointerMode {
   )
 }
 
-export function isDiskWriteMode(value: unknown): value is InstantVmDiskWriteMode {
-  return (
-    typeof value === 'string' &&
-    (INSTANT_VM_DISK_WRITE_MODES as readonly string[]).includes(value)
-  )
+export function isDiskWriteMode(value: unknown): boolean {
+  return coerceDiskWriteMode(value) !== undefined
 }
 
 function isPositiveIntIn<T extends number>(

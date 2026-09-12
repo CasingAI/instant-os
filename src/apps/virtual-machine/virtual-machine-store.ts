@@ -15,7 +15,7 @@ import {
   VM_BOOT_ORDER_IDS,
   VM_BUILD_MODE_IDS,
   VM_CPU_MODEL_IDS,
-  VM_DISK_WRITE_MODE_IDS,
+  coerceVmDiskWriteMode,
   VM_DISPLAY_MODE_IDS,
   VM_NETWORK_BACKEND_IDS,
   VM_NETWORK_IDS,
@@ -172,11 +172,7 @@ export function normalizeVirtualMachineSettings(raw: unknown): VirtualMachineSet
     keyboard: normalizeBoolean(record.keyboard, defaults.keyboard),
     mouse: normalizeBoolean(record.mouse, defaults.mouse),
     pointerMode: normalizeOneOf(record.pointerMode, VM_POINTER_MODE_IDS, defaults.pointerMode),
-    diskWriteMode: normalizeOneOf(
-      record.diskWriteMode,
-      VM_DISK_WRITE_MODE_IDS,
-      defaults.diskWriteMode,
-    ),
+    diskWriteMode: coerceVmDiskWriteMode(record.diskWriteMode) ?? defaults.diskWriteMode,
     resolutionAutoAlign: normalizeBoolean(
       record.resolutionAutoAlign,
       defaults.resolutionAutoAlign,

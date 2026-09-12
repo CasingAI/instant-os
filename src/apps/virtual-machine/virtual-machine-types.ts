@@ -129,16 +129,26 @@ export type VmPointerModeId = (typeof VM_POINTER_MODE_IDS)[number]
 export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'auto'
 
 /**
- * 硬盘回写时机。
- * - `none`：客户机改动只留在内存，要保留就靠快照，不改镜像。
- * - `live`：运行中把扇区写回镜像。
- * - `poweroff`：运行中只攒脏块，关机/断电时一次性刷入镜像。
+ * 硬盘差量是否在关机时并进可见镜像。
+ * - `none`：差量只留在本次开机，关机丢弃，不改镜像。
+ * - `persist`：运行期写入隐藏差量，关机把差量合并进镜像。
+ * 旧值 `live` / `poweroff` 读入时迁成 `persist`。
  */
-export const VM_DISK_WRITE_MODE_IDS = ['none', 'live', 'poweroff'] as const
+export const VM_DISK_WRITE_MODE_IDS = ['none', 'persist'] as const
 
 export type VmDiskWriteModeId = (typeof VM_DISK_WRITE_MODE_IDS)[number]
 
-export const DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE: VmDiskWriteModeId = 'none'
+export const DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE: VmDiskWriteModeId = 'persist'
+
+export function coerceVmDiskWriteMode(value: unknown): VmDiskWriteModeId | undefined {
+  if (value === 'none' || value === 'persist') {
+    return value
+  }
+  if (value === 'live' || value === 'poweroff') {
+    return 'persist'
+  }
+  return undefined
+}
 
 /**
  * 分辨率自动对齐：宿主视口尺寸变化时把目标分辨率递给客机代理（经 io 端口），

@@ -75,16 +75,22 @@ function testNormalizeBuildModeFallback(): void {
 
 function testNormalizeDiskWriteModeFallback(): void {
   const missing = normalizeVirtualMachineSettings({ name: 'test' })
-  assert.equal(missing?.diskWriteMode, 'none')
+  assert.equal(missing?.diskWriteMode, 'persist')
 
   const bad = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'always' })
-  assert.equal(bad?.diskWriteMode, 'none')
+  assert.equal(bad?.diskWriteMode, 'persist')
 
   const live = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'live' })
-  assert.equal(live?.diskWriteMode, 'live')
+  assert.equal(live?.diskWriteMode, 'persist')
 
   const poweroff = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'poweroff' })
-  assert.equal(poweroff?.diskWriteMode, 'poweroff')
+  assert.equal(poweroff?.diskWriteMode, 'persist')
+
+  const none = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'none' })
+  assert.equal(none?.diskWriteMode, 'none')
+
+  const persist = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'persist' })
+  assert.equal(persist?.diskWriteMode, 'persist')
 }
 
 function testNormalizeSnapEdgePx(): void {
