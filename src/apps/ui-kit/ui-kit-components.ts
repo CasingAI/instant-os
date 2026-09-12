@@ -301,6 +301,30 @@ export const UI_COMPONENTS: ComponentDemo[] = [
     ],
   },
   {
+    id: 'progress',
+    name: 'Progress',
+    description:
+      '内联进度条：凹槽轨道 + Aqua 玻璃填充，按百分比从左填到右。进行中可在已填部分叠斜向条纹；总量未知走不确定态（整条轨道走条纹）。success / error 只换填充色。不是浮层、不是迷你窗、也不是圆饼',
+    category: 'data-display',
+    importPath: "import { Progress } from '../../ui/progress.tsx'",
+    whenToUse:
+      '列表行、面板、表单里展示已知或未知进度。几秒内的短操作用 HUD；可能超时、可取消的文件复制/解压用迷你进度窗；桌面图标上的写入圆饼走文件 App 自己的绘制，不要拿本组件替代',
+    demos: [
+      { id: 'basic', title: '基础用法', description: '百分比、小尺寸、自定义右侧文案、隐藏读数' },
+      { id: 'status', title: '状态与不确定态', description: '进行中条纹、成功、失败、总量未知；模拟一条循环任务' },
+    ],
+    props: [
+      { name: 'percent', type: 'number?', description: '0-100，越界自动 clamp；不确定态时不画宽度', defaultValue: '0' },
+      { name: 'indeterminate', type: 'boolean?', description: '总量未知：整条轨道走条纹，不表示百分比', defaultValue: 'false' },
+      { name: 'status', type: "'normal' | 'active' | 'success' | 'error'", description: 'normal 静止填充；active 已填部分叠条纹；success 绿；error 红', defaultValue: "'normal'" },
+      { name: 'size', type: "'small' | 'default'", description: '轨道高度；small 适合列表行与菜单栏卡片', defaultValue: "'default'" },
+      { name: 'showInfo', type: 'boolean?', description: '是否显示右侧读数；不确定态且未传 info 时强制不显示', defaultValue: 'true' },
+      { name: 'info', type: 'string?', description: '覆盖右侧文案（如 "12 / 340"）', defaultValue: '—' },
+      { name: 'className', type: 'string?', description: '追加到根节点的类名', defaultValue: '—' },
+      { name: 'ariaLabel', type: 'string?', description: '无障碍标签', defaultValue: '—' },
+    ],
+  },
+  {
     id: 'list',
     name: 'List',
     description:

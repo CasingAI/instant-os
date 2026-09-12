@@ -1,24 +1,24 @@
-import type { ComponentChildren } from 'preact'
 import './progress.css'
 
 export type ProgressStatus = 'normal' | 'active' | 'success' | 'error'
 
-type ProgressProps = {
-  /** 0-100 的百分比；< 0 或 > 100 会被 clamp */
-  percent: number
-  /** 状态：active 显示条纹动画，success 绿色，error 红 */
+export type ProgressProps = {
+  /** 0-100 的百分比；< 0 或 > 100 会被 clamp。不确定态时只作无障碍回退，不画宽度 */
+  percent?: number
+  /** 总量未知：整条轨道走条纹，不表示百分比 */
+  indeterminate?: boolean
+  /** 状态：active 在已填部分上叠条纹；success 绿；error 红 */
   status?: ProgressStatus
-  /** 控制条高度 */
+  /** 控制条高度；small 适合列表行与菜单栏卡片 */
   size?: 'small' | 'default'
-  /** 是否显示右上角百分比文本 */
+  /** 是否显示右侧百分比（不确定态且未传 info 时强制不显示） */
   showInfo?: boolean
   /** 追加自定义类名 */
   className?: string
-  /** 覆盖内联渲染的百分比文案（如 "12 / 340"） */
+  /** 覆盖右侧文案（如 "12 / 340"） */
   info?: string
   /** 无障碍 label */
   ariaLabel?: string
-  children?: ComponentChildren
 }
 
 function clampPercent(value: number): number {
@@ -27,17 +27,18 @@ function clampPercent(value: number): number {
 }
 
 export function Progress({
-  percent,
+  percent = 0,
+  indeterminate = false,
   status = 'normal',
   size = 'default',
   showInfo = true,
   className,
   info,
   ariaLabel,
-  children,
 }: ProgressProps) {
   const clamped = clampPercent(percent)
-  const displayText = info ?? `${Math.round(clamped)}%`
+  const displayInfo = indeterminate ? info : (info ?? `${Math.round(clamped)}%`)
+  const revealInfo = showInfo && displayInfo !== undefined
   const statusClass =
     status === 'success'
       ? ' progress--success'
@@ -48,25 +49,24 @@ export function Progress({
           : ''
   const sizeClass = size === 'small' ? ' progress--small' : ''
   const extraClass = className ? ` ${className}` : ''
+  const indeterminateClass = indeterminate ? ' progress--indeterminate' : ''
 
   return (
     <div
-      class={`progress${statusClass}${sizeClass}${extraClass}`}
+      class={`progress${statusClass}${sizeClass}${indeterminateClass}${extraClass}`}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={Math.round(clamped)}
+      aria-valuenow={indeterminate ? undefined : Math.round(clamped)}
       aria-label={ariaLabel}
     >
       <div class="progress__track">
         <div
           class="progress__bar"
-          style={{ width: `${clamped}%` }}
-        >
-          {children}
-        </div>
+          style={indeterminate ? undefined : { width: `${clamped}%` }}
+        />
       </div>
-      {showInfo && <span class="progress__info">{displayText}</span>}
+      {revealInfo && <span class="progress__info">{displayInfo}</span>}
     </div>
   )
 }

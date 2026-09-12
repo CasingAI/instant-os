@@ -455,6 +455,7 @@ export function DownloaderApp({ windowId }: DownloaderAppProps) {
       <Progress
         className="downloader-app__task-progress"
         percent={percent}
+        indeterminate={task.state === 'running' && !totalBytes}
         status={status}
         size="small"
         showInfo={!!totalBytes}
