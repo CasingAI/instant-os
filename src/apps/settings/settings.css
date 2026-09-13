@@ -1178,6 +1178,11 @@
   cursor: default;
 }
 
+/* 说明性行（字节已计入其它行，仅作拆解说明）：整体弱化 */
+.settings__row--note {
+  opacity: 0.72;
+}
+
 .settings__row--3d {
   grid-template-columns: 108px 1fr;
   align-items: start;

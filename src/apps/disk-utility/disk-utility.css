@@ -780,3 +780,10 @@
     padding-inline: 5px;
   }
 }
+
+/* ── 急救对话框 ── */
+
+.disk-utility-first-aid__progress {
+  flex: 0 0 auto;
+  margin-top: 12px;
+}

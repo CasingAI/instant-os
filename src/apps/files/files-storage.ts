@@ -13,6 +13,8 @@ import {
 } from '../../os/device-data-storage.ts'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import {
+  FILES_LOCATIONS,
+  canAttachOnLocation,
   newContentRevisionId,
   normalizeFilesNodeAttributes,
   type FilesLocationId,
@@ -76,6 +78,10 @@ export type FilesNodeRecord = {
     parentId: string
     name: string
   }
+  /** 文件附加标记：parentId 指向主文件节点；目录列表不显示。 */
+  attachment?: true
+  /** 附加的标签（程序按标签检索自己的附加）。 */
+  attachmentTags?: string[]
   /** 旧数据可能缺失；读取时按位置默认补齐 */
   attributes?: FilesNodeAttributes
 }
@@ -540,6 +546,12 @@ export type FilesBlobStorageInfo = {
   byteSize: number
   /** 实占字节；与 byteSize 不同时属性面板可展示「占用」 */
   storedByteSize: number
+  /** 节点机会压缩标志 */
+  sparse?: boolean
+  /** 等长分槽（缺席槽当全零）；有洞或此格式都禁止溢到 OPFS */
+  sparseSlots?: boolean
+  /** 等长分槽大小；仅 sparseSlots 时有 */
+  slotSize?: number
 }
 
 function resolveBlobChunkCount(blob: FilesBlobRecord): number {
@@ -567,13 +579,26 @@ export async function getFileBlobStorageInfo(
   )
   await waitForTransaction(tx)
   if (!blob) return undefined
-  return {
+  const storedByteSize = blobPayloadBytes(blob)
+  const info: FilesBlobStorageInfo = {
     blobId,
     bodyStore: isOpfsBlob(blob) ? 'OPFS' : 'IndexedDB',
     chunkCount: resolveBlobChunkCount(blob),
     byteSize: node.byteSize,
-    storedByteSize: blobPayloadBytes(blob),
+    storedByteSize,
   }
+  if (node.sparse === true) info.sparse = true
+  if (blob.chunked === true && blob.uniformChunkSize !== undefined) {
+    info.sparseSlots = true
+    info.slotSize = blob.uniformChunkSize
+  }
+  return info
+}
+
+/** 机会压缩、等长分槽、或已有洞：卸到 OPFS 会填实。 */
+export function blobMustNotSpillToOpfs(info: Pick<FilesBlobStorageInfo, 'sparse' | 'sparseSlots' | 'byteSize' | 'storedByteSize'>): boolean {
+  if (info.sparse === true || info.sparseSlots === true) return true
+  return info.storedByteSize < info.byteSize
 }
 
 /**
@@ -603,6 +628,17 @@ export async function spillIdbBlobToOpfsIfNeeded(
     await waitForTransaction(tx)
     if (!blob) return false
     if (isOpfsBlob(blob)) return true
+    const storedByteSize = blobPayloadBytes(blob)
+    if (
+      blobMustNotSpillToOpfs({
+        sparse: node.sparse === true ? true : undefined,
+        sparseSlots: blob.chunked === true && blob.uniformChunkSize !== undefined,
+        byteSize: node.byteSize,
+        storedByteSize,
+      })
+    ) {
+      return false
+    }
 
     const shared = resolveBlobRefCount(blob) > 1
     const targetBlobId = shared ? newFilesBlobId() : blobId
@@ -954,6 +990,12 @@ export function recordToNode(record: FilesNodeRecord): FilesNode {
       name: record.trashOrigin.name,
     }
   }
+  if (record.attachment !== undefined) {
+    node.attachment = true
+  }
+  if (record.attachmentTags !== undefined) {
+    node.attachmentTags = record.attachmentTags
+  }
   return node
 }
 
@@ -988,6 +1030,12 @@ function nodeToRecord(node: FilesNode, blobId?: string): FilesNodeRecord {
       parentId: parentKey(node.trashOrigin.parentId),
       name: node.trashOrigin.name,
     }
+  }
+  if (node.attachment !== undefined) {
+    record.attachment = node.attachment
+  }
+  if (node.attachmentTags !== undefined && node.attachmentTags.length > 0) {
+    record.attachmentTags = node.attachmentTags
   }
   if (node.kind === 'file') {
     record.blobId = blobId ?? node.id
@@ -1103,6 +1151,48 @@ export async function getFilesBytesByLocation(
   return results
 }
 
+/** 允许挂附加的内部卷（由 canAttachOnLocation 派生，避免名单两处漂移） */
+const ATTACHABLE_LOCATIONS: readonly FilesLocationId[] = FILES_LOCATIONS.filter((location) =>
+  canAttachOnLocation(location.id),
+).map((location) => location.id)
+
+/**
+ * 全部内部卷 `attachment === true` 的 file 节点字节总和（blob storedByteSize，
+ * 与 getFilesBytesByLocation 同口径——附加字节本就计入所在卷行）。
+ * 设置存储页的「文件附加」说明行数据源。
+ */
+export async function getFilesAttachmentBytes(
+  locations: readonly FilesLocationId[] = ATTACHABLE_LOCATIONS,
+): Promise<number> {
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(
+    db,
+    [FILES_NODES_STORE, FILES_BLOBS_STORE],
+    'readonly',
+  )
+  const index = tx.objectStore(FILES_NODES_STORE).index('by-location')
+  const blobs = tx.objectStore(FILES_BLOBS_STORE)
+
+  let total = 0
+  for (const locationId of locations) {
+    const records = await requestToPromise(
+      index.getAll(locationId) as IDBRequest<FilesNodeRecord[]>,
+    )
+    for (const record of records ?? []) {
+      if (record.attachment !== true || record.kind !== 'file') continue
+      const blob = await requestToPromise(
+        blobs.get(resolveNodeBlobId(record)) as IDBRequest<FilesBlobRecord | undefined>,
+      )
+      if (blob) {
+        total += blobPayloadBytes(blob)
+      }
+    }
+  }
+
+  await waitForTransaction(tx)
+  return total
+}
+
 function emitFilesDataStorageChanged(): void {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(DATA_STORAGE_CHANGED_EVENT))
@@ -1136,12 +1226,114 @@ export async function listChildNodes(
     index.getAll([locationId, parentKey(parentId)]) as IDBRequest<FilesNodeRecord[]>,
   )
   await waitForTransaction(tx)
-  const nodes = (records ?? []).map(recordToNode)
+  // 附加挂在主文件节点（而非文件夹）下面：目录列表只看文件夹的直接孩子，
+  // 附加不在这里出现（要看附加走 主文件/.attach/ 专用路径）。
+  const nodes = (records ?? []).map(recordToNode).filter((node) => node.attachment !== true)
   nodes.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1
     return a.name.localeCompare(b.name, 'zh-CN')
   })
   return nodes
+}
+
+/** 列出挂在某个主文件节点上的全部附加（按标签过滤可选）。 */
+export async function listAttachmentNodes(
+  locationId: FilesLocationId,
+  fileNodeId: string,
+  options?: { tag?: string },
+): Promise<FilesNode[]> {
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
+  const index = tx.objectStore(FILES_NODES_STORE).index('by-parent')
+  const records = await requestToPromise(
+    index.getAll([locationId, fileNodeId]) as IDBRequest<FilesNodeRecord[]>,
+  )
+  await waitForTransaction(tx)
+  const nodes = (records ?? [])
+    .map(recordToNode)
+    .filter(
+      (node) =>
+        node.attachment === true &&
+        (options?.tag === undefined || node.attachmentTags?.includes(options.tag) === true),
+    )
+  nodes.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+  return nodes
+}
+
+/** 主文件路径 → 附加摘要（文件信息面板与列表徽标用）。 */
+export async function countAttachmentNodes(
+  locationId: FilesLocationId,
+  fileNodeId: string,
+): Promise<number> {
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
+  const index = tx.objectStore(FILES_NODES_STORE).index('by-parent')
+  const count = await requestToPromise(
+    index.count([locationId, fileNodeId]) as IDBRequest<number>,
+  )
+  await waitForTransaction(tx)
+  return count
+}
+
+export type FilesAttachmentSum = {
+  count: number
+  /** 附加正文实占合计（blob storedByteSize；机会压缩附加按脏槽计） */
+  bytes: number
+}
+
+/**
+ * 批量查一组主文件的附加摘要（数量 + 字节合计）。
+ * 列表大小列与附加徽标共用：每次列目录算一次，不缓存。
+ * 只返回确有附加的节点（Map 无该 id = 无附加）。
+ * 单事务一趟游标扫完整个卷的 by-parent 复合索引区间，内存过滤请求集合——
+ * 逐 id getAll 是千文件千事务，列表滚动会打满 IndexedDB。
+ */
+export async function sumAttachmentBytes(
+  locationId: FilesLocationId,
+  fileNodeIds: readonly string[],
+): Promise<Map<string, FilesAttachmentSum>> {
+  const sums = new Map<string, FilesAttachmentSum>()
+  if (fileNodeIds.length === 0) {
+    return sums
+  }
+  const wanted = new Set(fileNodeIds)
+  const pending: { parentId: string; blobId: string }[] = []
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const index = tx.objectStore(FILES_NODES_STORE).index('by-parent')
+  const blobs = tx.objectStore(FILES_BLOBS_STORE)
+  await new Promise<void>((resolve, reject) => {
+    const cursorReq = index.openCursor(IDBKeyRange.bound([locationId], [locationId, '\uffff']))
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result
+      if (!cursor) {
+        resolve()
+        return
+      }
+      const record = cursor.value as FilesNodeRecord
+      if (
+        record.kind === 'file' &&
+        record.attachment === true &&
+        record.parentId !== undefined &&
+        wanted.has(record.parentId)
+      ) {
+        pending.push({ parentId: record.parentId, blobId: resolveNodeBlobId(record) })
+      }
+      cursor.continue()
+    }
+    cursorReq.onerror = () => reject(cursorReq.error ?? new Error('IndexedDB 读取失败'))
+  })
+  for (const item of pending) {
+    const blob = await requestToPromise(
+      blobs.get(item.blobId) as IDBRequest<FilesBlobRecord | undefined>,
+    )
+    const current = sums.get(item.parentId) ?? { count: 0, bytes: 0 }
+    current.count += 1
+    current.bytes += blob ? blobPayloadBytes(blob) : 0
+    sums.set(item.parentId, current)
+  }
+  await waitForTransaction(tx)
+  return sums
 }
 
 export async function getNode(id: string): Promise<FilesNode | undefined> {
@@ -1557,13 +1749,15 @@ export async function createFileWithBytes(params: {
   bytes: ArrayBuffer
   metaBytes: number
   nameMode: FilesNodeNameMode
+  /** 账本 byteSize 覆盖（默认按实际字节数）：v2 缓存附加的账本口径是段字节总和 */
+  ledgerByteSize?: number
 }): Promise<FilesNode> {
   const contentBytes = params.bytes.byteLength
   const needed = params.metaBytes + contentBytes
   const total = await assertCapacity(needed)
   const node: FilesNode = {
     ...params.node,
-    byteSize: contentBytes,
+    byteSize: params.ledgerByteSize ?? contentBytes,
     contentRevisionId: newContentRevisionId(),
   }
   const blobId = node.id
@@ -1624,6 +1818,7 @@ export async function createSparseFile(params: {
   const node: FilesNode = {
     ...params.node,
     byteSize,
+    sparse: true,
     contentRevisionId: newContentRevisionId(),
   }
   const blobId = node.id
@@ -2230,6 +2425,8 @@ export async function writeBlobBytesRange(params: {
   nodeId: string
   offset: number
   bytes: ArrayBuffer | Uint8Array
+  /** 全零槽也落库，不打洞。虚拟机硬盘缓存需要把「客机写零」合并回可见盘。 */
+  retainZeroSlots?: boolean
 }): Promise<FilesNode> {
   const { nodeId, offset } = params
   const bytes = params.bytes instanceof Uint8Array ? params.bytes : new Uint8Array(params.bytes)
@@ -2327,6 +2524,7 @@ export async function writeBlobBytesRange(params: {
       oldSlots,
       writeStart,
       bytes,
+      params.retainZeroSlots === true,
     )
     const total = await assertCapacity(Math.max(0, patch.storedDelta))
 
@@ -2662,6 +2860,23 @@ async function listIdbChunkIndexes(blobId: string): Promise<number[]> {
   return indexes
 }
 
+/** 机会压缩文件里已落库的槽：镜像偏移与槽长（尾槽按逻辑大小截断）。 */
+export async function listSparseOccupiedSlots(
+  nodeId: string,
+): Promise<{ offset: number; length: number }[]> {
+  const info = await getFileBlobStorageInfo(nodeId)
+  if (!info?.sparseSlots || info.slotSize === undefined) {
+    return []
+  }
+  const indexes = await listIdbChunkIndexes(info.blobId)
+  const slotSize = info.slotSize
+  return indexes.map((index) => {
+    const offset = index * slotSize
+    const length = Math.min(slotSize, Math.max(0, info.byteSize - offset))
+    return { offset, length }
+  })
+}
+
 /** 把库内正文逐块搬到 OPFS，峰值约一块，不拼整份。 */
 async function copyIdbBlobToOpfsWriter(
   blobId: string,
@@ -2903,6 +3118,7 @@ function applySparseSlotPatch(
   oldSlots: Map<number, Uint8Array>,
   offset: number,
   bytes: Uint8Array,
+  retainZeroSlots = false,
 ): SparseSlotPatchResult {
   const writeEnd = offset + bytes.byteLength
   const newByteSize = Math.max(oldByteSize, writeEnd)
@@ -2934,7 +3150,7 @@ function applySparseSlotPatch(
       slotBuf.set(bytes.subarray(srcStart, srcEnd), from - slotStart)
     }
 
-    if (isAllZeros(slotBuf)) {
+    if (isAllZeros(slotBuf) && !retainZeroSlots) {
       if (oldChunk) {
         chunksToDelete.push(slot)
         newStoredByteSize -= oldLen
@@ -3885,6 +4101,18 @@ export async function collectSubtreeIds(rootId: string): Promise<{
       fileIds.push(record.id)
       const blobId = resolveNodeBlobId(record)
       releaseByBlobId.set(blobId, (releaseByBlobId.get(blobId) ?? 0) + 1)
+      // 附加也是 file 节点（parentId 指主文件）：追加为叶子文件，不再递归
+      const attaches = await requestToPromise(
+        index.getAll([record.locationId, record.id]) as IDBRequest<FilesNodeRecord[]>,
+      )
+      for (const attach of attaches ?? []) {
+        if (attach.kind !== 'file') continue
+        nodeIds.push(attach.id)
+        reclaimBytes += estimateNodeMetaBytes(recordToNode(attach))
+        fileIds.push(attach.id)
+        const attachBlobId = resolveNodeBlobId(attach)
+        releaseByBlobId.set(attachBlobId, (releaseByBlobId.get(attachBlobId) ?? 0) + 1)
+      }
     } else if (record.kind === 'folder') {
       const children = await requestToPromise(
         index.getAll([record.locationId, record.id]) as IDBRequest<FilesNodeRecord[]>,
@@ -3963,6 +4191,22 @@ export async function collectSubtreesBatch(
       const blobId = resolveNodeBlobId(record)
       fileBlobId.set(record.id, blobId)
       releaseByBlobId.set(blobId, (releaseByBlobId.get(blobId) ?? 0) + 1)
+      // 附加也是 file 节点（parentId 指主文件）：追加为叶子文件，不再递归
+      const attaches = await requestToPromise(
+        index.getAll([record.locationId, record.id]) as IDBRequest<FilesNodeRecord[]>,
+      )
+      for (const attach of attaches ?? []) {
+        if (attach.kind !== 'file') continue
+        seenNodeIds.add(attach.id)
+        const attachMetaBytes = estimateNodeMetaBytes(recordToNode(attach))
+        nodeIds.push(attach.id)
+        bytesByNodeId.set(attach.id, attachMetaBytes)
+        reclaimBytes += attachMetaBytes
+        fileIds.push(attach.id)
+        const attachBlobId = resolveNodeBlobId(attach)
+        fileBlobId.set(attach.id, attachBlobId)
+        releaseByBlobId.set(attachBlobId, (releaseByBlobId.get(attachBlobId) ?? 0) + 1)
+      }
     }
     if (record.kind === 'folder') {
       const children = await requestToPromise(
@@ -4476,6 +4720,8 @@ export type LocalVolumeFileNodeMeta = {
   byteSize: number
   contentRevisionId: string | undefined
   updatedAt: number
+  /** 文件附加（挂在主文件下的内部数据）：子树消费方按需过滤 */
+  attachment: boolean
 }
 
 /**
@@ -4511,6 +4757,7 @@ export async function listLocalVolumeFileNodes(
           byteSize: child.byteSize,
           contentRevisionId: child.contentRevisionId,
           updatedAt: child.updatedAt,
+          attachment: child.attachment === true,
         })
       }
     }
@@ -4578,6 +4825,7 @@ export async function backfillContentRevisionIds(
 /**
  * 单事务：收集子树内所有节点（含文件夹），供路径拼装用。
  * 返回 files + folders（folders 含 id→name/parentId）。
+ * 附加（file 节点挂在主文件下）也计入 files，排在主文件之后。
  */
 export async function listLocalVolumeSubtreeNodes(
   locationId: FilesLocationId,
@@ -4609,14 +4857,25 @@ export async function listLocalVolumeSubtreeNodes(
         })
         folderQueue.push(child.id)
       } else if (child.kind === 'file') {
-        files.push({
-          id: child.id,
-          parentId: child.parentId === FILES_ROOT_PARENT_KEY ? undefined : child.parentId,
-          name: child.name,
-          byteSize: child.byteSize,
-          contentRevisionId: child.contentRevisionId,
-          updatedAt: child.updatedAt,
+        const toMeta = (record: FilesNodeRecord): LocalVolumeFileNodeMeta => ({
+          id: record.id,
+          parentId: record.parentId === FILES_ROOT_PARENT_KEY ? undefined : record.parentId,
+          name: record.name,
+          byteSize: record.byteSize,
+          contentRevisionId: record.contentRevisionId,
+          updatedAt: record.updatedAt,
+          attachment: record.attachment === true,
         })
+        files.push(toMeta(child))
+        // 附加也是 file 节点（parentId 指主文件）：跟在主文件后面列出，
+        // 保证 files 数组父先子后（listSubtreeNodes 据此拼 主文件/.attach 路径）
+        const attaches = await requestToPromise(
+          index.getAll([locationId, child.id]) as IDBRequest<FilesNodeRecord[]>,
+        )
+        for (const attach of attaches ?? []) {
+          if (attach.kind !== 'file') continue
+          files.push(toMeta(attach))
+        }
       }
     }
   }

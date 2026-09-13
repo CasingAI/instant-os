@@ -5,18 +5,12 @@
 import assert from 'node:assert/strict'
 import { INSTANT_VM_DISK_RANGE_MAX_BYTES } from './virtual-machine-protocol.ts'
 import {
-  createOverlayFlusher,
   diskReadReplyStatus,
   diskWriteReplyStatus,
-  drainThenFlushThenClose,
   DirtyOverlay,
   evaluateReleaseGate,
   getVirtualMachineDiskFlushProgress,
-  OVERLAY_FLUSH_MAX_ATTEMPTS,
-  OVERLAY_HIGH_WATER_BYTES,
-  OVERLAY_LOW_WATER_BYTES,
   RELEASE_WRITE_GRACE_MAX_MS,
-  type OverlayPersistSink,
   type StreamReleaseState,
 } from './virtual-machine-disk-stream-host.ts'
 
@@ -77,7 +71,7 @@ function testOverlayMergesAdjacentWrites(): void {
   overlay.write(4, new Uint8Array([5, 6, 7, 8]))
   assert.equal(overlay.dirtyBytes, 8)
   assert.deepEqual(overlay.read(0, 8), new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))
-  const runs = overlay.takeRunsForFlush()
+  const runs = overlay.listRuns()
   assert.equal(runs.length, 1)
   assert.equal(runs[0]?.offset, 0)
   assert.equal(runs[0]?.bytes.byteLength, 8)
@@ -92,6 +86,41 @@ function testOverlayPartialReadFails(): void {
   assert.deepEqual(overlay.read(8, 4), new Uint8Array([5, 6, 7, 8]))
 }
 
+/**
+ * 256KB 对齐预取窗里只有后半段脏、且脏段贴着窗口末尾：旧实现会把这段
+ * 贴到缓冲区开头并当成读满。NTLDR 与稍后拷进去的 PE 同窗时，引导簇会被
+ * 导入表覆盖。
+ */
+function testOverlayReadGapBeforeTailRunDoesNotClaimFullCoverage(): void {
+  const windowSize = 256 * 1024
+  const ntldrOff = 19968
+  const overlay = new DirtyOverlay()
+  const dll = new Uint8Array(windowSize - 64 * 1024)
+  dll[0] = 0x4d
+  dll[1] = 0x5a
+  dll[ntldrOff] = 0x50
+  overlay.write(64 * 1024, dll)
+  assert.equal(overlay.read(0, windowSize), undefined)
+  const composed = new Uint8Array(windowSize)
+  composed[ntldrOff] = 0xeb
+  composed[ntldrOff + 1] = 0x3c
+  composed[ntldrOff + 2] = 0x90
+  for (const run of overlay.runsOverlapping(0, windowSize)) {
+    composed.set(run.bytes, run.offset)
+  }
+  assert.deepEqual([...composed.subarray(ntldrOff, ntldrOff + 3)], [0xeb, 0x3c, 0x90])
+  assert.equal(composed[64 * 1024], 0x4d)
+  assert.equal(composed[64 * 1024 + 1], 0x5a)
+  assert.equal(composed[64 * 1024 + ntldrOff], 0x50)
+}
+
+function testOverlayReadRequiresContiguousCoverageFromStart(): void {
+  const overlay = new DirtyOverlay()
+  overlay.write(8, new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]))
+  assert.equal(overlay.read(0, 16), undefined)
+  assert.deepEqual(overlay.read(8, 8), new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]))
+}
+
 function testOverlayListRunsAndClear(): void {
   const overlay = new DirtyOverlay()
   overlay.write(0, new Uint8Array([1, 2, 3, 4]))
@@ -104,226 +133,45 @@ function testOverlayListRunsAndClear(): void {
   assert.equal(overlay.listRuns().length, 0)
 }
 
-function stubSink(overrides: Partial<OverlayPersistSink> = {}): OverlayPersistSink {
-  return {
-    async append() {},
-    async flush() {},
-    ...overrides,
-  }
-}
-
-async function testFlusherRestoresDirtyRunsOnFailure(): Promise<void> {
-  const pending = new DirtyOverlay()
-  pending.write(0, new Uint8Array([1, 2, 3, 4]))
-  pending.write(512, new Uint8Array([5, 6, 7, 8]))
-  let call = 0
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async append() {
-        call += 1
-        if (call === 1) return
-        throw new Error('disk full')
-      },
-    }),
-  )
-  let threw = false
-  try {
-    await flusher.flushUntilEmpty()
-  } catch {
-    threw = true
-  }
-  assert.equal(threw, true)
-  assert.equal(pending.dirtyBytes, 4)
-  assert.deepEqual(pending.read(512, 4), new Uint8Array([5, 6, 7, 8]))
-}
-
-async function testFlusherRestoresAllRunsWhenPersistFlushFails(): Promise<void> {
-  const pending = new DirtyOverlay()
-  pending.write(0, new Uint8Array([1, 2, 3, 4]))
-  pending.write(512, new Uint8Array([5, 6, 7, 8]))
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async flush() {
-        throw new Error('persist failed')
-      },
-    }),
-  )
-  await assert.rejects(() => flusher.flushUntilEmpty())
-  assert.equal(pending.dirtyBytes, 8)
-  assert.deepEqual(pending.read(0, 4), new Uint8Array([1, 2, 3, 4]))
-  assert.deepEqual(pending.read(512, 4), new Uint8Array([5, 6, 7, 8]))
-}
-
-async function testFlusherSerializesConcurrentFlush(): Promise<void> {
-  const pending = new DirtyOverlay()
-  pending.write(0, new Uint8Array([1, 2, 3, 4]))
-  let running = 0
-  let maxRunning = 0
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async append() {
-        running += 1
-        maxRunning = Math.max(maxRunning, running)
-        await new Promise((resolve) => setTimeout(resolve, 10))
-        running -= 1
-      },
-      async flush() {
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      },
-    }),
-  )
-  await Promise.all([flusher.flushUntilEmpty(), flusher.flushUntilEmpty(), flusher.flushUntilEmpty()])
-  assert.equal(maxRunning, 1)
-  assert.equal(pending.dirtyBytes, 0)
-}
-
-async function testReleaseDrainsThenFlushesThenCloses(): Promise<void> {
-  const pending = new DirtyOverlay()
-  const order: string[] = []
-  let closed = false
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async append() {
-        if (closed) throw new Error('append after close')
-        order.push('append')
-      },
-      async flush() {
-        if (closed) throw new Error('flush after close')
-        order.push('flush')
-      },
-    }),
-  )
-  let queuedWriteDone: () => void = () => undefined
-  const queued = new Promise<void>((resolve) => {
-    queuedWriteDone = resolve
-  })
-  const release = drainThenFlushThenClose({
-    drain: async () => {
-      order.push('drain-start')
-      await queued
-      pending.write(0, new Uint8Array([9, 8, 7, 6]))
-      order.push('drain-end')
-    },
-    flushUntilEmpty: () => flusher.flushUntilEmpty(),
-    close: async () => {
-      closed = true
-      order.push('close')
-    },
-  })
-  queuedWriteDone()
-  await release
-  assert.deepEqual(order, ['drain-start', 'drain-end', 'append', 'flush', 'close'])
-  assert.equal(pending.dirtyBytes, 0)
-  assert.equal(closed, true)
-}
-
-async function testOverlayBackpressureFlushesBeforeAck(): Promise<void> {
-  const pending = new DirtyOverlay()
-  let persistRounds = 0
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async flush() {
-        persistRounds += 1
-      },
-    }),
-  )
-  pending.write(0, new Uint8Array(OVERLAY_HIGH_WATER_BYTES + 16))
-  assert.equal(persistRounds, 0)
-  await flusher.acknowledgeGuestWrite()
-  assert.ok(persistRounds >= 1)
-  assert.ok(pending.dirtyBytes <= OVERLAY_LOW_WATER_BYTES)
-}
-
-async function testFlushUntilEmptySerializesConcurrentCallers(): Promise<void> {
-  const pending = new DirtyOverlay()
-  pending.write(0, new Uint8Array([1, 2, 3, 4]))
-  pending.write(512, new Uint8Array([5, 6, 7, 8]))
-  let rounds = 0
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async flush() {
-        rounds += 1
-        await new Promise((resolve) => setTimeout(resolve, 5))
-      },
-    }),
-  )
-  await Promise.all([flusher.flushUntilEmpty(), flusher.flushUntilEmpty(), flusher.flushUntilEmpty()])
-  assert.equal(rounds, 1)
-  assert.equal(pending.dirtyBytes, 0)
-}
-
-async function testFlushUntilEmptyGivesUpAfterMaxAttempts(): Promise<void> {
-  const pending = new DirtyOverlay()
-  pending.write(0, new Uint8Array([1, 2, 3, 4]))
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async append() {
-        throw new Error('disk full')
-      },
-    }),
-  )
-  await assert.rejects(() => flusher.flushUntilEmpty(), /已中止/)
-  assert.equal(pending.dirtyBytes, 4)
-}
-
-async function testFlushFailureRecoversOnRetry(): Promise<void> {
-  const pending = new DirtyOverlay()
-  pending.write(0, new Uint8Array([1, 2, 3, 4]))
-  let remainingFails = OVERLAY_FLUSH_MAX_ATTEMPTS
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async append() {
-        if (remainingFails > 0) {
-          remainingFails -= 1
-          throw new Error('transient')
-        }
-      },
-    }),
-  )
-  await assert.rejects(() => flusher.flushUntilEmpty(), /已中止/)
-  assert.equal(pending.dirtyBytes, 4)
-  await flusher.flushUntilEmpty()
-  assert.equal(pending.dirtyBytes, 0)
-}
-
-async function testFlushUntilEmptyKeepsReadDuringBackpressure(): Promise<void> {
+function testOverlayTrimRemovesWrittenRange(): void {
+  // live 档每批写进可见文件后裁掉覆盖层，断电进度只统计未写完的尾巴
   const overlay = new DirtyOverlay()
-  overlay.write(0, new Uint8Array(OVERLAY_HIGH_WATER_BYTES + 16))
-  assert.equal(diskReadReplyStatus({ size: OVERLAY_HIGH_WATER_BYTES + 4096 }, 0, 16), 206)
-  const hit = overlay.read(0, 16)
-  assert.ok(hit)
-  const pending = new DirtyOverlay()
-  pending.write(0, new Uint8Array(OVERLAY_HIGH_WATER_BYTES + 16))
-  const flusher = createOverlayFlusher(
-    pending,
-    stubSink({
-      async flush() {
-        await new Promise((resolve) => setTimeout(resolve, 20))
-      },
-    }),
-  )
-  const ack = flusher.acknowledgeGuestWrite()
-  assert.equal(diskReadReplyStatus({ size: OVERLAY_HIGH_WATER_BYTES + 4096 }, 0, 16), 206)
-  await ack
-  assert.ok(overlay.dirtyBytes > OVERLAY_LOW_WATER_BYTES)
-  assert.ok(pending.dirtyBytes <= OVERLAY_LOW_WATER_BYTES)
+  overlay.write(0, new Uint8Array([1, 2, 3, 4]))
+  overlay.write(512, new Uint8Array([5, 6, 7, 8]))
+  overlay.trim(0, 4)
+  assert.equal(overlay.dirtyBytes, 4)
+  assert.equal(overlay.read(0, 4), undefined)
+  assert.deepEqual(overlay.read(512, 4), new Uint8Array([5, 6, 7, 8]))
 }
 
-async function testFlusherWithoutSinkIsNoop(): Promise<void> {
-  const pending = new DirtyOverlay()
-  pending.write(0, new Uint8Array([1, 2, 3, 4]))
-  const flusher = createOverlayFlusher(pending, undefined)
-  await flusher.acknowledgeGuestWrite()
-  await flusher.flushUntilEmpty()
-  assert.equal(pending.dirtyBytes, 4)
+function testOverlayTrimSplitsPartiallyWrittenRun(): void {
+  const overlay = new DirtyOverlay()
+  overlay.write(0, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))
+  overlay.trim(2, 4)
+  assert.equal(overlay.dirtyBytes, 4)
+  assert.deepEqual(overlay.read(0, 2), new Uint8Array([1, 2]))
+  assert.equal(overlay.read(2, 4), undefined)
+  assert.deepEqual(overlay.read(6, 2), new Uint8Array([7, 8]))
+  assert.equal(overlay.listRuns().length, 2)
+}
+
+function testOverlayTrimKeepsUnrelatedRuns(): void {
+  const overlay = new DirtyOverlay()
+  overlay.write(0, new Uint8Array([1, 2]))
+  overlay.write(512, new Uint8Array([3, 4]))
+  overlay.trim(100, 16)
+  assert.equal(overlay.dirtyBytes, 4)
+  assert.equal(overlay.listRuns().length, 2)
+}
+
+function testOverlayTrimClampsToWriteRanges(): void {
+  const overlay = new DirtyOverlay()
+  overlay.write(4, new Uint8Array([1, 2, 3, 4]))
+  overlay.trim(0, 6)
+  assert.equal(overlay.dirtyBytes, 2)
+  assert.deepEqual(overlay.read(6, 2), new Uint8Array([3, 4]))
+  overlay.trim(0, Number.MAX_SAFE_INTEGER)
+  assert.equal(overlay.dirtyBytes, 0)
 }
 
 function releaseState(overrides: Partial<StreamReleaseState> = {}): StreamReleaseState {
@@ -376,9 +224,10 @@ function testReleaseGatePassesWithoutState(): void {
 }
 
 function testFlushProgressSumsEmptyIds(): void {
-  assert.deepEqual(getVirtualMachineDiskFlushProgress([]), { pendingBytes: 0 })
+  assert.deepEqual(getVirtualMachineDiskFlushProgress([]), { pendingBytes: 0, totalBytes: 0 })
   assert.deepEqual(getVirtualMachineDiskFlushProgress([undefined, undefined]), {
     pendingBytes: 0,
+    totalBytes: 0,
   })
 }
 
@@ -391,17 +240,13 @@ testDiskReadFullFileIsStillPartial()
 testOverlayReadOwnWrites()
 testOverlayMergesAdjacentWrites()
 testOverlayPartialReadFails()
+testOverlayReadGapBeforeTailRunDoesNotClaimFullCoverage()
+testOverlayReadRequiresContiguousCoverageFromStart()
 testOverlayListRunsAndClear()
-await testFlusherRestoresDirtyRunsOnFailure()
-await testFlusherRestoresAllRunsWhenPersistFlushFails()
-await testFlusherSerializesConcurrentFlush()
-await testReleaseDrainsThenFlushesThenCloses()
-await testOverlayBackpressureFlushesBeforeAck()
-await testFlushUntilEmptySerializesConcurrentCallers()
-await testFlushUntilEmptyGivesUpAfterMaxAttempts()
-await testFlushFailureRecoversOnRetry()
-await testFlushUntilEmptyKeepsReadDuringBackpressure()
-await testFlusherWithoutSinkIsNoop()
+testOverlayTrimRemovesWrittenRange()
+testOverlayTrimSplitsPartiallyWrittenRun()
+testOverlayTrimKeepsUnrelatedRuns()
+testOverlayTrimClampsToWriteRanges()
 testReleaseGatePassesMessagesReceivedBeforeRelease()
 testReleaseGateDropsReadsAfterRelease()
 testReleaseGateGracesWritesWithinWindow()

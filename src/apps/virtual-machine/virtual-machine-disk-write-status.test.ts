@@ -25,9 +25,18 @@ function testFormatBytes(): void {
 function testNoneModeWarnsButNeverGuards(): void {
   const running = vmDiskWriteStatus({ mode: 'none', running: true, diskWrite: undefined })
   assert.equal(running.tone, 'warn')
-  assert.equal(running.text, '本次改动不会写入硬盘文件')
+  assert.equal(running.text, '改动先写入缓存，断电后会询问是否写入硬盘文件')
   assert.equal(running.atRisk, false)
   assert.equal(running.hud, false)
+
+  const runningPending = vmDiskWriteStatus({
+    mode: 'none',
+    running: true,
+    diskWrite: { pendingBytes: 4096, pendingRanges: 1, droppedWrites: 0, droppedBytes: 0 },
+  })
+  assert.equal(runningPending.tone, 'warn')
+  assert.match(runningPending.text, /还有 4.0 KB 没写完/)
+  assert.equal(runningPending.atRisk, true)
 
   const stopped = vmDiskWriteStatus({ mode: 'none', running: false, diskWrite: undefined })
   assert.equal(stopped.tone, 'off')
@@ -36,19 +45,28 @@ function testNoneModeWarnsButNeverGuards(): void {
   assert.equal(stopped.hud, false)
 }
 
-function testPersistModeReportsDroppedWrites(): void {
+function testCacheModesReportDroppedWrites(): void {
   const healthy = vmDiskWriteStatus({
-    mode: 'persist',
+    mode: 'poweroff',
     running: true,
     diskWrite: { pendingBytes: 0, pendingRanges: 0, droppedWrites: 0, droppedBytes: 0 },
   })
-  assert.equal(healthy.tone, 'off')
-  assert.equal(healthy.text, '')
+  assert.equal(healthy.tone, 'info')
+  assert.equal(healthy.text, '改动先写入缓存，关机后写入硬盘文件')
   assert.equal(healthy.atRisk, false)
   assert.equal(healthy.hud, false)
 
+  const liveHealthy = vmDiskWriteStatus({
+    mode: 'live',
+    running: true,
+    diskWrite: { pendingBytes: 0, pendingRanges: 0, droppedWrites: 0, droppedBytes: 0 },
+  })
+  assert.equal(liveHealthy.tone, 'off')
+  assert.equal(liveHealthy.text, '改动尽快写入硬盘文件')
+  assert.equal(liveHealthy.atRisk, false)
+
   const lost = vmDiskWriteStatus({
-    mode: 'persist',
+    mode: 'poweroff',
     running: true,
     diskWrite: { pendingBytes: 0, pendingRanges: 0, droppedWrites: 3, droppedBytes: 8192 },
   })
@@ -58,7 +76,7 @@ function testPersistModeReportsDroppedWrites(): void {
   assert.equal(lost.hud, true)
 
   const lostWithPending = vmDiskWriteStatus({
-    mode: 'persist',
+    mode: 'poweroff',
     running: true,
     diskWrite: { pendingBytes: 4096, pendingRanges: 1, droppedWrites: 3, droppedBytes: 8192 },
   })
@@ -67,21 +85,32 @@ function testPersistModeReportsDroppedWrites(): void {
   assert.equal(lostWithPending.hud, true)
 }
 
-function testPersistInFlightBytesCountAsAtRisk(): void {
+function testCacheModesInFlightBytesCountAsAtRisk(): void {
   const status = vmDiskWriteStatus({
-    mode: 'persist',
+    mode: 'poweroff',
     running: true,
     diskWrite: { pendingBytes: 4096, pendingRanges: 1, droppedWrites: 0, droppedBytes: 0 },
   })
   assert.equal(status.tone, 'warn')
   assert.equal(status.atRisk, true)
   assert.equal(status.hud, false)
-  assert.match(status.text, /还剩 4.0 KB/)
+  // poweroff 在途字节正在进缓存，不是在写硬盘文件
+  assert.equal(status.text, '改动正在写入缓存，还剩 4.0 KB')
+
+  const live = vmDiskWriteStatus({
+    mode: 'live',
+    running: true,
+    diskWrite: { pendingBytes: 4096, pendingRanges: 1, droppedWrites: 0, droppedBytes: 0 },
+  })
+  assert.equal(live.tone, 'warn')
+  assert.equal(live.atRisk, true)
+  // live 在途字节正在进硬盘文件
+  assert.equal(live.text, '正在写入硬盘文件，还剩 4.0 KB')
 }
 
-function testStoppedPersistDoesNotGuard(): void {
+function testStoppedCacheModeDoesNotGuard(): void {
   const status = vmDiskWriteStatus({
-    mode: 'persist',
+    mode: 'poweroff',
     running: false,
     diskWrite: { pendingBytes: 4096, pendingRanges: 1, droppedWrites: 0, droppedBytes: 0 },
   })
@@ -133,9 +162,9 @@ function testCombineDiskWriteLoss(): void {
 testFormatBytes()
 testCombineDiskWriteLoss()
 testNoneModeWarnsButNeverGuards()
-testPersistModeReportsDroppedWrites()
-testPersistInFlightBytesCountAsAtRisk()
-testStoppedPersistDoesNotGuard()
+testCacheModesReportDroppedWrites()
+testCacheModesInFlightBytesCountAsAtRisk()
+testStoppedCacheModeDoesNotGuard()
 testTotalUnflushedBytes()
 testShouldGuardVmUnload()
 console.log('virtual-machine-disk-write-status.test.ts ok')

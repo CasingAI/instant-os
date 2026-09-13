@@ -18,10 +18,13 @@ import { resetFilesDbForTests } from './files-storage.ts'
 import { addMount, removeMount } from './files-mount-store.ts'
 import { invalidateFilesVfsPathCaches, listDirectory, overwriteNodeWithSource, resolveNodeByAbsolutePath } from './files-vfs.ts'
 import {
+  filesCreateAttachment,
   filesCreateBinary,
   filesCreateText,
   filesList,
+  filesListAttachments,
   filesOpenStreamWrite,
+  filesReadBlob,
   filesReadText,
   filesStat,
 } from './files-api.ts'
@@ -222,12 +225,48 @@ async function testMountVolumeOverwriteTransaction(): Promise<void> {
   console.log('ok: mount volume overwrite transaction (commit + abort keeps old)')
 }
 
+/**
+ * 覆盖粘贴后目标的虚拟机硬盘缓存附加必须删掉：缓存段偏移对的是旧正文，
+ * 残留缓存配新正文会在下次开机重放/残留合并时把旧扇区写回新镜像（数据损坏）。
+ * 只删该标签——其它附加与正文内容无关，保留。
+ */
+async function testOverwriteRemovesStaleVmDiskCacheAttachment(): Promise<void> {
+  await resetFiles()
+  await filesCreateBinary('/user/盘.img', new Uint8Array([1, 1, 1, 1]).buffer)
+  await filesCreateAttachment({
+    mainFilePath: '/user/盘.img',
+    name: '虚拟机硬盘缓存',
+    bytes: new Uint8Array([9, 9]).buffer,
+    tags: ['vm-disk-cache'],
+    nameMode: 'exact',
+  })
+  await filesCreateAttachment({
+    mainFilePath: '/user/盘.img',
+    name: '备注',
+    bytes: new Uint8Array([7]).buffer,
+    nameMode: 'exact',
+  })
+  await filesCreateBinary('/user/新盘.img', new Uint8Array([2, 2, 2, 2]).buffer)
+  const target = await resolveNodeByAbsolutePath('/user/盘.img')
+  const source = await resolveNodeByAbsolutePath('/user/新盘.img')
+  assert.ok(target && source)
+
+  await overwriteNodeWithSource({ targetId: target!.id, sourceId: source!.id })
+
+  const body = new Uint8Array(await (await filesReadBlob('/user/盘.img')).arrayBuffer())
+  assert.deepEqual([...body], [2, 2, 2, 2], '覆盖后正文是源内容')
+  const remaining = (await filesListAttachments('/user/盘.img')).map((item) => item.name)
+  assert.deepEqual(remaining, ['备注'], 'vm-disk-cache 附加被删，其它附加保留')
+  console.log('ok: overwrite removes stale vm-disk-cache attachment')
+}
+
 async function main(): Promise<void> {
   await testInternalVolumeOverwriteCommits()
   await testInternalVolumeOverwriteAbortKeepsOld()
   await testImageVolumeOverwriteCommits()
   await testImageVolumeOverwritePreAbortKeepsOld()
   await testMountVolumeOverwriteTransaction()
+  await testOverwriteRemovesStaleVmDiskCacheAttachment()
 }
 
 main().catch((error) => {

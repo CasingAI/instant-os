@@ -7,6 +7,8 @@ import './files-mount-test-window.ts'
 import assert from 'node:assert/strict'
 import { addMount, removeMount } from './files-mount-store.ts'
 import {
+  openMountRangeWriter,
+  MOUNT_RANGE_COMMIT_CHUNK_BYTES,
   setMountRangeRewriteMinBytesForTests,
 } from './files-location-mount.ts'
 import {
@@ -184,10 +186,86 @@ async function testRenameWithoutMoveStreams(): Promise<void> {
   console.log('ok: mount rename without move copies by stream')
 }
 
+async function testMountRangeWriterCommitsSequentially(): Promise<void> {
+  await withMount(async (rootPath, root) => {
+    const handle = await root.getFileHandle('disk.img')
+    handle.bytes = patterned(64)
+    const writer = await openMountRangeWriter(`${rootPath}/disk.img`)
+    assert.ok(writer)
+    await writer!.writeAt(0, new Uint8Array([1, 2, 3]))
+    await writer!.writeAt(20, new Uint8Array([7, 7, 7, 7]))
+    await writer!.writeAt(60, new Uint8Array([9, 9, 9, 9]))
+    // close 前不得改动正文（镜像运行中的读仍看旧内容由覆盖层负责）
+    assert.deepEqual([...(await root.getFileHandle('disk.img')).bytes], [...patterned(64)])
+    await writer!.close()
+    const expected = patterned(64)
+    expected.set([1, 2, 3], 0)
+    expected.set([7, 7, 7, 7], 20)
+    expected.set([9, 9, 9, 9], 60)
+    assert.deepEqual([...(await root.getFileHandle('disk.img')).bytes], [...expected])
+  })
+  console.log('ok: mount range writer commits whole file sequentially')
+}
+
+async function testMountRangeWriterCrossesChunkBoundary(): Promise<void> {
+  await withMount(async (rootPath, root) => {
+    const total = MOUNT_RANGE_COMMIT_CHUNK_BYTES + 4096
+    const handle = await root.getFileHandle('disk.img')
+    handle.bytes = patterned(total)
+    const writer = await openMountRangeWriter(`${rootPath}/disk.img`)
+    assert.ok(writer)
+    const atBoundary = MOUNT_RANGE_COMMIT_CHUNK_BYTES - 2
+    await writer!.writeAt(10, new Uint8Array([1, 1]))
+    await writer!.writeAt(atBoundary, new Uint8Array([2, 2, 2, 2]))
+    await writer!.writeAt(total - 3, new Uint8Array([3, 3, 3]))
+    await writer!.close()
+    const expected = patterned(total)
+    expected.set([1, 1], 10)
+    expected.set([2, 2, 2, 2], atBoundary)
+    expected.set([3, 3, 3], total - 3)
+    assert.deepEqual([...(await root.getFileHandle('disk.img')).bytes], [...expected])
+  })
+  console.log('ok: mount range writer writes across commit chunk boundary')
+}
+
+/** 乱序写（新写偏移低于已记录段，客机 FAT 表/目录项跳写的常态）：close 后正文各区间内容正确。 */
+async function testMountRangeWriterOutOfOrderWrites(): Promise<void> {
+  await withMount(async (rootPath, root) => {
+    const mib = 1024 * 1024
+    const total = mib + 8192
+    const handle = await root.getFileHandle('disk.img')
+    handle.bytes = patterned(total)
+    const writer = await openMountRangeWriter(`${rootPath}/disk.img`)
+    assert.ok(writer)
+    // 先写高偏移 [1MB, 1MB+4KB)，再写更低偏移 [512B, 512B+512B)，
+    // 最后重叠写回第一段的中部 [1MB+2KB, 1MB+4KB)
+    await writer!.writeAt(mib, new Uint8Array(4096).fill(0xaa))
+    await writer!.writeAt(512, new Uint8Array(512).fill(0xbb))
+    await writer!.writeAt(mib + 2048, new Uint8Array(2048).fill(0xcc))
+    await writer!.close()
+    const bytes = (await root.getFileHandle('disk.img')).bytes
+    assert.deepEqual([...bytes.subarray(512, 512 + 512)], [...new Uint8Array(512).fill(0xbb)])
+    assert.deepEqual([...bytes.subarray(mib, mib + 2048)], [...new Uint8Array(2048).fill(0xaa)])
+    assert.deepEqual(
+      [...bytes.subarray(mib + 2048, mib + 4096)],
+      [...new Uint8Array(2048).fill(0xcc)],
+    )
+    assert.deepEqual([...bytes.subarray(0, 4)], [...patterned(total).subarray(0, 4)])
+    assert.deepEqual(
+      [...bytes.subarray(total - 4)],
+      [...patterned(total).subarray(total - 4)],
+    )
+  })
+  console.log('ok: mount range writer commits out-of-order writes in order')
+}
+
 async function run(): Promise<void> {
   await testSmallFileKeepExistingData()
   await testLargeFileStreamRewrite()
   await testRenameWithoutMoveStreams()
+  await testMountRangeWriterCommitsSequentially()
+  await testMountRangeWriterCrossesChunkBoundary()
+  await testMountRangeWriterOutOfOrderWrites()
   console.log('files-location-mount-range: all passed')
 }
 

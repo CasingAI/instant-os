@@ -498,7 +498,7 @@ export function Dock() {
                     pinned && !isPermanentlyPinnedToDock(app.id) ? () => unpinFromDock(app.id) : undefined,
                 },
                 {
-                  onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+                  onForceQuit: isRunning ? () => closeWindowsForApp(app.id, { force: true }) : undefined,
                   forceQuitLabel: appWindows.length > 1 ? '退出全部' : undefined,
                   windowSubmenu: appWindow ? buildWindowSubmenu(app.id, appWindow.id) : undefined,
                 },
@@ -572,7 +572,7 @@ export function Dock() {
                 isPinnedToDock: pinned,
                 onPinToDock: () => pinToDock(app.id),
                 onUnpinFromDock: () => unpinFromDock(app.id),
-                onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+                onForceQuit: isRunning ? () => closeWindowsForApp(app.id, { force: true }) : undefined,
                 forceQuitLabel: appWindows.length > 1 ? '退出全部' : undefined,
                 windowSubmenu: appWindow ? buildWindowSubmenu(app.id, appWindow.id) : undefined,
               }),
@@ -699,7 +699,7 @@ export function Dock() {
                     {
                       type: 'action' as const,
                       label: appWindows.length > 1 ? '退出全部' : '强制退出',
-                      onClick: () => closeWindowsForApp(app.id),
+                      onClick: () => closeWindowsForApp(app.id, { force: true }),
                     },
                   ]
                 : []),
@@ -781,7 +781,7 @@ export function Dock() {
                   onPinToDock: () => pinToDock(app.id),
                 },
                 {
-                  onForceQuit: () => closeWindowsForApp(app.id),
+                  onForceQuit: () => closeWindowsForApp(app.id, { force: true }),
                   forceQuitLabel: appWindows.length > 1 ? '退出全部' : undefined,
                   windowSubmenu: buildWindowSubmenu(app.id, appWindow.id),
                 },
@@ -843,7 +843,7 @@ export function Dock() {
                 onViewInIcode: openIcodeApp,
                 isPinnedToDock: false,
                 onPinToDock: () => pinToDock(app.id),
-                onForceQuit: () => closeWindowsForApp(app.id),
+                onForceQuit: () => closeWindowsForApp(app.id, { force: true }),
                 forceQuitLabel: appWindows.length > 1 ? '退出全部' : undefined,
                 windowSubmenu: buildWindowSubmenu(app.id, appWindow.id),
               }),
@@ -898,7 +898,7 @@ export function Dock() {
               {
                 type: 'action',
                 label: appWindows.length > 1 ? '退出全部' : '强制退出',
-                onClick: () => closeWindowsForApp(app.id),
+                onClick: () => closeWindowsForApp(app.id, { force: true }),
               },
             ])
           }}

@@ -122,8 +122,6 @@ export type WindowState = {
    *   仅关闭键，不可缩放/吸附/最小化/最大化，最小尺寸只保标题栏可显示
    */
   chromeKind?: 'window' | 'dialog' | 'mini'
-  /** 禁用红色关闭按钮 */
-  chromeCloseDisabled?: boolean
   /** 禁用黄色最小化（仅 chromeKind=window） */
   chromeMinimizeDisabled?: boolean
   /** 禁用绿色全屏/缩放（仅 chromeKind=window） */

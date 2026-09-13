@@ -615,6 +615,53 @@ static int argi_equals(const wchar_t *s, const wchar_t *lit)
     return *s == 0;
 }
 
+/*
+ * `/wait:<秒>`：覆盖默认存活时长。手工粘贴测试要留出足够时间（几分钟到半小时），
+ * 默认 4 分钟会在用户出手前就 OleFlushClipboard 收工。范围钳到 10..86400。
+ */
+static int parse_wait_arg(const wchar_t *s, unsigned *out)
+{
+    const wchar_t *p = s;
+    unsigned value = 0;
+    if (*p == L'/' || *p == L'-') {
+        p++;
+    } else {
+        return 0;
+    }
+    {
+        static const wchar_t prefix[] = L"wait:";
+        int i;
+        for (i = 0; prefix[i] != 0; i++) {
+            wchar_t a = p[i];
+            if (a >= L'A' && a <= L'Z') {
+                a += L'a' - L'A';
+            }
+            if (a != prefix[i]) {
+                return 0;
+            }
+        }
+        p += i;
+    }
+    if (*p == 0) {
+        return 0;
+    }
+    while (*p) {
+        if (*p < L'0' || *p > L'9') {
+            return 0;
+        }
+        value = value * 10u + (unsigned)(*p - L'0');
+        if (value > 86400u) {
+            value = 86400u;
+        }
+        p++;
+    }
+    if (value < 10u) {
+        value = 10u;
+    }
+    *out = value;
+    return 1;
+}
+
 void clipdav_entry(void)
 {
     int argcW = 0;
@@ -622,6 +669,7 @@ void clipdav_entry(void)
     wchar_t *paths[MAX_PATHS];
     int count = 0;
     int cut = 0;
+    unsigned probe_seconds = PROBE_SECONDS;
     HRESULT hr;
     MSG msg;
 
@@ -630,9 +678,10 @@ void clipdav_entry(void)
     if (argv == NULL || argcW < 2) {
         log_line("==== clip-dav-hdrop: no path given ====");
         MessageBoxA(NULL,
-                    "usage: clip-dav-hdrop.exe <path> [more paths] [/cut]\r\n\r\n"
+                    "usage: clip-dav-hdrop.exe <path> [more paths] [/cut] [/wait:<seconds>]\r\n\r\n"
                     "Puts real paths on the clipboard as CF_HDROP and logs every\r\n"
-                    "fetch to " LOG_PATH ". Auto-exits after 4 minutes.",
+                    "fetch to " LOG_PATH ". Auto-exits after 4 minutes by default;\r\n"
+                    "use /wait:<seconds> to hold the clipboard longer.",
                     "clip-dav-hdrop", MB_OK | MB_ICONINFORMATION);
         ExitProcess(2);
     }
@@ -641,6 +690,8 @@ void clipdav_entry(void)
             cut = 1;
         } else if (argi_equals(argv[i], L"/copy") || argi_equals(argv[i], L"-copy")) {
             /* 默认就是 copy，显式写也无妨 */
+        } else if (parse_wait_arg(argv[i], &probe_seconds)) {
+            /* 存活时长已更新 */
         } else if (count < MAX_PATHS) {
             paths[count++] = argv[i];
         }
@@ -672,7 +723,8 @@ void clipdav_entry(void)
     for (int i = 0; i < count; i++) {
         log_line("path[%d]=%S", i, paths[i]);
     }
-    log_line("mode=%s", cut ? "cut (DROPEFFECT_MOVE)" : "copy (DROPEFFECT_COPY)");
+    log_line("mode=%s wait=%us", cut ? "cut (DROPEFFECT_MOVE)" : "copy (DROPEFFECT_COPY)",
+             probe_seconds);
 
     g_hdrop = build_hdrop(paths, count);
     g_effect = build_effect(cut ? 2u /* DROPEFFECT_MOVE */ : 1u /* DROPEFFECT_COPY */);
@@ -710,7 +762,7 @@ void clipdav_entry(void)
     LOG_EVENT("armed: %d path(s) on clipboard as CF_HDROP, effect=%s, seq=%lu",
               count, cut ? "cut" : "copy", g_last_seq);
 
-    SetTimer(NULL, TIMER_EXIT, PROBE_SECONDS * 1000u, NULL);
+    SetTimer(NULL, TIMER_EXIT, probe_seconds * 1000u, NULL);
     SetTimer(NULL, TIMER_POLL, 2000u, NULL);
     while (GetMessageA(&msg, (HWND)NULL, 0, 0) > 0) {
         if (msg.message == WM_TIMER && msg.hwnd == NULL) {

@@ -70,6 +70,186 @@ export const SHARE_SYNC_SCRIPT_PATH = '/__sync_script'
 /** 保留路径：同步清单（D/目录、F/文件，行 = 类型<TAB>相对路径）。 */
 export const SHARE_SYNC_MANIFEST_PATH = '/__sync_manifest'
 
+/** 一期探针只读夹具。UNC `\\host\DavWWWRoot\__clip_probe` 对应此 URL 前缀。 */
+export const CLIP_PROBE_ROOT = '/__clip_probe'
+
+const CLIP_PROBE_HELLO = 'clip-dav-probe-hello'
+const CLIP_PROBE_A = 'alpha'
+const CLIP_PROBE_B = 'beta'
+const CLIP_PROBE_STAMP = Date.UTC(2026, 8, 10, 6, 0, 0)
+
+/**
+ * 二进制夹具体积阶梯。第四轮实测：单个 105 MiB 响应经 v86 fetch 桥送达客机时
+ * 卡死（宿主 321ms 生成并回完，之后客机再无动静）。v86 的假网络是**逐段
+ * 停等**（每 ~1460 字节一段、等客机 ACK 才发下一段），105 MiB 约 7.5 万次往返，
+ * 且 `GrowableRingbuffer` 要一次性涨到 256 MiB。阶梯用来量出真正的可用上限。
+ * 全部低于 INSTANT_VM_WEBDAV_BODY_MAX_BYTES(128MiB)。
+ */
+export const CLIP_PROBE_BIN_SIZES: Readonly<Record<string, number>> = {
+  'big.bin': 105 * 1024 * 1024,
+  'ladder-256k.bin': 256 * 1024,
+  'ladder-1m.bin': 1 * 1024 * 1024,
+  'ladder-4m.bin': 4 * 1024 * 1024,
+  'ladder-16m.bin': 16 * 1024 * 1024,
+  'ladder-32m.bin': 32 * 1024 * 1024,
+  'ladder-64m.bin': 64 * 1024 * 1024,
+}
+/** 大文件夹具名与体积（105 MiB，>100MB 量级）。 */
+export const CLIP_PROBE_BIG_NAME = 'big.bin'
+export const CLIP_PROBE_BIG_BYTES = CLIP_PROBE_BIN_SIZES[CLIP_PROBE_BIG_NAME]!
+
+export function isClipProbeUrl(url: string): boolean {
+  try {
+    return decodeClipProbePathname(new URL(url).pathname) !== undefined
+  } catch {
+    return false
+  }
+}
+
+function decodeClipProbePathname(pathname: string): string | undefined {
+  const trimmed = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+  if (trimmed !== CLIP_PROBE_ROOT && !trimmed.startsWith(`${CLIP_PROBE_ROOT}/`)) {
+    return undefined
+  }
+  return trimmed
+}
+
+function clipProbeRel(pathname: string): string {
+  if (pathname === CLIP_PROBE_ROOT) {
+    return ''
+  }
+  return pathname.slice(CLIP_PROBE_ROOT.length + 1)
+}
+
+/** 文本夹具正文；二进制夹具不在表内（走 CLIP_PROBE_BIN_SIZES）。 */
+function clipProbeFileText(rel: string): string | undefined {
+  if (rel === 'hello.txt') {
+    return CLIP_PROBE_HELLO
+  }
+  if (rel === 'tree/a.txt') {
+    return CLIP_PROBE_A
+  }
+  if (rel === 'tree/sub/b.txt') {
+    return CLIP_PROBE_B
+  }
+  return undefined
+}
+
+function clipProbeBinSize(rel: string): number | undefined {
+  return Object.prototype.hasOwnProperty.call(CLIP_PROBE_BIN_SIZES, rel)
+    ? CLIP_PROBE_BIN_SIZES[rel]
+    : undefined
+}
+
+function clipProbeIsFile(rel: string): boolean {
+  return clipProbeFileText(rel) !== undefined || clipProbeBinSize(rel) !== undefined
+}
+
+function clipProbeFileSize(rel: string): number {
+  const text = clipProbeFileText(rel)
+  if (text !== undefined) {
+    return new TextEncoder().encode(text).byteLength
+  }
+  return clipProbeBinSize(rel) ?? 0
+}
+
+/** 把 offset 所在 64 字节块的标记写进 `out`（`out` 是 [windowStart, +out.length) 的切片）。 */
+function writeClipProbeBinMarker(
+  out: Uint8Array,
+  markerOffset: number,
+  markerLength: number,
+  windowStart: number,
+): void {
+  const line = `INSTANT-VM-CLIP-PROBE ${String(markerOffset).padStart(10, '0')} `
+  const limit = Math.min(markerLength, line.length)
+  for (let i = 0; i < limit; i += 1) {
+    const at = markerOffset + i - windowStart
+    if (at >= 0 && at < out.length) {
+      out[at] = line.charCodeAt(i) & 0x7f
+    }
+  }
+}
+
+/**
+ * 二进制夹具全文：每 64 字节一段 `INSTANT-VM-CLIP-PROBE <10 位偏移> ` 标记，
+ * 客机端抽头即可核对错位/截断。
+ *
+ * 每次调用生成一份**新的**数组：响应体经 postMessage 以 transfer 交接，
+ * 缓存的缓冲会被 detach，第二次取数就成了空壳。范围请求走 clipProbeBinRange，
+ * 只物化被请求的窗口。
+ */
+function clipProbeBinBytes(total: number): Uint8Array {
+  const bytes = new Uint8Array(total)
+  for (let offset = 0; offset < total; offset += 64) {
+    writeClipProbeBinMarker(bytes, offset, Math.min(64, total - offset), 0)
+  }
+  return bytes
+}
+
+/** 只物化二进制夹具在 [offset, offset+length) 的字节。 */
+function clipProbeBinRange(total: number, offset: number, length: number): Uint8Array {
+  const want = Math.max(0, Math.min(length, total - offset))
+  const out = new Uint8Array(want)
+  for (let marker = offset - (offset % 64); marker < offset + want; marker += 64) {
+    writeClipProbeBinMarker(out, marker, 64, offset)
+  }
+  return out
+}
+
+function clipProbeBytes(rel: string): Uint8Array {
+  const text = clipProbeFileText(rel)
+  if (text !== undefined) {
+    return new TextEncoder().encode(text)
+  }
+  return clipProbeBinBytes(clipProbeBinSize(rel) ?? 0)
+}
+
+/** 视图已覆盖整块缓冲时直接交底，避免大文件整份再拷一次。 */
+function clipProbeArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+    return bytes.buffer as ArrayBuffer
+  }
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}
+
+function clipProbeIsFolder(rel: string): boolean {
+  return rel === '' || rel === 'tree' || rel === 'tree/sub'
+}
+
+function clipProbeChildren(rel: string): { name: string; rel: string; folder: boolean }[] {
+  if (rel === '') {
+    const bins = Object.keys(CLIP_PROBE_BIN_SIZES).map((name) => ({
+      name,
+      rel: name,
+      folder: false,
+    }))
+    return [{ name: 'hello.txt', rel: 'hello.txt', folder: false }, ...bins, { name: 'tree', rel: 'tree', folder: true }]
+  }
+  if (rel === 'tree') {
+    return [
+      { name: 'a.txt', rel: 'tree/a.txt', folder: false },
+      { name: 'sub', rel: 'tree/sub', folder: true },
+    ]
+  }
+  if (rel === 'tree/sub') {
+    return [{ name: 'b.txt', rel: 'tree/sub/b.txt', folder: false }]
+  }
+  return []
+}
+
+function clipProbeEntry(rel: string, folder: boolean): WebdavFsEntry {
+  const name = rel === '' ? '__clip_probe' : (rel.split('/').pop() ?? rel)
+  return {
+    path: `${CLIP_PROBE_ROOT}/${rel}`.replace(/\/$/, ''),
+    name,
+    kind: folder ? 'folder' : 'file',
+    mimeType: folder ? undefined : clipProbeBinSize(rel) !== undefined ? 'application/octet-stream' : 'text/plain',
+    byteSize: folder ? 0 : clipProbeFileSize(rel),
+    createdAt: CLIP_PROBE_STAMP,
+    updatedAt: CLIP_PROBE_STAMP,
+  }
+}
+
 /**
  * 客机侧同步脚本（VBScript，cscript 执行，系统 ANSI 无中文）。
  * 引导脚本（exec echo 写入的 8 行）下载本文件后执行；它再拉清单、逐文件
@@ -358,6 +538,96 @@ export function parseWebdavRange(value: string | undefined): { offset: number; l
   return { offset, length: end - offset + 1 }
 }
 
+function handleClipProbe(request: WebdavRequest, pathname: string): WebdavResponse | undefined {
+  const normalized = decodeClipProbePathname(pathname)
+  if (normalized === undefined) {
+    return undefined
+  }
+  const method = request.method.toUpperCase()
+  const rel = clipProbeRel(normalized)
+  const folder = clipProbeIsFolder(rel)
+  if (method === 'PUT' && rel === 'sink') {
+    // Upload measurement sink: accept and discard the body. Used by the probe
+    // to time guest->host throughput (the reverse direction of the slow GET),
+    // which distinguishes "guest ACKs slowly" from "both directions slow".
+    return emptyResponse(201, 'Created')
+  }
+  if (!folder && !clipProbeIsFile(rel)) {
+    return textResponse(404, 'Not Found', 'Not Found')
+  }
+  if (method === 'GET' || method === 'HEAD') {
+    if (folder) {
+      return textResponse(405, 'Method Not Allowed', 'Not a file')
+    }
+    const binSize = clipProbeBinSize(rel)
+    const total = clipProbeFileSize(rel)
+    const headers: Record<string, string> = {
+      'Content-Type': binSize !== undefined ? 'application/octet-stream' : 'text/plain; charset=utf-8',
+      'Last-Modified': httpDate(CLIP_PROBE_STAMP),
+      'Accept-Ranges': 'bytes',
+    }
+    const range = parseWebdavRange(headerValue(request.headers, 'Range'))
+    if (range) {
+      if (range.offset >= total && total > 0) {
+        return emptyResponse(416, 'Range Not Satisfiable', {
+          'Content-Range': `bytes */${total}`,
+        })
+      }
+      const length = Math.min(range.length, Math.max(0, total - range.offset))
+      headers['Content-Range'] = `bytes ${range.offset}-${range.offset + length - 1}/${total}`
+      headers['Content-Length'] = String(length)
+      if (method === 'HEAD') {
+        return { status: 206, statusText: 'Partial Content', headers }
+      }
+      const slice =
+        binSize !== undefined
+          ? clipProbeBinRange(binSize, range.offset, length)
+          : clipProbeBytes(rel).subarray(range.offset, range.offset + length)
+      return {
+        status: 206,
+        statusText: 'Partial Content',
+        headers,
+        body: clipProbeArrayBuffer(slice),
+      }
+    }
+    if (method === 'HEAD') {
+      headers['Content-Length'] = String(total)
+      return { status: 200, statusText: 'OK', headers }
+    }
+    return {
+      status: 200,
+      statusText: 'OK',
+      headers,
+      body: clipProbeArrayBuffer(clipProbeBytes(rel)),
+    }
+  }
+  if (method === 'PROPFIND') {
+    let requestedHref = pathname
+    try {
+      requestedHref = new URL(request.url).pathname || pathname
+    } catch {
+      requestedHref = pathname
+    }
+    const self = clipProbeEntry(rel, folder)
+    const responses: { href: string; entry: WebdavFsEntry }[] = [{ href: requestedHref, entry: self }]
+    const depth = parseDepth(headerValue(request.headers, 'Depth'))
+    if (folder && depth === 1) {
+      for (const child of clipProbeChildren(rel)) {
+        const segments = ['__clip_probe', ...child.rel.split('/').filter(Boolean)]
+        responses.push({
+          href: webdavHref(segments, child.folder),
+          entry: clipProbeEntry(child.rel, child.folder),
+        })
+      }
+    }
+    return xmlResponse(207, 'Multi-Status', buildPropfindMultistatus(responses))
+  }
+  if (method === 'PUT') {
+    return emptyResponse(405, 'Method Not Allowed')
+  }
+  return emptyResponse(405, 'Method Not Allowed')
+}
+
 export function createWebdavHandler(root: string, fs: WebdavFs): (request: WebdavRequest) => Promise<WebdavResponse> {
   return async (request: WebdavRequest): Promise<WebdavResponse> => {
     const method = request.method.toUpperCase()
@@ -417,6 +687,11 @@ export function createWebdavHandler(root: string, fs: WebdavFs): (request: Webda
         Allow: WEBDAV_ALLOW,
         'Content-Length': '0',
       })
+    }
+
+    const clipProbe = handleClipProbe(request, pathname)
+    if (clipProbe) {
+      return clipProbe
     }
 
     const target = webdavTargetPath(request.url, root)

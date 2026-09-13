@@ -30,6 +30,7 @@ import {
 } from './virtual-machine-protocol.ts'
 import type {
   VirtualMachineSettings,
+  VmDiskWriteModeId,
   VmStorageDevice,
   VmStorageDeviceType,
 } from './virtual-machine-types.ts'
@@ -139,27 +140,15 @@ function isMountPath(path: string): boolean {
 }
 
 /**
- * 挂载目录上的镜像允许回写的体积上限。挂载卷的写入会话在打开时整拷一次正文，
- * 会话结束再原子替换；小体积投递盘能接受，大系统盘会付出整盘拷贝代价，故设上限。
+ * 挂载目录上的硬盘和软盘不能回写：请先拷到内部卷。光盘仍可只读。
  */
-export const MOUNT_DISK_WRITE_BACK_MAX_BYTES = 256 * 1024 * 1024
-
 export function virtualMachineMountWriteBackError(label: string, path: string): string {
-  return `无法回写${label} ${path}：镜像在挂载目录上，挂载卷按整文件替换写回。超过 ${
-    MOUNT_DISK_WRITE_BACK_MAX_BYTES / (1024 * 1024)
-  }MB 的镜像请放到内部卷。`
+  return `无法回写${label} ${path}：镜像在挂载目录上。请先把这份盘拷到内部卷再作为硬盘或软盘使用。`
 }
 
-export function assertVirtualMachineDiskCanPersistWrites(
-  path: string,
-  label: string,
-  byteSize?: number,
-): void {
+export function assertVirtualMachineDiskCanPersistWrites(path: string, label: string): void {
   const trimmed = path.trim()
   if (!isMountPath(trimmed)) {
-    return
-  }
-  if (byteSize !== undefined && byteSize <= MOUNT_DISK_WRITE_BACK_MAX_BYTES) {
     return
   }
   throw new Error(virtualMachineMountWriteBackError(label, trimmed))
@@ -172,14 +161,13 @@ type LoadedDisk = {
   stream?: InstantVmDiskStreamRef
 }
 
-const SLOT_ORDER: Record<VmStorageDeviceType, ('hda' | 'hdb' | 'cdrom' | 'fda' | 'fdb' | 'state')[]> = {
+const SLOT_ORDER: Record<VmStorageDeviceType, ('hda' | 'hdb' | 'cdrom' | 'fda' | 'fdb')[]> = {
   hdd: ['hda', 'hdb'],
   cdrom: ['cdrom'],
   floppy: ['fda', 'fdb'],
-  state: ['state'],
 }
 
-type SlotName = 'hda' | 'hdb' | 'cdrom' | 'fda' | 'fdb' | 'state'
+type SlotName = 'hda' | 'hdb' | 'cdrom' | 'fda' | 'fdb'
 
 type SlotAssignment = {
   slot: SlotName
@@ -274,24 +262,14 @@ export function vmMountedDiskSlots(
     return mounted
   }
   for (const assignment of assignDevicesToSlots(devices)) {
-    if (assignment.slot === 'state') {
-      continue
-    }
     mounted[assignment.slot] = true
   }
   return mounted
 }
 
-export function virtualMachineDiskPersistsWrites(
-  type: VmStorageDeviceType,
-  diskWriteMode: VirtualMachineSettings['diskWriteMode'] = 'none',
-): boolean {
-  if (diskWriteMode !== 'persist') {
-    return false
-  }
-  return type === 'hdd' || type === 'floppy'
-}
-
+/**
+ * 三档里会往镜像或缓存写的类型（光盘恒只读）。硬盘与软盘统一走这条热路径。
+ */
 export function virtualMachineDiskUsesOverlay(type: VmStorageDeviceType): boolean {
   return type === 'hdd' || type === 'floppy'
 }
@@ -310,7 +288,6 @@ export async function claimVirtualMachineDiskImageOccupancy(
   const claimed: string[] = []
   try {
     for (const device of devices) {
-      if (device.type === 'state') continue
       if (device.connected === false) continue
       const path = device.path.trim()
       if (!path || isHttpDiskUrl(path)) continue
@@ -334,10 +311,8 @@ async function loadDisk(
   path: string,
   label: string,
   options: {
-    persist?: boolean
+    mode?: VmDiskWriteModeId
     overlay?: boolean
-    mergeOnRelease?: boolean
-    snapshotPath?: string
     stream?: boolean
   } = {},
 ): Promise<LoadedDisk> {
@@ -355,17 +330,13 @@ async function loadDisk(
   }
 
   const overlay = options.overlay === true
-  const persist = options.persist === true
-  const mergeOnRelease = persist && options.mergeOnRelease !== false
+  const mode = options.mode ?? 'none'
   if (overlay) {
-    if (mergeOnRelease) {
-      assertVirtualMachineDiskCanPersistWrites(trimmed, label, stat.byteSize)
-    }
+    // 三档最终都可能触达镜像文件（live 运行期写、poweroff/none 关机合并）
+    assertVirtualMachineDiskCanPersistWrites(trimmed, label)
     const id = await registerVirtualMachineDiskStream(trimmed, {
       writable: true,
-      persist,
-      mergeOnRelease,
-      snapshotPath: options.snapshotPath,
+      mode,
     })
     return { stream: { id, size: stat.byteSize } }
   }
@@ -400,24 +371,15 @@ async function loadDisk(
 export async function loadVirtualMachineDisks(
   settings: Pick<VirtualMachineSettings, 'devices' | 'diskWriteMode'>,
 ): Promise<Partial<Pick<InstantVmStartMessage, SlotName | `${SlotName}Blob` | `${SlotName}Url` | `${SlotName}Stream`>>> {
-  const snapshotPath = settings.devices
-    .find((device) => device.type === 'state' && device.connected !== false)
-    ?.path.trim()
   const assignments = assignDevicesToSlots(settings.devices)
   const loadedStreams: InstantVmDiskStreamRef[] = []
   const results = await Promise.allSettled(
     assignments.map(async (assignment) => {
-      const persist = virtualMachineDiskPersistsWrites(
-        assignment.device.type,
-        settings.diskWriteMode,
-      )
       const overlay = virtualMachineDiskUsesOverlay(assignment.device.type)
       const loaded = await loadDisk(assignment.device.path, assignment.label, {
-        persist,
+        mode: overlay ? settings.diskWriteMode : undefined,
         overlay,
-        mergeOnRelease: persist && !snapshotPath,
-        snapshotPath: overlay ? snapshotPath : undefined,
-        stream: assignment.device.type !== 'state',
+        stream: true,
       })
       if (loaded.stream) {
         loadedStreams.push(loaded.stream)
@@ -465,7 +427,7 @@ export function buildStartMessage(
     requestId,
     config: settingsToStartConfig(settings),
   }
-  const slots: SlotName[] = ['hda', 'hdb', 'cdrom', 'fda', 'fdb', 'state']
+  const slots: SlotName[] = ['hda', 'hdb', 'cdrom', 'fda', 'fdb']
   for (const slot of slots) {
     const buffer = disks[slot]
     const blob = disks[`${slot}Blob` as const]
@@ -523,21 +485,16 @@ export async function mountVirtualMachineRemovableMedia(options: {
   if (!stat || stat.kind !== 'file') {
     throw new Error(`无法读取${label} ${path}：文件不存在`)
   }
-  const persist = virtualMachineDiskPersistsWrites(
-    options.device.type,
-    options.diskWriteMode,
-  )
   const overlay = virtualMachineDiskUsesOverlay(options.device.type)
   const writable = overlay
-  if (persist) {
-    assertVirtualMachineDiskCanPersistWrites(path, label, stat.byteSize)
+  if (writable) {
+    assertVirtualMachineDiskCanPersistWrites(path, label)
   }
   const key = removableMediaKey(options.machineId, options.slot)
   const previous = removableMediaStreams.get(key)
   const id = await registerVirtualMachineDiskStream(path, {
     writable,
-    persist,
-    mergeOnRelease: persist,
+    mode: writable ? options.diskWriteMode : undefined,
   })
   const stream: InstantVmDiskStreamRef = { id, size: stat.byteSize }
   return {

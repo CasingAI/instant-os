@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { WindowModal } from '../../window/window-modal.tsx'
+import { WindowModal, type WindowModalAction } from '../../window/window-modal.tsx'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
+import { Progress } from '../../ui/progress.tsx'
+import {
+  analyzeVirtualMachineDiskCache,
+  discardVirtualMachineDiskCache,
+  mergeVirtualMachineDiskCacheIntoImage,
+  type VmDiskFirstAidReport,
+} from '../virtual-machine/virtual-machine-disk-first-aid.ts'
 import { recommendFatVariant, type DiskScheme, type FatVariant } from './disk-utility-format.ts'
 import { buildPlannedDiskMap } from './disk-utility-disk-map.ts'
 import { DiskMapBar } from './disk-utility-disk-map-bar.tsx'
@@ -553,6 +561,203 @@ export function ScanDialog({
       {error ? <p class="window-modal__error">{error}</p> : undefined}
     </WindowModal>
 
+  )
+}
+
+export type FirstAidDialogState = {
+  path: string
+  label: string
+}
+
+/** 急救流程状态机：打开即自动分析；结果态里再选写入/丢掉。 */
+type FirstAidPhase =
+  | { kind: 'analyzing' }
+  | { kind: 'found'; report: VmDiskFirstAidReport }
+  | { kind: 'merging'; mergedBytes: number; totalBytes: number }
+  | { kind: 'discarding' }
+  | { kind: 'clean' }
+  | { kind: 'error'; message: string }
+
+function firstAidErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function FirstAidDialog({
+  state,
+  onClose,
+}: {
+  state: FirstAidDialogState | undefined
+  onClose: () => void
+}): preact.JSX.Element | undefined {
+  const modal = useWindowModal()
+  const [phase, setPhase] = useState<FirstAidPhase>({ kind: 'analyzing' })
+  const analysisSeqRef = useRef(0)
+  const mergeAbortRef = useRef<AbortController | undefined>(undefined)
+
+  const runAnalysis = (path: string): void => {
+    const seq = (analysisSeqRef.current += 1)
+    setPhase({ kind: 'analyzing' })
+    void (async () => {
+      try {
+        const report = await analyzeVirtualMachineDiskCache(path)
+        if (seq !== analysisSeqRef.current) return
+        setPhase(report ? { kind: 'found', report } : { kind: 'clean' })
+      } catch (error) {
+        if (seq !== analysisSeqRef.current) return
+        setPhase({ kind: 'error', message: firstAidErrorText(error) })
+      }
+    })()
+  }
+
+  useEffect(() => {
+    if (!state) return
+    runAnalysis(state.path)
+    return () => {
+      // 关闭对话框 = 放弃进行中的合并（缓存保留，下次急救可再来）
+      mergeAbortRef.current?.abort()
+      mergeAbortRef.current = undefined
+    }
+  }, [state])
+
+  if (!state) {
+    // 保持 WindowModal 挂载：open 变 false 时它自行走退场动画（内容由 contentRef 保留最后一帧）
+    return <WindowModal open={false} title="" onClose={onClose} />
+  }
+
+  const startMerge = () => {
+    // 每次合并用新控制器：上一次取消留下的已中止信号会让这次合并立刻停下
+    const controller = new AbortController()
+    mergeAbortRef.current = controller
+    setPhase({ kind: 'merging', mergedBytes: 0, totalBytes: 0 })
+    void (async () => {
+      try {
+        await mergeVirtualMachineDiskCacheIntoImage({
+          imagePath: state.path,
+          signal: controller.signal,
+          onProgress: (info) => {
+            setPhase((prev) =>
+              prev.kind === 'merging'
+                ? { kind: 'merging', mergedBytes: info.mergedBytes, totalBytes: info.totalBytes }
+                : prev,
+            )
+          },
+        })
+        // 完成、取消都重分析：完成 → 没有要处理的；取消 → 缓存剩余量重新报
+        runAnalysis(state.path)
+      } catch (error) {
+        setPhase({ kind: 'error', message: firstAidErrorText(error) })
+      }
+    })()
+  }
+
+  const startDiscard = () => {
+    void (async () => {
+      const ok = await modal.confirm({
+        title: '丢掉缓存？',
+        message: '这些改动不会写入硬盘文件。',
+        confirmLabel: '丢掉',
+        cancelLabel: '取消',
+        themeColor: DISK_UTILITY_THEME,
+      })
+      if (!ok) return
+      setPhase({ kind: 'discarding' })
+      try {
+        await discardVirtualMachineDiskCache(state.path)
+        runAnalysis(state.path)
+      } catch (error) {
+        setPhase({ kind: 'error', message: firstAidErrorText(error) })
+      }
+    })()
+  }
+
+  const working = phase.kind === 'merging' || phase.kind === 'discarding'
+
+  const actions: WindowModalAction[] =
+    phase.kind === 'found'
+      ? [
+          { key: 'discard', label: '丢掉缓存', tone: 'danger', onClick: startDiscard },
+          { key: 'merge', label: '写入硬盘文件', tone: 'primary', onClick: startMerge },
+        ]
+      : phase.kind === 'merging'
+        ? [{ key: 'cancel', label: '取消', tone: 'danger', onClick: () => mergeAbortRef.current?.abort() }]
+        : phase.kind === 'discarding'
+          ? [{ key: 'waiting', label: '正在丢掉缓存', tone: 'secondary', disabled: true, busy: true, onClick: () => undefined }]
+          : phase.kind === 'error'
+            ? [
+                { key: 'retry', label: '重新分析', tone: 'secondary', onClick: () => runAnalysis(state.path) },
+                { key: 'close', label: '关闭', tone: 'primary', onClick: onClose },
+              ]
+            : [
+                {
+                  key: 'close',
+                  label: phase.kind === 'analyzing' ? '正在分析' : '关闭',
+                  tone: 'primary',
+                  disabled: phase.kind === 'analyzing',
+                  busy: phase.kind === 'analyzing',
+                  onClick: onClose,
+                },
+              ]
+
+  const intro =
+    phase.kind === 'analyzing'
+      ? '正在分析这份盘上有没有未提交的虚拟机硬盘缓存。'
+      : phase.kind === 'found'
+        ? '可把缓存合并进可见文件，或丢掉这些改动。'
+        : phase.kind === 'merging'
+          ? '正在把缓存写入硬盘文件……取消会保留剩余缓存，下次急救可再合并。'
+          : phase.kind === 'discarding'
+            ? '正在丢掉缓存……'
+            : phase.kind === 'error'
+              ? '分析或操作失败，可重试。'
+              : '没有需要处理的缓存。'
+
+  return (
+    <WindowModal
+      open
+      title="急救"
+      titleSize="large"
+      titleAlign="left"
+      themeColor={DISK_UTILITY_THEME}
+      onClose={working ? undefined : onClose}
+      showCloseButton
+      actions={actions}
+    >
+      <div class="disk-utility-scan__body-header">
+        <h2 class="disk-utility-scan__name">{state.label}</h2>
+        <p class="disk-utility-scan__intro">{intro}</p>
+      </div>
+      {phase.kind === 'analyzing' || phase.kind === 'discarding' ? (
+        <div class="disk-utility-first-aid__progress">
+          <Progress indeterminate status="active" showInfo={false} ariaLabel={phase.kind === 'analyzing' ? '正在分析' : '正在丢掉缓存'} />
+        </div>
+      ) : undefined}
+      {phase.kind === 'found' ? (
+        <section class="disk-utility-scan__report" aria-live="polite">
+          <h4 class="disk-utility-scan__report-title">
+            这份盘上有虚拟机硬盘缓存，约 {formatStorageSize(phase.report.cacheBytes)}
+          </h4>
+        </section>
+      ) : undefined}
+      {phase.kind === 'merging' ? (
+        <div class="disk-utility-first-aid__progress">
+          <Progress
+            percent={phase.totalBytes > 0 ? (phase.mergedBytes / phase.totalBytes) * 100 : 0}
+            indeterminate={phase.totalBytes <= 0}
+            status="active"
+            info={
+              phase.totalBytes > 0
+                ? `${formatStorageSize(phase.mergedBytes)} / ${formatStorageSize(phase.totalBytes)}`
+                : undefined
+            }
+            ariaLabel="写入硬盘文件进度"
+          />
+        </div>
+      ) : undefined}
+      {phase.kind === 'clean' ? (
+        <p class="disk-utility-scan__result">没有需要处理的缓存。</p>
+      ) : undefined}
+      {phase.kind === 'error' ? <p class="window-modal__error">{phase.message}</p> : undefined}
+    </WindowModal>
   )
 }
 

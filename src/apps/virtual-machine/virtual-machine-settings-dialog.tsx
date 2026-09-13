@@ -701,16 +701,25 @@ export function VirtualMachineSettingsDialog({
               value={draft.diskWriteMode}
               options={VM_DISK_WRITE_MODE_CHOICES}
               onChange={(value) => {
-                if (isVmDiskWriteModeId(value)) {
-                  patch({ diskWriteMode: value })
+                if (!isVmDiskWriteModeId(value)) {
+                  return
                 }
+                if (running && (value === 'live' || draft.diskWriteMode === 'live')) {
+                  // 尽快写入开机后锁死：不能中途切到这一档，也不能从这一档切走。
+                  return
+                }
+                patch({ diskWriteMode: value })
               }}
               wideLayout
               presentation="form"
-              disabled={busy || running}
+              disabled={busy || (running && draft.diskWriteMode === 'live')}
               fieldClass="virtual-machine-settings__field"
               labelClass="virtual-machine-settings__label"
-              hint={`${formatVmDiskWriteModeDescription(draft.diskWriteMode)} 从快照启动时，改动不会写回原来的硬盘文件。`}
+              hint={
+                running && draft.diskWriteMode !== 'live'
+                  ? `${formatVmDiskWriteModeDescription(draft.diskWriteMode)} 运行中可在「不保存」与「关机后写入」之间切换，只改关机时是否写入；「尽快写入」开机后不能中途切换。`
+                  : formatVmDiskWriteModeDescription(draft.diskWriteMode)
+              }
             />
             <div class="virtual-machine-settings__storage">
               <div class="virtual-machine-settings__drives" role="listbox" aria-label="存储设备">
@@ -878,19 +887,17 @@ export function VirtualMachineSettingsDialog({
                           ),
                         )}
                       </span>
-                      {selectedStorage.type !== 'state' ? (
-                        <div class="virtual-machine-settings__connect">
-                          <span class="virtual-machine-settings__label">连接到虚拟机</span>
-                          <Switch
-                            checked={selectedStorage.connected !== false}
-                            disabled={busy || (running && selectedStorage.type === 'hdd')}
-                            label="连接到虚拟机"
-                            onChange={(checked) =>
-                              updateDevice(selectedStorage.id, { connected: checked })
-                            }
-                          />
-                        </div>
-                      ) : null}
+                      <div class="virtual-machine-settings__connect">
+                        <span class="virtual-machine-settings__label">连接到虚拟机</span>
+                        <Switch
+                          checked={selectedStorage.connected !== false}
+                          disabled={busy || (running && selectedStorage.type === 'hdd')}
+                          label="连接到虚拟机"
+                          onChange={(checked) =>
+                            updateDevice(selectedStorage.id, { connected: checked })
+                          }
+                        />
+                      </div>
                     </div>
                     {selectedStorage.connected === false ? (
                       <p class="virtual-machine-settings__hint">
@@ -935,6 +942,12 @@ export function VirtualMachineSettingsDialog({
                         </Button>
                       ) : null}
                     </div>
+                    {selectedStorage.path.startsWith('/mount/') &&
+                    selectedStorage.type !== 'cdrom' ? (
+                      <p class="virtual-machine-settings__hint">
+                        挂载目录上的硬盘和软盘不能回写，请先拷到内部卷。
+                      </p>
+                    ) : null}
                     <div class="virtual-machine-settings__path">
                       <Button
                         tone="danger"

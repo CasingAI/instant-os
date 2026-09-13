@@ -75,22 +75,23 @@ function testNormalizeBuildModeFallback(): void {
 
 function testNormalizeDiskWriteModeFallback(): void {
   const missing = normalizeVirtualMachineSettings({ name: 'test' })
-  assert.equal(missing?.diskWriteMode, 'persist')
+  assert.equal(missing?.diskWriteMode, 'live')
 
   const bad = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'always' })
-  assert.equal(bad?.diskWriteMode, 'persist')
+  assert.equal(bad?.diskWriteMode, 'live')
 
   const live = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'live' })
-  assert.equal(live?.diskWriteMode, 'persist')
+  assert.equal(live?.diskWriteMode, 'live')
 
   const poweroff = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'poweroff' })
-  assert.equal(poweroff?.diskWriteMode, 'persist')
+  assert.equal(poweroff?.diskWriteMode, 'poweroff')
 
   const none = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'none' })
   assert.equal(none?.diskWriteMode, 'none')
 
+  // 现存记录里的「保存硬盘改动」对回关机后写入
   const persist = normalizeVirtualMachineSettings({ name: 'test', diskWriteMode: 'persist' })
-  assert.equal(persist?.diskWriteMode, 'persist')
+  assert.equal(persist?.diskWriteMode, 'poweroff')
 }
 
 function testNormalizeSnapEdgePx(): void {
@@ -177,12 +178,11 @@ function testNormalizeMigratesLegacyPaths(): void {
     fdaPath: '   ',
     statePath: '/user/state.bin',
   })
-  assert.equal(migrated?.devices.length, 2)
+  // 快照已禁用：statePath 不再迁移成设备（旧记录里的 state 设备读入时丢弃）。
+  assert.equal(migrated?.devices.length, 1)
   assert.equal(migrated?.devices[0]?.type, 'hdd')
   assert.equal(migrated?.devices[0]?.path, '/user/disks/hda.img')
   assert.equal(migrated?.devices[0]?.source, 'local')
-  assert.equal(migrated?.devices[1]?.type, 'state')
-  assert.equal(migrated?.devices[1]?.path, '/user/state.bin')
 }
 
 function testNormalizeDevicesArray(): void {

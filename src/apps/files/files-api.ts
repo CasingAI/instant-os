@@ -27,6 +27,7 @@ import {
   estimateNodeMetaBytes,
   FilesContentRevisionMismatchError,
   FilesPathExistsError,
+  getFileBlobStorageInfo,
   newFilesNodeId,
   setNodeSparse,
   type FilesNodeNameMode,
@@ -34,13 +35,17 @@ import {
 
 export { FilesContentRevisionMismatchError }
 import {
+  assertNodeTreeAttachmentsMovable,
   copyNodeTo,
   createBinaryFile,
   createSparseBinaryFile,
   createTextFile,
+  createFileAttachment,
+  createSparseFileAttachment,
   emptyTrash,
   getFilesLocationLabel,
   listDirectory,
+  listFileAttachments,
   listFilesLocations,
   listSubtreeFiles,
   backfillSubtreeContentRevisionIds,
@@ -70,6 +75,11 @@ import {
   type FilesRemoveBatchOptions,
   type FilesStreamWriter,
 } from './files-vfs.ts'
+
+import {
+  diskImageOccupiedForFileOpError,
+  findOccupiedDiskImagePathUnder,
+} from './files-disk-image-occupancy.ts'
 
 export type { FilesWriteExpectedRevisionOptions }
 
@@ -101,6 +111,10 @@ export type FilesApiEntry = {
   contentRevisionId?: string
   /** 符号链接目标；仅 kind=symlink 时由 lstat 等暴露 */
   target?: string
+  /** 附加的标签；仅主文件上的附加有意义 */
+  attachmentTags?: string[]
+  /** 正文实占；列出附加时填，机会压缩附加远小于逻辑大小 */
+  storedByteSize?: number
   writable: boolean
 }
 
@@ -137,6 +151,9 @@ async function toEntry(node: FilesNode, pathOverride?: string): Promise<FilesApi
   }
   if (node.kind === 'symlink' && node.target !== undefined) {
     entry.target = node.target
+  }
+  if (node.attachmentTags !== undefined && node.attachmentTags.length > 0) {
+    entry.attachmentTags = node.attachmentTags
   }
   return entry
 }
@@ -293,6 +310,71 @@ export async function filesStat(path: string): Promise<FilesApiEntry | undefined
   const node = await resolveNodeByAbsolutePath(absolutePath, { follow: true })
   if (!node) return undefined
   return toEntry(node, absolutePath)
+}
+
+/**
+ * 为主文件挂一个附加。附加的读写直接用路径 API：
+ * `filesReadBlob(mainPath + '/.attach/' + name)`、`filesWriteBytesRange` 等。
+ */
+export async function filesCreateAttachment(params: {
+  mainFilePath: string
+  name: string
+  bytes: ArrayBuffer
+  tags?: string[]
+  /** 默认自动加后缀；需要幂等复用时传 'exact'（已存在则抛错）。 */
+  nameMode?: 'unique-suffix' | 'exact'
+}): Promise<FilesApiEntry> {
+  const mainPath = assertAbsolutePath(params.mainFilePath)
+  const created = await createFileAttachment({
+    mainFilePath: mainPath,
+    name: params.name,
+    bytes: params.bytes,
+    tags: params.tags,
+    nameMode: params.nameMode,
+  })
+  return toEntry(created)
+}
+
+/**
+ * 为主文件挂一个机会压缩附加：逻辑大小 = byteSize，实占 0，等长分槽。
+ */
+export async function filesCreateSparseAttachment(params: {
+  mainFilePath: string
+  name: string
+  byteSize: number
+  tags?: string[]
+  chunkSize?: number
+  nameMode?: 'unique-suffix' | 'exact'
+}): Promise<FilesApiEntry> {
+  const mainPath = assertAbsolutePath(params.mainFilePath)
+  const created = await createSparseFileAttachment({
+    mainFilePath: mainPath,
+    name: params.name,
+    byteSize: params.byteSize,
+    tags: params.tags,
+    chunkSize: params.chunkSize,
+    nameMode: params.nameMode,
+  })
+  return toEntry(created)
+}
+
+/** 列出主文件上的附加（可按标签过滤）；所有程序都能列出某文件的附加。 */
+export async function filesListAttachments(
+  mainFilePath: string,
+  options?: { tag?: string },
+): Promise<FilesApiEntry[]> {
+  const mainPath = assertAbsolutePath(mainFilePath)
+  const nodes = await listFileAttachments(mainPath, options)
+  return Promise.all(
+    nodes.map(async (node) => {
+      const entry = await toEntry(node)
+      const info = await getFileBlobStorageInfo(node.id)
+      if (info) {
+        entry.storedByteSize = info.storedByteSize
+      }
+      return entry
+    }),
+  )
 }
 
 /** 不跟随符号链接的 stat（对齐 Node `lstat`） */
@@ -512,6 +594,10 @@ export async function filesSetSparse(
   }
   if (!DATA_SPACE_FILE_LOCATIONS.includes(node.locationId)) {
     throw new Error('只有内部卷文件支持机会压缩')
+  }
+  const occupied = findOccupiedDiskImagePathUnder(absolutePath)
+  if (occupied) {
+    throw new Error(diskImageOccupiedForFileOpError(occupied.path, occupied.occupant, '更改机会压缩'))
   }
   const updated = await setNodeSparse(node.id, sparse, {
     chunkSize: options?.chunkSize,
@@ -819,6 +905,19 @@ export async function filesMove(sourcePath: string, destDirPath: string): Promis
 
   if (assertAbsolutePath(sourceParentPath) === destAbs) {
     return toEntry(sourceNode)
+  }
+
+  // filesMove = 复制 + 删除：跨卷到挂不了附加的卷时复制会丢附加、删除又带走原件，先拒绝
+  let destLocationId: FilesLocationId = destParsed.locationId
+  if (destParsed.segments.length > 0) {
+    const destNode = await resolveNodeByAbsolutePath(destAbs)
+    if (!destNode || destNode.kind !== 'folder') {
+      throw new Error('目标文件夹不存在')
+    }
+    destLocationId = destNode.locationId
+  }
+  if (sourceNode.locationId !== destLocationId) {
+    await assertNodeTreeAttachmentsMovable(sourceNode, destLocationId)
   }
 
   const copied = await filesCopy(sourceAbs, destAbs)
@@ -1129,7 +1228,10 @@ export async function filesCreateArchive(params: {
     throw new Error('压缩包所在目录不可写')
   }
 
-  const subtree = await listSubtreeFiles(sourceAbs)
+  // 附加是机器内部数据（如虚拟机硬盘缓存）：账本 byteSize 是段字节总和、不是文件
+  // 实际长度，读出来是截断垃圾；且解压端会造出字面 .attach 目录（保留段）永远解析
+  // 不回去。打包遍历一律剔除附加条目。
+  const subtree = (await listSubtreeFiles(sourceAbs)).filter((file) => !file.attachment)
   const totalCount = subtree.length
   const bytesTotal = subtree.reduce((sum, file) => sum + Math.max(0, file.byteSize), 0)
   const entries: { path: string; bytes: ArrayBuffer }[] = []

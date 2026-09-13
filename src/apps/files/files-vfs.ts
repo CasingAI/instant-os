@@ -27,6 +27,7 @@ import {
   FilesContentRevisionMismatchError,
   getNode,
   getNodeBlobStoredBytes,
+  listAttachmentNodes,
   listChildNodes,
   listLocalVolumeSubtreeNodes,
   newFilesNodeId,
@@ -37,6 +38,7 @@ import {
   renameNodeRecord,
   moveNodeRecord,
   normalizeFilesNameKey,
+  SPARSE_DEFAULT_CHUNK_SIZE,
   uniqueNameAmong,
   writeBlobBytes,
   writeBlobBytesRange,
@@ -124,10 +126,13 @@ import {
   parseFilesAbsolutePath,
 } from './files-path.ts'
 import {
+  FILES_ATTACH_SEGMENT,
   FILES_LOCATIONS,
   FILES_TEXT_MIME,
-  defaultFilesNodeAttributes,
+  VM_DISK_CACHE_ATTACHMENT_TAG,
+  canAttachOnLocation,
   canCreateSymlinkOnLocation,
+  defaultFilesNodeAttributes,
   isFilesLocationWritable,
   isFilesNodeWritable,
   isImageLocationId,
@@ -136,6 +141,8 @@ import {
   isMountNodeId,
   isTrashLocationId,
   locationSupportsTrash,
+  makeAttachDirNodeId,
+  parseAttachDirNodeId,
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
@@ -498,6 +505,12 @@ export async function listDirectory(
   locationId: FilesLocationId,
   folderId: string | undefined,
 ): Promise<FilesNode[]> {
+  // 主文件/.attach 虚拟目录：列出该文件的全部附加（高频追加，不进缓存）。
+  const attachFileId = folderId === undefined ? undefined : parseAttachDirNodeId(folderId)
+  if (attachFileId !== undefined) {
+    return listAttachmentNodes(locationId, attachFileId)
+  }
+
   const cacheKey = listDirectoryCacheKey(locationId, folderId)
   const cached = listDirectoryCache.get(cacheKey)
   if (cached !== undefined) {
@@ -826,6 +839,14 @@ export async function createSparseBinaryFile(params: {
  */
 export async function resolveFilesAbsolutePath(node: FilesNode): Promise<string> {
   const root = filesLocationPathRoot(node.locationId)
+  // 附加的绝对路径带保留段：主文件路径/.attach/附加名
+  if (node.attachment === true && node.parentId !== undefined) {
+    const parent = await getNode(node.parentId)
+    if (parent && parent.kind === 'file') {
+      const mainPath = await resolveFilesAbsolutePath(parent)
+      return joinFilesAbsolutePath(mainPath, FILES_ATTACH_SEGMENT, node.name)
+    }
+  }
   if (node.kind === 'folder') {
     const chain = await resolvePathNodes(node.locationId, node.id)
     return joinFilesAbsolutePath(root, ...chain.map((item) => item.name))
@@ -926,6 +947,29 @@ async function resolveNodeByAbsolutePathInner(
   for (let index = 0; index < parsed.segments.length; index += 1) {
     const name = parsed.segments[index]
     if (!name) return undefined
+
+    // 主文件/.attach/附加名：附加命名空间。前一段必须解析到内部卷的文件节点。
+    if (name === FILES_ATTACH_SEGMENT && canAttachOnLocation(parsed.locationId)) {
+      if (parentId === undefined) return undefined
+      const parentNode = await getNode(parentId)
+      if (!parentNode || parentNode.kind !== 'file') return undefined
+      const isLast = index === parsed.segments.length - 1
+      if (isLast) {
+        // 对 .attach 本身列出目录 = 附加的虚拟目录节点
+        return makeAttachDirNode(parentNode)
+      }
+      const nextName = parsed.segments[index + 1]
+      if (!nextName) return undefined
+      const attachments = await listAttachmentNodes(parentNode.locationId, parentNode.id)
+      const attach = attachments.find(
+        (item) => normalizeFilesNameKey(item.name) === normalizeFilesNameKey(nextName),
+      )
+      if (!attach) return undefined
+      if (index + 1 === parsed.segments.length - 1) return attach
+      // 附加是文件，不能再往深处解析
+      return undefined
+    }
+
     const children = await listDirectory(parsed.locationId, parentId)
     const hit = children.find((child) => child.name === name)
     if (!hit) return undefined
@@ -959,7 +1003,11 @@ async function resolveNodeByAbsolutePathInner(
     }
 
     if (isLast) return hit
-    if (hit.kind !== 'folder') return undefined
+    // 中间段还允许一种形态：文件后面紧跟 .attach（进入附加命名空间）
+    const nextIsAttach =
+      parsed.segments[index + 1] === FILES_ATTACH_SEGMENT &&
+      canAttachOnLocation(parsed.locationId)
+    if (hit.kind !== 'folder' && !(nextIsAttach && hit.kind === 'file')) return undefined
     parentId = hit.id
   }
 
@@ -972,6 +1020,134 @@ export async function resolveFileNodeByAbsolutePath(
   const node = await resolveNodeByAbsolutePath(absolutePath, { follow: true })
   if (!node || node.kind !== 'file') return undefined
   return node
+}
+
+/** 主文件/.attach 的合成目录节点：id 指回主文件，listDirectory 据此列附加。 */
+function makeAttachDirNode(fileNode: FilesNode): FilesNode {
+  return {
+    id: makeAttachDirNodeId(fileNode.id),
+    locationId: fileNode.locationId,
+    parentId: fileNode.parentId,
+    name: FILES_ATTACH_SEGMENT,
+    kind: 'folder',
+    mimeType: undefined,
+    byteSize: 0,
+    createdAt: fileNode.createdAt,
+    updatedAt: fileNode.updatedAt,
+    attributes: fileNode.attributes,
+  }
+}
+
+/**
+ * 列出某个主文件上的附加（可按标签过滤）。所有程序都能列出某文件的附加。
+ */
+export async function listFileAttachments(
+  mainFilePath: string,
+  options?: { tag?: string },
+): Promise<FilesNode[]> {
+  const node = await resolveNodeByAbsolutePath(mainFilePath, { follow: true })
+  if (!node || node.kind !== 'file' || !canAttachOnLocation(node.locationId)) {
+    return []
+  }
+  return listAttachmentNodes(node.locationId, node.id, options)
+}
+
+/**
+ * 为主文件挂一个附加：附加是独立内容对象（正文走 blob/chunks/OPFS 那一套），
+ * 节点 parentId 指向主文件——主文件改名/移动/删除时整棵子树一起走。
+ * 读写附加正文直接用路径 API：主文件路径/.attach/附加名。
+ */
+export async function createFileAttachment(params: {
+  mainFilePath: string
+  name: string
+  bytes: ArrayBuffer
+  tags?: string[]
+  /** 默认自动加后缀；需要幂等复用时传 'exact'（已存在则抛错）。 */
+  nameMode?: FilesNodeNameMode
+}): Promise<FilesNode> {
+  const startedAt = performance.now()
+  const main = await resolveNodeByAbsolutePath(params.mainFilePath, { follow: true })
+  if (!main || main.kind !== 'file') {
+    throw new Error(`主文件不存在：${params.mainFilePath}`)
+  }
+  if (!canAttachOnLocation(main.locationId)) {
+    throw new Error('当前卷不支持文件附加')
+  }
+  const desired = normalizeFilesNodeName(params.name.trim() || '附加')
+  const now = osNowMs()
+  const node: FilesNode = {
+    id: newFilesNodeId(),
+    locationId: main.locationId,
+    parentId: main.id,
+    name: desired,
+    kind: 'file',
+    mimeType: 'application/octet-stream',
+    byteSize: 0,
+    createdAt: now,
+    updatedAt: now,
+    attachment: true,
+    ...(params.tags && params.tags.length > 0 ? { attachmentTags: params.tags } : {}),
+    attributes: main.attributes,
+  }
+  const created = await createFileWithBytes({
+    node,
+    bytes: params.bytes,
+    metaBytes: estimateNodeMetaBytes(node),
+    nameMode: params.nameMode ?? 'unique-suffix',
+  })
+  // 附加不进目录列表，但路径解析缓存要失效（主文件/.attach/名 从无到有）
+  invalidateFilesVfsPathCaches()
+  recordFilesIoWrite(created, params.bytes.byteLength, 'createAttachment', performance.now() - startedAt)
+  return created
+}
+
+/**
+ * 为主文件挂一个机会压缩附加：逻辑大小给定、实占 0、等长分槽。
+ * 不要在 `.attach` 路径上建普通文件冒充。
+ */
+export async function createSparseFileAttachment(params: {
+  mainFilePath: string
+  name: string
+  byteSize: number
+  tags?: string[]
+  chunkSize?: number
+  nameMode?: FilesNodeNameMode
+}): Promise<FilesNode> {
+  const startedAt = performance.now()
+  const main = await resolveNodeByAbsolutePath(params.mainFilePath, { follow: true })
+  if (!main || main.kind !== 'file') {
+    throw new Error(`主文件不存在：${params.mainFilePath}`)
+  }
+  if (!canAttachOnLocation(main.locationId)) {
+    throw new Error('当前卷不支持文件附加')
+  }
+  const desired = normalizeFilesNodeName(params.name.trim() || '附加')
+  const now = osNowMs()
+  const node: FilesNode = {
+    id: newFilesNodeId(),
+    locationId: main.locationId,
+    parentId: main.id,
+    name: desired,
+    kind: 'file',
+    mimeType: 'application/octet-stream',
+    byteSize: 0,
+    createdAt: now,
+    updatedAt: now,
+    attachment: true,
+    sparse: true,
+    ...(params.tags && params.tags.length > 0 ? { attachmentTags: params.tags } : {}),
+    attributes: main.attributes,
+  }
+  const created = await createSparseFile({
+    node,
+    byteSize: params.byteSize,
+    chunkSize: params.chunkSize ?? SPARSE_DEFAULT_CHUNK_SIZE,
+    metaBytes: estimateNodeMetaBytes(node),
+    nameMode: params.nameMode ?? 'unique-suffix',
+  })
+  invalidateFilesVfsPathCaches()
+  recordFilesIoWrite(created, 0, 'createSparseAttachment', performance.now() - startedAt)
+  return created
 }
 
 /** 在 linkPath 创建符号链接，目标为 target（相对或绝对字符串，原样存储） */
@@ -1034,10 +1210,97 @@ export type FilesSubtreeFileEntry = {
   byteSize: number
   contentRevisionId: string | undefined
   updatedAt: number
+  /** 文件附加（挂在主文件下的内部数据）：打包/搜索类遍历按需过滤，统计类保留 */
+  attachment: boolean
+}
+
+export type FilesSubtreeNodeEntry = {
+  kind: 'file' | 'folder'
+  name: string
+  /** 相对根目录的父路径（'' = 根直接子项） */
+  parentPath: string
+  byteSize: number | undefined
+  contentRevisionId: string | undefined
+  updatedAt: number | undefined
+  /** 文件附加（挂在主文件下的内部数据）：打包/搜索类遍历按需过滤，统计类保留 */
+  attachment: boolean
+}
+
+/**
+ * 一次事务拉出本地卷（local / repo）某目录子树内全部节点（文件 + 文件夹），
+ * 附相对根目录的父路径。名称搜索 / 打包 / npm store 统计共用。
+ * 不支持 mount / image / models3d / source / applications。
+ */
+export async function listSubtreeNodes(
+  locationId: FilesLocationId,
+  rootFolderId: string | undefined,
+): Promise<FilesSubtreeNodeEntry[]> {
+  if (isMountLocationId(locationId) || isImageLocationId(locationId)) {
+    throw new Error('挂载卷不支持子树枚举')
+  }
+  if (locationId === 'models3d' || locationId === 'source' || locationId === 'applications') {
+    throw new Error('该卷不支持子树枚举')
+  }
+
+  const subtreeStartAt = performance.now()
+  const { files, folders } = await listLocalVolumeSubtreeNodes(locationId, rootFolderId)
+  recordSystemDebugTimeline({
+    layer: 'files',
+    op: 'list-subtree-nodes',
+    detail: `${locationId} → ${files.length} files ${folders.size} folders`,
+    durationMs: Math.round(performance.now() - subtreeStartAt),
+  })
+
+  const buildParentPath = (parentId: string | undefined): string => {
+    const segments: string[] = []
+    let current = parentId
+    while (current !== undefined && current !== rootFolderId) {
+      const folder = folders.get(current)
+      if (!folder) break
+      segments.unshift(folder.name)
+      current = folder.parentId
+    }
+    return segments.join('/')
+  }
+
+  const entries: FilesSubtreeNodeEntry[] = []
+  for (const folder of folders.values()) {
+    entries.push({
+      kind: 'folder',
+      name: folder.name,
+      parentPath: buildParentPath(folder.parentId),
+      byteSize: undefined,
+      contentRevisionId: undefined,
+      updatedAt: undefined,
+      attachment: false,
+    })
+  }
+  // files 数组父先子后：附加的父路径 = 主文件相对路径 + /.attach（路径可被 resolve 解析）
+  const filePaths = new Map<string, string>()
+  for (const file of files) {
+    const mainPath = file.parentId !== undefined ? filePaths.get(file.parentId) : undefined
+    const parentPath =
+      mainPath !== undefined
+        ? `${mainPath}/${FILES_ATTACH_SEGMENT}`
+        : buildParentPath(file.parentId)
+    filePaths.set(file.id, parentPath ? `${parentPath}/${file.name}` : file.name)
+    entries.push({
+      kind: 'file',
+      name: file.name,
+      parentPath,
+      byteSize: file.byteSize,
+      contentRevisionId: file.contentRevisionId,
+      updatedAt: file.updatedAt,
+      attachment: file.attachment === true,
+    })
+  }
+  return entries
 }
 
 /**
  * 一次事务拉出本地卷（local / repo）某目录下全部文件元数据。
+ * 附加也在内（相对路径为 主文件/.attach/附加名，绝对路径可解析读写），
+ * 条目带 attachment 标记——打包/搜索类消费方按需过滤，统计类保留。
  * 不支持 mount / models3d / source。
  */
 export async function listSubtreeFiles(
@@ -1047,12 +1310,6 @@ export async function listSubtreeFiles(
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed) {
     throw new Error('路径无效')
-  }
-  if (isMountLocationId(parsed.locationId) || isImageLocationId(parsed.locationId)) {
-    throw new Error('挂载卷不支持子树枚举')
-  }
-  if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {
-    throw new Error('该卷不支持子树枚举')
   }
 
   let rootFolderId: string | undefined
@@ -1067,41 +1324,29 @@ export async function listSubtreeFiles(
   }
 
   const subtreeStartAt = performance.now()
-  const { files, folders } = await listLocalVolumeSubtreeNodes(
-    parsed.locationId,
-    rootFolderId,
-  )
+  const nodes = await listSubtreeNodes(parsed.locationId, rootFolderId)
   // BFS 全子树枚举：搜索 / 打包 / npm store 统计共用入口
   recordSystemDebugTimeline({
     layer: 'files',
     op: 'list-subtree-files',
-    detail: `${absolutePath} → ${files.length} files`,
+    detail: `${absolutePath} → ${nodes.filter((node) => node.kind === 'file').length} files`,
     durationMs: Math.round(performance.now() - subtreeStartAt),
   })
 
-  const buildRelativeSegments = (fileParentId: string | undefined, fileName: string): string[] => {
-    const segments: string[] = [fileName]
-    let current = fileParentId
-    while (current !== undefined && current !== rootFolderId) {
-      const folder = folders.get(current)
-      if (!folder) break
-      segments.unshift(folder.name)
-      current = folder.parentId
-    }
-    return segments
-  }
-
-  return files.map((file) => {
-    const relativeSegments = buildRelativeSegments(file.parentId, file.name)
-    const relativePath = relativeSegments.join('/')
-    return {
-      path: relativePath,
-      absolutePath: joinFilesAbsolutePath(absolutePath, ...relativeSegments),
-      byteSize: file.byteSize,
-      contentRevisionId: file.contentRevisionId,
-      updatedAt: file.updatedAt,
-    }
-  })
+  return nodes
+    .filter((node) => node.kind === 'file')
+    .map((node) => {
+      const relativeSegments = node.parentPath ? node.parentPath.split('/') : []
+      const relativePath = [...relativeSegments, node.name].join('/')
+      return {
+        path: relativePath,
+        absolutePath: joinFilesAbsolutePath(absolutePath, ...relativeSegments, node.name),
+        byteSize: node.byteSize ?? 0,
+        contentRevisionId: node.contentRevisionId,
+        updatedAt: node.updatedAt ?? 0,
+        attachment: node.attachment,
+      }
+    })
 }
 
 /** 对本地卷子树内缺 contentRevisionId 的文件节点批量补齐 */
@@ -1673,9 +1918,26 @@ export type FilesDeleteWorkload = {
 
 const LARGE_SUBTREE_DELETE_THRESHOLD = 2000
 
-export async function estimateCopyWorkload(sourceId: string): Promise<FilesCopyWorkload> {
+/** 文件节点附加的统计：数量 / 逻辑字节（进度口径）/ 元数据+正文字节（配额口径）。低频路径逐节点查可接受。 */
+async function collectFileAttachmentStats(
+  node: FilesNode,
+): Promise<{ count: number; byteSize: number; copyBytes: number }> {
+  const attaches = await listAttachmentNodes(node.locationId, node.id)
+  let byteSize = 0
+  let copyBytes = 0
+  for (const attach of attaches) {
+    byteSize += attach.byteSize
+    copyBytes += estimateNodeMetaBytes(attach) + attach.byteSize
+  }
+  return { count: attaches.length, byteSize, copyBytes }
+}
+
+export async function estimateCopyWorkload(
+  sourceId: string,
+  destLocationId?: FilesLocationId,
+): Promise<FilesCopyWorkload> {
   const source = await getNodeOrThrow(sourceId)
-  const stats = await estimateCopyWorkloadForNode(source)
+  const stats = await estimateCopyWorkloadForNode(source, destLocationId)
   return {
     ...stats,
     totalUnits: filesWorkloadUnits(stats.nodeCount, stats.byteSize),
@@ -1684,8 +1946,16 @@ export async function estimateCopyWorkload(sourceId: string): Promise<FilesCopyW
 
 async function estimateCopyWorkloadForNode(
   node: FilesNode,
+  destLocationId?: FilesLocationId,
 ): Promise<{ nodeCount: number; byteSize: number }> {
-  if (node.kind === 'file' || node.kind === 'symlink') {
+  if (node.kind === 'file') {
+    // 附加整份拷贝跟随主文件（目标卷挂不了附加时复制会丢，不计数）
+    const attach = canAttachOnLocation(destLocationId ?? node.locationId)
+      ? await collectFileAttachmentStats(node)
+      : { count: 0, byteSize: 0, copyBytes: 0 }
+    return { nodeCount: 1 + attach.count, byteSize: node.byteSize + attach.byteSize }
+  }
+  if (node.kind === 'symlink') {
     return { nodeCount: 1, byteSize: node.byteSize }
   }
   let nodeCount = 1
@@ -1693,7 +1963,7 @@ async function estimateCopyWorkloadForNode(
   const children = await listDirectory(node.locationId, node.id)
   for (const child of children) {
     countSystemDebugHot('files', 'estimate-walk')
-    const sub = await estimateCopyWorkloadForNode(child)
+    const sub = await estimateCopyWorkloadForNode(child, destLocationId)
     nodeCount += sub.nodeCount
     byteSize += sub.byteSize
   }
@@ -1726,7 +1996,12 @@ export async function estimateDeleteWorkload(nodeId: string): Promise<FilesDelet
 async function estimateDeleteWorkloadForNode(
   node: FilesNode,
 ): Promise<{ nodeCount: number; byteSize: number }> {
-  if (node.kind === 'file' || node.kind === 'symlink') {
+  if (node.kind === 'file') {
+    // 删除子树必带走附加（collectSubtreeIds 已收集）：计入工作量
+    const attach = await collectFileAttachmentStats(node)
+    return { nodeCount: 1 + attach.count, byteSize: node.byteSize + attach.byteSize }
+  }
+  if (node.kind === 'symlink') {
     return { nodeCount: 1, byteSize: node.byteSize }
   }
   let nodeCount = 1
@@ -1839,7 +2114,7 @@ export async function removeNodeForced(
   options?: FilesRemoveSubtreeOptions,
 ): Promise<void> {
   const node = await getNodeOrThrow(id)
-  await removeNodeInner(node, options)
+  await removeNodeInner(node, { ...options, skipOccupancy: true })
 }
 
 /**
@@ -1849,6 +2124,38 @@ function canMoveNodeMetadataOnly(source: FilesNode, destLocationId: FilesLocatio
   if (isMountNodeId(source.id) || isImageNodeId(source.id)) return false
   if (isMountLocationId(destLocationId) || isImageLocationId(destLocationId)) return false
   return source.locationId === destLocationId
+}
+
+/** 子树里第一个挂着附加的文件（listDirectory 递归，附加不进目录列表故逐文件查）；无则 undefined。 */
+async function findAttachmentHostInTree(node: FilesNode): Promise<FilesNode | undefined> {
+  if (node.kind === 'file') {
+    const attaches = await listAttachmentNodes(node.locationId, node.id)
+    return attaches.length > 0 ? node : undefined
+  }
+  if (node.kind !== 'folder') return undefined
+  const children = await listDirectory(node.locationId, node.id)
+  for (const child of children) {
+    const hit = await findAttachmentHostInTree(child)
+    if (hit) return hit
+  }
+  return undefined
+}
+
+/**
+ * 跨卷移动（复制 + 删除）前置检查：目标卷挂不了附加而源子树带附加时拒绝——
+ * 复制侧会丢附加、删除侧又会把原件带走，等于静默丢数据。
+ */
+export async function assertNodeTreeAttachmentsMovable(
+  source: FilesNode,
+  destLocationId: FilesLocationId,
+): Promise<void> {
+  if (canAttachOnLocation(destLocationId)) return
+  const hit = await findAttachmentHostInTree(source)
+  if (hit) {
+    throw new Error(
+      `「${hit.name}」挂着附加（如虚拟机硬盘缓存），目标位置不支持；请先在磁盘工具里合并或丢掉缓存再移动。`,
+    )
+  }
 }
 
 export type FilesMoveNodeToOptions = {
@@ -1902,6 +2209,9 @@ export async function moveNodeTo(
     emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
     return moved
   }
+
+  // 跨卷移动 = 复制 + 删除：目标卷挂不了附加时复制会丢附加、删除又带走原件，先拒绝
+  await assertNodeTreeAttachmentsMovable(source, destLocationId)
 
   const copied = await copyNodeTo({
     sourceId,
@@ -2103,6 +2413,8 @@ export type FilesRemoveSubtreeOptions = {
   signal?: AbortSignal
   /** 调用方已算好的删除工作量（estimate 钩子结果），避免整树二次遍历 */
   workload?: FilesDeleteWorkload
+  /** 系统层删除：不走占用守卫（虚拟机丢掉自己的缓存附加等） */
+  skipOccupancy?: boolean
 }
 
 async function removeNodeInner(
@@ -2111,7 +2423,9 @@ async function removeNodeInner(
 ): Promise<void> {
   const id = node.id
   const path = await resolveFilesAbsolutePath(node)
-  assertDiskImagesNotOccupied([path], '删除')
+  if (options?.skipOccupancy !== true) {
+    assertDiskImagesNotOccupied([path], '删除')
+  }
   if (isMountNodeId(id)) {
     // 逐子项删除并上报：整树一次性 remove 不回调，进度窗整段停在 0
     await removeMountSubtreeWithProgress(node, options)
@@ -2353,11 +2667,15 @@ async function estimateCopyBytesForNode(
   destLocationId: FilesLocationId,
 ): Promise<number> {
   if (node.kind === 'file') {
+    // 附加复制不共享正文（整份字节+元数据）；目标卷挂不了附加时复制会丢，不计数
+    const attachBytes = canAttachOnLocation(destLocationId)
+      ? (await collectFileAttachmentStats(node)).copyBytes
+      : 0
     if (canShareBlobOnCopy(node, destLocationId)) {
-      return estimateNodeMetaBytes(node)
+      return estimateNodeMetaBytes(node) + attachBytes
     }
     const storedBytes = await getNodeBlobStoredBytes(node.id)
-    return estimateNodeMetaBytes(node) + storedBytes
+    return estimateNodeMetaBytes(node) + attachBytes + storedBytes
   }
   if (node.kind === 'symlink') {
     return estimateNodeMetaBytes(node) + estimateTextBytes(node.target ?? '')
@@ -2412,6 +2730,9 @@ export async function copyNodeTo(params: {
     throw new Error('不能复制或粘贴到废纸篓，请使用删除操作')
   }
   await assertCanCreateIn(params.destLocationId, params.destParentId)
+  // 占用中的磁盘镜像禁拷：虚拟机等占用方正实时写正文（含附加缓存），拷出的副本不可信
+  const sourcePath = await resolveFilesAbsolutePath(source)
+  assertDiskImagesNotOccupied([sourcePath], '复制')
 
   if (
     source.kind === 'folder' &&
@@ -2428,7 +2749,7 @@ export async function copyNodeTo(params: {
     await assertAdditionalBytesAvailable(needed)
   }
 
-  const workload = params.workload ?? (await estimateCopyWorkloadForNode(source))
+  const workload = params.workload ?? (await estimateCopyWorkloadForNode(source, params.destLocationId))
   const total = filesWorkloadUnits(workload.nodeCount, workload.byteSize)
   const progressState = { done: 0, items: 0, bytes: 0 }
   params.onProgress?.({
@@ -2562,6 +2883,82 @@ async function cloneSharedLocalFile(
   return created
 }
 
+/**
+ * 解析虚拟机硬盘缓存附加的 v2 段表，返回段字节总和（账本口径）；非 v2 格式或
+ * 段表不完整返回 undefined。格式见 virtual-machine-disk-overlay-store.ts：32B 头
+ * （8B magic + u32 段表容量 + u32 段数 + 8B 保留零）+ 容量×16B 段表（f64 offset +
+ * f64 length，小端）。解析逻辑与该模块的 decodeHeader/decodeSegmentTable 对齐。
+ */
+function sumDiskCacheV2SegmentBytes(bytes: Uint8Array): number | undefined {
+  const HEADER_BYTES = 32
+  const SEGMENT_ENTRY_BYTES = 16
+  const magic = 'VMDIFFC1'
+  if (bytes.byteLength < HEADER_BYTES) return undefined
+  for (let i = 0; i < magic.length; i += 1) {
+    if (bytes[i] !== magic.charCodeAt(i)) return undefined
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const segmentCapacity = view.getUint32(8, true)
+  const segmentCount = Math.min(view.getUint32(12, true), segmentCapacity)
+  if (segmentCapacity <= 0 || HEADER_BYTES + segmentCapacity * SEGMENT_ENTRY_BYTES > bytes.byteLength) {
+    return undefined
+  }
+  let total = 0
+  for (let i = 0; i < segmentCount; i += 1) {
+    const offset = view.getFloat64(HEADER_BYTES + i * SEGMENT_ENTRY_BYTES, true)
+    const length = view.getFloat64(HEADER_BYTES + i * SEGMENT_ENTRY_BYTES + 8, true)
+    if (!Number.isFinite(offset) || !Number.isFinite(length) || offset < 0 || length <= 0) break
+    total += length
+  }
+  return total
+}
+
+/**
+ * 复制附加节点：保留附加标记与标签，父指向新主文件。
+ * 一律整读写回独立正文，绝不共享 blob——附加可能正被安静写入通道（无视 refCount
+ * 直写 OPFS）实时修改，共享即串写。
+ */
+async function copyAttachmentNode(
+  source: FilesNode,
+  destLocationId: FilesLocationId,
+  destParentId: string | undefined,
+): Promise<FilesNode> {
+  const desired = normalizeFilesNodeName(source.name.trim() || '附加')
+  const now = osNowMs()
+  const base: FilesNode = {
+    id: newFilesNodeId(),
+    locationId: destLocationId,
+    parentId: destParentId,
+    name: desired,
+    kind: 'file',
+    mimeType: source.mimeType ?? 'application/octet-stream',
+    byteSize: source.byteSize,
+    createdAt: now,
+    updatedAt: now,
+    attachment: true,
+    ...(source.attachmentTags && source.attachmentTags.length > 0
+      ? { attachmentTags: source.attachmentTags }
+      : {}),
+    attributes: defaultFilesNodeAttributes(destLocationId),
+  }
+  const { node, blob } = await readFileBlobByNodeId(source.id)
+  const bytes = await blob.arrayBuffer()
+  // 虚拟机硬盘缓存的账本 byteSize 是段字节总和，不是 v2 文件逻辑大小（镜像大偏移写
+  // 会造出巨大的逻辑空洞）——副本保持同一口径；解析失败或非 v2 格式退回实际字节数
+  const ledgerByteSize = source.attachmentTags?.includes(VM_DISK_CACHE_ATTACHMENT_TAG)
+    ? sumDiskCacheV2SegmentBytes(new Uint8Array(bytes))
+    : undefined
+  const created = await createFileWithBytes({
+    node: { ...base, mimeType: node.mimeType ?? base.mimeType },
+    bytes,
+    metaBytes: estimateNodeMetaBytes(base),
+    nameMode: 'unique-suffix',
+    ...(ledgerByteSize !== undefined ? { ledgerByteSize } : {}),
+  })
+  await emitNodeCreated(created)
+  return created
+}
+
 async function copyNodeTree(
   source: FilesNode,
   destLocationId: FilesLocationId,
@@ -2572,52 +2969,62 @@ async function copyNodeTree(
   // 取消粒度=文件之间：当前节点保持原子提交，下一个节点开工前才检查
   signal?.throwIfAborted?.()
   if (source.kind === 'file') {
-    if (canShareBlobOnCopy(source, destLocationId)) {
-      const created = await cloneSharedLocalFile(source, destLocationId, destParentId)
-      reportNodeDone(source)
-      return created
-    }
-
-    // 跨卷/不可共享 blob：整读进主线程再写回
-    const readStartAt = performance.now()
-    const { node, blob } = await readFileBlobByNodeId(source.id)
-    const bytes = await blob.arrayBuffer()
-    const readDurationMs = performance.now() - readStartAt
-    if (readDurationMs > 32) {
-      recordSystemDebugHot({
-        layer: 'files',
-        op: 'copy-file-fullread',
-        detail: `${source.name} ${bytes.byteLength}B`,
-        durationMs: readDurationMs,
-      })
-    } else {
-      countSystemDebugHot('files', 'copy-file-fullread', readDurationMs)
-    }
-    const asBinary = isBinaryFile({
-      fileName: source.name,
-      mimeType: node.mimeType ?? source.mimeType ?? blob.type,
-      bytes,
-    })
     let created: FilesNode
-    if (asBinary) {
-      created = await createBinaryFile({
-        locationId: destLocationId,
-        parentId: destParentId,
-        name: source.name,
-        bytes,
-        mimeType: node.mimeType ?? source.mimeType ?? 'application/octet-stream',
-      })
+    if (source.attachment === true) {
+      created = await copyAttachmentNode(source, destLocationId, destParentId)
+      reportNodeDone(source)
+    } else if (canShareBlobOnCopy(source, destLocationId)) {
+      created = await cloneSharedLocalFile(source, destLocationId, destParentId)
+      reportNodeDone(source)
     } else {
-      const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes))
-      created = await createTextFile({
-        locationId: destLocationId,
-        parentId: destParentId,
-        name: source.name,
-        text,
+      // 跨卷/不可共享 blob：整读进主线程再写回
+      const readStartAt = performance.now()
+      const { node, blob } = await readFileBlobByNodeId(source.id)
+      const bytes = await blob.arrayBuffer()
+      const readDurationMs = performance.now() - readStartAt
+      if (readDurationMs > 32) {
+        recordSystemDebugHot({
+          layer: 'files',
+          op: 'copy-file-fullread',
+          detail: `${source.name} ${bytes.byteLength}B`,
+          durationMs: readDurationMs,
+        })
+      } else {
+        countSystemDebugHot('files', 'copy-file-fullread', readDurationMs)
+      }
+      const asBinary = isBinaryFile({
+        fileName: source.name,
+        mimeType: node.mimeType ?? source.mimeType ?? blob.type,
+        bytes,
       })
+      if (asBinary) {
+        created = await createBinaryFile({
+          locationId: destLocationId,
+          parentId: destParentId,
+          name: source.name,
+          bytes,
+          mimeType: node.mimeType ?? source.mimeType ?? 'application/octet-stream',
+        })
+      } else {
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes))
+        created = await createTextFile({
+          locationId: destLocationId,
+          parentId: destParentId,
+          name: source.name,
+          text,
+        })
+      }
+      // 挂载卷源节点 byteSize 恒 0，读到的 blob.size 才是真实字节数，交给进度记账
+      reportNodeDone(source, blob.size)
     }
-    // 挂载卷源节点 byteSize 恒 0，读到的 blob.size 才是真实字节数，交给进度记账
-    reportNodeDone(source, blob.size)
+    // 主文件复制时附加一起走
+    if (source.attachment !== true && canAttachOnLocation(destLocationId)) {
+      const attachments = await listAttachmentNodes(source.locationId, source.id)
+      for (const attach of attachments) {
+        signal?.throwIfAborted?.()
+        await copyNodeTree(attach, destLocationId, created.id, reportNodeDone, signal)
+      }
+    }
     return created
   }
 
@@ -2653,6 +3060,21 @@ async function copyNodeTree(
     throw err
   }
   return folder
+}
+
+/**
+ * 删除主文件上带虚拟机硬盘缓存标签的附加（覆盖粘贴收尾用）：缓存段的偏移对的是
+ * 旧正文，残留缓存配新正文会在下次开机重放/残留合并时把旧扇区写回新镜像（数据
+ * 损坏路径）。只删该标签——其它附加与正文内容无关，原样保留。
+ */
+async function removeVmDiskCacheAttachments(target: FilesNode): Promise<void> {
+  if (target.kind !== 'file' || !canAttachOnLocation(target.locationId)) return
+  const caches = await listAttachmentNodes(target.locationId, target.id, {
+    tag: VM_DISK_CACHE_ATTACHMENT_TAG,
+  })
+  for (const cache of caches) {
+    await removeNodeForced(cache.id)
+  }
 }
 
 /**
@@ -2696,7 +3118,10 @@ export async function overwriteNodeWithSource(params: {
       offset += blob.size
       params.onProgress?.(offset, source.byteSize)
     }
-    return await writer.close()
+    const committed = await writer.close()
+    // 新正文已提交才清旧缓存附加：覆盖失败时目标保持旧内容，缓存（对旧正文有效）留着
+    await removeVmDiskCacheAttachments(target)
+    return committed
   } catch (err) {
     await writer.abort().catch(() => undefined)
     throw err

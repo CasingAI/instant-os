@@ -1166,3 +1166,78 @@
   text-align: right;
   word-break: break-all;
 }
+
+/* 断电后写盘硬控画面：盖住显示器区（客机画面不可见、不可操作）。 */
+.virtual-machine__flush-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(246, 246, 248, 0.97);
+  backdrop-filter: blur(6px);
+}
+
+.virtual-machine__flush-card {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 24px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+
+.virtual-machine__flush-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.virtual-machine__flush-subtitle {
+  margin: -6px 0 0;
+  font-size: 12px;
+  color: #6e6e73;
+}
+
+.virtual-machine__flush-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.virtual-machine__flush-meta > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.virtual-machine__flush-meta dt {
+  color: #6e6e73;
+}
+
+.virtual-machine__flush-meta dd {
+  margin: 0;
+  color: #1d1d1f;
+  font-variant-numeric: tabular-nums;
+}
+
+.virtual-machine__flush-note {
+  margin: 0;
+  font-size: 12px;
+  color: #8a8f99;
+}
+
+.virtual-machine__flush-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}

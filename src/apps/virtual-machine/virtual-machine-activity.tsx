@@ -132,7 +132,7 @@ export function VirtualMachineActivity({
   running,
   diskStreamIds = [],
   mountedSlots,
-  diskWriteMode = 'persist',
+  diskWriteMode = 'live',
 }: {
   stats: InstantVmStatsSnapshot | undefined
   running: boolean

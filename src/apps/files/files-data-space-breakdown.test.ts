@@ -63,9 +63,55 @@ async function testBreakdownIncludesTrashAndMatchesTotal(): Promise<void> {
   )
 }
 
+/**
+ * 附加说明行：字节已计入各卷行，单列展示但不重复计量（不进 attributedBytes / 未归类）。
+ */
+async function testBreakdownAttachmentsRow(): Promise<void> {
+  await resetFilesDbForTests()
+  const main = makeFileNode('local', '盘.img')
+  await createFileWithBlob({
+    node: main,
+    text: 'disk',
+    metaBytes: estimateNodeMetaBytes(main),
+    nameMode: 'exact',
+  })
+  const attachPayload = 'cache-bytes'
+  const attachBytes = new TextEncoder().encode(attachPayload).length
+  await createFileWithBlob({
+    node: {
+      ...makeFileNode('local', '缓存'),
+      parentId: main.id,
+      attachment: true,
+      attachmentTags: ['vm-disk-cache'],
+    },
+    text: attachPayload,
+    metaBytes: estimateNodeMetaBytes(makeFileNode('local', '缓存')),
+    nameMode: 'exact',
+  })
+
+  const breakdown = await loadDataSpaceFilesBreakdown()
+
+  // 附加行 = 附加总字节；local 卷行含主文件 + 附加（getFilesBytesByLocation 同源）
+  const attachRow = breakdown.rows.find((row) => row.id === 'attachments')
+  assert.ok(attachRow, '存在附加字节时应出现 attachments 说明行')
+  assert.equal(attachRow.bytes, attachBytes)
+  assert.equal(
+    breakdown.rows.find((row) => row.id === 'local')?.bytes,
+    new TextEncoder().encode('disk').length + attachBytes,
+  )
+
+  // 说明行不重复计量：attributedBytes 只含各卷行，未归类仍对齐差额
+  const volumeRowsSum = breakdown.rows
+    .filter((row) => row.id !== 'attachments')
+    .reduce((sum, row) => sum + row.bytes, 0)
+  assert.equal(breakdown.attributedBytes + (breakdown.rows.find((r) => r.id === 'unattributed')?.bytes ?? 0), volumeRowsSum)
+}
+
 async function main(): Promise<void> {
   await testBreakdownIncludesTrashAndMatchesTotal()
   console.log('ok: breakdown includes trash and matches total')
+  await testBreakdownAttachmentsRow()
+  console.log('ok: breakdown attachments row informational only')
   console.log('files-data-space-breakdown: all passed')
 }
 

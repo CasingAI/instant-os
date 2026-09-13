@@ -211,7 +211,6 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
   const immersiveFullscreen = window.fullscreen && hasImmersiveFullscreen
   const showImmersiveChrome = immersiveFullscreen && chromeRevealed && isActive
   const showMinimizeVisual = isMinimizing || minimizeVisualSettled
-  const closeDisabled = !!window.chromeCloseDisabled
   const minimizeDisabled = !!window.chromeMinimizeDisabled
   const zoomDisabled = !!window.chromeZoomDisabled
 
@@ -340,10 +339,7 @@ function ChromeWindowFrame({ window }: WindowFrameProps) {
                 type="button"
                 class="window-frame__control window-frame__control--close"
                 aria-label="关闭"
-                disabled={closeDisabled}
-                aria-disabled={closeDisabled || undefined}
                 onClick={() => {
-                  if (closeDisabled) return
                   closeWindow(window.id)
                 }}
               />

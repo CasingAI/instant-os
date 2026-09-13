@@ -84,13 +84,14 @@ function normalizePath(raw: unknown): string {
   return path.startsWith('/') ? path : `/${path}`
 }
 
-function normalizeStorageDeviceType(raw: unknown): 'hdd' | 'cdrom' | 'floppy' | 'state' | undefined {
+function normalizeStorageDeviceType(raw: unknown): 'hdd' | 'cdrom' | 'floppy' | undefined {
   if (typeof raw !== 'string') {
     return undefined
   }
   const trimmed = raw.trim().toLowerCase()
+  // 快照已禁用：旧记录里的 state 设备在这里被丢弃（连同快照差量，见 overlay 迁移）。
   if ((VM_STORAGE_DEVICE_TYPES as readonly string[]).includes(trimmed)) {
-    return trimmed as 'hdd' | 'cdrom' | 'floppy' | 'state'
+    return trimmed as 'hdd' | 'cdrom' | 'floppy'
   }
   return undefined
 }
@@ -144,7 +145,6 @@ function normalizeDevices(record: Record<string, unknown>): VmStorageDevice[] {
     hdaPath: typeof record.hdaPath === 'string' ? record.hdaPath : undefined,
     cdromPath: typeof record.cdromPath === 'string' ? record.cdromPath : undefined,
     fdaPath: typeof record.fdaPath === 'string' ? record.fdaPath : undefined,
-    statePath: typeof record.statePath === 'string' ? record.statePath : undefined,
   })
 }
 

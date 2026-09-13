@@ -52,18 +52,23 @@ export function vmDiskWriteStatus(input: {
   const droppedWrites = diskWrite?.droppedWrites ?? 0
   const droppedBytes = diskWrite?.droppedBytes ?? 0
 
-  if (mode === 'none') {
-    return running
-      ? {
-          tone: 'warn',
-          text: '本次改动不会写入硬盘文件',
-          atRisk: false,
-          hud: false,
-        }
-      : { tone: 'off', text: '', atRisk: false, hud: false }
+  if (!running) {
+    return { tone: 'off', text: '', atRisk: false, hud: false }
   }
 
-  if (running && droppedWrites > 0) {
+  if (mode === 'none') {
+    // 不保存：运行期同样写缓存；断电后问过才决定删缓存还是写入。
+    const pendingText =
+      pendingBytes > 0 ? `，还有 ${formatVmDiskBytes(pendingBytes)} 没写完` : ''
+    return {
+      tone: 'warn',
+      text: `改动先写入缓存${pendingText}，断电后会询问是否写入硬盘文件`,
+      atRisk: pendingBytes > 0,
+      hud: false,
+    }
+  }
+
+  if (droppedWrites > 0) {
     return {
       tone: 'danger',
       text: lostText(droppedWrites, droppedBytes),
@@ -71,15 +76,24 @@ export function vmDiskWriteStatus(input: {
       hud: true,
     }
   }
-  if (running && pendingBytes > 0) {
+  if (pendingBytes > 0) {
+    // 在途字节的去向按档位说话：live 正在进硬盘文件；poweroff 正在进缓存（关机后才合并）。
     return {
       tone: 'warn',
-      text: `正在保存硬盘改动，还剩 ${formatVmDiskBytes(pendingBytes)}`,
+      text:
+        mode === 'live'
+          ? `正在写入硬盘文件，还剩 ${formatVmDiskBytes(pendingBytes)}`
+          : `改动正在写入缓存，还剩 ${formatVmDiskBytes(pendingBytes)}`,
       atRisk: true,
       hud: false,
     }
   }
-  return { tone: 'off', text: '', atRisk: false, hud: false }
+  return {
+    tone: mode === 'live' ? 'off' : 'info',
+    text: mode === 'live' ? '改动尽快写入硬盘文件' : '改动先写入缓存，关机后写入硬盘文件',
+    atRisk: false,
+    hud: false,
+  }
 }
 
 export function vmDiskWriteLossText(loss: VmDiskWriteLoss): string {

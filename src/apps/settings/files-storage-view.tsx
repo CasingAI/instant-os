@@ -77,7 +77,12 @@ export function FilesStorageView({ onBack, onOpenSpaceSniffer }: FilesStorageVie
                 </div>
               ) : (
                 breakdown.rows.map((row) => (
-                  <div key={row.id} class="settings__row settings__row--static">
+                  <div
+                    key={row.id}
+                    class={`settings__row settings__row--static${
+                      row.id === 'attachments' ? ' settings__row--note' : ''
+                    }`}
+                  >
                     <span class="settings__row-name">{row.label}</span>
                     <span class="settings__row-size">{formatStorageSize(row.bytes)}</span>
                   </div>

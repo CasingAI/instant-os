@@ -167,7 +167,6 @@ export function migrateLegacyDrivePaths(record: {
   hdaPath?: string
   cdromPath?: string
   fdaPath?: string
-  statePath?: string
   devices?: VmStorageDevice[]
 }): VmStorageDevice[] {
   if (Array.isArray(record.devices)) {
@@ -178,7 +177,6 @@ export function migrateLegacyDrivePaths(record: {
     { type: 'hdd', path: record.hdaPath ?? '' },
     { type: 'cdrom', path: record.cdromPath ?? '' },
     { type: 'floppy', path: record.fdaPath ?? '' },
-    { type: 'state', path: record.statePath ?? '' },
   ]
   for (const { type, path } of paths) {
     const trimmed = path.trim()
@@ -196,10 +194,7 @@ export function deviceTypeLabel(type: VmStorageDeviceType): string {
   if (type === 'cdrom') {
     return '光盘'
   }
-  if (type === 'floppy') {
-    return '软盘'
-  }
-  return '快照'
+  return '软盘'
 }
 
 export function deviceTypeSlotLabel(type: VmStorageDeviceType, index: number): string {
@@ -214,10 +209,7 @@ export function deviceAcceptExtensions(type: VmStorageDeviceType): readonly stri
   if (type === 'cdrom') {
     return VM_CDROM_ACCEPT_EXTENSIONS
   }
-  if (type === 'floppy') {
-    return VM_FLOPPY_ACCEPT_EXTENSIONS
-  }
-  return VM_STATE_ACCEPT_EXTENSIONS
+  return VM_FLOPPY_ACCEPT_EXTENSIONS
 }
 
 export function devicePickTitle(type: VmStorageDeviceType): string {
@@ -227,10 +219,7 @@ export function devicePickTitle(type: VmStorageDeviceType): string {
   if (type === 'cdrom') {
     return '选择光盘镜像'
   }
-  if (type === 'floppy') {
-    return '选择软盘镜像'
-  }
-  return '选择快照'
+  return '选择软盘镜像'
 }
 
 export function devicesByType(
@@ -292,8 +281,9 @@ const POINTER_MODE_LABELS: Record<VmPointerModeId, string> = {
 }
 
 const DISK_WRITE_MODE_LABELS: Record<VmDiskWriteModeId, string> = {
-  none: '不保存硬盘改动',
-  persist: '保存硬盘改动',
+  live: '尽快写入',
+  poweroff: '关机后写入',
+  none: '不保存',
 }
 
 const BUILD_MODE_LABELS: Record<VmBuildModeId, string> = {
@@ -320,12 +310,15 @@ export function formatVmDiskWriteModeLabel(id: VmDiskWriteModeId): string {
 }
 
 /**
- * 每个模式的完整说明：什么时候落盘、什么时候会丢、关页面/断电会怎样。
- * 设置对话框按当前选中项显示这一段——模式差异直接决定数据安全性，一句话带过不够。
+ * 每个档位各自保证什么：改动什么时候进可见硬盘文件、断电后会发生什么。
+ * 设置对话框按当前选中项显示这一段——档位差异直接决定数据安全性，一句话带过不够。
+ * 口径按产品定稿：用户面对的是「硬盘文件会不会收下这次改动、何时收下」，
+ * 不讲差量、合并这类实现词。
  */
 const DISK_WRITE_MODE_DESCRIPTIONS: Record<VmDiskWriteModeId, string> = {
-  none: '关机后丢弃本次改动，不改硬盘文件。',
-  persist: '运行中的改动会保存下来，关机后写入硬盘文件。关掉页面也不会丢。',
+  live: '运行期间尽快写入硬盘文件，随时可见最新内容。写到一半崩溃或放弃，文件里会留下一部分新内容、一部分旧内容。',
+  poweroff: '运行期间改动先写入主机磁盘上的缓存，关机或断电后写入硬盘文件。',
+  none: '运行期间改动先写入主机磁盘上的缓存。断电后会询问是否写入硬盘文件；确认不保存才删掉缓存。',
 }
 
 export function formatVmDiskWriteModeDescription(id: VmDiskWriteModeId): string {
@@ -503,7 +496,6 @@ export { VM_STORAGE_DEVICE_LIMITS }
 export const VM_HARD_DISK_ACCEPT_EXTENSIONS = ['img', 'raw', 'bin', 'dsk'] as const
 export const VM_CDROM_ACCEPT_EXTENSIONS = ['iso'] as const
 export const VM_FLOPPY_ACCEPT_EXTENSIONS = ['img', 'ima', 'bin'] as const
-export const VM_STATE_ACCEPT_EXTENSIONS = ['bin', 'zst'] as const
 
 export function isVmBackendId(value: string): value is VmBackendId {
   return (VM_BACKEND_IDS as readonly string[]).includes(value)

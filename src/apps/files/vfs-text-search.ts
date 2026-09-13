@@ -461,10 +461,11 @@ export async function searchVfsText(params: VfsTextSearchParams): Promise<VfsTex
 
   let totalFiles: number | undefined
   if (params.includeTotalCount === true) {
-    // 仅本地卷（IndexedDB）原生可计数；挂载卷无原生计数，保持 undefined
+    // 仅本地卷（IndexedDB）原生可计数；挂载卷无原生计数，保持 undefined。
+    // 附加不进计数：正文扫描（collectFiles 走 filesList）本来就不含附加。
     try {
       const subtree = await filesListSubtreeFiles(rootPath)
-      totalFiles = subtree.length
+      totalFiles = subtree.filter((file) => !file.attachment).length
     } catch {
       totalFiles = undefined
     }

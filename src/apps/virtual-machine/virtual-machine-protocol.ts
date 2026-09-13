@@ -117,19 +117,20 @@ export const INSTANT_VM_POINTER_MODES = ['auto', 'follow', 'lock'] as const
 export type InstantVmPointerMode = (typeof INSTANT_VM_POINTER_MODES)[number]
 
 /**
- * 硬盘差量是否在关机时并进可见镜像。省略按 none（只写差量、关机丢弃）。
+ * 硬盘改动什么时候进可见硬盘文件。省略时不要当作「不保存」。
  * Keep in sync with Instant-virtual-machine `InstantVmDiskWriteMode`。
  */
-export const INSTANT_VM_DISK_WRITE_MODES = ['none', 'persist'] as const
+export const INSTANT_VM_DISK_WRITE_MODES = ['live', 'poweroff', 'none'] as const
 
 export type InstantVmDiskWriteMode = (typeof INSTANT_VM_DISK_WRITE_MODES)[number]
 
 export function coerceDiskWriteMode(value: unknown): InstantVmDiskWriteMode | undefined {
-  if (value === 'none' || value === 'persist') {
+  if (value === 'live' || value === 'poweroff' || value === 'none') {
     return value
   }
-  if (value === 'live' || value === 'poweroff') {
-    return 'persist'
+  // 旧宿主下发的 persist（保存硬盘改动）按关机后写入对待。
+  if (value === 'persist') {
+    return 'poweroff'
   }
   return undefined
 }
@@ -170,7 +171,7 @@ export type InstantVmStartConfig = {
   displayMode?: InstantVmDisplayMode
   /** 指针工作方式；instant-app 显式下发；省略时运行时按 follow。 */
   pointerMode?: InstantVmPointerMode
-  /** 硬盘回写时机；省略按 none。 */
+  /** 硬盘回写时机；省略不要当作不保存。 */
   diskWriteMode?: InstantVmDiskWriteMode
   /**
    * 分辨率自动对齐：宿主把目标分辨率经 io 端口递给客机代理（见

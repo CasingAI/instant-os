@@ -434,7 +434,7 @@ export function TaskManagerApp() {
                               type="button"
                               class="task-manager__end-button"
                               onClick={() => {
-                                closeWindowsForApp(entry.appId)
+                                closeWindowsForApp(entry.appId, { force: true })
                               }}
                             >
                               结束

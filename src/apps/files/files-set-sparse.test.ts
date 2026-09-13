@@ -26,6 +26,11 @@ import {
   filesStat,
 } from './files-api.ts'
 import {
+  claimDiskImagePath,
+  releaseDiskImagePath,
+  resetDiskImageOccupancyForTests,
+} from './files-disk-image-occupancy.ts'
+import {
   invalidateFilesVfsPathCaches,
   resolveNodeByAbsolutePath,
   writeBinaryFile,
@@ -55,6 +60,7 @@ function makeFileNode(name: string): FilesNode {
 async function resetState(): Promise<void> {
   await resetFilesDbForTests()
   useMemoryOpfsForTests()
+  resetDiskImageOccupancyForTests()
   invalidateFilesVfsPathCaches()
   await resolveNodeByAbsolutePath('/user/.warmup-probe')
   invalidateFilesVfsPathCaches()
@@ -351,6 +357,20 @@ async function run(): Promise<void> {
     const after = await resolveNodeByAbsolutePath('/user/big-opfs.bin')
     assert.ok(after)
     assert.equal(await getNodeBlobStoredBytes(after.id), 26 * 1024 * 1024, 'OPFS 大文件整写仍全量')
+  }
+
+  {
+    await resetState()
+    await filesCreateBinary('/user/occupied.bin', new Uint8Array(4096).buffer)
+    await claimDiskImagePath('/user/occupied.bin', { kind: 'vm', id: 'vm-sparse' })
+    try {
+      await assert.rejects(
+        () => filesSetSparse('/user/occupied.bin', true),
+        /无法更改机会压缩/,
+      )
+    } finally {
+      releaseDiskImagePath('/user/occupied.bin', { kind: 'vm', id: 'vm-sparse' })
+    }
   }
 
   console.log('ok: filesSetSparse conversions, COW fork, quotas, save-keeps-sparse')

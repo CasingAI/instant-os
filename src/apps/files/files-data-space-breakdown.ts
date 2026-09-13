@@ -3,7 +3,7 @@
  */
 import { getAppDataTotalBytes } from './files-app-data-quota.ts'
 import { filesLocationDisplayName } from './files-path.ts'
-import { getFilesBytesByLocation, getFilesTotalBytes } from './files-storage.ts'
+import { getFilesAttachmentBytes, getFilesBytesByLocation, getFilesTotalBytes } from './files-storage.ts'
 import type { FilesLocationId } from './files-types.ts'
 
 export type DataSpaceFilesBreakdownRow = {
@@ -60,6 +60,18 @@ export async function loadDataSpaceFilesBreakdown(): Promise<DataSpaceFilesBreak
       id: 'unattributed',
       label: '未归类',
       bytes: unattributedBytes,
+    })
+  }
+
+  // 说明行（置于最后）：附加字节已计入上方各卷行（getFilesBytesByLocation 按卷扫
+  // 全部 file 节点，附加在内），不参与 attributedBytes / 未归类，避免重复计量。
+  // 不提供清理入口（缓存合并 / 丢弃归磁盘工具管）。
+  const attachmentBytes = await getFilesAttachmentBytes()
+  if (attachmentBytes > 0) {
+    rows.push({
+      id: 'attachments',
+      label: '文件附加·虚拟机硬盘缓存等（已计入各卷）',
+      bytes: attachmentBytes,
     })
   }
 

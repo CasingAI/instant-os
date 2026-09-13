@@ -157,8 +157,10 @@ sh scripts/build-clip-dav-hdrop.sh     # clip-dav-hdrop.exe → out/（一期探
 
 1. 把 `out/` 整夹拷进 XP（例如 `C:\Tools\clip-dav\`），双击
    `clip-dav-probe.bat`；**之前别碰宿主文件 APP 的复制**；
-2. bat 跑完 [1]-[4] 步后按屏幕提示操作：桌面右键只看菜单 → 点粘贴 /
-   Ctrl+V → 观察文件是否出现、进度窗是系统自带还是桥弹的；
+2. 先确认这台虚拟机的共享文件夹是开着的（通道拦截才活）。宿主页面不要刷新掉。
+   把**新的** `clip-dav-probe.bat` 拷进 XP 覆盖旧文件后双击；**之前别碰宿主文件 APP 的复制**。
+   第五步剪贴板里必须是 `__clip_probe\tree`（两个小文件），不是整盘。
+   若复制对话框像在搬整个共享盘，立刻取消。
 3. 把三份发回来：`C:\Tools\clip-dav-probe.log`、
    `C:\Tools\clip-dav-hdrop.log`、宿主浏览器控制台同时段的
    `[vm-webdav]` 请求行。没有这三份，不进二期。

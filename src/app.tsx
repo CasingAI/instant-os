@@ -39,12 +39,14 @@ export function App() {
       return
     }
 
-    const frame = window.requestAnimationFrame(() => {
+    // 页面在后台/被遮挡时 rAF 完全停跑，启动屏会永远退不出去；
+    // 这里只依赖一次延迟，走 setTimeout 在后台也能继续。
+    const timer = window.setTimeout(() => {
       startBootSplashColdExit()
       setBootPhase('cold-entering')
-    })
+    }, 0)
 
-    return () => window.cancelAnimationFrame(frame)
+    return () => window.clearTimeout(timer)
   }, [bootPhase])
 
   useEffect(() => {

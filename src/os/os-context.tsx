@@ -59,6 +59,22 @@ import { isBuiltinAppId } from './builtin-app-display-names.ts'
 import { getWindowlessOpenHandler } from './windowless-open-registry.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, OpenAppOptions, WindowState, WindowRestoredBounds } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
+import {
+  enqueuePendingCloseWindow,
+  evaluateWindowCloseFlow,
+  nextPendingCloseWindow,
+  raceWindowCloseHandlerAnswer,
+  WINDOW_CLOSE_HANDLER_TIMEOUT_MS,
+  type WindowCloseFlowState,
+  type WindowCloseHandler,
+  type WindowCloseHandlerAnswer,
+} from './window-close-flow.ts'
+
+export {
+  WINDOW_CLOSE_HANDLER_TIMEOUT_MS,
+  type WindowCloseHandler,
+  type WindowCloseHandlerAnswer,
+} from './window-close-flow.ts'
 
 export type AppCloseGuardContext = {
   appId: AppId
@@ -77,13 +93,24 @@ type OsContextValue = {
   openApp: (appId: AppId, options?: OpenAppOptions) => string | undefined
   openGeneratedApp: (appId: GeneratedAppId, title: string) => void
   openExtApp: (appId: ExtAppId, title: string) => void
-  closeWindow: (windowId: string) => void
-  closeWindowsForApp: (appId: AppId) => void
+  closeWindow: (windowId: string, options?: { force?: boolean }) => void
+  closeWindowsForApp: (appId: AppId, options?: { force?: boolean }) => void
   finalizeWindowClose: (windowId: string) => void
   registerAppCloseGuard: (appId: AppId, guard: AppCloseGuard | undefined) => void
   bypassAppCloseGuard: (appId: AppId) => void
   registerWindowCloseGuard: (windowId: string, guard: AppCloseGuard | undefined) => void
   bypassWindowCloseGuard: (windowId: string) => void
+  /** 注册窗口关闭处理（正常关闭时先问它；返回注销函数）。 */
+  registerWindowCloseHandler: (windowId: string, handler: WindowCloseHandler) => () => void
+  /**
+   * 注册强制关窗通知（closeWindow/closeWindowsForApp 带 force 时、置 closing 前同步
+   * 调用一次；返回注销函数）。用于「强制结束前先丢未写完」这类不等待的清理。
+   */
+  registerWindowForceCloseHandler: (windowId: string, handler: () => void) => () => void
+  /** 关闭处理超时未回答的窗口（系统「未响应」弹窗的数据源）。 */
+  unresponsiveClose: { windowId: string } | undefined
+  /** 用户在「未响应」弹窗里的选择：wait = 再等 5 秒；force = 立刻强制结束。 */
+  resolveUnresponsiveClose: (choice: 'wait' | 'force') => void
   cancelPendingAppQuit: (appId: AppId) => void
   focusWindow: (windowId: string) => void
   moveWindow: (windowId: string, x: number, y: number) => void
@@ -657,6 +684,23 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const windowCloseGuardsRef = useRef(new Map<string, AppCloseGuard>())
   const bypassWindowCloseGuardRef = useRef(new Set<string>())
   const pendingQuitAppsRef = useRef(new Set<AppId>())
+  // 关闭处理（正常关闭时先派发关闭事件，约 5 秒内必须回答）：
+  // handler 按 windowId 注册；同一时刻只支持一个窗口在等回答（pendingClose 单数）。
+  const windowCloseHandlersRef = useRef(new Map<string, WindowCloseHandler>())
+  // 强制关窗通知：窗口被强制结束时、关窗动画开始前先同步通知它丢未写完的数据。
+  const windowForceCloseHandlersRef = useRef(new Map<string, () => void>())
+  // 单 flow 期间到达的关窗请求排队（FIFO 去重）：流程回 idle 后自动按序发起，
+  // 不让「等一扇窗回答时点另一扇窗的 X」被默默丢掉。
+  const pendingCloseWindowIdsRef = useRef<readonly string[]>([])
+  const [closeFlow, setCloseFlow] = useState<WindowCloseFlowState>({ phase: 'idle' })
+  const closeFlowRef = useRef<WindowCloseFlowState>({ phase: 'idle' })
+  /** 当前流程在途的 handler 回答（超时续等时复用，不重调 handler）。 */
+  const closeFlowAnswerRef = useRef<
+    { windowId: string; answer: Promise<WindowCloseHandlerAnswer> } | undefined
+  >(undefined)
+  /** 进行中的「回答 vs 超时」竞速（seq 用于作废被续等/收口取代的旧轮次）。 */
+  const closeFlowRoundSeqRef = useRef(0)
+  const closeFlowRoundCancelRef = useRef<(() => void) | undefined>(undefined)
   windowsRef.current = windows
 
   useEffect(() => {
@@ -1018,11 +1062,43 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     bypassWindowCloseGuardRef.current.add(windowId)
   }, [])
 
+  const registerWindowCloseHandler = useCallback((windowId: string, handler: WindowCloseHandler) => {
+    windowCloseHandlersRef.current.set(windowId, handler)
+    return () => {
+      // 防御：窗口 id 不复用，但若后来者已覆盖注册，不误删
+      if (windowCloseHandlersRef.current.get(windowId) === handler) {
+        windowCloseHandlersRef.current.delete(windowId)
+      }
+    }
+  }, [])
+
+  const registerWindowForceCloseHandler = useCallback((windowId: string, handler: () => void) => {
+    windowForceCloseHandlersRef.current.set(windowId, handler)
+    return () => {
+      if (windowForceCloseHandlersRef.current.get(windowId) === handler) {
+        windowForceCloseHandlersRef.current.delete(windowId)
+      }
+    }
+  }, [])
+
+  /** 强制关窗前的同步通知：fire-and-forget，钩子抛错吞掉不拦关窗。 */
+  const notifyWindowForceClose = useCallback((windowId: string) => {
+    const handler = windowForceCloseHandlersRef.current.get(windowId)
+    if (!handler) {
+      return
+    }
+    try {
+      handler()
+    } catch (error) {
+      console.warn('[os] 强制关窗通知失败', windowId, error)
+    }
+  }, [])
+
   const cancelPendingAppQuit = useCallback((appId: AppId) => {
     pendingQuitAppsRef.current.delete(appId)
   }, [])
 
-  const closeWindowRef = useRef<(windowId: string) => void>(() => {})
+  const closeWindowRef = useRef<(windowId: string, options?: { force?: boolean }) => void>(() => {})
 
   const shouldAllowClose = useCallback((appId: AppId, windowId: string) => {
     if (bypassWindowCloseGuardRef.current.has(windowId)) {
@@ -1075,6 +1151,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       closedAppId = target.appId
       persistWindowSize(target)
       windowCloseGuardsRef.current.delete(windowId)
+      windowCloseHandlersRef.current.delete(windowId)
+      windowForceCloseHandlersRef.current.delete(windowId)
       bypassWindowCloseGuardRef.current.delete(windowId)
       return current.filter((window) => window.id !== windowId)
     })
@@ -1083,16 +1161,34 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     }
   }, [continuePendingAppQuit])
 
-  const closeWindow = useCallback((windowId: string) => {
-    const closing = windowsRef.current.find((window) => window.id === windowId)
-    if (!closing || closing.closing) {
-      return
-    }
+  // #region 关闭处理流程（正常关闭 → 等回答 → 超时弹「未响应」→ 续等/强制）
+  // 关窗排队出队函数经 ref 间接调用：它的依赖（startCloseFlow）定义在回答处理之后。
+  const drainPendingCloseWindowsRef = useRef<() => void>(() => {})
 
-    if (!shouldAllowClose(closing.appId, windowId)) {
-      return
-    }
+  const applyCloseFlow = useCallback((next: WindowCloseFlowState) => {
+    closeFlowRef.current = next
+    setCloseFlow(next)
+  }, [])
 
+  const abortCloseFlow = useCallback(() => {
+    closeFlowRoundSeqRef.current += 1
+    closeFlowRoundCancelRef.current?.()
+    closeFlowRoundCancelRef.current = undefined
+    closeFlowAnswerRef.current = undefined
+    applyCloseFlow(evaluateWindowCloseFlow(closeFlowRef.current, { type: 'resolved' }))
+    // 流程收口回 idle：排队中的关窗请求可以出队了
+    drainPendingCloseWindowsRef.current()
+  }, [applyCloseFlow])
+
+  const abortCloseFlowIfAbout = useCallback((windowId: string) => {
+    const flow = closeFlowRef.current
+    if (flow.phase !== 'idle' && flow.windowId === windowId) {
+      abortCloseFlow()
+    }
+  }, [abortCloseFlow])
+
+  /** 置 closing 走现有关闭路径：窗口动画结束后 finalizeWindowClose 接手。 */
+  const beginWindowClose = useCallback((windowId: string) => {
     setWindows((current) =>
       current.map((window) =>
         window.id === windowId ? { ...window, closing: true } : window,
@@ -1100,12 +1196,211 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     )
     const nextActiveId = pickTopVisibleWindowId(windowsRef.current, new Set([windowId]))
     setActiveWindowId((current) => (current === windowId ? nextActiveId : current))
-  }, [shouldAllowClose])
+  }, [])
+
+  const isWindowLive = useCallback(
+    (windowId: string) =>
+      windowsRef.current.some((window) => window.id === windowId && !window.closing),
+    [],
+  )
+
+  const handleCloseHandlerAnswer = useCallback(
+    (windowId: string, answer: WindowCloseHandlerAnswer) => {
+      const flow = closeFlowRef.current
+      if (flow.phase === 'idle' || flow.windowId !== windowId) {
+        return
+      }
+      // 等待期间窗口已被其它途径关掉：回答作废
+      if (!isWindowLive(windowId)) {
+        abortCloseFlow()
+        return
+      }
+      closeFlowAnswerRef.current = undefined
+      applyCloseFlow(evaluateWindowCloseFlow(flow, { type: 'handler-answered', answer }))
+      if (answer === 'finish') {
+        beginWindowClose(windowId)
+      }
+      // 'cannot-finish'：窗口留着，要不要弹模态由程序自己决定
+      // 任何回答都结束等待（回 idle）：排队中的关窗请求可以出队了
+      drainPendingCloseWindowsRef.current()
+    },
+    [abortCloseFlow, applyCloseFlow, beginWindowClose, isWindowLive],
+  )
+
+  const handleCloseHandlerTimeout = useCallback(
+    (windowId: string) => {
+      const flow = closeFlowRef.current
+      if (flow.phase === 'idle' || flow.windowId !== windowId) {
+        return
+      }
+      if (!isWindowLive(windowId)) {
+        abortCloseFlow()
+        return
+      }
+      // 置「未响应」，等用户在系统弹窗里选择（unresponsiveClose → UnresponsiveCloseDialog）
+      applyCloseFlow(evaluateWindowCloseFlow(flow, { type: 'handler-timeout' }))
+    },
+    [abortCloseFlow, applyCloseFlow, isWindowLive],
+  )
+
+  /** 对在途的 handler 回答开一轮 5 秒竞速；续等时对同一 Promise 重开计时。 */
+  const startCloseHandlerRound = useCallback(
+    (windowId: string, answer: Promise<WindowCloseHandlerAnswer>) => {
+      closeFlowRoundSeqRef.current += 1
+      const seq = closeFlowRoundSeqRef.current
+      const race = raceWindowCloseHandlerAnswer(answer, {
+        timeoutMs: WINDOW_CLOSE_HANDLER_TIMEOUT_MS,
+      })
+      closeFlowRoundCancelRef.current = race.cancel
+      void race.result.then((result) => {
+        if (seq !== closeFlowRoundSeqRef.current) {
+          return
+        }
+        closeFlowRoundCancelRef.current = undefined
+        if (result.outcome === 'answered') {
+          handleCloseHandlerAnswer(windowId, result.answer)
+        } else if (result.outcome === 'timeout') {
+          handleCloseHandlerTimeout(windowId)
+        }
+        // 'cancelled'：流程已被收口，什么都不做
+      })
+    },
+    [handleCloseHandlerAnswer, handleCloseHandlerTimeout],
+  )
+
+  const startCloseFlow = useCallback(
+    (windowId: string, handler: WindowCloseHandler) => {
+      applyCloseFlow(
+        evaluateWindowCloseFlow(closeFlowRef.current, {
+          type: 'close-requested',
+          windowId,
+          now: Date.now(),
+        }),
+      )
+      const answer = Promise.resolve().then(() => handler())
+      closeFlowAnswerRef.current = { windowId, answer }
+      startCloseHandlerRound(windowId, answer)
+    },
+    [applyCloseFlow, startCloseHandlerRound],
+  )
+
+  /**
+   * 当前关闭流程收口（回 idle）后，把排队中的关窗请求按 FIFO 重新走一遍
+   * closeWindow 的现逻辑：排队期间已被其它方式关闭的窗口跳过；guard 拒绝的
+   * 出队即弃（与直接点 X 被 guard 拦下同结局）；有 handler 的发起流程并停下
+   * 等它收口，无 handler 的直接关掉继续出队。
+   */
+  const drainPendingCloseWindows = useCallback(() => {
+    if (closeFlowRef.current.phase !== 'idle') {
+      return
+    }
+    for (;;) {
+      const next = nextPendingCloseWindow(pendingCloseWindowIdsRef.current, (windowId) =>
+        windowsRef.current.some((window) => window.id === windowId && !window.closing),
+      )
+      pendingCloseWindowIdsRef.current = next ? next.rest : []
+      if (!next) {
+        return
+      }
+      const target = windowsRef.current.find((window) => window.id === next.windowId)
+      if (!shouldAllowClose(target!.appId, next.windowId)) {
+        continue
+      }
+      const handler = windowCloseHandlersRef.current.get(next.windowId)
+      if (handler) {
+        startCloseFlow(next.windowId, handler)
+        return
+      }
+      beginWindowClose(next.windowId)
+    }
+  }, [beginWindowClose, shouldAllowClose, startCloseFlow])
+  drainPendingCloseWindowsRef.current = drainPendingCloseWindows
+
+  const resolveUnresponsiveClose = useCallback(
+    (choice: 'wait' | 'force') => {
+      const flow = closeFlowRef.current
+      if (flow.phase !== 'unresponsive') {
+        return
+      }
+      if (choice === 'force') {
+        abortCloseFlow()
+        closeWindowRef.current(flow.windowId, { force: true })
+        return
+      }
+      // 继续等待：给同一个在途回应再续 5 秒（可再超时再问）
+      const pending = closeFlowAnswerRef.current
+      if (!pending || pending.windowId !== flow.windowId) {
+        abortCloseFlow()
+        return
+      }
+      applyCloseFlow(
+        evaluateWindowCloseFlow(flow, { type: 'wait-again', now: Date.now() }),
+      )
+      startCloseHandlerRound(flow.windowId, pending.answer)
+    },
+    [abortCloseFlow, applyCloseFlow, startCloseHandlerRound],
+  )
+  // #endregion
+
+  const closeWindow = useCallback((windowId: string, options?: { force?: boolean }) => {
+    const closing = windowsRef.current.find((window) => window.id === windowId)
+    if (!closing || closing.closing) {
+      return
+    }
+
+    // 强制结束：先同步通知窗口丢未写完（fire-and-forget），再跳过关闭处理与
+    // 一切 guard，直接关窗
+    if (options?.force) {
+      notifyWindowForceClose(windowId)
+      abortCloseFlowIfAbout(windowId)
+      beginWindowClose(windowId)
+      return
+    }
+
+    if (!shouldAllowClose(closing.appId, windowId)) {
+      return
+    }
+
+    const handler = windowCloseHandlersRef.current.get(windowId)
+    if (!handler) {
+      beginWindowClose(windowId)
+      return
+    }
+
+    // 已有关闭流程在等回答：排队（FIFO 去重），当前流程收口后自动出队发起
+    if (closeFlowRef.current.phase !== 'idle') {
+      pendingCloseWindowIdsRef.current = enqueuePendingCloseWindow(
+        pendingCloseWindowIdsRef.current,
+        windowId,
+      )
+      return
+    }
+
+    startCloseFlow(windowId, handler)
+  }, [abortCloseFlowIfAbout, beginWindowClose, notifyWindowForceClose, shouldAllowClose, startCloseFlow])
   closeWindowRef.current = closeWindow
 
-  const closeWindowsForApp = useCallback((appId: AppId) => {
+  const closeWindowsForApp = useCallback((appId: AppId, options?: { force?: boolean }) => {
     const appWindows = windowsRef.current.filter((window) => window.appId === appId && !window.closing)
     if (appWindows.length === 0) {
+      return
+    }
+
+    // 强制结束：先同步通知各窗口丢未写完（fire-and-forget），再跳过 guard 与
+    // 关闭处理，全部窗口直接关
+    if (options?.force) {
+      for (const appWindow of appWindows) {
+        notifyWindowForceClose(appWindow.id)
+        abortCloseFlowIfAbout(appWindow.id)
+      }
+      const closingIds = new Set(appWindows.map((window) => window.id))
+      setWindows((current) =>
+        current.map((window) =>
+          closingIds.has(window.id) ? { ...window, closing: true } : window,
+        ),
+      )
+      const nextActiveId = pickTopVisibleWindowId(windowsRef.current, closingIds)
+      setActiveWindowId((active) => (active && closingIds.has(active) ? nextActiveId : active))
       return
     }
 
@@ -1115,20 +1410,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       return
     }
 
-    if (!shouldAllowClose(appId, appWindows[0]!.id)) {
-      return
-    }
-
-    const closingIds = new Set(appWindows.map((window) => window.id))
-
-    setWindows((current) =>
-      current.map((window) =>
-        closingIds.has(window.id) ? { ...window, closing: true } : window,
-      ),
-    )
-    const nextActiveId = pickTopVisibleWindowId(windowsRef.current, closingIds)
-    setActiveWindowId((active) => (active && closingIds.has(active) ? nextActiveId : active))
-  }, [closeWindow, shouldAllowClose])
+    // 单窗口应用经 closeWindow 走 guard + 关闭处理的完整流程（关闭处理可拒绝退出）
+    closeWindow(appWindows[0]!.id)
+  }, [abortCloseFlowIfAbout, closeWindow, notifyWindowForceClose])
 
   const closeProcessIsolatedApps = useCallback(() => {
     const appIds = new Set<AppId>()
@@ -1476,6 +1760,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const value = useMemo(
     () => ({
       windows,
+      unresponsiveClose:
+        closeFlow.phase === 'unresponsive' ? { windowId: closeFlow.windowId } : undefined,
       activeWindowId,
       desktopRevealed,
       desktopRevealRestoring,
@@ -1491,6 +1777,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       bypassAppCloseGuard,
       registerWindowCloseGuard,
       bypassWindowCloseGuard,
+      registerWindowCloseHandler,
+      registerWindowForceCloseHandler,
+      resolveUnresponsiveClose,
       cancelPendingAppQuit,
       focusWindow,
       moveWindow,
@@ -1512,7 +1801,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       setWindowDocumentReadOnly,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowHelpQuery, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, registerWindowCloseHandler, registerWindowForceCloseHandler, closeFlow, resolveUnresponsiveClose, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowHelpQuery, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])
@@ -1594,6 +1883,29 @@ export function useWindowCloseGuard(windowId: string | undefined, guard: AppClos
     registerWindowCloseGuard(windowId, (context) => guardRef.current(context))
     return () => registerWindowCloseGuard(windowId, undefined)
   }, [windowId, registerWindowCloseGuard])
+}
+
+export function useWindowCloseHandler(windowId: string | undefined, handler: WindowCloseHandler) {
+  const { registerWindowCloseHandler } = useOs()
+  const handlerRef = useRef(handler)
+  handlerRef.current = handler
+
+  useEffect(() => {
+    if (!windowId) return
+    return registerWindowCloseHandler(windowId, () => handlerRef.current())
+  }, [windowId, registerWindowCloseHandler])
+}
+
+/** 强制关窗通知：窗口被强制结束时、关窗动画开始前先同步调用一次（不等它完成）。 */
+export function useWindowForceCloseHandler(windowId: string | undefined, handler: () => void) {
+  const { registerWindowForceCloseHandler } = useOs()
+  const handlerRef = useRef(handler)
+  handlerRef.current = handler
+
+  useEffect(() => {
+    if (!windowId) return
+    return registerWindowForceCloseHandler(windowId, () => handlerRef.current())
+  }, [windowId, registerWindowForceCloseHandler])
 }
 
 export function useOs() {

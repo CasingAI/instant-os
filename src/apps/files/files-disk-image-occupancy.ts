@@ -4,7 +4,8 @@
  * 任何子系统/App 都可以用自己的 { kind, id, label, releaseHint } 声明占用任意路径，
  * 声明后自动获得互斥、删除/改名/移动守卫与冲突文案，无需修改本模块。
  * 已知 kind（files-mount / vm）有专门的定制文案；其它 kind 走通用文案。
- * 不是通用文件锁；复制、当普通文件打开不走这里。
+ * 不是通用文件锁；当普通文件打开（读取内容）不走这里。
+ * 删除/改名/移动/复制都会被拦：占用方（如虚拟机）正实时写正文，操作源或拷出副本都不可信。
  *
  * 互斥分两层：内存 Map 只在本 JS 上下文有效（同页签，同步查询全走它）；
  * Web Locks 补跨页签——两个浏览器窗口各开一台 VM 用同一镜像会互不可见、
@@ -138,8 +139,8 @@ export function diskImageOccupiedForFileOpError(
 }
 
 /**
- * 返回等于该路径或位于其下的占用声明（如删除 /user/Disks 时命中 /user/Disks/x.img）。
- * 占用声明数量极少，直接遍历即可，无需枚举子树。
+ * 返回与该路径相交的占用声明：等于占用路径、占用在其下（删文件夹命中里面的盘）、
+ * 或占用路径是其祖先（删附加命中正在用的主盘）。占用声明数量极少，直接遍历即可。
  */
 export function findOccupiedDiskImagePathUnder(
   path: string,
@@ -148,7 +149,12 @@ export function findOccupiedDiskImagePathUnder(
   if (!normalized) return undefined
   const prefix = normalized.endsWith('/') ? normalized : `${normalized}/`
   for (const [claimed, occupant] of occupants) {
-    if (claimed === normalized || claimed.startsWith(prefix)) {
+    const claimedPrefix = `${claimed}/`
+    if (
+      claimed === normalized ||
+      claimed.startsWith(prefix) ||
+      normalized.startsWith(claimedPrefix)
+    ) {
       return { path: claimed, occupant }
     }
   }

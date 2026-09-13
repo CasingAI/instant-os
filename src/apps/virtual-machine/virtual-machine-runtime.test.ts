@@ -9,21 +9,12 @@ import {
   pickDisplayedMachineId,
   isUnsolicitedVmStopped,
   shouldSurfaceUnsolicitedVmError,
-  createDiskWriteFailedWatchdog,
-  DISK_WRITE_FAILED_FORCE_STOP_MS,
-  DISK_WRITE_FAILED_FORCE_STOP_HINT,
-  DRAIN_STALL_FORCE_STOP_MS,
-  shouldDeferForceStop,
   DISK_IMAGE_INCOMPLETE_HINT,
   READING_DISK_IMAGE_HINT,
   STARTING_EMULATOR_HINT,
   isTransientBootHint,
   withAckDeadline,
   STOP_ACK_DEADLINE_MS,
-  STOP_DRAIN_MAX_WAIT_MS,
-  STOP_ACTIVITY_SILENCE_MS,
-  DRAIN_STALL_ASK_INTERVAL_MS,
-  createDrainStallAlerter,
 } from './virtual-machine-runtime.ts'
 import { INSTANT_VM_MESSAGE_TYPE } from './virtual-machine-protocol.ts'
 
@@ -84,77 +75,12 @@ function testShouldSurfaceUnsolicitedVmError(): void {
   )
 }
 
-function testDiskWriteFailedWatchdogForceStopsWhenStillRunning(): void {
-  const running = new Set(['vm-1'])
-  const forced: string[] = []
-  const scheduled: Array<{ callback: () => void; ms: number }> = []
-  const watchdog = createDiskWriteFailedWatchdog({
-    isRunning: (id) => running.has(id),
-    onForceStop: (id) => {
-      running.delete(id)
-      forced.push(id)
-    },
-    schedule: (callback, ms) => {
-      scheduled.push({ callback, ms })
-      return () => {
-        const index = scheduled.findIndex((item) => item.callback === callback)
-        if (index >= 0) {
-          scheduled.splice(index, 1)
-        }
-      }
-    },
-  })
-  watchdog.arm('vm-1')
-  watchdog.arm('vm-1')
-  assert.equal(scheduled.length, 1)
-  assert.equal(scheduled[0]?.ms, DISK_WRITE_FAILED_FORCE_STOP_MS)
-  scheduled[0]?.callback()
-  assert.deepEqual(forced, ['vm-1'])
-  assert.equal(running.has('vm-1'), false)
-}
-
-function testDiskWriteFailedWatchdogCancelsWhenStopped(): void {
-  const running = new Set(['vm-1'])
-  const forced: string[] = []
-  const scheduled: Array<{ callback: () => void; ms: number }> = []
-  const watchdog = createDiskWriteFailedWatchdog({
-    isRunning: (id) => running.has(id),
-    onForceStop: (id) => {
-      forced.push(id)
-    },
-    schedule: (callback, ms) => {
-      scheduled.push({ callback, ms })
-      return () => {
-        const index = scheduled.findIndex((item) => item.callback === callback)
-        if (index >= 0) {
-          scheduled.splice(index, 1)
-        }
-      }
-    },
-  })
-  watchdog.arm('vm-1')
-  watchdog.cancel('vm-1')
-  assert.equal(scheduled.length, 0)
-  assert.deepEqual(forced, [])
-}
-
-function testShouldDeferForceStopWhileDraining(): void {
-  // 整盘回写中且批次还在流：不让 watchdog 强拆（否则撕出半提交镜像）。
-  assert.equal(shouldDeferForceStop({ draining: true, silentMs: 0 }), true)
-  assert.equal(shouldDeferForceStop({ draining: true, silentMs: DRAIN_STALL_FORCE_STOP_MS - 1 }), true)
-  // 静默到阈值：认定真卡死，照旧强拆。
-  assert.equal(shouldDeferForceStop({ draining: true, silentMs: DRAIN_STALL_FORCE_STOP_MS }), false)
-  // 不在回写中：保持原有 30s 强拆语义。
-  assert.equal(shouldDeferForceStop({ draining: false, silentMs: 0 }), false)
-}
-
 function testTransientBootHint(): void {
   assert.equal(isTransientBootHint(READING_DISK_IMAGE_HINT), true)
   assert.equal(isTransientBootHint(STARTING_EMULATOR_HINT), true)
   // 警告类 hint 开机后仍有用，模拟器已启动也不能清
   assert.equal(isTransientBootHint(undefined), false)
   assert.equal(isTransientBootHint('已挂网卡但未选网络后端，按离线启动'), false)
-  assert.equal(isTransientBootHint(DISK_WRITE_FAILED_FORCE_STOP_HINT), false)
   assert.equal(isTransientBootHint(DISK_IMAGE_INCOMPLETE_HINT), false)
   assert.equal(isTransientBootHint('启动失败：运行时无响应'), false)
 }
@@ -209,17 +135,11 @@ function makeFakeClock() {
 /** 等微任务排空，让 promise.then 侧的 settled 标志可见。 */
 const flushMicrotasks = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
-function testStopDrainMaxWaitGivesFlushTimeToFinish(): void {
-  // drain 活跃（数据在刷）时的等待上限要够 GB 级关机大 flush 用：
-  // 上限太短会截断尾部写，制造 hive 半提交（XP 报 SYSTEM 损坏的根因之一）。
-  assert.equal(STOP_DRAIN_MAX_WAIT_MS, 120_000)
-}
-
 async function testWithAckDeadlineAcksFirst(): Promise<void> {
   const clock = makeFakeClock()
   const promise = withAckDeadline({ command: async () => {}, schedule: clock.schedule })
-  // 两个定时器：drain 硬上限 + 3 秒 ack 期限
-  assert.deepEqual(clock.scheduledMs.slice(0, 2), [STOP_DRAIN_MAX_WAIT_MS, STOP_ACK_DEADLINE_MS])
+  // 只有一个 3 秒 ack 期限；没有「到点自动丢尾巴」的硬上限
+  assert.deepEqual(clock.scheduledMs, [STOP_ACK_DEADLINE_MS])
   assert.equal(await promise, 'acked')
   // 正常 ack 后所有定时器必须被取消，不能留悬挂计时器
   assert.equal(clock.pendingCount, 0)
@@ -246,16 +166,20 @@ async function testWithAckDeadlineWaitsWhileActive(): Promise<void> {
     isRecentlyActive: () => true,
     schedule: clock.schedule,
   })
-  void promise.then(() => {
-    settled = true
-  })
+  void promise.then(
+    () => {
+      settled = true
+    },
+    () => undefined,
+  )
   clock.advance(STOP_ACK_DEADLINE_MS)
-  clock.advance(STOP_DRAIN_MAX_WAIT_MS - STOP_ACK_DEADLINE_MS - 1_000)
+  // 消息持续流动（写入转发在推进）：没有任何到点丢尾巴的上限，一直陪它刷完
+  clock.advance(600_000)
   await flushMicrotasks()
-  assert.equal(settled, false, '活跃期间不应被强拆')
+  assert.equal(settled, false, '活跃期间永远不该被强拆')
   clock.advance(1_000)
-  assert.equal(await promise, 'forced')
-  assert.equal(clock.pendingCount, 0)
+  await flushMicrotasks()
+  assert.equal(settled, false, '活跃期间永远不该被强拆')
 }
 
 async function testWithAckDeadlineForcesOnSilenceAfterActivity(): Promise<void> {
@@ -273,7 +197,6 @@ async function testWithAckDeadlineForcesOnSilenceAfterActivity(): Promise<void> 
   clock.advance(STOP_ACK_DEADLINE_MS)
   clock.advance(1_000)
   assert.equal(await promise, 'forced')
-  assert.ok(clock.now < STOP_DRAIN_MAX_WAIT_MS, '转静默后不等满硬上限')
   assert.equal(clock.pendingCount, 0)
 }
 
@@ -290,63 +213,12 @@ async function testWithAckDeadlineCommandFailed(): Promise<void> {
   assert.equal(clock.pendingCount, 0)
 }
 
-function testDrainStallAlerterRepeatsWhileStalled(): void {
-  // poweroff 模式「不设上限、不自动强拆」的落点：停滞就问，选了继续等待后每 10s 再问，
-  // 一直问到回写有进展或机器被收口为止。
-  assert.equal(DRAIN_STALL_ASK_INTERVAL_MS, 10_000)
-  const ticks = new Map<number, () => void>()
-  let nextId = 1
-  const schedule = (callback: () => void, ms: number) => {
-    assert.equal(ms, DRAIN_STALL_ASK_INTERVAL_MS, '询问间隔就是 10s')
-    const id = nextId
-    nextId += 1
-    ticks.set(id, callback)
-    return () => {
-      ticks.delete(id)
-    }
-  }
-  const stalled = new Set<string>(['vm-a'])
-  const asks: string[] = []
-  const alerter = createDrainStallAlerter({
-    isStalled: (id) => stalled.has(id),
-    onStall: (id) => asks.push(id),
-    schedule,
-  })
-  alerter.arm('vm-a')
-  alerter.arm('vm-a')
-  assert.equal(alerter.isArmed('vm-a'), true)
-  assert.equal(ticks.size, 1, '重复 arm 不该叠加轮询')
-
-  const tick = () => {
-    for (const callback of [...ticks.values()]) {
-      callback()
-    }
-  }
-  tick()
-  tick()
-  assert.deepEqual(asks, ['vm-a', 'vm-a'], '停滞就一直问下去，没有次数上限')
-
-  // 回写一旦恢复进展：不再打扰用户。
-  stalled.clear()
-  tick()
-  assert.deepEqual(asks, ['vm-a', 'vm-a'])
-
-  alerter.cancel('vm-a')
-  assert.equal(alerter.isArmed('vm-a'), false)
-  assert.equal(ticks.size, 0, '收口后必须撤掉轮询')
-}
-
 testRequestIdFormat()
 testPickDisplayedMachineId()
 testPickBackgroundMachineIds()
 testUnsolicitedStopped()
 testShouldSurfaceUnsolicitedVmError()
-testDiskWriteFailedWatchdogForceStopsWhenStillRunning()
-testDiskWriteFailedWatchdogCancelsWhenStopped()
-testShouldDeferForceStopWhileDraining()
-testDrainStallAlerterRepeatsWhileStalled()
 testTransientBootHint()
-testStopDrainMaxWaitGivesFlushTimeToFinish()
 await testWithAckDeadlineAcksFirst()
 await testWithAckDeadlineForcesWhenSilent()
 await testWithAckDeadlineWaitsWhileActive()

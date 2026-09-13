@@ -62,3 +62,9 @@ workers/model-gateway/.wrangler/
 # 临时测试残留
 dummy-non-existing-folder/
 /.wrangler
+
+# VM 探针投递盘（本地操作，不入 git）
+Temp/
+
+# 调试残留
+.otterflow/

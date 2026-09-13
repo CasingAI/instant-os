@@ -11,8 +11,6 @@ import {
   buildStartMessage,
   settingsToStartConfig,
   assertVirtualMachineDiskCanPersistWrites,
-  MOUNT_DISK_WRITE_BACK_MAX_BYTES,
-  virtualMachineDiskPersistsWrites,
   virtualMachineDiskUsesOverlay,
   virtualMachineHasBootMedia,
   virtualMachineMountWriteBackError,
@@ -29,6 +27,7 @@ import {
   INSTANT_VM_DISK_RANGE_MAX_BYTES,
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
+  coerceDiskWriteMode,
   isAllowedOrigin,
   isInstantVmAgentCommandMessage,
   isInstantVmAgentResultMessage,
@@ -86,7 +85,6 @@ function testMountedDiskSlots(): void {
       { id: 'h2', type: 'hdd', source: 'local', path: '/user/disks/b.img' },
       { id: 'c', type: 'cdrom', source: 'local', path: '/user/os.iso' },
       { id: 'blank', type: 'floppy', source: 'local', path: '  ' },
-      { id: 's', type: 'state', source: 'local', path: '/user/state.bin' },
     ]),
     {
       hda: true,
@@ -124,46 +122,29 @@ function testHasBootMedia(): void {
   )
 }
 
-function testPersistWritesHonorsMode(): void {
-  assert.equal(virtualMachineDiskPersistsWrites('hdd'), false)
-  assert.equal(virtualMachineDiskPersistsWrites('hdd', 'none'), false)
-  assert.equal(virtualMachineDiskPersistsWrites('floppy', 'none'), false)
-  assert.equal(virtualMachineDiskPersistsWrites('hdd', 'persist'), true)
-  assert.equal(virtualMachineDiskPersistsWrites('floppy', 'persist'), true)
-  assert.equal(virtualMachineDiskPersistsWrites('cdrom', 'persist'), false)
-  assert.equal(virtualMachineDiskPersistsWrites('state', 'persist'), false)
+function testOverlayHonorsType(): void {
+  // 三档里硬盘与软盘统一走写路径（live 打可见文件，另两档写缓存）；光盘恒只读。
   assert.equal(virtualMachineDiskUsesOverlay('hdd'), true)
   assert.equal(virtualMachineDiskUsesOverlay('floppy'), true)
   assert.equal(virtualMachineDiskUsesOverlay('cdrom'), false)
-  assert.equal(virtualMachineDiskUsesOverlay('state'), false)
 }
 
 function testRefuseMountWriteBack(): void {
   assert.doesNotThrow(() =>
     assertVirtualMachineDiskCanPersistWrites('/user/Disks/xp.img', '硬盘'),
   )
-  // 挂载卷上的小投递盘允许回写（整段会话一次性替换）
-  assert.doesNotThrow(() =>
-    assertVirtualMachineDiskCanPersistWrites('/mount/Temp/probe.img', '硬盘', 100 * 1024 * 1024),
-  )
-  // 未给体积（无法判断）或超过上限仍拒绝
   assert.throws(
-    () => assertVirtualMachineDiskCanPersistWrites('/mount/otter/xp.img', '硬盘'),
+    () => assertVirtualMachineDiskCanPersistWrites('/mount/Temp/probe.img', '硬盘'),
     (error: unknown) => {
       assert.ok(error instanceof Error)
-      assert.equal(error.message, virtualMachineMountWriteBackError('硬盘', '/mount/otter/xp.img'))
-      assert.match(error.message, /挂载目录/)
+      assert.equal(error.message, virtualMachineMountWriteBackError('硬盘', '/mount/Temp/probe.img'))
+      assert.match(error.message, /拷到内部卷/)
       return true
     },
   )
   assert.throws(
-    () =>
-      assertVirtualMachineDiskCanPersistWrites(
-        '/mount/otter/xp.img',
-        '硬盘',
-        MOUNT_DISK_WRITE_BACK_MAX_BYTES + 1,
-      ),
-    /挂载目录/,
+    () => assertVirtualMachineDiskCanPersistWrites('/mount/otter/xp.img', '硬盘'),
+    /拷到内部卷/,
   )
 }
 
@@ -222,7 +203,6 @@ function testHighMemoryAndDiskStreamStartMessage(): void {
 
 function testLocalDiskStartMessage(): void {
   const hda = new ArrayBuffer(8)
-  const state = new ArrayBuffer(4)
   const message = buildStartMessage(
     'req-2',
     {
@@ -231,18 +211,15 @@ function testLocalDiskStartMessage(): void {
       acpi: true,
       devices: [
         { id: 'h', type: 'hdd', source: 'local', path: '/user/disks/reactos.img' },
-        { id: 's', type: 'state', source: 'local', path: '/user/disks/reactos.bin' },
       ],
     },
-    { hda, state },
+    { hda },
   )
   assert.equal(isInstantVmStartMessage(message), true)
   assert.equal(startMessageHasDisk(message), true)
-  assert.deepEqual(collectStartTransfers(message), [hda, state])
+  assert.deepEqual(collectStartTransfers(message), [hda])
   assert.equal(message.hda, hda)
-  assert.equal(message.state, state)
   assert.equal(message.hdaUrl, undefined)
-  assert.equal(message.stateUrl, undefined)
 }
 
 function testPathSummaryForRemoteUrl(): void {
@@ -342,12 +319,12 @@ function testDefaultPointerModeInStartConfig(): void {
 
 function testDiskWriteModeInStartConfig(): void {
   const defaultCfg = settingsToStartConfig(sampleSettings())
-  assert.equal(defaultCfg.diskWriteMode, 'persist')
+  assert.equal(defaultCfg.diskWriteMode, 'live')
 
-  const persist = settingsToStartConfig({ ...sampleSettings(), diskWriteMode: 'persist' })
-  assert.equal(persist.diskWriteMode, 'persist')
+  const poweroff = settingsToStartConfig({ ...sampleSettings(), diskWriteMode: 'poweroff' })
+  assert.equal(poweroff.diskWriteMode, 'poweroff')
   assert.equal(
-    isInstantVmStartMessage(buildStartMessage('req-dw', { ...sampleSettings(), diskWriteMode: 'persist' }, {})),
+    isInstantVmStartMessage(buildStartMessage('req-dw', { ...sampleSettings(), diskWriteMode: 'poweroff' }, {})),
     true,
   )
   assert.equal(
@@ -356,8 +333,16 @@ function testDiskWriteModeInStartConfig(): void {
   )
   assert.equal(
     isInstantVmStartMessage({
+      ...buildStartMessage('req-dw-live', sampleSettings(), {}),
+    }),
+    true,
+  )
+  // 旧宿主的 persist 值：协议校验按关机后写入对待
+  assert.equal(coerceDiskWriteMode('persist'), 'poweroff')
+  assert.equal(
+    isInstantVmStartMessage({
       ...buildStartMessage('req-dw-legacy', sampleSettings(), {}),
-      config: { ...settingsToStartConfig(sampleSettings()), diskWriteMode: 'live' as never },
+      config: { ...settingsToStartConfig(sampleSettings()), diskWriteMode: 'persist' as never },
     }),
     true,
   )
@@ -762,7 +747,7 @@ function testRemovableMediaMessages(): void {
 testBootOrderMatchesV86()
 testMountedDiskSlots()
 testHasBootMedia()
-testPersistWritesHonorsMode()
+testOverlayHonorsType()
 testRefuseMountWriteBack()
 testStartMessageTransfers()
 testStartMessageMapsMultipleHdds()

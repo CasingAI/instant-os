@@ -18,7 +18,12 @@ import {
   type InstantVmWebdavResultMessage,
 } from './virtual-machine-protocol.ts'
 import { isRuntimeOrigin, postSource } from './virtual-machine-disk-stream-host.ts'
-import { createWebdavHandler, formatWebdavRequestLine, type WebdavFs } from './virtual-machine-webdav.ts'
+import {
+  createWebdavHandler,
+  formatWebdavRequestLine,
+  isClipProbeUrl,
+  type WebdavFs,
+} from './virtual-machine-webdav.ts'
 
 /**
  * 宿主侧 WebDAV 消息监听器（共享文件夹）。
@@ -130,7 +135,7 @@ function onWebdavMessage(event: MessageEvent): void {
     const startedAt = Date.now()
     let result: InstantVmWebdavResultMessage
     let note: string | undefined
-    if (!sharedRoot) {
+    if (!sharedRoot && !isClipProbeUrl(request.url)) {
       result = {
         type: INSTANT_VM_MESSAGE_TYPE.webdavResult,
         requestId: request.requestId,
@@ -162,6 +167,13 @@ function onWebdavMessage(event: MessageEvent): void {
         }
         note = 'handler error'
       }
+    }
+    if (isClipProbeUrl(request.url)) {
+      note = note ? `${note} fixture=1` : 'fixture=1'
+    }
+    if (request.body && request.body.byteLength > 0) {
+      // 上传方向测量用：把请求体字节数写进日志行，便于与客机计时对齐。
+      note = note ? `${note} reqBytes=${request.body.byteLength}` : `reqBytes=${request.body.byteLength}`
     }
     logWebdavRequestLine(request, result, startedAt, note)
     postSource(target, result, origin, result.body ? [result.body] : [])

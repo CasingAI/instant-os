@@ -86,4 +86,25 @@ async function testQuietWriterSpillsSharedBlobAndEmitsModified(): Promise<void> 
 
 await testQuietWriterSpillsSmallIdbBlobAndEmitsModified()
 await testQuietWriterSpillsSharedBlobAndEmitsModified()
+
+async function testQuietWriterSkipsSparseAndHoles(): Promise<void> {
+  await resetFiles()
+  const { filesCreateSparseBinary } = await import('./files-api.ts')
+  await filesCreateSparseBinary('/user/sparse.img', 1024 * 1024)
+  const sparseWriter = await openQuietBlobWriter('/user/sparse.img')
+  assert.equal(sparseWriter, undefined)
+
+  const payload = new Uint8Array(4096)
+  payload.fill(0)
+  await filesCreateBinary(
+    '/user/holes.img',
+    payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength),
+  )
+  const { filesSetSparse } = await import('./files-api.ts')
+  await filesSetSparse('/user/holes.img', true, { chunkSize: 1024 * 1024 })
+  const holeWriter = await openQuietBlobWriter('/user/holes.img')
+  assert.equal(holeWriter, undefined)
+}
+
+await testQuietWriterSkipsSparseAndHoles()
 console.log('files-quiet-blob-write.test.ts ok')

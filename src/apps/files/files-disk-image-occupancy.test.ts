@@ -265,6 +265,17 @@ async function testClaimDegradesWithoutWebLocks(): Promise<void> {
   }
 }
 
+async function testAncestorOccupancyBlocksAttachmentPath(): Promise<void> {
+  reset()
+  const vm = { kind: 'vm' as const, id: 'vm-1' }
+  await claimDiskImagePath(PATH, vm)
+  const hit = findOccupiedDiskImagePathUnder(`${PATH}/.attach/虚拟机硬盘缓存`)
+  assert.ok(hit)
+  assert.equal(hit.path, PATH)
+  assert.equal(hit.occupant.id, 'vm-1')
+  releaseDiskImagePath(PATH, vm)
+}
+
 await testSameOccupantCanReclaim()
 await testVmBlocksFilesMount()
 await testFilesMountBlocksVm()
@@ -276,4 +287,5 @@ await testThirdPartyWithoutLabelFallsBackToKind()
 await testClaimHoldsWebLockUntilRelease()
 await testClaimFailsWhenOtherWindowHoldsLock()
 await testClaimDegradesWithoutWebLocks()
+await testAncestorOccupancyBlocksAttachmentPath()
 console.log('files-disk-image-occupancy.test.ts ok')

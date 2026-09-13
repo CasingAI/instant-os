@@ -221,6 +221,21 @@ async function run(): Promise<void> {
     assert.equal(await getNodeBlobStoredBytes(node.id), 0, '拒绝后无额外占用')
   }
 
+  // 7. 同一 1MB 槽两处写入：引导簇签名不得被同槽后写覆盖
+  {
+    await filesCreateSparseBinary('/user/slot-cow.bin', 2 * slotSize, { chunkSize: slotSize })
+    const ntldr = new Uint8Array([0xeb, 0x3c, 0x90])
+    const dll = new Uint8Array([0x4d, 0x5a, 0x90, 0x00])
+    await filesWriteBytesRange('/user/slot-cow.bin', 19968, ntldr)
+    await filesWriteBytesRange('/user/slot-cow.bin', 64 * 1024, dll)
+    const node = await resolveNodeByAbsolutePath('/user/slot-cow.bin')
+    assert.ok(node)
+    const boot = await readBlobBytesRange(node.id, 19968, 3)
+    assert.deepEqual([...new Uint8Array(boot!)], [0xeb, 0x3c, 0x90], '同槽先写的引导签名仍在原偏移')
+    const pe = await readBlobBytesRange(node.id, 64 * 1024, 4)
+    assert.deepEqual([...new Uint8Array(pe!)], [0x4d, 0x5a, 0x90, 0x00], '同槽后写落在自己的偏移')
+  }
+
   console.log('files-storage-sparse: all passed')
 }
 

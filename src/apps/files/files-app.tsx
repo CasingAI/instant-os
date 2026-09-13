@@ -34,7 +34,7 @@ import {
 import { filesOpenStreamWrite } from './files-api.ts'
 import { readAppliedDockReservePx } from '../../dock/dock-css-vars.ts'
 import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
-import { FilesStorageFullError, FILE_SIDEBAR_METRIC_LOCATIONS, getFilesBytesByLocation } from './files-storage.ts'
+import { FilesStorageFullError, FILE_SIDEBAR_METRIC_LOCATIONS, getFilesBytesByLocation, sumAttachmentBytes, type FilesAttachmentSum } from './files-storage.ts'
 import {
   collectDataTransferEntries,
   importExternalNodes,
@@ -71,6 +71,7 @@ import {
   takeFilesRevealRequest,
 } from './files-reveal-request.ts'
 import {
+  canAttachOnLocation,
   isFilesLocationWritable,
   isFilesNodeWritable,
   isImageLocationId,
@@ -115,6 +116,7 @@ import {
 import { resolveAppCatalogEntryByBundlePath } from '../../os/app-catalog.ts'
 import {
   FILES_VFS_CHANGED_EVENT,
+  assertNodeTreeAttachmentsMovable,
   copyNodeTo,
   createTextFile,
   emptyTrash,
@@ -151,6 +153,14 @@ import {
   joinFilesAbsolutePath,
   parseFilesAbsolutePath,
 } from './files-path.ts'
+import {
+  filterVfsNameSearchIndex,
+  getCachedVfsNameSearchIndex,
+  isVfsNameSearchIndexStale,
+  scanAndCacheVfsNameSearchIndex,
+  type VfsNameSearchHit,
+  type VfsNameSearchResult,
+} from './vfs-name-search.ts'
 import { reconcileGithubRepoAttributes } from '../github-desktop/github-repo-attributes.ts'
 import { encodeInfoDocumentId, encodeVolumeInfoDocumentId } from '../file-info/info-document-id.ts'
 import { FilesPathBar, type FilesPathBarSegment } from './files-path-bar.tsx'
@@ -166,6 +176,21 @@ import '../../ui/nav-back.css'
 import './files.css'
 
 const APP_ID = 'files' as const
+
+/** 名称旁的附加徽标：数量与字节合计随列目录批量查好（attachmentSums），无附加不渲染。 */
+function FilesAttachmentBadge({ sum }: { sum: FilesAttachmentSum | undefined }) {
+  if (!sum || sum.count <= 0) {
+    return null
+  }
+  return (
+    <span
+      class="files__attach-badge"
+      title={`含 ${sum.count} 个附加，共 ${formatFilesByteSize(sum.bytes)}`}
+    >
+      含 {sum.count} 附加 · {formatFilesByteSize(sum.bytes)}
+    </span>
+  )
+}
 
 function canRenameOrDeleteFilesNode(node: FilesNode): boolean {
   return isFilesNodeWritable(node) && !isUserSpecialFolderNode(node)
@@ -190,6 +215,10 @@ const VIEWPORT_META_ROOT_MARGIN = '96px'
  * 数据到位后原地替换。卡片一旦出现至少展示此时长，避免快请求闪一下。
  */
 const LOADING_MIN_VISIBLE_MS = 300
+/** 索引缓存视为新鲜的时长；过期后按键触发后台静默重扫（不翻 searching） */
+const SEARCH_INDEX_FRESH_MS = 3000
+/** 后台静默重扫的防抖：连续输入只停顿后扫一次 */
+const SEARCH_BACKGROUND_SCAN_DEBOUNCE_MS = 350
 
 type FilesViewMode = 'grid' | 'list'
 
@@ -355,12 +384,17 @@ function buildSortMenuItems(
   }))
 }
 
-function formatListByteSize(node: FilesNode, metaResolved: ReadonlySet<string>): string {
+/** 大小列 = 正文 + 附加合计（附加字节随列目录批量查好，无附加即纯正文）。 */
+function formatListByteSize(
+  node: FilesNode,
+  metaResolved: ReadonlySet<string>,
+  attachmentSums: ReadonlyMap<string, FilesAttachmentSum>,
+): string {
   if (node.kind === 'folder' || node.locationId === 'models3d' || node.locationId === 'applications') {
     return '—'
   }
   if (filesNodeNeedsViewportMeta(node) && !metaResolved.has(node.id)) return '…'
-  return formatFilesByteSize(node.byteSize)
+  return formatFilesByteSize(node.byteSize + (attachmentSums.get(node.id)?.bytes ?? 0))
 }
 
 function formatListTimestamp(node: FilesNode, metaResolved: ReadonlySet<string>): string {
@@ -409,6 +443,15 @@ function FilesViewModeIcon({ mode }: { mode: FilesViewMode }) {
   )
 }
 
+function FilesSearchIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="7" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="1.5" />
+      <line x1="10.2" y1="10.2" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+    </svg>
+  )
+}
+
 type ContextMenuState = {
   x: number
   y: number
@@ -427,8 +470,15 @@ type LocationContextMenuState = {
   label: string
 }
 
+type SearchHitMenuState = {
+  x: number
+  y: number
+  hit: VfsNameSearchHit
+}
+
 type ActionSheetState =
   | { kind: 'item'; node: FilesNode }
+  | { kind: 'search-hit'; hit: VfsNameSearchHit }
   | { kind: 'background' }
 
 /** 框选矩形（相对 .files__browser 内容区坐标） */
@@ -740,6 +790,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [folderId, setFolderId] = useState<string | undefined>(undefined)
   const [pathNodes, setPathNodes] = useState<FilesNode[]>([])
   const [items, setItems] = useState<FilesNode[]>([])
+  /** 当前目录各文件的附加摘要（数量+字节）：随列目录批量查一次，大小列与徽标共用 */
+  const [attachmentSums, setAttachmentSums] = useState<ReadonlyMap<string, FilesAttachmentSum>>(
+    () => new Map(),
+  )
   const [refreshing, setRefreshing] = useState(true)
   const [showLoadingCard, setShowLoadingCard] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -750,6 +804,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [locationContextMenu, setLocationContextMenu] = useState<
     LocationContextMenuState | undefined
   >(undefined)
+  const [searchHitMenu, setSearchHitMenu] = useState<SearchHitMenuState | undefined>(undefined)
   const [actionSheet, setActionSheet] = useState<ActionSheetState | undefined>(undefined)
   const [newFileMenu, setNewFileMenu] = useState<NewFileMenuState | undefined>(undefined)
   const [clipboardRevision, setClipboardRevision] = useState(0)
@@ -761,6 +816,25 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [openWithAlways, setOpenWithAlways] = useState(false)
   const [viewMode, setViewMode] = useState<FilesViewMode>(() => readFilesViewMode())
   const [sort, setSort] = useState<FilesSort>(() => readFilesSort())
+  // 子树名称搜索：输入即把列表区切换为结果列表
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchState, setSearchState] = useState<
+    | { phase: 'idle' }
+    | { phase: 'searching' }
+    | ({ phase: 'done' } & VfsNameSearchResult)
+  >({ phase: 'idle' })
+  /** 窄屏搜索框收进图标，展开后才显示输入框 */
+  const [searchFieldOpen, setSearchFieldOpen] = useState(false)
+  const searchAbortRef = useRef<AbortController | undefined>(undefined)
+  /** 后台静默重扫的控制器：不随查询变化作废（root 未变时扫描结果仍可用） */
+  const backgroundScanRef = useRef<AbortController | undefined>(undefined)
+  /** 后台重扫完成回调用：读到最新查询 / 最新位置，替代 stale closure */
+  const searchQueryRef = useRef('')
+  const searchRootRef = useRef<{ locationId: FilesLocationId; folderId: string | undefined }>({
+    locationId: 'local',
+    folderId: undefined,
+  })
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const [nameDisplayMode, setNameDisplayMode] = useState<FilesNameDisplayMode>(() =>
     readFilesNameDisplayMode(),
   )
@@ -991,6 +1065,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const currentTitle = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1].name : locationLabel
   const canGoBackInPath = pathNodes.length > 0
   const showToolbarBack = canGoBackInPath || (narrowLayout && stackedBrowserOpen)
+  const searchActive = searchQuery.trim().length > 0
+  const searchActiveRef = useRef(searchActive)
+  searchActiveRef.current = searchActive
   const clipboard = getFilesClipboard()
   const canPasteHere = canCreateHere && clipboard !== undefined
   void clipboardRevision
@@ -1188,10 +1265,24 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       )
       armScrollRestore()
       setPathNodes(path)
+      // 附加摘要批量查（大小列含附加、徽标带字节）：不阻塞列表落地，晚一拍渲染
+      const attachableIds = listed
+        .filter((node) => node.kind === 'file' && canAttachOnLocation(node.locationId))
+        .map((node) => node.id)
+      if (attachableIds.length === 0) {
+        setAttachmentSums(new Map())
+      } else {
+        void sumAttachmentBytes(locationId, attachableIds)
+          .then((sums) => {
+            if (gen === refreshGenRef.current) setAttachmentSums(sums)
+          })
+          .catch(() => undefined)
+      }
     } catch (err) {
       if (gen !== refreshGenRef.current) return
       setError(formatError(err))
       setItems([])
+      setAttachmentSums(new Map())
       armScrollRestore()
       setPathNodes([])
     } finally {
@@ -1200,6 +1291,80 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [beginRefreshingUi, clearLoadingTimers, endRefreshingUi, folderId, locationId, resetViewportMeta, sort])
 
   useEffect(() => () => clearLoadingTimers(), [clearLoadingTimers])
+
+  // 换卷 / 换目录即退出搜索态：结果永远属于触发搜索时的位置
+  useEffect(() => {
+    searchAbortRef.current?.abort()
+    backgroundScanRef.current?.abort()
+    setSearchQuery('')
+    setSearchState({ phase: 'idle' })
+  }, [locationId, folderId])
+
+  // 卸载时作废在途搜索
+  useEffect(
+    () => () => {
+      searchAbortRef.current?.abort()
+      backgroundScanRef.current?.abort()
+    },
+    [],
+  )
+
+  // 输入触发子树名称搜索：有索引缓存时同步内存过滤即时出结果（不翻 searching、不抹旧结果）；
+  // 无缓存（该目录首次搜索）沿用防抖 + searching；索引过期由后台静默重扫，完成后按最新查询无感替换
+  useEffect(() => {
+    const query = searchQuery.trim()
+    const root = { locationId, folderId }
+    searchQueryRef.current = query
+    searchRootRef.current = root
+    searchAbortRef.current?.abort()
+    if (!query) {
+      setSearchState({ phase: 'idle' })
+      return
+    }
+    const cached = getCachedVfsNameSearchIndex(root)
+    if (cached) {
+      setSearchState({ phase: 'done', ...filterVfsNameSearchIndex(cached, root, query) })
+      const fresh =
+        !isVfsNameSearchIndexStale(root) && Date.now() - cached.scannedAt < SEARCH_INDEX_FRESH_MS
+      if (fresh) return
+      const timer = window.setTimeout(() => {
+        backgroundScanRef.current?.abort()
+        const controller = new AbortController()
+        backgroundScanRef.current = controller
+        scanAndCacheVfsNameSearchIndex(root, { signal: controller.signal })
+          .then((index) => {
+            if (controller.signal.aborted) return
+            // 状态守卫：期间查询已清空 / 已换位置则只落缓存，不覆盖当前界面
+            if (!searchQueryRef.current) return
+            const active = searchRootRef.current
+            if (active.locationId !== root.locationId || active.folderId !== root.folderId) return
+            setSearchState({
+              phase: 'done',
+              ...filterVfsNameSearchIndex(index, root, searchQueryRef.current),
+            })
+          })
+          .catch(() => {
+            // 后台重扫失败不打扰用户：保留现有结果，下次输入或位置变化再试
+          })
+      }, SEARCH_BACKGROUND_SCAN_DEBOUNCE_MS)
+      return () => window.clearTimeout(timer)
+    }
+    const timer = window.setTimeout(() => {
+      const controller = new AbortController()
+      searchAbortRef.current = controller
+      setSearchState({ phase: 'searching' })
+      scanAndCacheVfsNameSearchIndex(root, { signal: controller.signal })
+        .then((index) => {
+          if (controller.signal.aborted) return
+          setSearchState({ phase: 'done', ...filterVfsNameSearchIndex(index, root, query) })
+        })
+        .catch((err) => {
+          if (controller.signal.aborted) return
+          setSearchState({ phase: 'done', hits: [], truncated: false, errors: [formatError(err)] })
+        })
+    }, 200)
+    return () => window.clearTimeout(timer)
+  }, [searchQuery, locationId, folderId])
 
   const refreshLocations = useCallback(async () => {
     try {
@@ -1300,8 +1465,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     return () => observer.disconnect()
   }, [enqueueViewportMeta, itemIdsKey, refreshing, viewMode])
 
-  const navigateToDocumentPath = useCallback(async (absolutePath: string) => {
-    const applyBrowse = (
+  // applyBrowse / armSelectByName 上提出 navigateToDocumentPath：搜索结果「在所属位置打开」复用同一套导航+按名选中
+  const applyBrowse = useCallback(
+    (
       nextLocationId: FilesLocationId,
       nextFolderId: string | undefined,
       revealItem = false,
@@ -1318,14 +1484,20 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         pendingRevealLayoutRef.current = true
         setStackedBrowserOpen(true)
       }
-    }
+    },
+    [],
+  )
 
-    const armSelectByName = (name: string | undefined) => {
+  const armSelectByName = useCallback(
+    (name: string | undefined) => {
       clearSelection()
       setPendingSelectName(name)
       if (name) setSelectNonce((value) => value + 1)
-    }
+    },
+    [clearSelection],
+  )
 
+  const navigateToDocumentPath = useCallback(async (absolutePath: string) => {
     const tryNavigate = async (
       path: string,
       selectName?: string,
@@ -1388,7 +1560,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     } catch {
       lastOpenedDocumentIdRef.current = undefined
     }
-  }, [activateSelection, clearSelection])
+  }, [activateSelection, applyBrowse, armSelectByName])
 
   useEffect(() => {
     const drainReveal = () => {
@@ -1566,11 +1738,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [layoutReady, narrowLayout, selectedIds])
 
   useEffect(() => {
-    if (!contextMenu && !locationContextMenu && !backgroundContextMenu) return
+    if (!contextMenu && !locationContextMenu && !backgroundContextMenu && !searchHitMenu) return
     const close = () => {
       setContextMenu(undefined)
       setLocationContextMenu(undefined)
       setBackgroundContextMenu(undefined)
+      setSearchHitMenu(undefined)
     }
     window.addEventListener('click', close)
     window.addEventListener('scroll', close, true)
@@ -1578,7 +1751,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       window.removeEventListener('click', close)
       window.removeEventListener('scroll', close, true)
     }
-  }, [backgroundContextMenu, contextMenu, locationContextMenu])
+  }, [backgroundContextMenu, contextMenu, locationContextMenu, searchHitMenu])
 
   const clearLongPress = useCallback(() => {
     if (longPressTimerRef.current !== undefined) {
@@ -1614,6 +1787,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     setContextMenu(undefined)
     setBackgroundContextMenu(undefined)
     setLocationContextMenu(undefined)
+    setSearchHitMenu(undefined)
     setNewFileMenu(undefined)
     setActionSheet(undefined)
   }, [])
@@ -1622,15 +1796,27 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     setContextMenu(undefined)
     setBackgroundContextMenu(undefined)
     setLocationContextMenu(undefined)
+    setSearchHitMenu(undefined)
     setNewFileMenu(undefined)
     actionSheetOpenedByLongPressRef.current = true
     setActionSheet({ kind: 'item', node })
+  }, [])
+
+  const openSearchHitActionSheet = useCallback((hit: VfsNameSearchHit) => {
+    setContextMenu(undefined)
+    setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
+    setSearchHitMenu(undefined)
+    setNewFileMenu(undefined)
+    actionSheetOpenedByLongPressRef.current = true
+    setActionSheet({ kind: 'search-hit', hit })
   }, [])
 
   const openBackgroundActionSheet = useCallback(() => {
     setContextMenu(undefined)
     setBackgroundContextMenu(undefined)
     setLocationContextMenu(undefined)
+    setSearchHitMenu(undefined)
     setNewFileMenu(undefined)
     actionSheetOpenedByLongPressRef.current = true
     setActionSheet({ kind: 'background' })
@@ -2020,6 +2206,36 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     ],
   )
 
+  /** 搜索结果点击：文件夹进入（退出搜索），文件原地打开（保留结果） */
+  const handleSearchHitActivate = useCallback(
+    (hit: VfsNameSearchHit) => {
+      closeTransientMenus()
+      void (async () => {
+        let node: FilesNode | undefined = hit.absolutePath ? undefined : hit.node
+        if (hit.absolutePath) {
+          // 本地卷命中只带展示用合成节点，打开前按绝对路径解析真实节点；
+          // 解析不到（如搜索期间被删）则放弃激活
+          try {
+            node = await resolveNodeByAbsolutePath(hit.absolutePath)
+          } catch {
+            node = undefined
+          }
+        }
+        if (!node) {
+          showToast('该项目已不存在，结果可能已过期')
+          return
+        }
+        if (node.kind === 'folder') {
+          setSearchQuery('')
+          enterFolder(node)
+          return
+        }
+        await openNode(node)
+      })()
+    },
+    [closeTransientMenus, enterFolder, openNode, showToast],
+  )
+
   const handleItemClick = useCallback(
     (node: FilesNode, event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
       if (suppressItemClickRef.current) {
@@ -2335,7 +2551,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           kind: 'paste',
           estimate: async () => {
             const estimated = await Promise.all(
-              pasteEntries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
+              pasteEntries.map((item) =>
+                estimateCopyWorkload(item.nodeId, locationId).catch(() => undefined),
+              ),
             )
             workloads.push(...estimated)
             totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
@@ -2363,6 +2581,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               signal?.throwIfAborted?.()
               const item = pasteEntries[index]!
               const itemWorkload = workloads[index]?.totalUnits ?? 1
+              // 剪切跨卷 = 移动：目标卷挂不了附加时不许走（复制会丢附加、删源带走原件）
+              if (entry.mode === 'cut') {
+                const source = await getNodeOrThrow(item.nodeId)
+                await assertNodeTreeAttachmentsMovable(source, locationId)
+              }
               const overwriteTargetId = overwriteTargets.get(item.name)
               if (overwriteTargetId !== undefined) {
                 // 单文件覆盖事务：提交后目标节点仍在原地（仅内容更新），
@@ -2812,6 +3035,54 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [closeTransientMenus, modal, openApp],
   )
 
+  /** 命中 → 真实节点：本地卷命中只带展示用合成节点，按绝对路径解析；解析不到视为已过期 */
+  const resolveSearchHitNode = useCallback(
+    async (hit: VfsNameSearchHit): Promise<FilesNode | undefined> => {
+      if (!hit.absolutePath) return hit.node
+      try {
+        return await resolveNodeByAbsolutePath(hit.absolutePath)
+      } catch {
+        return undefined
+      }
+    },
+    [],
+  )
+
+  /** 搜索结果「在所属位置打开」：退出搜索，落到命中所在父目录并选中该项 */
+  const handleSearchHitReveal = useCallback(
+    (hit: VfsNameSearchHit) => {
+      closeTransientMenus()
+      void (async () => {
+        const node = await resolveSearchHitNode(hit)
+        if (!node) {
+          showToast('该项目已不存在，结果可能已过期')
+          return
+        }
+        // 父目录可能就是当前目录（换目录 effect 不会触发），显式退出搜索
+        setSearchQuery('')
+        applyBrowse(node.locationId, node.parentId, true)
+        if (node.kind === 'folder') armSelectByName(node.name)
+        else activateSelection(node.id)
+      })()
+    },
+    [activateSelection, applyBrowse, armSelectByName, closeTransientMenus, resolveSearchHitNode, showToast],
+  )
+
+  /** 搜索结果「显示信息」：复用通用信息窗 */
+  const handleSearchHitInfo = useCallback(
+    (hit: VfsNameSearchHit) => {
+      void (async () => {
+        const node = await resolveSearchHitNode(hit)
+        if (!node) {
+          showToast('该项目已不存在，结果可能已过期')
+          return
+        }
+        await handleShowInfo([node])
+      })()
+    },
+    [handleShowInfo, resolveSearchHitNode, showToast],
+  )
+
   const toggleViewMode = useCallback(() => {
     setViewMode((prev) => {
       const next: FilesViewMode = prev === 'grid' ? 'list' : 'grid'
@@ -2847,7 +3118,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const beginMarquee = useCallback((event: PointerEvent) => {
     if (event.pointerType === 'touch') return
     if (event.button !== 0) return
-    if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item'))
+    if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item, .files__search-hit'))
       return
     clearLongPress()
     // 指针捕获：鼠标移出容器后仍能收到 move/up，保证框选完整
@@ -2943,6 +3214,25 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [activateSelection, clearLongPress, openItemActionSheet],
   )
 
+  /** 命中行长按：复用网格条目的计时/移动取消机制，只弹 ActionSheet 不做选中 */
+  const beginSearchHitLongPress = useCallback(
+    (event: PointerEvent, hit: VfsNameSearchHit) => {
+      lastPointerTypeRef.current = event.pointerType
+      if (event.button !== 0) return
+
+      clearLongPress()
+      actionSheetOpenedByLongPressRef.current = false
+      longPressStartRef.current = { x: event.clientX, y: event.clientY, node: hit.node }
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = undefined
+        longPressStartRef.current = undefined
+        suppressItemClickRef.current = true
+        openSearchHitActionSheet(hit)
+      }, LONG_PRESS_MS)
+    },
+    [clearLongPress, openSearchHitActionSheet],
+  )
+
   const beginBackgroundLongPress = useCallback(
     (event: PointerEvent) => {
       lastPointerTypeRef.current = event.pointerType
@@ -2950,7 +3240,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       // 排除文件项与列表列头：列头是排序按钮，按下不应进入框选，避免 setPointerCapture 吞掉其 click
       if (
         (event.target as HTMLElement | undefined)?.closest?.(
-          '.files__item, .files__list-item, .files__list-header',
+          '.files__item, .files__list-item, .files__list-header, .files__search-hit',
         )
       )
         return
@@ -3036,7 +3326,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           kind: 'paste',
           estimate: async () => {
             const estimated = await Promise.all(
-              ids.map((id) => estimateCopyWorkload(id).catch(() => undefined)),
+              ids.map((id) =>
+                estimateCopyWorkload(id, dest.destLocationId).catch(() => undefined),
+              ),
             )
             dropWorkloads.push(...estimated)
             totalUnits = dropWorkloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
@@ -3523,6 +3815,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         if (target !== undefined) toggleSelection(target)
         return
       }
+      if (key === 'Escape' && searchActiveRef.current) {
+        setSearchQuery('')
+        // 搜索面板随查询清空卸载，命中菜单不能以过期 hit 残留
+        setSearchHitMenu(undefined)
+        return
+      }
       if (key === 'Escape' && (selectedIdsRef.current.size > 0 || selectionModeRef.current)) {
         if (selectionModeRef.current) {
           setSelectionMode(false)
@@ -3768,15 +4066,26 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     sort,
   ])
 
+  const buildSearchHitMenuActions = useCallback(
+    (hit: VfsNameSearchHit): AdaptiveActionMenuItem[] => [
+      { type: 'action', label: '打开', onClick: () => handleSearchHitActivate(hit) },
+      { type: 'action', label: '在所属位置打开', onClick: () => handleSearchHitReveal(hit) },
+      { type: 'action', label: '显示信息', onClick: () => handleSearchHitInfo(hit) },
+    ],
+    [handleSearchHitActivate, handleSearchHitInfo, handleSearchHitReveal],
+  )
+
   const actionSheetItems = useMemo((): AdaptiveActionMenuItem[] => {
     if (!actionSheet) return []
     if (actionSheet.kind === 'item') return buildItemMenuActions(actionSheet.node)
+    if (actionSheet.kind === 'search-hit') return buildSearchHitMenuActions(actionSheet.hit)
     return backgroundMenuItems
-  }, [actionSheet, backgroundMenuItems, buildItemMenuActions])
+  }, [actionSheet, backgroundMenuItems, buildItemMenuActions, buildSearchHitMenuActions])
 
   const actionSheetTitle = useMemo(() => {
     if (!actionSheet) return '操作'
     if (actionSheet.kind === 'item') return actionSheet.node.name
+    if (actionSheet.kind === 'search-hit') return actionSheet.hit.name
     return currentTitle
   }, [actionSheet, currentTitle])
 
@@ -3972,6 +4281,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 if (!removableId) return
                 event.preventDefault()
                 setContextMenu(undefined)
+                setBackgroundContextMenu(undefined)
+                setSearchHitMenu(undefined)
                 setNewFileMenu(undefined)
                 setLocationContextMenu({
                   x: event.clientX,
@@ -4051,6 +4362,50 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             <h1 class="files__toolbar-title">{currentTitle}</h1>
           )}
           <div class="files__toolbar-right">
+            {narrowLayout && !searchFieldOpen ? (
+              <button
+                type="button"
+                class="files__toolbar-btn files__toolbar-btn--icon"
+                aria-label="搜索"
+                title="搜索"
+                onClick={() => setSearchFieldOpen(true)}
+              >
+                <FilesSearchIcon />
+              </button>
+            ) : (
+              <span class="files__search-field">
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  class="files__search-input"
+                  placeholder="搜索"
+                  aria-label="搜索当前文件夹"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Escape') return
+                    setSearchQuery('')
+                    if (narrowLayout) setSearchFieldOpen(false)
+                    event.currentTarget.blur()
+                  }}
+                />
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    class="files__search-clear"
+                    aria-label="清除搜索"
+                    title="清除"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setSearchQuery('')
+                      searchInputRef.current?.focus()
+                    }}
+                  >
+                    ✕
+                  </button>
+                ) : undefined}
+              </span>
+            )}
             {narrowLayout ? (
               <button
                 type="button"
@@ -4172,13 +4527,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           onDragLeave={handleBackgroundDragLeave}
           onDrop={handleBackgroundDrop}
           onContextMenu={(event) => {
-            if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item'))
+            if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item, .files__search-hit'))
               return
             event.preventDefault()
             clearLongPress()
             setNewFileMenu(undefined)
             setLocationContextMenu(undefined)
             setContextMenu(undefined)
+            setSearchHitMenu(undefined)
             if (actionSheetOpenedByLongPressRef.current) {
               actionSheetOpenedByLongPressRef.current = false
               return
@@ -4193,7 +4549,86 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           }}
         >
           {error && !imageUnreadableReason ? <div class="files__banner files__banner--error">{error}</div> : undefined}
-          {showLoadingCard && items.length === 0 ? (
+          {searchActive ? (
+            <div class="files__search-panel">
+              <div class="files__search-summary" role="status">
+                {searchState.phase !== 'done' ? (
+                  <>
+                    <span class="files__search-spinner" aria-hidden="true" />
+                    {`正在搜索「${searchQuery.trim()}」… · 位于 ${currentTitle}`}
+                  </>
+                ) : (
+                  `「${searchQuery.trim()}」的搜索结果 · ${searchState.hits.length} 项${searchState.truncated ? '（已截断）' : ''} · 位于 ${currentTitle}`
+                )}
+              </div>
+              {searchState.phase !== 'done' ? undefined : searchState.hits.length === 0 ? (
+                <div class="files__empty">
+                  <p class="files__empty-title">无结果</p>
+                  <p class="files__empty-text">
+                    在「{currentTitle}」及其子文件夹中未找到名称包含「{searchQuery.trim()}」的项。
+                    {searchState.errors.length > 0 ? `（${searchState.errors.length} 个目录列举失败）` : ''}
+                  </p>
+                </div>
+              ) : (
+                <ul class="files__search-list">
+                  {searchState.hits.map((hit, index) => (
+                    <li key={`${hit.parentPath}/${hit.name}#${index}`}>
+                      <button
+                        type="button"
+                        class="files__search-hit"
+                        onClick={() => {
+                          // 长按/触屏右键置位的点击抑制：命中行与网格条目各自消费（handleItemClick 只管网格）
+                          if (suppressItemClickRef.current) {
+                            suppressItemClickRef.current = false
+                            return
+                          }
+                          handleSearchHitActivate(hit)
+                        }}
+                        onPointerDown={(event) => beginSearchHitLongPress(event, hit)}
+                        onPointerMove={handleLongPressMove}
+                        onPointerUp={clearLongPress}
+                        onPointerCancel={clearLongPress}
+                        onContextMenu={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          clearLongPress()
+                          setNewFileMenu(undefined)
+                          setLocationContextMenu(undefined)
+                          setBackgroundContextMenu(undefined)
+                          setContextMenu(undefined)
+                          if (actionSheetOpenedByLongPressRef.current) {
+                            actionSheetOpenedByLongPressRef.current = false
+                            suppressItemClickRef.current = true
+                            return
+                          }
+                          if (isTouchLikePointer()) {
+                            suppressItemClickRef.current = true
+                            openSearchHitActionSheet(hit)
+                            return
+                          }
+                          setActionSheet(undefined)
+                          setSearchHitMenu({ x: event.clientX, y: event.clientY, hit })
+                        }}
+                      >
+                        <FilesNodeIcon node={hit.node} size="list" />
+                        <span class="files__search-hit-name">{hit.name}</span>
+                        {hit.parentPath ? (
+                          <span class="files__search-hit-path">{hit.parentPath}</span>
+                        ) : undefined}
+                        <span class="files__search-hit-meta">
+                          {hit.kind === 'folder'
+                            ? '文件夹'
+                            : hit.byteSize !== undefined
+                              ? formatFilesByteSize(hit.byteSize)
+                              : ''}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : showLoadingCard && items.length === 0 ? (
             <div class="files__empty">正在加载…</div>
           ) : imageUnreadableReason ? (
             <div class="files__empty">
@@ -4323,6 +4758,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                                 applicationsBundleDisplayName(node),
                                 nameDisplayMode,
                               )}
+                              <FilesAttachmentBadge sum={attachmentSums.get(node.id)} />
                             </span>
                             <span class="files__list-date files__list-date--inline">
                               {formatListTimestamp(node, metaResolvedIds)}
@@ -4332,7 +4768,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                             {filesTypeLabel(node.kind, node.name)}
                           </span>
                           <span class="files__list-size">
-                            {formatListByteSize(node, metaResolvedIds)}
+                            {formatListByteSize(node, metaResolvedIds, attachmentSums)}
                           </span>
                           <span class="files__list-date files__list-date--col">
                             {formatListTimestamp(node, metaResolvedIds)}
@@ -4352,6 +4788,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                             applicationsBundleDisplayName(node),
                             nameDisplayMode,
                           )}
+                            <FilesAttachmentBadge sum={attachmentSums.get(node.id)} />
                           </span>
                         </>
                       )}
@@ -4414,6 +4851,28 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 onClick={() => {
                   item.onClick()
                   setContextMenu(undefined)
+                }}
+              >
+                {item.label}
+              </button>
+            )
+          })}
+        </FilesContextMenu>
+      ) : undefined}
+
+      {searchHitMenu ? (
+        <FilesContextMenu x={searchHitMenu.x} y={searchHitMenu.y}>
+          {buildSearchHitMenuActions(searchHitMenu.hit).map((item, index) => {
+            if (item.type !== 'action') return undefined
+            return (
+              <button
+                key={`${item.label}-${index}`}
+                type="button"
+                class="files__context-item"
+                disabled={item.disabled}
+                onClick={() => {
+                  item.onClick()
+                  setSearchHitMenu(undefined)
                 }}
               >
                 {item.label}

@@ -61,11 +61,17 @@ import {
   PartitionDiskDialog,
   BenchmarkDialog,
   ScanDialog,
+  FirstAidDialog,
   type BenchmarkDialogState,
   type EraseDialogState,
   type ScanDialogState,
   type PartitionDialogState,
+  type FirstAidDialogState,
 } from './disk-utility-dialogs.tsx'
+import {
+  subscribeDiskUtilityFirstAidRequest,
+  takeDiskUtilityFirstAidRequest,
+} from './disk-utility-route-open.ts'
 import '../settings/settings.css'
 import './disk-utility.css'
 
@@ -200,6 +206,7 @@ type DetailActions = {
   unmountImage: (node: TreeNode) => void
   runBenchmark: (node: TreeNode) => void
   scanImage: (node: TreeNode) => void
+  firstAidImage: (node: TreeNode) => void
 }
 
 function isVmOccupied(node: TreeNode): boolean {
@@ -236,6 +243,12 @@ function DetailActionsBar({
     Boolean(node.imageFile) &&
     !vmLocked &&
     !appLocked
+  const canFirstAidImage =
+    node.kind === 'image-root' &&
+    Boolean(node.imageFile) &&
+    !vmLocked &&
+    !appLocked &&
+    node.occupancy?.kind !== 'files-mount'
   // 第一级（image-root）只展示「抹掉 / 分区 / 推出」；测速 / 在文件中显示放在分区或卷级别
   const isLevelOneImageRoot = node.kind === 'image-root'
   // 分区视图下，若当前节点文件系统未知（无 fat 信息），禁用会落到镜像实体的功能
@@ -340,6 +353,17 @@ function DetailActionsBar({
           onClick={() => actions.scanImage(node)}
         >
           错误扫描
+        </Button>
+      ),
+    })
+  }
+
+  if (canFirstAidImage) {
+    entries.push({
+      key: 'first-aid',
+      node: (
+        <Button tone="secondary" onClick={() => actions.firstAidImage(node)}>
+          急救
         </Button>
       ),
     })
@@ -594,6 +618,8 @@ export function DiskUtilityApp() {
   const [scanReport, setScanReport] = useState<DiskScanReport | undefined>(undefined)
   const [repairApplying, setRepairApplying] = useState(false)
   const [repairResult, setRepairResult] = useState<DiskRepairResult | undefined>(undefined)
+  const [firstAidState, setFirstAidState] = useState<FirstAidDialogState | undefined>(undefined)
+  const [firstAidTargetPath, setFirstAidTargetPath] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [dialogError, setDialogError] = useState<string | undefined>(undefined)
   const busyRef = useRef(false)
@@ -695,6 +721,26 @@ export function DiskUtilityApp() {
       }
     },
     [nav, partitionViewRootId, tree],
+  )
+
+  // 深链急救：等磁盘树加载完成后选中目标盘并自动进急救分析；
+  // 找不到节点（文件不在树里）就忽略请求
+  useEffect(() => {
+    if (!tree) return
+    const requestPath = takeDiskUtilityFirstAidRequest() ?? firstAidTargetPath
+    if (!requestPath) return
+    setFirstAidTargetPath(undefined)
+    const { root } = findImageNodesByPath(tree, requestPath)
+    const target = root
+    if (!target?.imageFile) return
+    handleSelectNode(target)
+    setFirstAidState({ path: target.imageFile.path, label: target.label })
+  }, [tree, handleSelectNode, firstAidTargetPath])
+
+  // 磁盘工具已打开时经事件接收请求；树还没加载就先记下，等上面的 effect 消费
+  useEffect(
+    () => subscribeDiskUtilityFirstAidRequest((imagePath) => setFirstAidTargetPath(imagePath)),
+    [],
   )
 
   const runMutation = useCallback(
@@ -999,6 +1045,13 @@ export function DiskUtilityApp() {
           partition: node.kind === 'partition' ? node.partition : undefined,
         })
       },
+      firstAidImage: (node) => {
+        if (!node.imageFile) return
+        setFirstAidState({
+          path: node.imageFile.path,
+          label: node.label,
+        })
+      },
     }),
     [modal, nav, openApp, refresh],
   )
@@ -1205,6 +1258,11 @@ export function DiskUtilityApp() {
           if (!scanState) return
           void runRepairPlanWork(signal, scanState)
         }}
+      />
+
+      <FirstAidDialog
+        state={firstAidState}
+        onClose={() => setFirstAidState(undefined)}
       />
     </>
   )

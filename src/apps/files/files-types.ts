@@ -73,7 +73,48 @@ export type FilesNode = {
     /** 原名（移入废纸篓时可能因冲突被改名） */
     name: string
   }
+  /**
+   * 文件附加标记：本节点是挂在某个主文件节点上的附加（parentId 指向主文件，
+   * 不指向文件夹）。目录列表不显示；体积算进主文件；主文件改名/移动/删除/复制
+   * 时随整棵子树一起走。仅内部卷支持。
+   */
+  attachment?: true
+  /** 附加的标签：挂载方程序按标签检索自己的附加（不进路径）。 */
+  attachmentTags?: string[]
   attributes: FilesNodeAttributes
+}
+
+/** 保留段名：主文件路径后接它进入附加命名空间，如 /user/a/盘.img/.attach/缓存。 */
+export const FILES_ATTACH_SEGMENT = '.attach'
+
+/**
+ * 虚拟机硬盘缓存附加的标签（挂在镜像主文件上）。常量放这里供 files 与
+ * virtual-machine 两边共用：files 侧覆盖粘贴时要按标签清掉旧缓存。
+ */
+export const VM_DISK_CACHE_ATTACHMENT_TAG = 'vm-disk-cache'
+
+/** 附加目录的虚拟节点 id 前缀（后接主文件节点 id），用于 listDirectory/resolve。 */
+export const FILES_ATTACH_DIR_ID_PREFIX = 'attach-dir:'
+
+export function makeAttachDirNodeId(fileNodeId: string): string {
+  return `${FILES_ATTACH_DIR_ID_PREFIX}${fileNodeId}`
+}
+
+export function parseAttachDirNodeId(id: string): string | undefined {
+  return id.startsWith(FILES_ATTACH_DIR_ID_PREFIX)
+    ? id.slice(FILES_ATTACH_DIR_ID_PREFIX.length)
+    : undefined
+}
+
+/** 第一期允许挂附加的卷：必须有持久节点树（挂载真文件夹/投影卷没有）。 */
+export function canAttachOnLocation(locationId: FilesLocationId): boolean {
+  return (
+    locationId === 'local' ||
+    locationId === 'dev' ||
+    locationId === 'tmp' ||
+    locationId === 'trash' ||
+    locationId === 'applications'
+  )
 }
 
 /** 第一期允许创建 symlink 的卷（挂载卷 / 投影卷拒绝） */

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import {
+  CLIP_PROBE_BIG_BYTES,
   buildPropfindMultistatus,
   createWebdavHandler,
   formatWebdavRequestLine,
+  isClipProbeUrl,
   parseWebdavRange,
   webdavTargetPath,
   type WebdavFs,
@@ -302,6 +304,82 @@ assert.ok(manifestText.includes('F\thello2.txt\thello2.txt'), manifestText)
 assert.ok(manifestText.includes('D\tdocs'), manifestText)
 assert.ok(manifestText.includes('F\tdocs/hello2.txt\tdocs\\hello2.txt'), manifestText)
 assert.equal((await request('POST', '/__sync_manifest')).status, 405)
+
+assert.equal(isClipProbeUrl('http://instant-vm-files.local/__clip_probe/hello.txt'), true)
+assert.equal(isClipProbeUrl('http://instant-vm-files.local/docs/hello.txt'), false)
+const clipHello = await request('GET', '/__clip_probe/hello.txt')
+assert.equal(clipHello.status, 200)
+assert.equal(new TextDecoder().decode(clipHello.body), 'clip-dav-probe-hello')
+const clipTree = await request('GET', '/__clip_probe/tree/a.txt')
+assert.equal(clipTree.status, 200)
+assert.equal(new TextDecoder().decode(clipTree.body), 'alpha')
+assert.equal((await request('GET', '/__clip_probe/tree/sub/b.txt')).status, 200)
+assert.equal((await request('GET', '/__clip_probe/missing.txt')).status, 404)
+assert.equal((await request('GET', '/__clip_probe/')).status, 405)
+const clipList = await request('PROPFIND', '/__clip_probe/', { headers: { Depth: '1' } })
+assert.equal(clipList.status, 207)
+const clipListXml = new TextDecoder().decode(clipList.body)
+assert.ok(clipListXml.includes('hello.txt'), clipListXml)
+assert.ok(clipListXml.includes('/__clip_probe/tree/'), clipListXml)
+assert.equal((await request('PUT', '/__clip_probe/hello.txt')).status, 405)
+
+// 大文件夹具（105MiB，>100MB 量级）：PROPFIND 必须报真实大小，HEAD 报 Content-Length，
+// Range 取片段要按偏移切。夹具是只读的，PUT 一律 405。
+assert.ok(
+  clipListXml.includes(`<D:getcontentlength>${CLIP_PROBE_BIG_BYTES}</D:getcontentlength>`),
+  `Depth-1 列表应报大文件夹具大小 ${CLIP_PROBE_BIG_BYTES}`,
+)
+const clipBigHead = await request('HEAD', '/__clip_probe/big.bin')
+assert.equal(clipBigHead.status, 200)
+assert.equal(clipBigHead.headers['Content-Length'], String(CLIP_PROBE_BIG_BYTES))
+assert.equal(clipBigHead.headers['Content-Type'], 'application/octet-stream')
+assert.equal(clipBigHead.body, undefined)
+const clipBigRange = await request('GET', '/__clip_probe/big.bin', {
+  headers: { Range: 'bytes=64-95' },
+})
+assert.equal(clipBigRange.status, 206)
+assert.equal(
+  clipBigRange.headers['Content-Range'],
+  `bytes 64-95/${CLIP_PROBE_BIG_BYTES}`,
+)
+// 每个 64 字节块的前 33 字节是 `INSTANT-VM-CLIP-PROBE <10位偏移> `；取 64..95
+// 正好落在这段标记内（不含末尾空格）。
+assert.equal(new TextDecoder().decode(clipBigRange.body), 'INSTANT-VM-CLIP-PROBE 0000000064')
+// 越界 Range
+assert.equal(
+  (await request('GET', '/__clip_probe/big.bin', {
+    headers: { Range: `bytes=${CLIP_PROBE_BIG_BYTES}-` },
+  })).status,
+  416,
+)
+assert.equal((await request('PUT', '/__clip_probe/big.bin')).status, 405)
+// 上传测速落点：PUT /__clip_probe/sink 收下即丢（201），其余路径仍 405
+assert.equal(
+  (await request('PUT', '/__clip_probe/sink', { body: new ArrayBuffer(1024) })).status,
+  201,
+)
+// 小档（256 KiB）用于验证「整文件取数耗时与段数成正比」
+const clipSmallHead = await request('HEAD', '/__clip_probe/ladder-256k.bin')
+assert.equal(clipSmallHead.status, 200)
+assert.equal(clipSmallHead.headers['Content-Length'], String(256 * 1024))
+// 整文件 GET（XP 真正走的路径）：长度必须精确等于夹具大小，且首段标记正确。
+const clipBigGet = await request('GET', '/__clip_probe/big.bin')
+assert.equal(clipBigGet.status, 200)
+assert.equal(clipBigGet.body.byteLength, CLIP_PROBE_BIG_BYTES)
+assert.equal(
+  new TextDecoder().decode(new Uint8Array(clipBigGet.body).subarray(0, 21)),
+  'INSTANT-VM-CLIP-PROBE',
+)
+// 真实链路里响应体是以 transfer 交接的（postMessage 语义），缓冲会被 detach。
+// 若把大文件夹具缓存成模块级单例，第二次取数就是空壳——这里显式模拟一次。
+const transferred = structuredClone(clipBigGet.body, { transfer: [clipBigGet.body] })
+assert.equal(clipBigGet.body.byteLength, 0, '前提：transfer 后原缓冲应被 detach')
+assert.equal(transferred.byteLength, CLIP_PROBE_BIG_BYTES)
+assert.equal(
+  (await request('GET', '/__clip_probe/big.bin')).body.byteLength,
+  CLIP_PROBE_BIG_BYTES,
+  '第二次整文件 GET 必须仍是完整大小',
+)
 
 // ---------------------------------------------------------------------------
 // 请求行日志（dav_clipboard_paste 一期探针：宿主控制台一行对客机日志按时刻对齐）

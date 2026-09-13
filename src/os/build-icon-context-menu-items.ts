@@ -137,7 +137,7 @@ function appendDockContextMenuItems(
 function appendForceQuitItem(
   items: IconContextMenuItem[],
   onForceQuit: (() => void) | undefined,
-  label = '退出',
+  label = '强制退出',
 ): IconContextMenuItem[] {
   if (!onForceQuit) {
     return items

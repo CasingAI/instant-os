@@ -1,6 +1,7 @@
 import { osNowMs } from '../../os/os-clock.ts'
 import { ensureMountPermission } from './files-mount-permission-gate.ts'
 import { getMount } from './files-mount-store.ts'
+import { parseFilesAbsolutePath } from './files-path.ts'
 import {
   copyStreamToSink,
   rewriteRangeThroughSink,
@@ -633,6 +634,138 @@ export async function writeMountBytesRange(
   const blob = await (await parent.getFileHandle(name)).getFile()
   invalidateMountDirHandleCache(parsed.locationId, parentDirPath(parsed.path) ?? '')
   return makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified)
+}
+
+export type MountRangeWriter = {
+  /** 记录一段覆盖写；正文文件在 close 前保持原样。 */
+  writeAt(offset: number, data: Uint8Array): Promise<void>
+  flush(): Promise<void>
+  /** 按原文件顺序一次性重写整份正文（不再做任何中间 seek），提交新内容。 */
+  close(): Promise<void>
+  abort(): Promise<void>
+}
+
+/** 提交时的顺序写分块：8MB。 */
+export const MOUNT_RANGE_COMMIT_CHUNK_BYTES = 8 * 1024 * 1024
+
+/**
+ * 挂载卷镜像的整段写入会话。
+ * 运行中只把脏段记在内存里，close 时按原文件顺序分块重写整份正文再提交。
+ * 关键：**不**对同一个可写流做「seek 到任意偏移再写」的散点写——实测这种写法会丢扇区
+ * （FAT 表项丢失、目录项与簇链对不上，2026-09-10 投递盘事故）；顺序单遍写不丢。
+ * 逐段调用 writeMountBytesRange 会每段整拷一遍文件，也不能用于盘。
+ */
+export async function openMountRangeWriter(
+  absolutePath: string,
+): Promise<MountRangeWriter | undefined> {
+  const parsed = parseFilesAbsolutePath(absolutePath)
+  if (!parsed || !parsed.locationId.startsWith('mount:')) return undefined
+  const relativePath = parsed.segments.join('/')
+  if (!relativePath) return undefined
+  const locationId = parsed.locationId as MountFilesLocationId
+  const { parent, name } = await resolveParentAndName(locationId, relativePath)
+  const handle = await parent.getFileHandle(name)
+  const size = (await handle.getFile()).size
+
+  type Run = { offset: number; bytes: Uint8Array }
+  let runs: Run[] = []
+  let closed = false
+
+  /**
+   * 追加一段写：runs 始终按 offset 升序维护，新写按位置插入并与重叠/相邻的段
+   * 合并（区间裁剪拼接）。不假设上游按升序交付——客机写盘常态就是 FAT 表/
+   * 目录项跳着写，低于当前最末段起点的乱序写不能丢。
+   */
+  function record(offset: number, data: Uint8Array): void {
+    const end = offset + data.byteLength
+    let lo = -1
+    let hi = -1
+    for (let i = 0; i < runs.length; i += 1) {
+      const run = runs[i]!
+      if (run.offset > end) break
+      const runEnd = run.offset + run.bytes.byteLength
+      if (runEnd >= offset) {
+        if (lo < 0) lo = i
+        hi = i + 1
+      }
+    }
+    if (lo < 0) {
+      let at = runs.length
+      for (let i = 0; i < runs.length; i += 1) {
+        if (runs[i]!.offset > offset) {
+          at = i
+          break
+        }
+      }
+      runs.splice(at, 0, { offset, bytes: data })
+      return
+    }
+    const first = runs[lo]!
+    const last = runs[hi - 1]!
+    const start = Math.min(first.offset, offset)
+    const fin = Math.max(last.offset + last.bytes.byteLength, end)
+    const merged = new Uint8Array(fin - start)
+    for (let i = lo; i < hi; i += 1) {
+      const run = runs[i]!
+      merged.set(run.bytes, run.offset - start)
+    }
+    merged.set(data, offset - start)
+    runs.splice(lo, hi - lo, { offset: start, bytes: merged })
+  }
+
+  return {
+    async writeAt(offset, data) {
+      if (closed) throw new Error('镜像写入会话已结束')
+      if (offset < 0 || offset + data.byteLength > size) {
+        throw new Error('镜像写入越界')
+      }
+      record(offset, data)
+    },
+    async flush() {},
+    async close() {
+      if (closed) return
+      closed = true
+      const file = await handle.getFile()
+      let writable: FileSystemWritableFileStream | undefined
+      try {
+        writable = await handle.createWritable()
+        let cursor = 0
+        for (let pos = 0; pos < file.size; pos += MOUNT_RANGE_COMMIT_CHUNK_BYTES) {
+          const end = Math.min(pos + MOUNT_RANGE_COMMIT_CHUNK_BYTES, file.size)
+          const chunk = new Uint8Array(await file.slice(pos, end).arrayBuffer())
+          while (cursor < runs.length) {
+            const run = runs[cursor]!
+            if (run.offset >= end) break
+            const runEnd = run.offset + run.bytes.byteLength
+            const from = Math.max(run.offset, pos)
+            const to = Math.min(runEnd, end)
+            if (to > from) {
+              chunk.set(run.bytes.subarray(from - run.offset, to - run.offset), from - pos)
+            }
+            if (runEnd > end) break
+            cursor += 1
+          }
+          await writable.write(chunk)
+        }
+        await writable.close()
+      } catch (error) {
+        runs = []
+        try {
+          await writable?.abort()
+        } catch {
+          // ignore
+        }
+        throw error
+      }
+      runs = []
+      invalidateMountDirHandleCache(locationId, parentDirPath(relativePath))
+    },
+    async abort() {
+      if (closed) return
+      closed = true
+      runs = []
+    },
+  }
 }
 
 /**

@@ -8,8 +8,9 @@ import {
 } from './virtual-machine-disks.ts'
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import {
-  getVirtualMachineDiskFlushProgress,
   releaseVirtualMachineDiskStreams,
+  requestVirtualMachineDiskStreamAbandon,
+  setVirtualMachineDiskStreamMode,
 } from './virtual-machine-disk-stream-host.ts'
 import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
 import { combineDiskWriteLoss } from './virtual-machine-disk-write-status.ts'
@@ -141,12 +142,6 @@ export function shouldSurfaceUnsolicitedVmError(
   )
 }
 
-export const DISK_WRITE_FAILED_FORCE_STOP_MS = 30_000
-/**
- * 差量合并进行中（flushingIds 置位）时，只有 iframe 彻底静默这么久才认定卡死强拆。
- * 批次还在流就说明在途转发或合并在推进。
- */
-export const DRAIN_STALL_FORCE_STOP_MS = 60_000
 export const DISK_WRITE_FAILED_FORCE_STOP_HINT =
   '硬盘回写失败，已强制标记为已关机；镜像可能不完整'
 export const DISK_IMAGE_INCOMPLETE_HINT = '硬盘回写未完成，镜像可能不完整'
@@ -155,18 +150,6 @@ export const FORCED_OFF_UNFLUSHED_HINT = '尚未保存完的硬盘改动可能�
 export const READING_DISK_IMAGE_HINT = '正在读取镜像…'
 export const STARTING_EMULATOR_HINT = '正在启动模拟器…'
 
-/**
- * 回写失败后是否先别强拆：差量合并进行中、且 iframe 还没静默到阈值说明批次仍在流。
- * 真卡死（事件循环占满）时静默，到点照旧强拆收场。
- */
-export function shouldDeferForceStop(input: {
-  draining: boolean
-  silentMs: number
-  stallMs?: number
-}): boolean {
-  return input.draining && input.silentMs < (input.stallMs ?? DRAIN_STALL_FORCE_STOP_MS)
-}
-
 // 断电只给运行时 3 秒 ack 窗口：客机死循环等故障可能让 iframe 事件循环收不了
 // 消息，ack 永远不来；到点后由调用方强拆收场（断电＝removeRunningId 卸载
 // iframe），不陪 60 秒请求超时。
@@ -174,71 +157,7 @@ export const STOP_ACK_DEADLINE_MS = 3_000
 // 到点后先观察 iframe 消息活动再强拆：真卡死（事件循环被占满）时任何消息都
 // 发不出，持续静默即拆；消息仍在流动说明写回 drain 在推进，多等可把数据刷完。
 export const STOP_ACTIVITY_SILENCE_MS = 1_500
-// drain 推进中的最长等待：数据仍在刷（消息活跃）就陪它刷完，正常 XP 关机几秒
-// 完成，触顶即病态场景（GB 级镜像慢盘）；超过即放弃尾部数据照常强拆（断电语义
-// 允许丢数据，UI 会弹窗告知镜像可能不一致）。
-export const STOP_DRAIN_MAX_WAIT_MS = 120_000
 const STOP_ACTIVITY_POLL_MS = 500
-
-// 差量合并停滞：连续这么久没有新消息就问一次「继续等待 / 强制断电」；
-// 用户选继续等待就再等这么久再问，循环下去，用户是唯一出口。
-export const DRAIN_STALL_ASK_INTERVAL_MS = 10_000
-
-/**
- * 整盘回写停滞提醒：对每个正在回写的机器按 intervalMs 轮询，停滞就回调；回调返回后
- * 继续下一轮，直到 cancel ——「继续等待」的循环就落在这里（不设询问次数上限）。
- * schedule 可注入，便于测试手动推进时间。
- */
-export function createDrainStallAlerter(options: {
-  isStalled: (id: string) => boolean
-  onStall: (id: string) => void
-  intervalMs?: number
-  schedule?: (callback: () => void, ms: number) => () => void
-}): {
-  arm: (id: string) => void
-  cancel: (id: string) => void
-  cancelAll: () => void
-  isArmed: (id: string) => boolean
-} {
-  const intervalMs = options.intervalMs ?? DRAIN_STALL_ASK_INTERVAL_MS
-  const schedule =
-    options.schedule ??
-    ((callback, ms) => {
-      const timer = globalThis.setInterval(callback, ms)
-      return () => globalThis.clearInterval(timer)
-    })
-  const cancels = new Map<string, () => void>()
-  return {
-    arm(id) {
-      if (cancels.has(id)) {
-        return
-      }
-      cancels.set(
-        id,
-        schedule(() => {
-          if (options.isStalled(id)) {
-            options.onStall(id)
-          }
-        }, intervalMs),
-      )
-    },
-    cancel(id) {
-      const cancel = cancels.get(id)
-      if (cancel) {
-        cancels.delete(id)
-        cancel()
-      }
-    },
-    cancelAll() {
-      for (const id of [...cancels.keys()]) {
-        this.cancel(id)
-      }
-    },
-    isArmed(id) {
-      return cancels.has(id)
-    },
-  }
-}
 
 export type AckDeadlineOutcome = 'acked' | 'command-failed' | 'forced'
 
@@ -246,18 +165,17 @@ export type AckDeadlineOutcome = 'acked' | 'command-failed' | 'forced'
  * 运行时命令（断电 stop）的 ack 期限：期限内没回执就返回 'forced'，由调用方
  * 强拆收场。命令失败不外抛（post 失败通常意味着 iframe 已经不在了），只转化为
  * 'command-failed'，同时避免强拆获胜后败者 promise 变成 unhandled rejection。
- * 提供 isRecentlyActive 时，期限到点后进入静默观察：持续活跃（数据在刷）最多
- * 等到 maxWaitMs，转静默立即强拆；不提供则到点即判强拆。
+ * 提供 isRecentlyActive 时，期限到点后进入静默观察：持续活跃（数据在刷）就一直
+ * 陪它刷完（没有到点自动丢尾巴的上限——放弃只走屏幕上的按钮）；转静默立即强拆；
+ * 不提供则到点即判强拆。
  */
 export async function withAckDeadline(options: {
   command: () => Promise<void>
   isRecentlyActive?: () => boolean
   deadlineMs?: number
-  maxWaitMs?: number
   schedule?: (callback: () => void, ms: number) => () => void
 }): Promise<AckDeadlineOutcome> {
   const deadlineMs = options.deadlineMs ?? STOP_ACK_DEADLINE_MS
-  const maxWaitMs = options.maxWaitMs ?? STOP_DRAIN_MAX_WAIT_MS
   const schedule =
     options.schedule ??
     ((callback, ms) => {
@@ -269,8 +187,6 @@ export async function withAckDeadline(options: {
     cancels.push(schedule(callback, ms))
   }
   const outcome = new Promise<AckDeadlineOutcome>((resolve) => {
-    // 硬上限：无论如何到点强拆（deadlineMs 之上再兜一层 drain 等待上限）。
-    run(() => resolve('forced'), Math.max(deadlineMs, maxWaitMs))
     run(() => {
       const isRecentlyActive = options.isRecentlyActive
       if (!isRecentlyActive) {
@@ -305,53 +221,6 @@ export async function withAckDeadline(options: {
 /** 临时开机进度文案：模拟器回报已启动后就该清掉；警告类 hint 不算，开机后仍有用。 */
 export function isTransientBootHint(hint: string | undefined): boolean {
   return hint === READING_DISK_IMAGE_HINT || hint === STARTING_EMULATOR_HINT
-}
-
-export function createDiskWriteFailedWatchdog(options: {
-  delayMs?: number
-  isRunning: (id: string) => boolean
-  onForceStop: (id: string) => void
-  schedule?: (callback: () => void, ms: number) => () => void
-}) {
-  const delayMs = options.delayMs ?? DISK_WRITE_FAILED_FORCE_STOP_MS
-  const schedule =
-    options.schedule ??
-    ((callback, ms) => {
-      const timer = globalThis.setTimeout(callback, ms)
-      return () => globalThis.clearTimeout(timer)
-    })
-  const cancels = new Map<string, () => void>()
-
-  const cancel = (id: string) => {
-    const clear = cancels.get(id)
-    if (!clear) {
-      return
-    }
-    cancels.delete(id)
-    clear()
-  }
-
-  return {
-    arm(id: string) {
-      if (cancels.has(id) || !options.isRunning(id)) {
-        return
-      }
-      const clear = schedule(() => {
-        cancels.delete(id)
-        if (!options.isRunning(id)) {
-          return
-        }
-        options.onForceStop(id)
-      }, delayMs)
-      cancels.set(id, clear)
-    },
-    cancel,
-    dispose() {
-      for (const id of [...cancels.keys()]) {
-        cancel(id)
-      }
-    },
-  }
 }
 
 export type VmRuntimeApi = {
@@ -1003,20 +872,9 @@ export function useVirtualMachineRuntime(
  * - 每个运行中的 machineId 挂载一个 `VmRuntimeSurface`（独立 iframe，见 virtual-machine-runtime-surface.tsx）。
  * - 提供开机/关机/重置/显示比例等命令，命令按 machineId 路由到对应实例。
  */
-export type VmForceStopDecision = 'wait' | 'force'
-
-export type VmForceStopRequest = {
-  /** 触发询问的来源：回写停滞 / 回写失败 watchdog。 */
-  reason: 'drain-stall' | 'write-failed'
-  /** 从开始收尾（写入覆盖层点亮）到现在已经等了多少毫秒。 */
-  waitedMs: number
-  /** 宿主侧尚未落盘的字节数（供对话框告知进度）。 */
-  pendingBytes: number
-}
+export type VmDiskCacheDecision = 'discard' | 'merge'
 
 export type VmRuntimePoolOptions = {
-  /** 硬盘回写 30s 超时被强制停机后触发（App 层用它弹窗，替代右上角小字）。 */
-  onDiskWriteForceStop?: (id: string) => void
   /** 关机落盘失败（磁盘流释放异常）后触发。 */
   onDiskWriteIncomplete?: (id: string) => void
   /** 关机收尾丢弃了已接收的客机写（宽限期后仍到达），镜像可能缺已 ack 的数据。 */
@@ -1024,16 +882,15 @@ export type VmRuntimePoolOptions = {
   /**
    * 本次会话存在没能写进镜像的写入（iframe 侧丢弃 + 宿主侧闸门丢弃合计）。
    *
-   * 与上面三个「当场弹一次」的回调不同，这个用于**持久化**：iframe 一销毁计数就没了，
+   * 与上面两个「当场弹一次」的回调不同，这个用于**持久化**：iframe 一销毁计数就没了，
    * 只有写进机器记录，「镜像可能不完整」才能活到用户下次开机。
    */
   onDiskWriteLoss?: (id: string, detail: { droppedWrites: number; droppedBytes: number }) => void
   /**
-   * 要不要放弃剩余写入、立即断电：pool 把决定权交给用户（App 层弹「继续等待 / 强制断电」）。
-   * 返回 'wait' 就继续等，之后每停滞一次再问一次（无次数上限）；返回 'force' 才强拆丢数据。
-   * 没接这个回调时保持旧行为（= 'force'），避免调用方漏接导致机器卡死。
+   * 不保存档收尾询问：断电后缓存落稳（全部流排干）才调用。返回 'discard' = 删缓存，
+   * 'merge' = 合并进可见文件。没接这个回调时按合并收尾（不丢用户数据）。
    */
-  onForceStopRequest?: (id: string, detail: VmForceStopRequest) => Promise<VmForceStopDecision>
+  onDiskCacheDecision?: (id: string) => Promise<VmDiskCacheDecision>
 }
 
 export function useVirtualMachineRuntimePool(
@@ -1049,17 +906,8 @@ export function useVirtualMachineRuntimePool(
   const [snapshots, setSnapshots] = useState<ReadonlyMap<string, VmRuntimeSnapshot>>(new Map())
   const [startedIds, setStartedIds] = useState<ReadonlySet<string>>(new Set())
   const [hints, setHints] = useState<ReadonlyMap<string, string>>(new Map())
-  /** 正在收尾落盘（drain→flush→close）的机器：UI 据此显示「正在写入」覆盖层。 */
+  /** 正在收尾落盘（drain→close）的机器：UI 据此显示「正在写入」硬控画面。 */
   const [flushingIds, setFlushingIds] = useState<readonly string[]>([])
-  // 回调（watchdog）里要同步读，不能只依赖渲染闭包。
-  const flushingIdsRef = useRef<readonly string[]>([])
-  flushingIdsRef.current = flushingIds
-  /** 已在提醒器上挂号的 id（避免重复 arm）。 */
-  const armedFlushIdsRef = useRef<Set<string>>(new Set())
-  /** 各机器进入收尾状态的时刻，用于告知用户已等待多久。 */
-  const flushStartedAtRef = useRef<Map<string, number>>(new Map())
-  /** 同一台机器在飞的「继续等待 / 强制断电」询问（去重，避免叠对话框）。 */
-  const forceDecisionRef = useRef<Map<string, Promise<VmForceStopDecision>>>(new Map())
   /** 用户已确认放弃剩余写入的机器。 */
   const forcedStopIdsRef = useRef<Set<string>>(new Set())
   /** 同一台机器正在收口中的 promise（去重，避免重复释放磁盘流）。 */
@@ -1067,9 +915,6 @@ export function useVirtualMachineRuntimePool(
   const runningIdsRef = useRef(new Set<string>())
   const startMessagesRef = useRef(new Map<string, InstantVmStartMessage>())
   const apiByIdRef = useRef(new Map<string, VmRuntimeApi>())
-  const watchdogRef = useRef<{ cancel: (id: string) => void; arm: (id: string) => void } | undefined>(
-    undefined,
-  )
 
   const addRunningId = useCallback((id: string) => {
     runningIdsRef.current.add(id)
@@ -1077,7 +922,6 @@ export function useVirtualMachineRuntimePool(
   }, [])
 
   const removeRunningIdNow = useCallback(async (id: string) => {
-    watchdogRef.current?.cancel(id)
     setFlushingIds((current) => (current.includes(id) ? current : [...current, id]))
     try {
       const message = startMessagesRef.current.get(id)
@@ -1090,9 +934,16 @@ export function useVirtualMachineRuntimePool(
       let hostDiscardedWrites = 0
       try {
         if (message) {
-          // 顺序不变量：磁盘流排干→刷盘→关会话全部完成后，才释放占用声明并卸载
-          // iframe——最后一字节落盘永远先于「这块镜像可以被别人打开」。
-          const { discardedWrites } = await releaseVirtualMachineDiskStreams(message)
+          // 顺序不变量：磁盘流排干→（不保存档问完）→关会话全部完成后，才释放占用声明
+          // 并卸载 iframe——最后一字节落盘永远先于「这块镜像可以被别人打开」。
+          const { discardedWrites } = await releaseVirtualMachineDiskStreams(message, {
+            decideCache: optionsRef.current.onDiskCacheDecision
+              ? async () => {
+                  const decision = await optionsRef.current.onDiskCacheDecision!(id)
+                  return decision
+                }
+              : undefined,
+          })
           hostDiscardedWrites = discardedWrites
           if (discardedWrites > 0) {
             recordSystemDebugTimeline({
@@ -1168,34 +1019,11 @@ export function useVirtualMachineRuntimePool(
   )
 
   /**
-   * 去重地发起「继续等待 / 强制断电」询问：同一台机器同时只能有一个对话框。
-   * 同一时刻可能有多个来源想问（回写停滞提醒 / 回写失败 watchdog），都汇到这里。
+   * 强制结束一台机器：置 forcedStop 标记并卸载 iframe，收口按档位进行
+   * （poweroff 后台合并、none 弹「写入硬盘文件？」给反悔机会）——不打 abandon。
+   * 正常关窗（点 X / close handler 答 finish）的卸载 cleanup 也走这里，
+   * 不能把正常关窗当成强制结束静默丢掉 none 档缓存。
    */
-  const askForceStopDecision = useCallback(
-    async (id: string, detail: VmForceStopRequest): Promise<VmForceStopDecision> => {
-      const existing = forceDecisionRef.current.get(id)
-      if (existing) {
-        return existing
-      }
-      const decide = optionsRef.current.onForceStopRequest
-      if (!decide) {
-        // 调用方没接询问通道：保持旧的自动强拆语义，别把机器永久卡在收尾里。
-        return 'force'
-      }
-      recordSystemDebugTimeline({ layer: 'vm', op: 'force-stop-ask', detail: { id, ...detail } })
-      const pending = decide(id, detail)
-        .then((answer) => (answer === 'wait' ? ('wait' as const) : ('force' as const)))
-        .catch(() => 'force' as const)
-        .finally(() => {
-          forceDecisionRef.current.delete(id)
-        })
-      forceDecisionRef.current.set(id, pending)
-      return pending
-    },
-    [],
-  )
-
-  /** 用户确认放弃剩余写入：标记后卸载 iframe 收口（回写由 iframe 侧 dispose 丢弃）。 */
   const forceStop = useCallback(
     (id: string): Promise<void> => {
       if (!runningIdsRef.current.has(id)) {
@@ -1208,110 +1036,24 @@ export function useVirtualMachineRuntimePool(
     [removeRunningId],
   )
 
-  const pendingBytesOf = useCallback((id: string): number => {
-    const message = startMessagesRef.current.get(id)
-    if (!message) {
-      return 0
-    }
-    return getVirtualMachineDiskFlushProgress(listVmDiskStreamIds(message)).pendingBytes
-  }, [])
-
   /**
-   * 回写停滞就问用户（同一台机器同时只有一个对话框）。选「继续等待」就什么都不做：
-   * 提醒器下一轮（10s 后）若仍停滞会再问一次，无次数上限。
+   * 硬控画面「放弃」与窗口强制结束：先给全部磁盘流打 abandon 标记（收口不再
+   * 按档位写完/合并、不保存档也不再问「写入硬盘文件？」），再按 forceStop 收口
+   * 卸 iframe。abandon 标记幂等，与 forceStop 不冲突。
    */
-  const drainStallAlerter = useMemo(
-    () =>
-      createDrainStallAlerter({
-        isStalled: (id) => {
-          const api = apiByIdRef.current.get(id)
-          if (!api) {
-            return false
-          }
-          return Date.now() - api.lastMessageAt() >= DRAIN_STALL_ASK_INTERVAL_MS
-        },
-        onStall: (id) => {
-          const startedAt = flushStartedAtRef.current.get(id)
-          void askForceStopDecision(id, {
-            reason: 'drain-stall',
-            waitedMs: startedAt === undefined ? 0 : Date.now() - startedAt,
-            pendingBytes: pendingBytesOf(id),
-          }).then((decision) => {
-            if (decision === 'force') {
-              void forceStop(id)
-            }
-          })
-        },
-      }),
-    [askForceStopDecision, forceStop, pendingBytesOf],
-  )
-
-  // 收尾开始时上提醒、结束（机器被收口）时撤掉；同时记录等待起点。
-  useEffect(() => {
-    const armed = armedFlushIdsRef.current
-    for (const id of flushingIds) {
-      if (!armed.has(id)) {
-        armed.add(id)
-        flushStartedAtRef.current.set(id, Date.now())
-        drainStallAlerter.arm(id)
+  const abandonWrites = useCallback(
+    (id: string): Promise<void> => {
+      if (!runningIdsRef.current.has(id)) {
+        return Promise.resolve()
       }
-    }
-    for (const id of [...armed]) {
-      if (!flushingIds.includes(id)) {
-        armed.delete(id)
-        flushStartedAtRef.current.delete(id)
-        drainStallAlerter.cancel(id)
+      const message = startMessagesRef.current.get(id)
+      if (message) {
+        requestVirtualMachineDiskStreamAbandon(listVmDiskStreamIds(message))
       }
-    }
-  }, [flushingIds, drainStallAlerter])
-
-  useEffect(() => () => drainStallAlerter.cancelAll(), [drainStallAlerter])
-
-  const diskWriteFailedWatchdog = useMemo(
-    () =>
-      createDiskWriteFailedWatchdog({
-        isRunning: (id) => runningIdsRef.current.has(id),
-        onForceStop: (id) => {
-          // 正在整盘回写且批次还在往外发：强拆等于把剩下的改动留在 iframe 里，先不动它。
-          const api = apiByIdRef.current.get(id)
-          const silentMs = api ? Date.now() - api.lastMessageAt() : Number.POSITIVE_INFINITY
-          if (shouldDeferForceStop({ draining: flushingIdsRef.current.includes(id), silentMs })) {
-            recordSystemDebugTimeline({
-              layer: 'vm',
-              op: 'disk-write-force-stop-deferred',
-              detail: { id, silentMs },
-            })
-            watchdogRef.current?.arm(id)
-            return
-          }
-          // 回写失败 + 已停滞：丢数据的事交给用户点头，别替他决定。
-          const startedAt = flushStartedAtRef.current.get(id)
-          void askForceStopDecision(id, {
-            reason: 'write-failed',
-            waitedMs: startedAt === undefined ? 0 : Date.now() - startedAt,
-            pendingBytes: pendingBytesOf(id),
-          }).then((decision) => {
-            if (decision !== 'force') {
-              // 继续等待：回写停滞提醒器会接管后续询问。
-              return
-            }
-            recordSystemDebugTimeline({
-              layer: 'vm',
-              op: 'disk-write-force-stop',
-              detail: { id, hint: DISK_WRITE_FAILED_FORCE_STOP_HINT },
-            })
-            optionsRef.current.onDiskWriteForceStop?.(id)
-            void forceStop(id)
-          })
-        },
-      }),
-    [askForceStopDecision, forceStop, pendingBytesOf],
+      return forceStop(id)
+    },
+    [forceStop],
   )
-  watchdogRef.current = diskWriteFailedWatchdog
-
-  useEffect(() => {
-    return () => diskWriteFailedWatchdog.dispose()
-  }, [diskWriteFailedWatchdog])
 
   const onRegister = useCallback((id: string, api: VmRuntimeApi) => {
     apiByIdRef.current.set(id, api)
@@ -1452,8 +1194,8 @@ export function useVirtualMachineRuntimePool(
   )
 
   // 断电：给运行时 3 秒 ack 窗口，到点后看 iframe 消息活动——真卡死（静默）立即
-  // 强拆，在途差量转发还在推进则陪它刷完。finally 里 removeRunningId 把差量
-  // 合并进镜像后才卸 iframe。期间 flushingIds 置位，UI 显示「正在写入」。
+  // 强拆，在途写入转发还在推进就一直陪它刷完（没有到点丢尾巴的上限）。finally 里
+  // removeRunningId 把改动写完才卸 iframe。期间 flushingIds 置位，UI 显示「正在写入」。
   const shutdown = useCallback(
     async (id: string): Promise<boolean> => {
       if (!runningIdsRef.current.has(id)) {
@@ -1477,7 +1219,6 @@ export function useVirtualMachineRuntimePool(
           }
         }
       } finally {
-        drainStallAlerter.cancel(id)
         try {
           await removeRunningId(id)
         } catch {
@@ -1486,16 +1227,35 @@ export function useVirtualMachineRuntimePool(
       }
       return forced
     },
-    [removeRunningId, drainStallAlerter],
+    [removeRunningId],
   )
 
-  const saveInstanceState = useCallback(async (id: string): Promise<ArrayBuffer> => {
-    const api = apiByIdRef.current.get(id)
-    if (!api) {
-      throw new Error('虚拟机未在运行')
-    }
-    return await api.saveState()
-  }, [])
+  /**
+   * 运行中切硬盘写入档位：只允许 none ⇄ poweroff（live 开机后锁死）。
+   * 只改「最终合不合并」，缓存不删；UI 层负责在保存设置时同步机器记录。
+   */
+  const setDiskWriteMode = useCallback(
+    (id: string, mode: 'poweroff' | 'none'): Promise<void> => {
+      const message = startMessagesRef.current.get(id)
+      if (!message) {
+        return Promise.resolve()
+      }
+      const streamIds = listVmDiskStreamIds(message)
+      return Promise.all(
+        streamIds.map((streamId) => setVirtualMachineDiskStreamMode(streamId, mode)),
+      ).then(() => {
+        const nextMessages = new Map(startMessagesRef.current)
+        const next: InstantVmStartMessage = {
+          ...message,
+          config: { ...message.config, diskWriteMode: mode },
+        }
+        nextMessages.set(id, next)
+        startMessagesRef.current = nextMessages
+        setStartMessages(nextMessages)
+      })
+    },
+    [],
+  )
 
   const agentCommand = useCallback(
     async (id: string, method: string, args: readonly unknown[] = []): Promise<unknown> => {
@@ -1604,6 +1364,12 @@ export function useVirtualMachineRuntimePool(
     apiByIdRef.current.get(id)?.sendKeyboard(message)
   }, [])
 
+  // 同步读 ref 里的最新 stats：轮询闭包走 React state（snapshots）会拿到陈旧快照。
+  const latestStats = useCallback(
+    (id: string) => apiByIdRef.current.get(id)?.latestStats(),
+    [],
+  )
+
   const captureKeyboard = useCallback((id: string) => {
     apiByIdRef.current.get(id)?.captureKeyboard()
   }, [])
@@ -1611,10 +1377,6 @@ export function useVirtualMachineRuntimePool(
   const releaseKeyboard = useCallback((id: string) => {
     apiByIdRef.current.get(id)?.releaseKeyboard()
   }, [])
-
-  const armDiskWriteFailedWatchdog = useCallback((id: string) => {
-    diskWriteFailedWatchdog.arm(id)
-  }, [diskWriteFailedWatchdog])
 
   return {
     origin,
@@ -1626,7 +1388,7 @@ export function useVirtualMachineRuntimePool(
     hints,
     boot,
     shutdown,
-    saveInstanceState,
+    setDiskWriteMode,
     agentCommand,
     setActiveDisplayMode,
     setActivePointerMode,
@@ -1638,6 +1400,7 @@ export function useVirtualMachineRuntimePool(
     setActiveFloppy,
     ejectActiveFloppy,
     sendKeyboard,
+    latestStats,
     captureKeyboard,
     releaseKeyboard,
     onRegister,
@@ -1647,7 +1410,7 @@ export function useVirtualMachineRuntimePool(
     onGuestPoweredOff,
     onGuestPoweroffDraining,
     forceStop,
+    abandonWrites,
     onBootError,
-    armDiskWriteFailedWatchdog,
   }
 }

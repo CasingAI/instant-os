@@ -7,7 +7,7 @@ import { HelpHint } from '../../ui/help-hint.tsx'
 import { Checkbox } from '../../ui/checkbox.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesNodeIcon } from '../files/files-node-icon.tsx'
-import { filesSetSparse } from '../files/files-api.ts'
+import { filesListAttachments, filesSetSparse } from '../files/files-api.ts'
 import {
   runFilesOpWithProgress,
 } from '../files/files-run-with-op-progress.ts'
@@ -31,6 +31,8 @@ import {
 // 副作用导入：注册图片信息分节
 import './sections/image-section.tsx'
 import {
+  FILES_ATTACH_SEGMENT,
+  VM_DISK_CACHE_ATTACHMENT_TAG,
   filesVolumeRootAttributes,
   formatFilesNodePermissionLabel,
   isImageLocationId,
@@ -390,8 +392,32 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
   const [sparseBusy, setSparseBusy] = useState(false)
   const [sparseEnabled, setSparseEnabled] = useState(node.sparse === true)
   const [writeProgress, setWriteProgress] = useState(() => getFilesWriteProgressSnapshot())
+  const [attachmentInfo, setAttachmentInfo] = useState<{ count: number; totalBytes: number } | undefined>(undefined)
 
   useEffect(() => subscribeFilesWriteProgress(() => setWriteProgress(getFilesWriteProgressSnapshot())), [])
+
+  // 文件附加：文件信息要能看见有没有附加、合计多大（体积算进主文件）。
+  useEffect(() => {
+    let cancelled = false
+    if (node.kind !== 'file' || node.attachment === true) {
+      setAttachmentInfo(undefined)
+      return
+    }
+    filesListAttachments(tab.documentId)
+      .then((items) => {
+        if (cancelled) return
+        setAttachmentInfo({
+          count: items.length,
+          totalBytes: items.reduce((sum, item) => sum + (item.storedByteSize ?? item.byteSize), 0),
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setAttachmentInfo(undefined)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [node.id, node.kind, node.attachment, tab.documentId])
 
   useEffect(() => {
     setSparseEnabled(node.sparse === true)
@@ -462,6 +488,9 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
           if (slash > 0) {
             let dir = entry.path.slice(0, slash)
             while (dir) {
+              // 附加条目（主文件/.attach/附加名）随子树枚举进入统计；
+              // 其祖先链是主文件而非文件夹，遇到 .attach 段即停，不折入文件夹数
+              if (dir.split('/').includes(FILES_ATTACH_SEGMENT)) break
               folderNames.add(dir)
               const nextSlash = dir.lastIndexOf('/')
               if (nextSlash < 0) break
@@ -580,7 +609,10 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
       if (folderStatsState === 'error' || !folderStats) return '—'
       return `${folderStats.folderCount} 个文件夹、${folderStats.fileCount} 个文件，共 ${formatFilesByteSize(folderStats.totalBytes)}`
     }
-    if (node.kind === 'file') return formatFilesByteSize(displayNode.byteSize)
+    // 主大小行 = 正文 + 附加合计（附加摘要异步到位前先显示正文）
+    if (node.kind === 'file') {
+      return formatFilesByteSize(displayNode.byteSize + (attachmentInfo?.totalBytes ?? 0))
+    }
     return '—'
   })()
 
@@ -684,6 +716,18 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
             <dt>{node.kind === 'file' ? '逻辑大小' : '大小'}</dt>
             <dd>{sizeLabel}</dd>
           </div>
+          {node.kind === 'file' ? (
+            <div class="file-info-app__info-row">
+              <dt>附加</dt>
+              <dd>
+                {attachmentInfo === undefined
+                  ? '…'
+                  : attachmentInfo.count > 0
+                    ? `${attachmentInfo.count} 个，共 ${formatFilesByteSize(attachmentInfo.totalBytes)}`
+                    : '无'}
+              </dd>
+            </div>
+          ) : undefined}
           <div class="file-info-app__info-row file-info-app__info-row--path">
             <dt>位置</dt>
             <dd>
@@ -804,9 +848,15 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
                 {blobStorageState === 'ready' && blobStorage ? (
                   <div class="file-info-app__info-row">
                     <dt>占用</dt>
-                    <dd>{formatFilesByteSize(blobStorage.storedByteSize)}</dd>
+                    <dd>
+                      {formatFilesByteSize(
+                        blobStorage.storedByteSize + (attachmentInfo?.totalBytes ?? 0),
+                      )}
+                    </dd>
                   </div>
                 ) : undefined}
+                {node.attachment === true &&
+                node.attachmentTags?.includes(VM_DISK_CACHE_ATTACHMENT_TAG) === true ? undefined : (
                 <div class="file-info-app__info-row">
                   <dt>机会压缩</dt>
                   <dd class="file-info-app__info-toggle">
@@ -822,6 +872,7 @@ function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
                     ) : undefined}
                   </dd>
                 </div>
+                )}
               </>
             ) : (
               <div class="file-info-app__info-row">

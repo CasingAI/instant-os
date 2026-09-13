@@ -14,6 +14,7 @@ import {
 } from './files-vfs.ts'
 import {
   FILES_NODES_STORE,
+  blobMustNotSpillToOpfs,
   getFileBlobStorageInfo,
   openFilesDb,
   spillIdbBlobToOpfsIfNeeded,
@@ -40,6 +41,9 @@ export async function openQuietBlobWriter(
   if (!node) return undefined
   let info = await getFileBlobStorageInfo(node.id)
   if (!info) return undefined
+  if (blobMustNotSpillToOpfs(info)) {
+    return undefined
+  }
   if (info.bodyStore !== 'OPFS') {
     if (!isOpfsAvailable()) return undefined
     const spilled = await spillIdbBlobToOpfsIfNeeded(node.id, {

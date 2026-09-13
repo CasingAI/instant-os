@@ -129,23 +129,25 @@ export type VmPointerModeId = (typeof VM_POINTER_MODE_IDS)[number]
 export const DEFAULT_VIRTUAL_MACHINE_POINTER_MODE: VmPointerModeId = 'auto'
 
 /**
- * 硬盘差量是否在关机时并进可见镜像。
- * - `none`：差量只留在本次开机，关机丢弃，不改镜像。
- * - `persist`：运行期写入隐藏差量，关机把差量合并进镜像。
- * 旧值 `live` / `poweroff` 读入时迁成 `persist`。
+ * 硬盘改动什么时候进用户看见的硬盘文件。
+ * - `live`（尽快写入）：运行期尽快写进可见硬盘文件；开机后锁死，运行中不能切进或切出。
+ * - `poweroff`（关机后写入）：运行期写入主机磁盘上绑定这份盘的缓存，关机/断电后合并进可见文件。
+ * - `none`（不保存）：运行期同样写入缓存；断电后缓存落稳再询问，确认不保存才删缓存。
+ * 旧值 `persist`（保存硬盘改动）读入时迁成 `poweroff`。
  */
-export const VM_DISK_WRITE_MODE_IDS = ['none', 'persist'] as const
+export const VM_DISK_WRITE_MODE_IDS = ['live', 'poweroff', 'none'] as const
 
 export type VmDiskWriteModeId = (typeof VM_DISK_WRITE_MODE_IDS)[number]
 
-export const DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE: VmDiskWriteModeId = 'persist'
+export const DEFAULT_VIRTUAL_MACHINE_DISK_WRITE_MODE: VmDiskWriteModeId = 'live'
 
 export function coerceVmDiskWriteMode(value: unknown): VmDiskWriteModeId | undefined {
-  if (value === 'none' || value === 'persist') {
+  if (value === 'live' || value === 'poweroff' || value === 'none') {
     return value
   }
-  if (value === 'live' || value === 'poweroff') {
-    return 'persist'
+  // 现存记录里的「保存硬盘改动」对回关机后写入。
+  if (value === 'persist') {
+    return 'poweroff'
   }
   return undefined
 }
@@ -169,7 +171,8 @@ export const DEFAULT_VIRTUAL_MACHINE_NAME = '未命名虚拟机'
 export const VIRTUAL_MACHINE_NAME_MAX_LENGTH = 80
 export const VIRTUAL_MACHINE_PATH_MAX_LENGTH = 500
 
-export const VM_STORAGE_DEVICE_TYPES = ['hdd', 'cdrom', 'floppy', 'state'] as const
+/** 整机快照能力已禁用：`state` 设备类型与保存/恢复入口全部移除，旧记录读入时丢弃。 */
+export const VM_STORAGE_DEVICE_TYPES = ['hdd', 'cdrom', 'floppy'] as const
 
 export type VmStorageDeviceType = (typeof VM_STORAGE_DEVICE_TYPES)[number]
 
@@ -287,5 +290,4 @@ export const VM_STORAGE_DEVICE_LIMITS: readonly VmStorageDeviceTypeWithLimits[] 
   { type: 'hdd', maxCount: 2 },
   { type: 'cdrom', maxCount: 1 },
   { type: 'floppy', maxCount: 2 },
-  { type: 'state', maxCount: 1 },
 ] as const
