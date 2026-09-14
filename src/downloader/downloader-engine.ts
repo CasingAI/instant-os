@@ -19,11 +19,13 @@ import type {
 } from './downloader-types.ts'
 import {
   addCompletedRange,
+  DOWNLOAD_HEADER_CAPACITY_BYTES,
   type InstantDownloadHeader,
   readDownloadHeader,
   serializeDownloadHeader,
   subtractByteRanges,
 } from './download-header.ts'
+import { md5Hex } from './md5.ts'
 
 const DEFAULT_CONCURRENCY = 3
 const DEFAULT_RETRY_COUNT = 3
@@ -68,6 +70,7 @@ export async function runDownloadTask(
 
   const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY)
   const retryCount = Math.max(0, options.retryCount ?? DEFAULT_RETRY_COUNT)
+  const pieceSize = Math.max(1, options.pieceSize ?? DEFAULT_PIECE_SIZE)
   const signal = options.signal
 
   const totalSize = resolveTotalSize(task.manifest)
@@ -78,21 +81,41 @@ export async function runDownloadTask(
     createBinary,
     nowMs,
   )
-  let currentPayloadOffset = payloadOffset
+  // 把旧版/外部写入的非定长 header 规范化到固定容量（在分块启动前，无并发）
+  let currentPayloadOffset = await persistHeader(
+    header,
+    payloadOffset,
+    task.targetPath,
+    writeRange,
+    readRange,
+    writeBinary,
+  )
 
   if (totalSize !== undefined) {
     await ensureFileSize(task.targetPath, currentPayloadOffset + totalSize, writeRange, statFile)
   }
 
+  // 速度按相邻两次进度上报的增量计算（滑动窗口），
+  // 避免用「总字节 ÷ 含暂停的总耗时」导致暂停后速度越显示越低。
+  let lastSampleBytes = sumRanges(header.completedRanges)
+  let lastSampleTime = nowMs()
+  let lastSpeed = 0
+
   const reportProgress = (completedBytes: number): void => {
     header.stats.bytesDownloaded = completedBytes
     header.stats.updatedAt = nowMs()
-    const elapsedMs = Math.max(1, nowMs() - header.stats.startedAt)
+    const now = nowMs()
+    const deltaMs = now - lastSampleTime
+    if (deltaMs > 0) {
+      lastSpeed = ((completedBytes - lastSampleBytes) * 1000) / deltaMs
+      lastSampleBytes = completedBytes
+      lastSampleTime = now
+    }
     const progress: DownloadProgress = {
       totalBytes: header.totalSize,
       downloadedBytes: completedBytes,
       completedRanges: header.completedRanges,
-      bytesPerSecond: (completedBytes * 1000) / elapsedMs,
+      bytesPerSecond: Math.max(0, lastSpeed),
     }
     options.onProgress?.(progress)
   }
@@ -115,7 +138,7 @@ export async function runDownloadTask(
     return
   }
 
-  const pieces = buildWorkPieces(task.manifest, totalSize, header.completedRanges)
+  const pieces = buildWorkPieces(task.manifest, totalSize, header.completedRanges, pieceSize)
   if (pieces.length === 0) {
     await finalizeDownload(task.targetPath, header, currentPayloadOffset, readRange, writeBinary, statFile)
     reportProgress(sumRanges(header.completedRanges))
@@ -127,69 +150,116 @@ export async function runDownloadTask(
   let hasError: Error | undefined
   let finishedCount = 0
 
-  await new Promise<void>((resolve, reject) => {
-    const tryStartNext = (): void => {
-      if (hasError) return
-      if (signal?.aborted) {
-        hasError = makeAbortError(signal)
+  // 分块中止时已写入的字节是真实落盘的数据，记入 completedRanges，
+  // 续传时只需补剩余区间，不必重下整个分块。
+  const recordPartialRange = (start: number, end: number): void => {
+    if (end <= start) return
+    header.completedRanges = addCompletedRange(header.completedRanges, start, end)
+    header.stats.updatedAt = nowMs()
+  }
+
+  // 多个分块并发完成时 persistHeader 必须串行：
+  // header 变长会整文件重写，并发执行会让 currentPayloadOffset 与实际文件错位。
+  let persistQueue: Promise<void> = Promise.resolve()
+  const enqueuePersistHeader = (): Promise<void> => {
+    const run = persistQueue.then(async () => {
+      currentPayloadOffset = await persistHeader(
+        header,
+        currentPayloadOffset,
+        task.targetPath,
+        writeRange,
+        readRange,
+        writeBinary,
+      )
+    })
+    persistQueue = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tryFinish = (): void => {
+        if (hasError) {
+          // 中止时等在途分块收尾，让它们的已写入字节先记入 completedRanges
+          if (signal?.aborted && activeCount > 0) return
+          reject(hasError)
+          return
+        }
+        if (finishedCount === pieces.length) {
+          resolve()
+        }
+      }
+
+      const tryStartNext = (): void => {
+        if (hasError) {
+          tryFinish()
+          return
+        }
+        if (signal?.aborted) {
+          hasError = makeAbortError(signal)
+          tryFinish()
+          return
+        }
+        while (activeCount < concurrency && nextIndex < pieces.length) {
+          const piece = pieces[nextIndex]!
+          nextIndex += 1
+          activeCount += 1
+          runPieceWithFailover(
+            piece,
+            task.targetPath,
+            currentPayloadOffset,
+            fetcher,
+            writeRange,
+            readRange,
+            retryCount,
+            signal,
+            recordPartialRange,
+          )
+            .then(async (completedPiece) => {
+              activeCount -= 1
+              finishedCount += 1
+              header.completedRanges = addCompletedRange(
+                header.completedRanges,
+                completedPiece.offset,
+                completedPiece.offset + completedPiece.size,
+              )
+              header.stats.updatedAt = nowMs()
+              if (!hasError) {
+                try {
+                  await enqueuePersistHeader()
+                } catch (error) {
+                  hasError = error instanceof Error ? error : new Error(String(error))
+                }
+                reportProgress(sumRanges(header.completedRanges))
+              }
+              tryStartNext()
+            })
+            .catch((error: unknown) => {
+              activeCount -= 1
+              if (!hasError) {
+                hasError = error instanceof Error ? error : new Error(String(error))
+              }
+              tryFinish()
+            })
+        }
         tryFinish()
-        return
       }
-      while (activeCount < concurrency && nextIndex < pieces.length) {
-        const piece = pieces[nextIndex]!
-        nextIndex += 1
-        activeCount += 1
-        runPieceWithFailover(
-          piece,
-          task.targetPath,
-          currentPayloadOffset,
-          fetcher,
-          writeRange,
-          readRange,
-          retryCount,
-          signal,
-        )
-          .then(async (completedPiece) => {
-            activeCount -= 1
-            finishedCount += 1
-            header.completedRanges = addCompletedRange(
-              header.completedRanges,
-              completedPiece.offset,
-              completedPiece.offset + completedPiece.size,
-            )
-            header.stats.updatedAt = nowMs()
-            currentPayloadOffset = await persistHeader(
-              header,
-              currentPayloadOffset,
-              task.targetPath,
-              writeRange,
-              readRange,
-              writeBinary,
-            )
-            reportProgress(sumRanges(header.completedRanges))
-            tryStartNext()
-          })
-          .catch((error: unknown) => {
-            activeCount -= 1
-            hasError = error instanceof Error ? error : new Error(String(error))
-            tryFinish()
-          })
-      }
-      tryFinish()
-    }
 
-    const tryFinish = (): void => {
-      if (hasError) {
-        reject(hasError)
-        return
-      }
-      if (finishedCount === pieces.length) {
-        resolve()
+      tryStartNext()
+    })
+  } catch (error) {
+    if (signal?.aborted) {
+      try {
+        await enqueuePersistHeader()
+      } catch {
+        // 中止后的进度落盘是尽力而为，失败不影响中止语义
       }
     }
-
-    tryStartNext()
-  })
+    throw error
+  }
 
   await finalizeDownload(task.targetPath, header, currentPayloadOffset, readRange, writeBinary, statFile)
   reportProgress(sumRanges(header.completedRanges))
@@ -224,9 +294,14 @@ async function loadOrCreateHeader(
       updatedAt: nowMs(),
     },
   }
-  const serialized = serializeDownloadHeader(header)
+  const serialized = serializeDownloadHeader(header, headerJsonCapacity())
   await createBinary(task.targetPath, asArrayBuffer(serialized.buffer))
   return { header, payloadOffset: serialized.byteLength }
+}
+
+/** header JSON 填充到的固定长度（不含 8 字节长度前缀）。 */
+function headerJsonCapacity(): number {
+  return DOWNLOAD_HEADER_CAPACITY_BYTES - 8
 }
 
 async function readExistingHeader(
@@ -234,7 +309,7 @@ async function readExistingHeader(
   readRange: typeof filesReadBlobRange,
 ): Promise<{ header: InstantDownloadHeader; payloadOffset: number } | undefined> {
   try {
-    const blob = await readRange(targetPath, 0, 64 * 1024)
+    const blob = await readRange(targetPath, 0, DOWNLOAD_HEADER_CAPACITY_BYTES)
     const bytes = new Uint8Array(await blob.arrayBuffer())
     const parsed = readDownloadHeader(bytes)
     if (!parsed) return undefined
@@ -252,7 +327,7 @@ async function persistHeader(
   readRange: typeof filesReadBlobRange,
   writeBinary: typeof filesWriteBinary,
 ): Promise<number> {
-  const serialized = serializeDownloadHeader(header)
+  const serialized = serializeDownloadHeader(header, headerJsonCapacity())
   if (serialized.byteLength <= currentPayloadOffset) {
     await writeRange(targetPath, 0, serialized)
     return currentPayloadOffset
@@ -350,11 +425,13 @@ async function runPieceWithFailover(
   readRange: typeof filesReadBlobRange,
   retryCount: number,
   signal: AbortSignal | undefined,
+  onPartialRange?: (start: number, end: number) => void,
 ): Promise<DownloadEnginePiece> {
   let lastError: Error | undefined
   for (const url of piece.urls) {
     for (let attempt = 0; attempt <= retryCount; attempt += 1) {
       throwIfAborted(signal)
+      let written = 0
       try {
         const response = await fetcher(url, {
           headers:
@@ -366,7 +443,6 @@ async function runPieceWithFailover(
         if (!response.ok && response.status !== 206) {
           throw new DownloadEngineError(`HTTP ${response.status}`)
         }
-        let written = 0
         for await (const chunk of readResponseChunks(response, signal)) {
           throwIfAborted(signal)
           if (chunk.byteLength === 0) continue
@@ -385,7 +461,12 @@ async function runPieceWithFailover(
         return piece
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
-        if (signal?.aborted) throw lastError
+        if (signal?.aborted) {
+          if (written > 0) {
+            onPartialRange?.(piece.offset, piece.offset + written)
+          }
+          throw lastError
+        }
       }
     }
   }
@@ -459,8 +540,14 @@ async function readFileBytes(
 async function verifyHash(bytes: Uint8Array, hash: HashInfo): Promise<void> {
   const algorithm =
     hash.algorithm === 'sha-1' ? 'SHA-1' : hash.algorithm === 'md5' ? 'MD5' : 'SHA-256'
-  const digest = await crypto.subtle.digest(algorithm, asArrayBuffer(bytes.buffer))
-  const actual = bufferToHex(digest)
+  let actual: string
+  if (hash.algorithm === 'md5') {
+    // Web Crypto 不支持 MD5，用内置实现
+    actual = md5Hex(bytes)
+  } else {
+    const digest = await crypto.subtle.digest(algorithm, asArrayBuffer(bytes.buffer))
+    actual = bufferToHex(digest)
+  }
   const expected = hash.value.toLowerCase()
   if (actual !== expected) {
     throw new DownloadEngineError(
@@ -480,6 +567,7 @@ function buildWorkPieces(
   manifest: DownloadManifest,
   totalSize: number,
   completedRanges: ByteRange[],
+  pieceSize: number,
 ): DownloadEnginePiece[] {
   const missing = subtractByteRanges(totalSize, completedRanges)
   if (missing.length === 0) return []
@@ -493,13 +581,16 @@ function buildWorkPieces(
   for (const range of missing) {
     let offset = range.start
     while (offset < range.end) {
-      const size = Math.min(DEFAULT_PIECE_SIZE, range.end - offset)
+      const size = Math.min(pieceSize, range.end - offset)
       pieces.push({
         index,
         offset,
         size,
         urls: [manifest.url],
-        hash: manifest.hash,
+        // manifest.hash 是整个文件的哈希，只有分块覆盖全文件时才能逐块校验；
+        // 其余情况由 finalizeDownload 对完整文件统一校验。
+        hash:
+          manifest.hash && offset === 0 && size === totalSize ? manifest.hash : undefined,
       })
       offset += size
       index += 1
@@ -517,12 +608,15 @@ function intersectPieceWithMissing(
     const start = Math.max(piece.offset, range.start)
     const end = Math.min(piece.offset + piece.size, range.end)
     if (start < end) {
+      // piece.hash 是整个 piece 的哈希，续传切出的子区间不能用它校验；
+      // 子区间的正确性由 finalizeDownload 对完整 piece 统一校验兜底。
+      const coversWholePiece = start === piece.offset && end === piece.offset + piece.size
       result.push({
         index: piece.index,
         offset: start,
         size: end - start,
         urls: piece.urls,
-        hash: piece.hash,
+        hash: coversWholePiece ? piece.hash : undefined,
       })
     }
   }

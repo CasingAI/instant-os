@@ -19,6 +19,13 @@ export const INSTANT_DOWNLOAD_VERSION = 1
 
 const HEADER_LENGTH_BYTES = 8
 
+/**
+ * header 在文件里占用的固定容量（含 8 字节长度前缀）。
+ * 固定容量保证下载过程中 payloadOffset 不变，
+ * 否则 header 随 completedRanges 增长而变长、整文件重写时会和在途分块写入竞争。
+ */
+export const DOWNLOAD_HEADER_CAPACITY_BYTES = 64 * 1024
+
 /** 判断一段字节是否包含 Instant Download header。 */
 export function hasDownloadHeader(bytes: Uint8Array): boolean {
   if (bytes.byteLength < HEADER_LENGTH_BYTES + INSTANT_DOWNLOAD_MAGIC.length) {
@@ -39,9 +46,15 @@ export function hasDownloadHeader(bytes: Uint8Array): boolean {
   return jsonText.includes(`"magic":"${INSTANT_DOWNLOAD_MAGIC}"`)
 }
 
-/** 序列化 header 为可写入文件开头的字节块。 */
-export function serializeDownloadHeader(header: InstantDownloadHeader): Uint8Array {
-  const json = JSON.stringify(header) + '\n'
+/** 序列化 header 为可写入文件开头的字节块；padJsonTo 可把 JSON 填充到固定长度。 */
+export function serializeDownloadHeader(header: InstantDownloadHeader, padJsonTo?: number): Uint8Array {
+  const baseJson = JSON.stringify(header)
+  const baseBytes = new TextEncoder().encode(baseJson)
+  let json = baseJson + '\n'
+  if (padJsonTo !== undefined && baseBytes.byteLength < padJsonTo) {
+    // 尾部空格不影响 JSON.parse，用于把 header 填充到固定容量
+    json = baseJson + ' '.repeat(padJsonTo - baseBytes.byteLength)
+  }
   const jsonBytes = new TextEncoder().encode(json)
   const totalLength = HEADER_LENGTH_BYTES + jsonBytes.byteLength
   const result = new Uint8Array(totalLength)

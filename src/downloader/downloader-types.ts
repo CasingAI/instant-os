@@ -37,6 +37,8 @@ export type DownloadEngineOptions = {
   concurrency?: number
   retryCount?: number
   signal?: AbortSignal
+  /** 单文件下载的分块大小（字节），默认 4 MiB。 */
+  pieceSize?: number
   onProgress?: (progress: DownloadProgress) => void
 }
 

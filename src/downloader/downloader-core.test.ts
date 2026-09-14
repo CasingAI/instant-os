@@ -29,6 +29,7 @@ import {
   type InstantDownloadHeader,
 } from './download-header.ts'
 import { parseMetalink, MetalinkParseError } from './metalink-parser.ts'
+import { md5Hex } from './md5.ts'
 import { DownloadEngineError, runDownloadTask, type DownloaderEngineDeps } from './downloader-engine.ts'
 import { addDownload, cancelDownload, listDownloads, loadDownloadTasks, pauseDownload, resetDownloadTasksForTests, resumeDownload } from './downloader-core.ts'
 import type { DownloaderEngineDeps as EngineDepsType } from './downloader-engine.ts'
@@ -207,7 +208,7 @@ class FakeFileSystem {
       current = next
     }
     current.set(view, offset)
-    this.files.set(path, current.subarray(0, end))
+    this.files.set(path, current)
   }
 
   async createBinary(path: string, data: ArrayBuffer): Promise<void> {
@@ -479,6 +480,254 @@ async function testEngineHashFailure(): Promise<void> {
   console.log('ok: engine hash failure')
 }
 
+// ---- MD5 ----
+
+async function testMd5Vectors(): Promise<void> {
+  assert.equal(md5Hex(utf8('')), 'd41d8cd98f00b204e9800998ecf8427e')
+  assert.equal(md5Hex(utf8('abc')), '900150983cd24fb0d6963f7d28e17f72')
+  assert.equal(
+    md5Hex(utf8('The quick brown fox jumps over the lazy dog')),
+    '9e107d9d372bb6826bd81d3542a419d6',
+  )
+  // 跨 64 字节块边界
+  assert.equal(md5Hex(utf8('a'.repeat(1000))), 'cabe45dcc9ae5b66ba86600cca6b8ba8')
+  console.log('ok: md5 vectors')
+}
+
+async function testEngineMd5Hash(): Promise<void> {
+  const fs = new FakeFileSystem()
+  const server = new FakeFetchServer()
+  const content = utf8('md5 hashed content')
+  server.setResource('https://example.com/md5.bin', { type: 'ok', body: content })
+
+  const task: DownloadTask = {
+    id: 'task:md5',
+    targetPath: '/user/Downloads/md5.bin',
+    state: 'running',
+    manifest: {
+      kind: 'single',
+      url: 'https://example.com/md5.bin',
+      totalSize: content.byteLength,
+      hash: { algorithm: 'md5', value: md5Hex(content) },
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  }
+
+  await runDownloadTask(task, { concurrency: 1 }, { ...makeEngineDeps(fs), fetch: server.createFetch() })
+
+  const final = await fs.readBlobRange(task.targetPath, 0, 0)
+  assert.deepEqual(new Uint8Array(await final.arrayBuffer()), content)
+  console.log('ok: engine md5 hash')
+}
+
+async function testEngineMultiPieceSingleFileWithHash(): Promise<void> {
+  const fs = new FakeFileSystem()
+  const server = new FakeFetchServer()
+  const content = new Uint8Array(20)
+  for (let i = 0; i < 20; i += 1) content[i] = i * 7
+  const hash = await bufferToHex(content.buffer)
+  server.setResource('https://example.com/mp.bin', { type: 'ok', body: content })
+
+  const task: DownloadTask = {
+    id: 'task:multipiece',
+    targetPath: '/user/Downloads/mp.bin',
+    state: 'running',
+    manifest: {
+      kind: 'single',
+      url: 'https://example.com/mp.bin',
+      totalSize: content.byteLength,
+      hash: { algorithm: 'sha-256', value: hash },
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  }
+
+  // pieceSize 8 把 20 字节切成 3 块；整文件 hash 由 finalize 统一校验
+  await runDownloadTask(
+    task,
+    { concurrency: 2, pieceSize: 8 },
+    { ...makeEngineDeps(fs), fetch: server.createFetch() },
+  )
+
+  const final = await fs.readBlobRange(task.targetPath, 0, 0)
+  assert.deepEqual(new Uint8Array(await final.arrayBuffer()), content)
+  console.log('ok: engine multi piece single file with hash')
+}
+
+async function testEngineMetalinkResumePartialPiece(): Promise<void> {
+  const fs = new FakeFileSystem()
+  const server = new FakeFetchServer()
+  const content = new Uint8Array(600)
+  for (let i = 0; i < 600; i += 1) content[i] = i % 251
+  const piece0Hash = await bufferToHex(content.slice(0, 300).buffer)
+  const piece1Hash = await bufferToHex(content.slice(300, 600).buffer)
+  server.setResource('https://example.com/ml.bin', { type: 'ok', body: content })
+
+  const manifest = {
+    kind: 'metalink' as const,
+    name: 'ml.bin',
+    totalSize: 600,
+    pieces: [
+      {
+        index: 0,
+        offset: 0,
+        size: 300,
+        urls: ['https://example.com/ml.bin'],
+        hash: { algorithm: 'sha-256' as const, value: piece0Hash },
+      },
+      {
+        index: 1,
+        offset: 300,
+        size: 300,
+        urls: ['https://example.com/ml.bin'],
+        hash: { algorithm: 'sha-256' as const, value: piece1Hash },
+      },
+    ],
+  }
+
+  // 模拟上次中断：piece0 已下载前 150 字节
+  const header: InstantDownloadHeader = {
+    magic: 'INSTANT-DL',
+    version: 1,
+    taskId: 'task:ml-resume',
+    manifest,
+    totalSize: 600,
+    completedRanges: [{ start: 0, end: 150 }],
+    stats: { bytesDownloaded: 150, startedAt: 1, updatedAt: 1 },
+  }
+  const headerBytes = serializeDownloadHeader(header)
+  const payloadOffset = headerBytes.byteLength
+  const initial = new Uint8Array(payloadOffset + 600)
+  initial.set(headerBytes, 0)
+  initial.set(content.subarray(0, 150), payloadOffset)
+  await fs.createBinary('/user/Downloads/ml.bin', initial.buffer)
+
+  const task: DownloadTask = {
+    id: 'task:ml-resume',
+    targetPath: '/user/Downloads/ml.bin',
+    state: 'running',
+    manifest,
+    createdAt: 1,
+    updatedAt: 1,
+  }
+
+  await runDownloadTask(task, { concurrency: 1 }, { ...makeEngineDeps(fs), fetch: server.createFetch() })
+
+  // piece0 只补缺失的 [150,300)，piece1 整块下载
+  const ranges = server.getLog().map((entry) => entry.headers?.Range).filter(Boolean)
+  assert.ok(ranges.includes('bytes=150-299'), `expected bytes=150-299, got ${ranges.join(',')}`)
+  assert.ok(ranges.includes('bytes=300-599'), `expected bytes=300-599, got ${ranges.join(',')}`)
+
+  const final = await fs.readBlobRange(task.targetPath, 0, 0)
+  assert.deepEqual(new Uint8Array(await final.arrayBuffer()), content)
+  console.log('ok: engine metalink resume partial piece')
+}
+
+async function testEngineAbortRecordsPartialProgress(): Promise<void> {
+  const fs = new FakeFileSystem()
+  const content = utf8('0123456789abcdefghijklmnopqrstuvwxyz')
+  const firstChunk = content.subarray(0, 10)
+  const controller = new AbortController()
+
+  // 流式响应：先给 10 字节，之后挂起；signal 中止时按真实 fetch 语义让流报错
+  const fetch: FetchImpl = async (_input, init) => {
+    const signal = init?.signal
+    const stream = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(firstChunk)
+        signal?.addEventListener('abort', () => {
+          streamController.error(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        })
+      },
+    })
+    return new Response(stream, {
+      status: 206,
+      headers: { 'content-length': String(content.byteLength) },
+    })
+  }
+
+  const task: DownloadTask = {
+    id: 'task:abort-partial',
+    targetPath: '/user/Downloads/partial.bin',
+    state: 'running',
+    manifest: {
+      kind: 'single',
+      url: 'https://example.com/partial.bin',
+      totalSize: content.byteLength,
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  }
+
+  const run = runDownloadTask(
+    task,
+    { concurrency: 1, signal: controller.signal },
+    { ...makeEngineDeps(fs), fetch },
+  )
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  controller.abort()
+  await assert.rejects(run)
+
+  // header 应已落盘，且包含中止前已写入的 [0,10)
+  const blob = await fs.readBlobRange(task.targetPath, 0, 64 * 1024)
+  const parsed = readDownloadHeader(new Uint8Array(await blob.arrayBuffer()))
+  assert.ok(parsed, 'download header should be persisted')
+  assert.deepEqual(parsed.header.completedRanges, [{ start: 0, end: 10 }])
+  console.log('ok: engine abort records partial progress')
+}
+
+async function testEngineSpeedSlidingWindow(): Promise<void> {
+  const fs = new FakeFileSystem()
+  const server = new FakeFetchServer()
+  const content = new Uint8Array(30)
+  for (let i = 0; i < 30; i += 1) content[i] = i
+  server.setResource('https://example.com/speed.bin', { type: 'ok', body: content })
+
+  // 可操控时钟：t=1000 起步，每个分块耗时 100ms
+  let clock = 1000
+  const samples: number[] = []
+
+  const task: DownloadTask = {
+    id: 'task:speed',
+    targetPath: '/user/Downloads/speed.bin',
+    state: 'running',
+    manifest: {
+      kind: 'single',
+      url: 'https://example.com/speed.bin',
+      totalSize: 30,
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  }
+
+  // 3 个 10 字节分块：第 1 块后模拟「暂停 10 秒」，再完成后两块
+  let fetchCount = 0
+  const baseFetch = server.createFetch()
+  const deps = {
+    ...makeEngineDeps(fs),
+    nowMs: () => clock,
+    fetch: (async (input, init) => {
+      fetchCount += 1
+      clock += 100
+      if (fetchCount === 2) clock += 10_000 // 第 2 块前等了 10 秒
+      return baseFetch(input, init)
+    }) as FetchImpl,
+  }
+
+  await runDownloadTask(
+    task,
+    { concurrency: 1, pieceSize: 10, onProgress: (p) => samples.push(p.bytesPerSecond) },
+    deps,
+  )
+
+  // 每块 10 字节 / 100ms = 100 B/s。暂停后的第一个样本会被拉低（窗口含暂停），
+  // 但之后的样本必须恢复；旧算法「总字节 ÷ 含暂停的总耗时」只会越拖越低、永不恢复。
+  assert.equal(samples[0], 100)
+  assert.equal(samples[samples.length - 1], 100)
+  console.log('ok: engine speed sliding window')
+}
+
 // ---- 核心 API（mock 依赖） ----
 
 async function testCoreAddDownloadSingle(): Promise<void> {
@@ -589,6 +838,12 @@ async function main(): Promise<void> {
   await testEngineConcurrencyLimit()
   await testEngineUrlFailover()
   await testEngineHashFailure()
+  await testMd5Vectors()
+  await testEngineMd5Hash()
+  await testEngineMultiPieceSingleFileWithHash()
+  await testEngineMetalinkResumePartialPiece()
+  await testEngineAbortRecordsPartialProgress()
+  await testEngineSpeedSlidingWindow()
   await testCoreAddDownloadSingle()
   await testCorePauseResume()
   await testCoreLoadTasks()
