@@ -292,11 +292,17 @@ export const SHARE_SYNC_SCRIPT = [
   '      x.Send',
   '      If x.status <> 200 Then',
   '        log.WriteLine "fail " & url & " status=" & x.status',
+  // 保存序列前先 Err.Clear：On Error Resume Next 下 Err 跨语句/跨循环残留，
+  // 前面任何一步（上个文件的 x.Send、CreateFolder 等）失败未清，会让本次成功
+  // 的保存被误判成 savefail。n 用 LenB 而非 UBound+1：0 字节文件的 responseBody
+  // 是空数组，UBound 抛下标越界又会污染下一个文件；空体跳过 Write 直接落空文件。
   '      Else',
+  '        Err.Clear',
   '        Set s = CreateObject("ADODB.Stream")',
   '        s.Open',
   '        s.Type = 1',
-  '        s.Write x.responseBody',
+  '        n = LenB(x.responseBody)',
+  '        If n > 0 Then s.Write x.responseBody',
   '        s.SaveToFile root & "\\" & local, 2',
   '        s.Close',
   '        Set s = Nothing',
@@ -304,7 +310,6 @@ export const SHARE_SYNC_SCRIPT = [
   '          log.WriteLine "savefail " & local & " 0x" & Hex(Err.Number) & " " & Err.Description',
   '          Err.Clear',
   '        Else',
-  '          n = UBound(x.responseBody) + 1',
   '          log.WriteLine "saved " & local & " bytes=" & n',
   '        End If',
   '      End If',
