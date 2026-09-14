@@ -1088,6 +1088,49 @@ export async function getFilesTotalBytes(): Promise<number> {
   return meta?.totalBytes ?? 0
 }
 
+/**
+ * 重扫全库，把 byte-total 校准为「Σ节点元数据 + Σblob 实占」。
+ * byte-total 是只增不减倾向的累计计数器，历史上曾漂出 ~10.5GB（OPFS 范围写
+ * 全额入账不扣覆盖，2026-09-14 事故）。增量公式再正确也可能有未知路径漏扣，
+ * 在大吞吐节点（虚拟机关机合并完成）后调一次自愈兜底。
+ * 返回 [校准前, 校准后]。
+ */
+export async function reconcileFilesByteTotal(): Promise<[number, number]> {
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(
+    db,
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
+    'readonly',
+  )
+  const nodes = await requestToPromise(
+    tx.objectStore(FILES_NODES_STORE).getAll() as IDBRequest<FilesNodeRecord[]>,
+  )
+  const blobs = await requestToPromise(
+    tx.objectStore(FILES_BLOBS_STORE).getAll() as IDBRequest<FilesBlobRecord[]>,
+  )
+  await waitForTransaction(tx)
+
+  let total = 0
+  for (const record of nodes ?? []) {
+    total += estimateNodeMetaBytes(recordToNode(record))
+  }
+  for (const blob of blobs ?? []) {
+    total += blobPayloadBytes(blob)
+  }
+
+  const before = await getFilesTotalBytes()
+  if (before === total) {
+    return [before, total]
+  }
+  const writeTx = beginIdbTransaction(db, FILES_META_STORE, 'readwrite')
+  writeTx
+    .objectStore(FILES_META_STORE)
+    .put({ key: 'byte-total', totalBytes: total } satisfies FilesMetaRecord)
+  await waitForTransaction(writeTx)
+  emitFilesDataStorageChanged()
+  return [before, total]
+}
+
 /** 计入数据空间配额的文件卷（IndexedDB 本地卷） */
 export const DATA_SPACE_FILE_LOCATIONS: readonly FilesLocationId[] = ['local', 'dev', 'tmp']
 
@@ -2471,7 +2514,13 @@ export async function writeBlobBytesRange(params: {
   const newLogicalByteSize = Math.max(oldLogicalByteSize, writeEnd)
 
   if (isOpfsBlob(blob)) {
-    const capacityDelta = bytes.byteLength
+    // OPFS 文件的账面 = 文件全长（见 blobPayloadBytes），覆盖写不产生新占用：
+    // 增量只算尾部增长。此前按 bytes.byteLength 全额入账，客机反复写同一批
+    // 扇区（NTFS 元数据/注册表 hive）会只增不减地把 byte-total 漂高——
+    // 2026-09-14 账面 15.9GB vs 实占 6.6GB 的事故根因。
+    const capacityDelta = shared
+      ? newLogicalByteSize
+      : Math.max(0, newLogicalByteSize - oldLogicalByteSize)
     const total = await assertCapacity(capacityDelta)
     return commitOpfsRangeWrite({
       nodeRecord,
@@ -2492,7 +2541,11 @@ export async function writeBlobBytesRange(params: {
   const canSpillToOpfs = !hasHolesNow && !writeHasZeros && shouldSpillToOpfs(newLogicalByteSize)
 
   if (canSpillToOpfs) {
-    const capacityDelta = shared ? newLogicalByteSize : Math.max(0, bytes.byteLength - (writeStart < oldLogicalByteSize ? Math.min(writeEnd, oldLogicalByteSize) - writeStart : 0))
+    // 迁移后旧 IDB 实占（oldStoredByteSize）随之释放，非 shared 时要从增量里
+    // 扣掉；shared 时旧 blob 仍有别的引用在，新 OPFS 文件按全长计。
+    const capacityDelta = shared
+      ? newLogicalByteSize
+      : newLogicalByteSize - oldStoredByteSize
     const total = await assertCapacity(capacityDelta)
     return spillIdbRangeWriteToOpfs({
       nodeRecord,

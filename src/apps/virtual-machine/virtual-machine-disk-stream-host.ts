@@ -1,4 +1,5 @@
 import { filesReadBlobRange, filesStat, filesWriteBytesRange } from '../files/files-api.ts'
+import { reconcileFilesByteTotal } from '../files/files-storage.ts'
 import { openQuietBlobWriter } from '../files/files-quiet-blob-write.ts'
 import { openMountRangeWriter } from '../files/files-location-mount.ts'
 import {
@@ -1000,6 +1001,8 @@ async function closeReleasedStream(
           shouldAbort: () => abandonRequests.has(streamId),
           streamId,
         })
+        // 大批量范围写刚落盘，顺手校准 byte-total（漂移自愈，见 files-storage）
+        void reconcileFilesByteTotal().catch(() => undefined)
       }
     }
     recordSystemDebugTimeline({
