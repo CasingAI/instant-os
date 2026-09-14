@@ -117,6 +117,9 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+rem v9 剪贴板文件桥：桥按固定路径拉起清单助手
+if not exist "C:\Tools\clip" mkdir "C:\Tools\clip"
+if exist "%~dp0clip-dav-hdrop.exe" copy /Y "%~dp0clip-dav-hdrop.exe" "C:\Tools\clip\clip-dav-hdrop.exe" >nul
 copy /Y "%~dp0ivm-shm.sys" "C:\Windows\System32\drivers\ivm-shm.sys" >nul
 if errorlevel 1 (
   echo ERROR: copy ivm-shm.sys failed.

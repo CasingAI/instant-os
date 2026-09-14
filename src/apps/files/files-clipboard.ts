@@ -17,14 +17,23 @@ export type VmClipboardFile = {
   size: number
 }
 
+/** v9 桥：XP 复制的文件已由桥拷进共享根 staging（relPath = 共享根相对路径）。 */
+export type VmStagingFile = {
+  name: string
+  relPath: string
+  size: number
+}
+
 /**
  * 剪贴板内容：
  * - nodes：文件APP内部复制/剪切（nodeId 引用，粘贴走节点拷贝）
- * - vm-files：虚拟机待导入文件（路径引用，粘贴走信箱流式拉取）
+ * - vm-files：虚拟机待导入文件（旧桥信箱路径引用，粘贴走信箱流式拉取）
+ * - vm-staging：虚拟机待导入文件（v9 桥已拷进共享根 staging，粘贴走 VFS 拷贝）
  */
 export type FilesClipboardEntry =
   | { kind: 'nodes'; entries: FilesClipboardEntryItem[]; mode: FilesClipboardMode }
   | { kind: 'vm-files'; files: VmClipboardFile[] }
+  | { kind: 'vm-staging'; files: VmStagingFile[] }
 
 let clipboard: FilesClipboardEntry | undefined
 

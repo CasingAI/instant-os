@@ -61,7 +61,9 @@ import {
 } from './virtual-machine-clipboard.ts'
 import { postVirtualMachineDiskWriteFailedNotification } from './virtual-machine-disk-write-notification.ts'
 import {
+  clearVmClipStaging,
   handleVmFileEvent,
+  registerVmClipSharedTarget,
   registerVmFileTransferBackend,
   subscribeVmFileOffers,
 } from './virtual-machine-file-transfer.ts'
@@ -262,6 +264,11 @@ const DISPLAY_MODE_SEGMENTS: readonly { id: VmDisplayModeId; label: string }[] =
 type SettingsSession =
   | { mode: 'create'; initial: VirtualMachineSettings }
   | { mode: 'edit'; id: string; initial: VirtualMachineSettings }
+
+/** 弹窗正文末尾标注虚拟机名：多台并存时分不清提示说的是哪一台。查不到名字就留空。 */
+function machineSuffix(name: string | undefined): string {
+  return name ? `（${name}）` : ''
+}
 
 function formatMachineMeta(machine: VirtualMachineRecord): string {
   const memory = formatVmMemoryLabel(machine.memoryMb)
@@ -677,17 +684,19 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const runtimeOrigin = getVmRuntimeOrigin()
   const pool = useVirtualMachineRuntimePool(runtimeOrigin, {
     // 硬盘回写类警告升级为弹窗：右上角小字没人看，关键事件必须打断
-    onDiskWriteIncomplete: () => {
+    onDiskWriteIncomplete: (id) => {
+      const machineName = machinesRef.current.find((machine) => machine.id === id)?.name
       void modal.alert({
         title: '关机落盘未完成',
-        message: DISK_IMAGE_INCOMPLETE_HINT,
+        message: `${DISK_IMAGE_INCOMPLETE_HINT}${machineSuffix(machineName)}`,
         themeColor: THEME,
       })
     },
-    onDiskWriteDirty: (_id, detail) => {
+    onDiskWriteDirty: (id, detail) => {
+      const machineName = machinesRef.current.find((machine) => machine.id === id)?.name
       void modal.alert({
         title: '关机写入不完整',
-        message: `关机收尾时有 ${detail.discardedWrites} 条磁盘写入未能写入镜像，镜像可能不一致。建议重新开机让系统自检修复，修复前请勿直接使用或导出该镜像。`,
+        message: `关机收尾时有 ${detail.discardedWrites} 条磁盘写入未能写入镜像，镜像可能不一致。建议重新开机让系统自检修复，修复前请勿直接使用或导出该镜像。${machineSuffix(machineName)}`,
         themeColor: THEME,
       })
     },
@@ -703,9 +712,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       const machineName = machinesRef.current.find((machine) => machine.id === id)?.name
       const answer = await modal.choose({
         title: '写入硬盘文件？',
-        message: `${
-          machineName ? `「${machineName}」` : '这台虚拟机'
-        }这次开机的改动还在缓存里。不保存会删掉缓存，硬盘文件保持原来的内容。`,
+        message: `这台虚拟机这次开机的改动还在缓存里。不保存会删掉缓存，硬盘文件保持原来的内容。${machineSuffix(machineName)}`,
         options: [
           { key: 'discard', label: '不保存', tone: 'danger' },
           { key: 'merge', label: '写入硬盘文件', tone: 'primary' },
@@ -721,11 +728,9 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       const totalBytes = reports.reduce((sum, report) => sum + report.cacheBytes, 0)
       const answer = await modal.choose({
         title: '上次的改动尚未写入硬盘文件',
-        message: `「${
-          machineName ?? '这台虚拟机'
-        }」上次结束时没有走完关机流程，还有约 ${formatVmDiskBytes(
+        message: `这台虚拟机上次结束时没有走完关机流程，还有约 ${formatVmDiskBytes(
           totalBytes,
-        )} 的改动留在缓存里。合并会写进硬盘文件；不处理也可以先开机，改动不会丢。`,
+        )} 的改动留在缓存里。合并会写进硬盘文件；不处理也可以先开机，改动不会丢。${machineSuffix(machineName)}`,
         options: [
           { key: 'merge', label: '合并后开机', tone: 'primary' },
           { key: 'first-aid', label: '去磁盘工具处理' },
@@ -749,7 +754,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         // 取消按「直接开机」处理（缓存原样保留），不替用户丢数据。
         const confirmed = await modal.confirm({
           title: '丢弃这些改动？',
-          message: '缓存里的改动会被删掉，硬盘文件保持更早的内容。此操作无法撤销。',
+          message: `缓存里的改动会被删掉，硬盘文件保持更早的内容。此操作无法撤销。${machineSuffix(machineName)}`,
           confirmLabel: '丢弃',
           cancelLabel: '取消',
           confirmTone: 'danger',
@@ -1100,8 +1105,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     : true
 
   const showVmError = useCallback(
-    (message: string, title = '虚拟机错误') => {
-      void modal.alert({ title, message, themeColor: THEME })
+    (message: string, title = '虚拟机错误', machineName?: string) => {
+      void modal.alert({ title, message: `${message}${machineSuffix(machineName)}`, themeColor: THEME })
     },
     [modal],
   )
@@ -1348,6 +1353,28 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
     void pool.setSharedFolder(displayedId, sharedFolderActive).catch(() => {})
   }, [displayedId, selectedRunning, sharedFolderActive, sharedFolderPath, pool])
+  // 剪贴板文件桥 staging（v9）：目标随共享文件夹配置/运行状态注册；从激活
+  // 变为非激活（停机/关共享/切到没开共享的机器）时回收两个 staging 目录。
+  const clipStagingActive =
+    selectedRunning && sharedFolderActive && displayedMachine !== undefined
+  const clipStagingDrive = /^[A-Za-z]$/.test(displayedMachine?.sharedFolderDrive ?? '')
+    ? displayedMachine!.sharedFolderDrive.toUpperCase()
+    : 'Z'
+  const clipStagingRootRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (clipStagingActive) {
+      const root = displayedMachine!.sharedFolderPath
+      clipStagingRootRef.current = root
+      registerVmClipSharedTarget({ root, drive: clipStagingDrive })
+    } else {
+      registerVmClipSharedTarget(null)
+      const staleRoot = clipStagingRootRef.current
+      clipStagingRootRef.current = null
+      if (staleRoot) {
+        void clearVmClipStaging(staleRoot).catch(() => {})
+      }
+    }
+  }, [clipStagingActive, clipStagingDrive, displayedMachine, sharedFolderPath])
   // 共享文件夹开机重推：guest 注册表配置是易失的（硬盘写入「不写入」时重启
   // 即蒸发），agent 的启动自愈只在配置还在时有效。每次开机、agent 命令链
   // 就绪（PONG 新鲜）后宿主重推一遍——幂等（Seq bump 后 agent 无操作收敛）。
@@ -2025,7 +2052,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         try {
           await pool.shutdown(target.id)
         } catch (error) {
-          showVmError(error instanceof Error ? error.message : '关机失败')
+          showVmError(error instanceof Error ? error.message : '关机失败', '虚拟机错误', target.name)
           return
         }
       }
@@ -2096,7 +2123,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
                 : '切断电源后，这次开机的改动先留在缓存里。之后会问你是否写入硬盘文件。'
           const confirmed = await modal.confirm({
             title: '断电',
-            message: modeMessage,
+            message: `${modeMessage}${machineSuffix(machine.name)}`,
             confirmLabel: '断电',
             cancelLabel: '取消',
             confirmTone: 'danger',
@@ -2126,7 +2153,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               if (!alive) {
                 setPowerHint(undefined)
                 trace('power-skipped', { reason: 'agent-not-connected' })
-                showVmError('客机 Agent 未连通，关机命令无法送达')
+                showVmError('客机 Agent 未连通，关机命令无法送达', '虚拟机错误', machine.name)
                 return
               }
             }
@@ -2152,7 +2179,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               setPowerHint(FORCED_OFF_UNFLUSHED_HINT)
               void modal.alert({
                 title: '强制断电',
-                message: `已强制断电。还没保存完的改动可能丢失。若写入被打断，硬盘文件可能不完整，建议重新开机让系统自检修复，修好前请勿直接使用或导出。`,
+                message: `已强制断电。还没保存完的改动可能丢失。若写入被打断，硬盘文件可能不完整，建议重新开机让系统自检修复，修好前请勿直接使用或导出。${machineSuffix(machine.name)}`,
                 themeColor: THEME,
               })
             } else {
@@ -2167,7 +2194,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               setPowerHint(FORCED_OFF_UNFLUSHED_HINT)
               void modal.alert({
                 title: '强制断电',
-                message: `已强制断电。还没保存完的改动可能丢失。若写入被打断，硬盘文件可能不完整，建议重新开机让系统自检修复，修好前请勿直接使用或导出。`,
+                message: `已强制断电。还没保存完的改动可能丢失。若写入被打断，硬盘文件可能不完整，建议重新开机让系统自检修复，修好前请勿直接使用或导出。${machineSuffix(machine.name)}`,
                 themeColor: THEME,
               })
             } else {
@@ -2183,7 +2210,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           trace('power-failed', {
             error: error instanceof Error ? error.message : String(error),
           })
-          showVmError(error instanceof Error ? error.message : '操作失败')
+          showVmError(error instanceof Error ? error.message : '操作失败', '虚拟机错误', machine.name)
         } finally {
           if (!waitForGuestShutdown) {
             setPowerBusy(false)
@@ -2219,9 +2246,10 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       return
     }
     void (async () => {
+      const machineName = machinesRef.current.find((machine) => machine.id === displayedId)?.name
       const abandon = await modal.confirm({
         title: '放弃写入？',
-        message: '还没写进硬盘文件的部分会丢掉。',
+        message: `还没写进硬盘文件的部分会丢掉。${machineSuffix(machineName)}`,
         confirmLabel: '放弃',
         cancelLabel: '继续写入',
         confirmTone: 'danger',

@@ -6,12 +6,21 @@
  * 路，本程序验证「真实网络路径」那条要落地的路——
  *
  *   用法：clip-dav-hdrop.exe <路径> [更多路径...] [/cut]
+ *                                    [/wait:<秒>] [/manifest:<清单文件>]
  *
  * 把命令行给出的【真实存在】的路径（盘符或 UNC，绝不许 http://）挂上
  * OLE 剪贴板的 CF_HDROP + Preferred DropEffect（默认复制，/cut 改剪切），
  * 然后只做三件事：保持剪贴板所有权、记录每一次被取数、到点退出。
  * 它【只返回路径】：绝不自己写盘、绝不弹「正在复制」——真正的复制引擎
  * 应当是 XP 资源管理器自己（这就是二期要验证的前提）。
+ *
+ * v9 新增 /manifest:<清单文件>：服务「宿主文件APP复制 → XP 系统对话框
+ * 粘贴」桥接。清单是 UTF-16LE 文本（BOM 可有可无）：第一行是模式
+ * （copy/cut，其他值按 copy，且优先于命令行 /cut），其余每行一个绝对
+ * 路径；相对行以清单所在目录拼成绝对路径。路径很多（几百行）也吃得下：
+ * 清单按实际文件尺寸读入，路径数组动态分配。该模式 /wait 缺省放宽为
+ * 24 小时——复制在宿主侧发生，粘贴可能很久之后才发生；显式 /wait 仍
+ * 优先。
  *
  * 判定方法（与 C:\Tools\clip-dav-probe.log、宿主控制台 WebDAV 行对时间）：
  *   QUERY（QueryGetData）成串出现、没有 FETCH → 只是右键菜单在探格式，
@@ -25,8 +34,8 @@
  * 每次取数记相对时间、格式名、tymed、返回码、字节数，全部追加到
  * C:\Tools\clip-dav-hdrop.log；同时轮询剪贴板序号与所有权（被别的进程
  * 抢走会记一笔——常买就是现有剪贴板桥接管了，探针结果作废重跑）。
- * 4 分钟自动退出；退出前 OleFlushClipboard 把路径定格到系统剪贴板，
- * 助手退场后再贴一次的表现也是一个数据点。
+ * 4 分钟自动退出（/manifest 模式缺省 24 小时）；退出前 OleFlushClipboard
+ * 把路径定格到系统剪贴板，助手退场后再贴一次的表现也是一个数据点。
  *
  * 运行前（探针批处理会提醒）：不要从宿主文件 APP 复制任何东西，否则
  * 现有剪贴板桥会把剪贴板抢成空占位，本程序 OleSetClipboard 直接失败。
@@ -574,8 +583,9 @@ static HGLOBAL build_effect(DWORD value)
 
 #define TIMER_EXIT 1
 #define TIMER_POLL 2
-#define PROBE_SECONDS 240u
-#define MAX_PATHS 16
+#define PROBE_SECONDS 240u /* 命令行模式的缺省存活时长（4 分钟） */
+#define MANIFEST_SECONDS 86400u /* /manifest 模式缺省存活 24 小时：粘贴可能发生在很久之后 */
+#define MAX_PATHS 16 /* 命令行直给路径的上限；/manifest 走动态数组，几百行也行 */
 
 static ProbeData *g_data;
 
@@ -662,13 +672,214 @@ static int parse_wait_arg(const wchar_t *s, unsigned *out)
     return 1;
 }
 
+/*
+ * `/manifest:<文件路径>`：返回冒号后的清单文件路径部分，不匹配返回 NULL。
+ * 与 /wait 同款大小写无关前缀匹配，冒号后内容原样保留（是路径，不改大小写）。
+ */
+static const wchar_t *parse_manifest_arg(const wchar_t *s)
+{
+    const wchar_t *p = s;
+    if (*p == L'/' || *p == L'-') {
+        p++;
+    } else {
+        return NULL;
+    }
+    {
+        static const wchar_t prefix[] = L"manifest:";
+        int i;
+        for (i = 0; prefix[i] != 0; i++) {
+            wchar_t a = p[i];
+            if (a >= L'A' && a <= L'Z') {
+                a += L'a' - L'A';
+            }
+            if (a != prefix[i]) {
+                return NULL;
+            }
+        }
+        p += i;
+    }
+    if (*p == 0) {
+        return NULL;
+    }
+    return p;
+}
+
+/* ---- v9 /manifest：清单读入与解析（宿主文件APP复制 → XP 对话框粘贴） ---- */
+
+/* 绝对路径判定：X: 盘符或 \\ UNC 开头；其余按相对，用 manifest 目录拼。 */
+static int path_is_absolute(const wchar_t *p)
+{
+    if (p[0] == L'\\' && p[1] == L'\\') {
+        return 1;
+    }
+    if (p[0] != 0 && p[1] == L':') {
+        return 1;
+    }
+    return 0;
+}
+
+/* 动态路径数组：命令行直给的（最多 16 个）+ 清单里的几百行都进这里。 */
+typedef struct {
+    wchar_t **items;
+    int count;
+    int cap;
+} PathList;
+
+static int pathlist_push(PathList *pl, wchar_t *path)
+{
+    if (pl->count >= pl->cap) {
+        int ncap = pl->cap > 0 ? pl->cap * 2 : 64;
+        wchar_t **na = (wchar_t **)HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+                                               pl->items,
+                                               (SIZE_T)ncap * sizeof(wchar_t *));
+        if (na == NULL) {
+            return 0;
+        }
+        pl->items = na;
+        pl->cap = ncap;
+    }
+    pl->items[pl->count++] = path;
+    return 1;
+}
+
+/*
+ * 按实际尺寸读入 manifest 全文（无 CRT，只能 CreateFileW/ReadFile）。
+ * UTF-16LE，BOM(FF FE) 可有可无（解析阶段跳过）。返回 NUL 结尾的
+ * HeapAlloc 缓冲区，失败返回 NULL。16 MB 上限纯属防呆——几百行路径
+ * 也就几十 KB。
+ */
+static wchar_t *read_manifest_file(const wchar_t *path)
+{
+    HANDLE h;
+    DWORD size;
+    DWORD got = 0;
+    wchar_t *buf;
+
+    h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {
+        log_line("manifest CreateFileW failed err=%lu", GetLastError());
+        return NULL;
+    }
+    size = GetFileSize(h, NULL);
+    if (size == INVALID_FILE_SIZE) {
+        log_line("manifest GetFileSize failed err=%lu", GetLastError());
+        CloseHandle(h);
+        return NULL;
+    }
+    if (size > 16u * 1024u * 1024u) {
+        log_line("manifest too large: %lu bytes", size);
+        CloseHandle(h);
+        return NULL;
+    }
+    /* 尾部多给 4 字节：奇数尺寸按 wchar 对齐的兜底 + 强制 NUL 结尾。 */
+    buf = (wchar_t *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+                               (SIZE_T)size + 2 * sizeof(wchar_t));
+    if (buf == NULL) {
+        log_line("manifest alloc failed (%lu bytes)", size);
+        CloseHandle(h);
+        return NULL;
+    }
+    if (size != 0 && (!ReadFile(h, buf, size, &got, NULL) || got != size)) {
+        log_line("manifest ReadFile failed err=%lu got=%lu want=%lu",
+                 GetLastError(), got, size);
+        HeapFree(GetProcessHeap(), 0, buf);
+        CloseHandle(h);
+        return NULL;
+    }
+    CloseHandle(h);
+    buf[size / 2] = 0; /* 强制 NUL 结尾；奇数尺寸的半个 wchar 就地丢弃 */
+    return buf;
+}
+
+/*
+ * 解析清单文本：按 '\n' 分行、去行尾 '\r'，空行跳过。第一行是模式
+ * （"cut" → 剪切，其他值一律 copy，且优先于命令行 /cut），其余每行一个
+ * 路径；相对行以 manifest 所在目录为基准简单拼接（目录 + '\' + 行内容）。
+ * 路径串尽量原地复用（行内 NUL 截断），相对行才另配缓冲。返回解析出的
+ * 条数，分配失败返回 0。
+ */
+static int manifest_parse(const wchar_t *manifest_path, wchar_t *text, PathList *pl,
+                          int *out_cut)
+{
+    int dir_len = 0; /* manifest 所在目录长度（最后一个分隔符之前） */
+    int have_mode = 0;
+    int cut = 0;
+    const wchar_t *q;
+    wchar_t *p;
+
+    for (q = manifest_path; *q; q++) {
+        if (*q == L'\\' || *q == L'/') {
+            dir_len = (int)(q - manifest_path);
+        }
+    }
+
+    p = text;
+    if (*p == 0xFEFF) {
+        p++; /* UTF-16LE BOM（可选） */
+    }
+    while (*p != 0) {
+        wchar_t *line = p;
+        while (*p != 0 && *p != L'\n') {
+            p++;
+        }
+        if (p > line && p[-1] == L'\r') {
+            p[-1] = 0; /* 去行尾 \r */
+        }
+        if (*p != 0) {
+            *p++ = 0; /* 吃掉 \n，line 成独立串 */
+        }
+        if (*line == 0) {
+            continue; /* 空行 */
+        }
+        if (!have_mode) {
+            have_mode = 1;
+            cut = argi_equals(line, L"cut") ? 1 : 0; /* 其他值一律按 copy */
+            continue;
+        }
+        if (path_is_absolute(line)) {
+            if (!pathlist_push(pl, line)) {
+                return 0;
+            }
+            continue;
+        }
+        /* 相对行：manifest 目录 + '\' + 行内容（清单只给文件名时退化为 .\）。 */
+        {
+            SIZE_T line_wchars = lstrlenW(line);
+            SIZE_T base_len = dir_len > 0 ? (SIZE_T)dir_len : 1;
+            wchar_t *joined = (wchar_t *)HeapAlloc(
+                GetProcessHeap(), 0, (base_len + 1 + line_wchars + 1) * sizeof(wchar_t));
+            if (joined == NULL) {
+                log_line("manifest path alloc failed (%u wchars)",
+                         (unsigned)(base_len + 1 + line_wchars + 1));
+                return 0;
+            }
+            if (dir_len > 0) {
+                memcpy(joined, manifest_path, (SIZE_T)dir_len * sizeof(wchar_t));
+            } else {
+                joined[0] = L'.';
+            }
+            joined[base_len] = L'\\';
+            memcpy(joined + base_len + 1, line, (line_wchars + 1) * sizeof(wchar_t));
+            if (!pathlist_push(pl, joined)) {
+                return 0;
+            }
+        }
+    }
+    *out_cut = cut;
+    return pl->count;
+}
+
 void clipdav_entry(void)
 {
     int argcW = 0;
     LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argcW);
-    wchar_t *paths[MAX_PATHS];
+    wchar_t *stack_paths[MAX_PATHS];
+    wchar_t **paths = stack_paths; /* /manifest 模式换成动态数组 */
     int count = 0;
     int cut = 0;
+    int wait_explicit = 0;
+    const wchar_t *manifest_file = NULL;
     unsigned probe_seconds = PROBE_SECONDS;
     HRESULT hr;
     MSG msg;
@@ -678,23 +889,62 @@ void clipdav_entry(void)
     if (argv == NULL || argcW < 2) {
         log_line("==== clip-dav-hdrop: no path given ====");
         MessageBoxA(NULL,
-                    "usage: clip-dav-hdrop.exe <path> [more paths] [/cut] [/wait:<seconds>]\r\n\r\n"
+                    "usage: clip-dav-hdrop.exe <path> [more paths] [/cut]\r\n"
+                    "       [/wait:<seconds>] [/manifest:<file>]\r\n\r\n"
                     "Puts real paths on the clipboard as CF_HDROP and logs every\r\n"
-                    "fetch to " LOG_PATH ". Auto-exits after 4 minutes by default;\r\n"
-                    "use /wait:<seconds> to hold the clipboard longer.",
+                    "fetch to " LOG_PATH ". /manifest reads a UTF-16LE list file\r\n"
+                    "(first line: copy/cut, then one absolute path per line) and\r\n"
+                    "defaults to /wait:86400 in that mode. Auto-exits after 4\r\n"
+                    "minutes otherwise; /wait:<seconds> holds the clipboard longer.",
                     "clip-dav-hdrop", MB_OK | MB_ICONINFORMATION);
         ExitProcess(2);
     }
     for (int i = 1; i < argcW; i++) {
+        const wchar_t *mf = parse_manifest_arg(argv[i]);
         if (argi_equals(argv[i], L"/cut") || argi_equals(argv[i], L"-cut")) {
             cut = 1;
         } else if (argi_equals(argv[i], L"/copy") || argi_equals(argv[i], L"-copy")) {
             /* 默认就是 copy，显式写也无妨 */
         } else if (parse_wait_arg(argv[i], &probe_seconds)) {
-            /* 存活时长已更新 */
+            wait_explicit = 1; /* 显式 /wait 优先于 manifest 模式的 24 小时缺省 */
+        } else if (mf != NULL) {
+            manifest_file = mf;
         } else if (count < MAX_PATHS) {
-            paths[count++] = argv[i];
+            stack_paths[count++] = argv[i];
         }
+    }
+    if (manifest_file != NULL) {
+        /* v9：/manifest 模式。清单路径与命令行直给的路径进同一个数组、
+         * 走同一套 CF_HDROP + DropEffect 逻辑；模式以清单第一行为准
+         * （优先于 /cut），/wait 缺省放宽到 24 小时。 */
+        PathList pl;
+        wchar_t *text = read_manifest_file(manifest_file);
+        if (text == NULL) {
+            log_line("manifest unusable, giving up");
+            MessageBoxA(NULL, "cannot read manifest file", "clip-dav-hdrop /manifest",
+                        MB_OK | MB_ICONERROR);
+            ExitProcess(2);
+        }
+        pl.items = NULL;
+        pl.count = 0;
+        pl.cap = 0;
+        for (int i = 0; i < count; i++) {
+            pathlist_push(&pl, stack_paths[i]); /* 命令行直给的也在列 */
+        }
+        count = manifest_parse(manifest_file, text, &pl, &cut);
+        paths = pl.items;
+        if (count == 0) {
+            log_line("manifest parsed to 0 path(s), giving up");
+            MessageBoxA(NULL, "manifest has no path lines", "clip-dav-hdrop /manifest",
+                        MB_OK | MB_ICONERROR);
+            ExitProcess(2);
+        }
+        if (!wait_explicit) {
+            probe_seconds = MANIFEST_SECONDS;
+        }
+        log_line("manifest=%S entries=%d mode=%s wait=%us (explicit=%d)",
+                 manifest_file, count, cut ? "cut" : "copy", probe_seconds,
+                 wait_explicit);
     }
     if (count == 0) {
         log_line("==== clip-dav-hdrop: only flags, no path ====");

@@ -8,12 +8,17 @@
  */
 import assert from 'node:assert/strict'
 import {
+  cleanupVmClipBatch,
   fileTransferTestHooks,
   handleVmFileEvent,
+  peekVmClipBatchId,
   peekVmPushSessionId,
+  pushClipStagingToVm,
   pushFilesToVm,
+  registerVmClipSharedTarget,
   registerVmFileTransferBackend,
 } from './virtual-machine-file-transfer.ts'
+import { getFilesClipboard } from '../files/files-clipboard.ts'
 import type { FilesApiEntry } from '../files/files-api.ts'
 import type { VmAgentController } from './virtual-machine-agent.ts'
 
@@ -50,6 +55,10 @@ function makeMockAgent(calls: MockCall[]): VmAgentController {
     exec: () => Promise.resolve(),
     execResult: () => Promise.resolve({ ok: true, exitCode: 0, timedOut: false }),
     clipboardWrite: () => Promise.resolve(true),
+    clipManifest: (path) => {
+      calls.push({ method: 'clipManifest', args: [path] })
+      return Promise.resolve(true)
+    },
     filePending: (_session, _mode, files) => {
       calls.push({ method: 'filePending', args: [files] })
       return Promise.resolve(true)
@@ -95,6 +104,7 @@ function reset() {
     pushSession: null,
   })
   registerVmFileTransferBackend(null)
+  registerVmClipSharedTarget(null)
 }
 
 function createMockFs(entries: TestEntry[]) {
@@ -407,6 +417,127 @@ async function main() {
     })
     handleVmFileEvent({ kind: 'done', session: 9, result: 'ok' })
     assert.equal(peekVmPushSessionId(), undefined)
+  }
+
+  // #v9-1 pushClipStagingToVm：清旧批 → 建批次目录 → 拷贝 → manifest（UTF-16LE）→ op=3 通知
+  {
+    reset()
+    const calls: MockCall[] = []
+    registerVmFileTransferBackend(makeMockAgent(calls))
+    registerVmClipSharedTarget({ root: '/user/Shared', drive: 'O' })
+    const removes: string[] = []
+    const mkdirs: string[] = []
+    const copies: { src: string; dest: string }[] = []
+    let manifestBytes: ArrayBuffer | undefined
+    fileTransferTestHooks({
+      stagingCopy: async (src, destDir) => {
+        copies.push({ src, dest: destDir })
+        const name = src.split('/').pop() ?? ''
+        return dummyFileEntry(`${destDir}/${name}`)
+      },
+      stagingMkdir: async (path) => {
+        mkdirs.push(path)
+        return dummyFileEntry(path)
+      },
+      stagingRemove: async (path) => {
+        removes.push(path)
+      },
+      stagingWriteBinary: async (path, bytes) => {
+        manifestBytes = bytes
+        return dummyFileEntry(path)
+      },
+    })
+
+    await pushClipStagingToVm(['/docs/a.txt', '/docs/sub'], 'copy')
+    const batch = peekVmClipBatchId()
+    assert.ok(batch, '应记录批次号')
+    assert.ok(removes.includes('/user/Shared/.clipboard'), '复制前应清掉上一批 staging')
+    assert.deepEqual(mkdirs, ['/user/Shared/.clipboard', `/user/Shared/.clipboard/${batch}`])
+    assert.equal(copies.length, 2)
+    assert.ok(copies.every((c) => c.dest === `/user/Shared/.clipboard/${batch}`))
+    assert.ok(manifestBytes, '应写 manifest.txt')
+    const text = new TextDecoder('utf-16le').decode(
+      new Uint8Array(manifestBytes!, 2),
+    )
+    assert.equal(text, `copy\na.txt\nsub\n`)
+    const notified = calls.filter((c) => c.method === 'clipManifest')
+    assert.equal(notified.length, 1)
+    assert.equal(notified[0]!.args[0], `O:\\.clipboard\\${batch}\\manifest.txt`)
+  }
+
+  // #v9-2 staging 拷贝中途失败：撤掉半批目录并抛错，不发通知
+  {
+    reset()
+    const calls: MockCall[] = []
+    registerVmFileTransferBackend(makeMockAgent(calls))
+    registerVmClipSharedTarget({ root: '/user/Shared', drive: 'O' })
+    const removes: string[] = []
+    let count = 0
+    fileTransferTestHooks({
+      stagingCopy: async () => {
+        count += 1
+        if (count > 1) {
+          throw new Error('disk full')
+        }
+        return dummyFileEntry('/user/Shared/.clipboard/b1/x.txt')
+      },
+      stagingMkdir: async (path) => dummyFileEntry(path),
+      stagingRemove: async (path) => {
+        removes.push(path)
+      },
+    })
+    await assert.rejects(() => pushClipStagingToVm(['/a.txt', '/b.txt'], 'copy'), /disk full/)
+    assert.ok(
+      removes.includes('/user/Shared/.clipboard'),
+      '失败后应撤掉整个 staging 目录',
+    )
+    assert.equal(
+      calls.filter((c) => c.method === 'clipManifest').length,
+      0,
+      '失败不应发通知',
+    )
+  }
+
+  // #v9-3 offer 分派：共享根相对路径 → vm-staging；XP 绝对路径（旧桥）→ vm-files
+  {
+    reset()
+    handleVmFileEvent({
+      kind: 'offer',
+      files: [
+        { path: '/.clipboard-out/b1a2b3c4/报告.docx', size: 12 },
+        { path: '/.clipboard-out/b1a2b3c4/图/', size: 0 },
+      ],
+    })
+    let entry = getFilesClipboard()
+    assert.equal(entry?.kind, 'vm-staging')
+    if (entry?.kind === 'vm-staging') {
+      assert.deepEqual(
+        entry.files.map((f) => f.relPath),
+        ['/.clipboard-out/b1a2b3c4/报告.docx', '/.clipboard-out/b1a2b3c4/图/'],
+      )
+      assert.deepEqual(
+        entry.files.map((f) => f.name),
+        ['报告.docx', '图'],
+      )
+    }
+
+    handleVmFileEvent({ kind: 'offer', files: [{ path: 'C:\\Docs\\x.txt', size: 3 }] })
+    entry = getFilesClipboard()
+    assert.equal(entry?.kind, 'vm-files')
+  }
+
+  // #v9-4 cleanupVmClipBatch：删对应批次目录
+  {
+    reset()
+    registerVmClipSharedTarget({ root: '/user/Shared', drive: 'O' })
+    const removes: string[] = []
+    fileTransferTestHooks({
+      stagingRemove: async (path) => {
+        removes.push(path)
+      },
+    })
+    await cleanupVmClipBatch('b42')
+    assert.deepEqual(removes, ['/user/Shared/.clipboard-out/b42'])
   }
 
   reset()

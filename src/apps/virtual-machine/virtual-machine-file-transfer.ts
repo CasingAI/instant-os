@@ -19,15 +19,21 @@
  */
 
 import {
+  filesCopy,
+  filesCreateBinary,
   filesList,
+  filesMkdir,
   filesReadBlobRange,
+  filesRemove,
   filesStat,
   filesTrash,
   type FilesApiEntry,
 } from '../files/files-api.ts'
+import { joinFilesAbsolutePath } from '../files/files-path.ts'
 import {
   setFilesClipboard,
   type VmClipboardFile,
+  type VmStagingFile,
 } from '../files/files-clipboard.ts'
 import type { VmAgentController } from './virtual-machine-agent.ts'
 import type { VmGuestFileEvent } from './virtual-machine-protocol.ts'
@@ -366,6 +372,183 @@ async function clearXpPending(): Promise<void> {
   }
 }
 
+// #region 剪贴板文件桥 v9：SMB staging（宿主→XP 复制走共享根，粘贴时 XP 经 SMB 自取）
+
+/** 共享根下正向 staging 目录（每批一个子目录，新的复制会整目录重建）。 */
+const VM_CLIP_STAGING_DIR = '.clipboard'
+/** 共享根下反向 staging 目录（XP 复制后桥拷入；宿主粘贴成功后删批次）。 */
+export const VM_CLIP_STAGING_OUT_DIR = '.clipboard-out'
+
+/** 剪贴板桥 staging 依赖的共享文件夹目标（根 = VFS 绝对路径；drive = 客机盘符）。 */
+export type VmClipSharedTarget = { root: string; drive: string }
+
+let clipSharedTarget: VmClipSharedTarget | null = null
+
+/**
+ * VM 应用随共享文件夹配置变化调用（root 为空串/共享关闭传 null）。
+ * 与 agent 注册分开：注销 agent 的 effect 每次依赖变化都会跑，不能把
+ * 目标配置一起清掉。
+ */
+export function registerVmClipSharedTarget(target: VmClipSharedTarget | null): void {
+  clipSharedTarget = target && target.root ? target : null
+}
+
+/** Files APP 粘贴 vm-staging 时读（null = 共享文件夹不可用）。 */
+export function getVmClipSharedTarget(): VmClipSharedTarget | null {
+  return clipSharedTarget
+}
+
+/** 测试注入：替换 staging 拷贝/清理所用的文件原语。 */
+let stagingCopySource: (source: string, destDir: string) => Promise<FilesApiEntry> = filesCopy
+let stagingMkdirSource: (path: string) => Promise<FilesApiEntry> = filesMkdir
+let stagingRemoveSource: (path: string) => Promise<void> = filesRemove
+let stagingWriteBinarySource: (path: string, bytes: ArrayBuffer) => Promise<FilesApiEntry> =
+  filesCreateBinary
+
+/** 宿主侧 staging 里的当前批次（测试断言用）。 */
+export function peekVmClipBatchId(): string | undefined {
+  return clipBatchId
+}
+
+let clipBatchId: string | undefined
+
+/** manifest 编码：UTF-16LE + BOM，行 = 首行 mode、其余每行一个顶层名字。 */
+function encodeClipManifest(mode: 'copy' | 'cut', names: readonly string[]): ArrayBuffer {
+  const lines = [mode, ...names]
+  let units = 1
+  for (const line of lines) {
+    units += line.length + 1
+  }
+  const bytes = new Uint8Array(units * 2)
+  const view = new DataView(bytes.buffer)
+  bytes[0] = 0xff
+  bytes[1] = 0xfe
+  let offset = 1
+  for (const line of lines) {
+    for (let i = 0; i < line.length; i += 1) {
+      view.setUint16(offset * 2, line.charCodeAt(i), true)
+      offset += 1
+    }
+    view.setUint16(offset * 2, 0x000a, true) // '\n'
+    offset += 1
+  }
+  return bytes.buffer
+}
+
+/** 删掉上一批 staging（幂等：不存在就算了）。 */
+async function clearClipStagingDir(root: string): Promise<void> {
+  try {
+    await stagingRemoveSource(joinFilesAbsolutePath(root, VM_CLIP_STAGING_DIR))
+  } catch {
+    // 首次复制/目录不在：正常路径
+  }
+}
+
+/**
+ * 文件APP复制/剪切后调用（v9 SMB staging 路径）：把选中项拷进共享根
+ * `.clipboard/<batch>/`，写 manifest（UTF-16LE），再给桥发一条 op=3 短通知；
+ * XP 里粘贴时 Explorer 拿 CF_HDROP 真路径自己经 SMB 枚举读取，宿主零参与。
+ * 字节只在本机 VFS 内拷贝，不过信箱、不走网络。
+ */
+export async function pushClipStagingToVm(
+  hostPaths: readonly string[],
+  mode: 'copy' | 'cut',
+): Promise<void> {
+  const agent = requireAgent('发送文件到虚拟机')
+  const target = clipSharedTarget
+  if (!target) {
+    throw new Error('共享文件夹未开启，无法发送到虚拟机')
+  }
+  const batch = `b${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`
+  const stagingRoot = joinFilesAbsolutePath(target.root, VM_CLIP_STAGING_DIR)
+  const batchDir = joinFilesAbsolutePath(stagingRoot, batch)
+
+  // 新复制语义上替换 XP 剪贴板：上一批整个删掉（XP 未粘贴就被覆盖，与
+  // 系统剪贴板行为一致），也顺便回收旧字节。
+  await clearClipStagingDir(target.root)
+  await stagingMkdirSource(stagingRoot)
+  await stagingMkdirSource(batchDir)
+
+  const names: string[] = []
+  try {
+    for (const hostPath of hostPaths) {
+      const copied = await stagingCopySource(hostPath, batchDir)
+      names.push(copied.name)
+    }
+    if (names.length === 0) {
+      await stagingRemoveSource(batchDir).catch(() => undefined)
+      return
+    }
+    await stagingWriteBinarySource(
+      joinFilesAbsolutePath(batchDir, 'manifest.txt'),
+      encodeClipManifest(mode, names),
+    )
+  } catch (error) {
+    // 半批 staging 留着会误导 XP 粘贴：整目录撤掉再抛
+    await stagingRemoveSource(stagingRoot).catch(() => undefined)
+    throw error
+  }
+
+  clipBatchId = batch
+  const manifestGuestPath = `${target.drive}:\\${VM_CLIP_STAGING_DIR}\\${batch}\\manifest.txt`
+  const sent = await callWithRetry(() => agent.clipManifest(manifestGuestPath))
+  if (!sent) {
+    throw new Error('虚拟机信箱忙：无法通知剪贴板清单（请重试）')
+  }
+}
+
+/** VM 停止 / 共享文件夹关闭时调用：两个 staging 目录一并回收。
+ * explicitRoot 给「目标已注销成 null 但还要清现场」的调用方用。 */
+export async function clearVmClipStaging(explicitRoot?: string): Promise<void> {
+  const root = explicitRoot ?? clipSharedTarget?.root
+  if (!root) {
+    return
+  }
+  clipBatchId = undefined
+  await clearClipStagingDir(root)
+  try {
+    await stagingRemoveSource(joinFilesAbsolutePath(root, VM_CLIP_STAGING_OUT_DIR))
+  } catch {
+    // 目录不在：正常
+  }
+}
+
+/**
+ * vm-staging 粘贴：从共享根 staging 把一个文件/目录 VFS 拷到目标目录。
+ * 由 Files APP 粘贴流程逐项调用（冲突决策在调用方）。
+ */
+export async function copyVmClipStagingFile(
+  file: VmStagingFile,
+  destDirPath: string,
+  nameMode: 'exact' | 'unique-suffix',
+): Promise<FilesApiEntry> {
+  const target = clipSharedTarget
+  if (!target) {
+    throw new Error('共享文件夹未开启，无法粘贴虚拟机文件')
+  }
+  const source = joinFilesAbsolutePath(target.root, ...file.relPath.split('/').filter(Boolean))
+  void nameMode
+  // filesCopy 自带同名加后缀；replace 语义由调用方先删目标腾原名
+  return stagingCopySource(source, destDirPath)
+}
+
+/** 粘贴完成后回收一个反向批次目录。 */
+export async function cleanupVmClipBatch(batchId: string): Promise<void> {
+  const target = clipSharedTarget
+  if (!target) {
+    return
+  }
+  try {
+    await stagingRemoveSource(
+      joinFilesAbsolutePath(target.root, VM_CLIP_STAGING_OUT_DIR, batchId),
+    )
+  } catch {
+    // 批次不在：正常
+  }
+}
+
+// #endregion
+
 /** 文件APP复制/剪切后调用：把元数据推给桥（只有名字+大小，无数据传输）。 */
 export async function pushFilesToVm(hostPaths: string[], mode: 'copy' | 'cut'): Promise<void> {
   const agent = requireAgent('发送文件到虚拟机')
@@ -483,6 +666,10 @@ export function fileTransferTestHooks(hooks: {
   readBlobSource?: typeof readBlobSource
   trashSource?: typeof trashSource
   pushSession?: PushSession | null
+  stagingCopy?: typeof stagingCopySource
+  stagingMkdir?: typeof stagingMkdirSource
+  stagingRemove?: typeof stagingRemoveSource
+  stagingWriteBinary?: typeof stagingWriteBinarySource
 }): void {
   if (hooks.readSource) {
     readSourceBlob = hooks.readSource
@@ -501,6 +688,18 @@ export function fileTransferTestHooks(hooks: {
   }
   if (hooks.pushSession !== undefined) {
     pushSession = hooks.pushSession
+  }
+  if (hooks.stagingCopy) {
+    stagingCopySource = hooks.stagingCopy
+  }
+  if (hooks.stagingMkdir) {
+    stagingMkdirSource = hooks.stagingMkdir
+  }
+  if (hooks.stagingRemove) {
+    stagingRemoveSource = hooks.stagingRemove
+  }
+  if (hooks.stagingWriteBinary) {
+    stagingWriteBinarySource = hooks.stagingWriteBinary
   }
 }
 
@@ -625,6 +824,20 @@ function basenameOfXpPath(path: string): string {
 export function handleVmFileEvent(event: VmGuestFileEvent): void {
   switch (event.kind) {
     case 'offer': {
+      // v9 桥：path 是共享根相对路径（/.clipboard-out/<batch>/…），粘贴直读
+      // staging；旧桥：path 是 XP 绝对路径，走信箱逐块拉取。
+      if (event.files.every((f) => f.path.startsWith(`/${VM_CLIP_STAGING_OUT_DIR}/`))) {
+        const staged: VmStagingFile[] = event.files.map((f) => ({
+          name: basenameOfXpPath(f.path),
+          relPath: f.path,
+          size: f.size,
+        }))
+        setFilesClipboard({ kind: 'vm-staging', files: staged })
+        for (const listener of offerListeners) {
+          listener(staged.map((f) => ({ name: f.name, path: f.relPath, size: f.size })))
+        }
+        break
+      }
       const files: VmClipboardFile[] = event.files.map((f) => ({
         name: basenameOfXpPath(f.path),
         path: f.path,

@@ -21,6 +21,7 @@ export const VM_AGENT_METHODS = [
   'exec',
   'execResult',
   'clipboardWrite',
+  'clipManifest',
   'filePending',
   'fileClear',
   'fileReq',
@@ -67,6 +68,11 @@ export type VmAgentController = {
   /** 宿主 → 客机剪贴板文本（ivm-shm 信箱；未握手时运行时排队，失败仅参数无效）。 */
   clipboardWrite(text: string): Promise<boolean>
   /**
+   * 宿主 → 客机「剪贴板文件清单」通知（ivm-shm op=3）：payload 是 manifest
+   * 的客机路径，清单内容由桥读盘。false = 未绑定/参数无效/信箱忙（调用方重试）。
+   */
+  clipManifest(path: string): Promise<boolean>
+  /**
    * 文件通道（ivm-shm op=1 帧；false = 参数无效或信箱忙，调用方重试）。
    * filePending：推待粘贴清单（宿主→XP 会话入口）；fileReq：宿主来拉一块
    * （XP→宿主会话）；fileChunk：按桥的 REQ 供一块；fileDone：结束会话。
@@ -108,6 +114,7 @@ export function createVmAgent(send: VmAgentSend): VmAgentController {
     exec: (cmdline) => call('exec', [cmdline]),
     execResult: (cmdline) => call('execResult', [cmdline]) as Promise<VmExecResult>,
     clipboardWrite: (text) => call('clipboardWrite', [text]) as Promise<boolean>,
+    clipManifest: (path) => call('clipManifest', [path]) as Promise<boolean>,
     filePending: (session, mode, files) =>
       call('filePending', [session, mode, files.map((f) => ({ path: f.path, size: f.size }))]) as Promise<boolean>,
     fileClear: () => call('fileClear') as Promise<boolean>,

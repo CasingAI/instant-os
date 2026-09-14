@@ -138,6 +138,27 @@ ivm-agent v4 起，登录身份的常驻实例顺带提供 Win7 Aero Snap 的 XP
   accept-all（暴露面不出 192.168.87.1 假网关）、不授予 oplock、锁请求
   noop；文件长度扩展按写零处理（无稀疏语义）。
 
+## 剪贴板文件桥 v9（SMB staging）
+
+宿主文件 APP 与 XP 互拷文件的 v9 数据面（文字剪贴板仍走 SHM_OP_TEXT 不变）：
+
+- **宿主→XP**：Files APP 复制 → 文件 VFS 拷进共享根 `.clipboard/<batch>/` +
+  manifest.txt（UTF-16LE：首行 copy/cut，其余每行一个顶层名）→ ivm-shm
+  信箱 **op=3** 短通知（payload=manifest 客机路径）→ 桥作废旧占位后拉起
+  `C:\Tools\clip\clip-dav-hdrop.exe /manifest:…`（默认存活 24h）往 XP 剪贴板
+  挂真路径 CF_HDROP。XP 右键粘贴弹**系统粘贴对话框**，Explorer 拿 `O:\`
+  路径自己经 SMB 枚举读取（FIND_FIRST2/NEXT2 + 读），宿主零参与；
+- **XP→宿主**：桥检测到外部 CF_HDROP（本桥/助手放置的跳过——助手挂的路径
+  全在 `.clipboard\` 下，按前缀识别防回环）→ 递归 CopyFileW 拷进
+  `<盘>:\.clipboard-out\<batch>\`（盘符读 SharedFolder\Drive，缺省 Z:）→
+  G2H offer 发共享根相对路径 `/.clipboard-out/<batch>/…` → 宿主写进 Files
+  剪贴板 `vm-staging` 条目，粘贴时直接 VFS 拷贝并回收批次目录；
+- **清理**：宿主新复制会重建 `.clipboard`；VM 停止/共享关闭时两个 staging
+  目录整体回收；反向批次在宿主粘贴成功后删；
+- **兼容**：v8 信箱文件帧（op=1）代码保留未删，旧正向路径不再被宿主触发；
+  旧 offer（XP 绝对路径）宿主仍按信箱拉取处理；
+- **日志**：`C:\Tools\clip-dav-hdrop.log`（助手）与桥日志（op=3/staging）。
+
 ## 怎么构建 / 更新 out/
 
 ```sh

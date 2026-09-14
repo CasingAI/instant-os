@@ -26,10 +26,13 @@ import { NavBackButton } from '../../ui/nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
-import { getFilesClipboard, setFilesClipboard, subscribeFilesClipboard, type VmClipboardFile } from './files-clipboard.ts'
+import { getFilesClipboard, setFilesClipboard, subscribeFilesClipboard, type VmClipboardFile, type VmStagingFile } from './files-clipboard.ts'
 import {
+  cleanupVmClipBatch,
+  copyVmClipStagingFile,
+  getVmClipSharedTarget,
   pullFileFromVm,
-  pushFilesToVm,
+  pushClipStagingToVm,
 } from '../virtual-machine/virtual-machine-file-transfer.ts'
 import { filesOpenStreamWrite } from './files-api.ts'
 import { readAppliedDockReservePx } from '../../dock/dock-css-vars.ts'
@@ -1260,13 +1263,16 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         resolvePathNodes(locationId, folderId),
       ])
       if (gen !== refreshGenRef.current) return
+      // 剪贴板桥 staging（.clipboard/.clipboard-out）是内部目录：列表不展示
+      // （路径直接导航进去仍可见）。
+      const visibleListed = listed.filter((node) => !node.name.startsWith('.clipboard'))
       setItems((prev) =>
-        mergeListingWithWritingPlaceholders(listed, prev, locationId, folderId, sort),
+        mergeListingWithWritingPlaceholders(visibleListed, prev, locationId, folderId, sort),
       )
       armScrollRestore()
       setPathNodes(path)
       // 附加摘要批量查（大小列含附加、徽标带字节）：不阻塞列表落地，晚一拍渲染
-      const attachableIds = listed
+      const attachableIds = visibleListed
         .filter((node) => node.kind === 'file' && canAttachOnLocation(node.locationId))
         .map((node) => node.id)
       if (attachableIds.length === 0) {
@@ -2311,10 +2317,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           joinFilesAbsolutePath(root, ...pathNodes.map((parent) => parent.name), node.name),
         )
       if (paths.length === 0) return
-      void pushFilesToVm(paths, mode).catch((error: unknown) => {
+      void pushClipStagingToVm(paths, mode).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
-        if (message.includes('虚拟机未运行')) {
-          // 虚拟机不在：这是常态，保持静默
+        if (message.includes('虚拟机未运行') || message.includes('共享文件夹未开启')) {
+          // 虚拟机不在/共享文件夹没开：这是常态，保持静默
           return
         }
         showToast(`虚拟机粘贴失败：${message}`)
@@ -2448,6 +2454,111 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     ],
   )
 
+  /** v9 桥粘贴：XP 复制的文件已在共享根 staging，冲突预检后 VFS 拷贝落盘，收尾回收批次。 */
+  const pasteVmStaging = useCallback(
+    async (files: readonly VmStagingFile[]) => {
+      const sharedRoot = getVmClipSharedTarget()?.root
+      if (!sharedRoot) {
+        await modal.alert({
+          title: '无法粘贴',
+          message: '虚拟机的共享文件夹未开启，找不到暂存的文件。',
+          themeColor: THEME,
+        })
+        return
+      }
+      const resolveConflict = createFilesConflictResolver(askFilesConflict)
+      const plans: { file: VmStagingFile; replace: boolean }[] = []
+      for (const file of files) {
+        const existing = await findSiblingNode(locationId, folderId, file.name)
+        if (!existing) {
+          plans.push({ file, replace: false })
+          continue
+        }
+        const info = {
+          name: file.name,
+          kind: 'file' as const,
+          existingKind: existing.kind,
+          existingWritable: isFilesNodeWritable(existing),
+        }
+        const choice = await resolveConflict(info)
+        if (!choice) {
+          showToast('已取消')
+          return
+        }
+        if (choice === 'skip') continue
+        plans.push({ file, replace: choice === 'replace' && filesConflictAllowsReplace(info) })
+      }
+      if (plans.length === 0) {
+        showToast('没有可粘贴的文件')
+        return
+      }
+      const folderPath = joinFilesAbsolutePath(
+        filesLocationPathRoot(locationId),
+        ...pathNodes.map((parent) => parent.name),
+      )
+      // 同一批次可能含多个顶层项：全部计划粘完才回收批次目录
+      const batches = new Set(
+        plans.map((plan) => plan.file.relPath.split('/').filter(Boolean)[1] ?? ''),
+      )
+      const pasteController = new AbortController()
+      try {
+        await runFilesOpWithProgress({
+          kind: 'paste',
+          totalWork: plans.length,
+          estimatedTotalMs: estimateFilesOpDurationMs(plans.length),
+          signal: pasteController.signal,
+          cancel: () => pasteController.abort(),
+          task: async (report, signal) => {
+            for (let index = 0; index < plans.length; index += 1) {
+              signal?.throwIfAborted?.()
+              const plan = plans[index]!
+              if (plan.replace) {
+                const existing = await findSiblingNode(locationId, folderId, plan.file.name)
+                if (existing) {
+                  try {
+                    await removeNode(existing.id)
+                  } catch (err) {
+                    showToast(`无法替换「${plan.file.name}」：${formatError(err)}`)
+                    continue
+                  }
+                }
+              }
+              try {
+                await copyVmClipStagingFile(
+                  plan.file,
+                  folderPath,
+                  plan.replace ? 'exact' : 'unique-suffix',
+                )
+              } catch (err) {
+                throw err instanceof Error ? err : new Error(formatError(err))
+              }
+              report({
+                done: index + 1,
+                total: plans.length,
+                detailLabel: `${index + 1} / ${plans.length} 项`,
+              })
+            }
+          },
+        })
+        for (const batch of batches) {
+          if (batch) {
+            await cleanupVmClipBatch(batch).catch(() => undefined)
+          }
+        }
+      } catch (err) {
+        await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [
+      askFilesConflict,
+      folderId,
+      locationId,
+      modal,
+      pathNodes,
+      showToast,
+    ],
+  )
+
   /** 粘贴/拖放的目标仍是当前打开的目录时，立刻把根文件夹插进列表（与新建文件夹同一范式）。
    *  中途点进别的目录则不往新列表塞。按 id 去重，收尾那次 add 不会插重复行。 */
   const insertDestRootIfViewing = useCallback(
@@ -2483,6 +2594,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (!canCreateHere) return
       closeTransientMenus()
       await pasteVmFiles(entry.files)
+      return
+    }
+    if (entry.kind === 'vm-staging') {
+      // v9 桥：文件已在共享根 staging，粘贴走 VFS 拷贝
+      if (!canCreateHere) return
+      closeTransientMenus()
+      await pasteVmStaging(entry.files)
       return
     }
     if (!canCreateHere) return

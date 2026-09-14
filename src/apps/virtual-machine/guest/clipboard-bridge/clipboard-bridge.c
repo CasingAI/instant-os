@@ -20,13 +20,26 @@
  *         G2H OFFER → 宿主（文件APP粘贴）逐块 H2G REQ{path,offset} →
  *         本桥 ReadFile 后 G2H DATA 应答 → 宿主 H2G DONE 结束会话。
  *
+ * v9（SMB staging）：宿主侧「文件APP复制」不再发 PENDING，改为把文件放进
+ * 共享根（客机 O: 盘）`.clipboard/<batch>/` 后经信箱发一条 op=3 短通知
+ * （data = UTF-16LE 含结尾 NUL 的 manifest 客机路径）；桥先作废 v8 占位
+ * （防两套机制抢剪贴板），再 CreateProcessW 拉起 C:\Tools\clip\clip-dav-hdrop.exe
+ * /manifest:<路径>，由它把真路径挂成 CF_HDROP 并长期持有——XP 粘贴时
+ * Explorer 拿真路径自己经 SMB 读，宿主零参与。反向：XP 里复制文件后，桥
+ * 先把 CF_HDROP 源递归拷进 `<盘>:\.clipboard-out\<batch>\`（盘符读注册表
+ * HKLM\SOFTWARE\InstantVM\SharedFolder\Drive，缺省 Z:），再发 OFFER，路径
+ * 为共享根相对路径（/.clipboard-out/<batch>/…，目录条目以 / 结尾 size=0），
+ * 宿主粘贴时从共享根经 SMB 直读。v8 的 PENDING/占位/REQ 拉取引擎原样保留
+ * （op=0/1 行为不变，只是正向不再被宿主触发）。
+ *
  * 桥接管绕开了 CF_HDROP 必须源路径真实存在、以及 OLE 虚拟文件 FileContents
  * 无法表达目录树的死结：剪贴板里只放一枚空 HDROP 占位符，真正的写入由桥自己
  * 完成。用户层面看到的是一个与 XP 系统复制对话框视觉一致的进度窗口。
  *
  * 回环防护：文本按内容（g_self_text）；文件按 g_own_seq 记录桥自己设置剪贴板
  * 后的序列号，seq 变化处理时若与 g_own_seq 相同则跳过（空 HDROP 占位不触发
- * OFFER）。
+ * 反向 staging）；v9 助手进程挂上的 forward staging 真 HDROP（路径全在
+ * `<盘>:\.clipboard\` 下）按路径前缀识别，同样不触发反向拷贝。
  *
  * 信箱布局与 ivm-shm.sys / Instant-virtual-machine src/ivm-shm.ts 一一对应：
  *   块内 +0 magic 'IVMX' / +4 seq / +8 status(0空 1就绪 2已读) / +12 len / +16 data
@@ -71,6 +84,7 @@
 /* status 高 16 位 op（与 ivm-shm.ts 一致） */
 #define SHM_OP_TEXT 0u
 #define SHM_OP_FILE 1u
+#define SHM_OP_MANIFEST 3u /* v9：data = UTF-16LE manifest 客机路径（clipManifest） */
 #define status_state(s) ((s) & 0xFFFFu)
 #define status_op(s) (((s) >> 16) & 0xFFFFu)
 #define status_pack(state, op) (((state) & 0xFFFFu) | ((op) << 16))
@@ -97,6 +111,12 @@
 
 #define MAX_OFFER_FILES 4096
 #define MAX_NAME_CHARS 260
+
+/* v9 SMB staging（与宿主 virtual-machine-file-transfer.ts 的 VM_CLIP_STAGING_*
+ * 对齐；manifest 助手由宿主部署在 C:\Tools\clip\）。 */
+#define CLIP_SF_REG_KEY "SOFTWARE\\InstantVM\\SharedFolder"
+#define CLIP_STAGING_OUT_DIR L".clipboard-out"
+#define CLIP_MANIFEST_EXE L"C:\\Tools\\clip\\clip-dav-hdrop.exe"
 
 /* 无 CRT（-nostdlib）：memset/memcpy 共用 res-agent.c 的实现（合编进同一个
  * ivm-agent.exe，两边都定义会撞符号）；这里只带桥自己用的 memcmp/wcslen
@@ -1606,7 +1626,52 @@ static int write_pending_files(const wchar_t *target_dir)
     return all_ok && !g_pending.cancelled;
 }
 
-/* ---- H2G 消费：文本 / PENDING / CLEAR / REQ 应答 / DATA 派发 / DONE ---- */
+/* ---- H2G 消费：文本 / MANIFEST / PENDING / CLEAR / REQ 应答 / DATA 派发 / DONE ---- */
+
+/* 作废 v8 的 PENDING 会话与空 CF_HDROP 占位（CLEAR 帧与 op=3 manifest 通知
+ * 共用的清理路径）：撤 OLE 数据对象后立刻刷新 g_own_seq/g_last_seq，否则
+ * seq 变化会被误当成一次外部复制。 */
+static void discard_pending_placeholder(void)
+{
+    if (!g_pending.active) {
+        return;
+    }
+    pending_reset();
+    if (g_ole_ok) {
+        g_setting_clipboard = 1;
+        OleSetClipboard(NULL);
+        g_setting_clipboard = 0;
+        g_own_seq = GetClipboardSequenceNumber();
+        g_last_seq = g_own_seq;
+    }
+    log_line("clip-bridge: pending placeholder discarded");
+}
+
+/* v9：拉起 manifest 助手（它自己读 manifest 把真路径挂成 CF_HDROP 并长期
+ * 持有）。不等待、句柄即关；失败只记日志——宿主重推 op=3 即可重试。 */
+static void launch_clip_manifest_helper(const wchar_t *manifest_path)
+{
+    /* 静态缓冲（单线程 STA）：函数内大局部数组会把（被内联后的）宿主栈帧
+     * 顶过 4096 页阈值，clang 生成 __alloca 调用而 -nostdlib 没有运行时符号。 */
+    static wchar_t cmd[MAX_NAME_CHARS * 2];
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    memset(&pi, 0, sizeof(pi));
+    si.cb = sizeof(si);
+    wsprintfW(cmd, L"%s /manifest:\"%s\"", CLIP_MANIFEST_EXE, manifest_path);
+    /* CREATE_NO_WINDOW：后台运行不闪窗（不能与 DETACHED_PROCESS 同用）。 */
+    if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL,
+                        &si, &pi)) {
+        log_line("clip-bridge: launch manifest helper failed gle=%lu path=%S",
+                 GetLastError(), manifest_path);
+        return;
+    }
+    log_line("clip-bridge: manifest helper launched pid=%lu manifest=%S",
+             pi.dwProcessId, manifest_path);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+}
 
 /* 宿主文本换行多为裸 \n（macOS/浏览器惯例），XP 程序（记事本等）只认
  * \r\n：落 g_text 前统一转 CRLF。\r\n 原样保留，孤立 \r/\n 都补成 \r\n；
@@ -1678,6 +1743,31 @@ static void h2g_process(void)
             }
             continue;
         }
+        if (op == SHM_OP_MANIFEST) {
+            /* [v9] data = UTF-16LE 含结尾 NUL 的 manifest 客机路径（如
+             * O:\.clipboard\b1\manifest.txt）。ACK 已在上方公共路径回写
+             * （status→READ，与文本/文件帧同款）；助手写剪贴板是异步的，
+             * 不在本桥等它。 */
+            wchar_t manifest[MAX_NAME_CHARS];
+            unsigned long chars = 0;
+            while (chars + 1 < len / 2 && chars < MAX_NAME_CHARS - 1) {
+                wchar_t ch = rd_u16(buf, chars * 2);
+                if (ch == 0) {
+                    break;
+                }
+                manifest[chars] = ch;
+                chars++;
+            }
+            manifest[chars] = 0;
+            if (chars == 0) {
+                log_line("clip-bridge: manifest notify with empty path, drop");
+                continue;
+            }
+            /* 先作废 v8 占位：真 CF_HDROP 马上由助手挂上，两套机制不能抢剪贴板。 */
+            discard_pending_placeholder();
+            launch_clip_manifest_helper(manifest);
+            continue;
+        }
         if (op != SHM_OP_FILE) {
             continue; /* 未知 op：已确认，丢弃 */
         }
@@ -1707,15 +1797,7 @@ static void h2g_process(void)
         }
         if (sub == FILE_OP_CLEAR) {
             if (g_pending.active) {
-                pending_reset();
-                if (g_ole_ok) {
-                    g_setting_clipboard = 1;
-                    OleSetClipboard(NULL);
-                    g_setting_clipboard = 0;
-                    g_own_seq = GetClipboardSequenceNumber();
-                    g_last_seq = g_own_seq;
-                }
-                log_line("clip-bridge: pending cleared");
+                discard_pending_placeholder();
             }
             continue;
         }
@@ -1869,9 +1951,167 @@ static int send_text_to_guest(const wchar_t *text, unsigned long chars)
     return g2h_transact(SHM_OP_TEXT, f->bytes, f->len);
 }
 
-/* XP 用户复制了文件：读 CF_HDROP 元数据发 OFFER。 */
-static void send_offer_from_clipboard(void)
+/* ---- v9 反向 staging：XP 复制 → .clipboard-out 递归拷贝 → 相对路径 OFFER ---- */
+
+/* 读共享盘符（HKLM\SOFTWARE\InstantVM\SharedFolder 的 Drive）。REG_SZ 与
+ * REG_DWORD 都认（宿主写入见 virtual-machine-app.tsx pushSharedFolderGuestConfig；
+ * 读法仿 ivm-shared-folder.c——同在 ivm-agent.exe 里但 static 函数不能直接
+ * 调，这里只带最小一份），缺省 Z:。 */
+static void read_shared_drive(wchar_t *out /* 容量 ≥4 */)
 {
+    out[0] = L'Z';
+    out[1] = L':';
+    out[2] = 0;
+    HKEY key;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, CLIP_SF_REG_KEY, 0, KEY_READ, &key) !=
+        ERROR_SUCCESS) {
+        return;
+    }
+    BYTE buf[16];
+    DWORD size = (DWORD)sizeof(buf);
+    DWORD type = 0;
+    LONG rc = RegQueryValueExA(key, "Drive", NULL, &type, buf, &size);
+    RegCloseKey(key);
+    wchar_t letter = 0;
+    if (rc == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ) && size >= 1) {
+        letter = (wchar_t)buf[0]; /* ANSI 串首字符即盘符 */
+    } else if (rc == ERROR_SUCCESS && type == REG_DWORD && size >= 4) {
+        letter = (wchar_t)(*(DWORD *)buf); /* 'O'=0x4F，低字节即盘符 */
+    }
+    if (letter >= L'a' && letter <= L'z') {
+        letter -= 32;
+    }
+    if (letter >= L'A' && letter <= L'Z') {
+        out[0] = letter;
+    }
+}
+
+/* 大小写无关的前缀判断：path 是否位于 dir（dir 以 \ 结尾）之内。 */
+static int path_is_under(const wchar_t *path, const wchar_t *dir)
+{
+    unsigned long n = 0;
+    while (dir[n]) {
+        wchar_t a = path[n];
+        wchar_t b = dir[n];
+        if (a >= L'A' && a <= L'Z') {
+            a += 32;
+        }
+        if (b >= L'A' && b <= L'Z') {
+            b += 32;
+        }
+        if (a != b) {
+            return 0;
+        }
+        n++;
+    }
+    return n > 0;
+}
+
+/* 拼目录子路径（dir\name），超出 cap 截断。 */
+static void stage_join(wchar_t *out, unsigned long cap, const wchar_t *dir,
+                       const wchar_t *name)
+{
+    unsigned long i = 0;
+    while (dir[i] && i + 1 < cap) {
+        out[i] = dir[i];
+        i++;
+    }
+    if (i > 0 && out[i - 1] != L'\\' && i + 1 < cap) {
+        out[i++] = L'\\';
+    }
+    unsigned long j = 0;
+    while (name[j] && i + 1 < cap) {
+        out[i++] = name[j++];
+    }
+    out[i] = 0;
+}
+
+/* 拼「/a/b/c」式的共享根相对路径，返回新长度（超出 cap 截断）。 */
+static unsigned long stage_append(wchar_t *out, unsigned long cap, unsigned long pos,
+                                  const wchar_t *seg)
+{
+    while (*seg && pos + 1 < cap) {
+        out[pos++] = *seg++;
+    }
+    return pos;
+}
+
+/* 拷一个源文件到 dst，成功把大小累进 bytes；失败记日志（gle + 路径）。 */
+static int stage_copy_file(const wchar_t *src, const wchar_t *dst, unsigned long long *bytes)
+{
+    if (!CopyFileW(src, dst, FALSE)) {
+        log_line("clip-bridge: CopyFile failed gle=%lu src=%S", GetLastError(), src);
+        return 0;
+    }
+    WIN32_FIND_DATAW wfd;
+    HANDLE find = FindFirstFileW(src, &wfd);
+    if (find != INVALID_HANDLE_VALUE) {
+        *bytes += ((unsigned long long)wfd.nFileSizeHigh << 32) | wfd.nFileSizeLow;
+        FindClose(find);
+    }
+    return 1;
+}
+
+/* 递归拷目录树 src_dir → dst_dir（dst 目录本函数创建）。任一文件拷不动就
+ * 整树报失败（调用方整条跳过并撤半成品）。深度钳 32 层防深树爆栈。 */
+static int stage_copy_tree(const wchar_t *src_dir, const wchar_t *dst_dir,
+                           unsigned long long *bytes, int depth)
+{
+    if (depth > 32) {
+        log_line("clip-bridge: staging tree too deep, skip dir=%S", src_dir);
+        return 0;
+    }
+    if (!CreateDirectoryW(dst_dir, NULL)) {
+        DWORD gle = GetLastError();
+        if (gle != ERROR_ALREADY_EXISTS || !is_directory_path(dst_dir)) {
+            log_line("clip-bridge: staging mkdir failed gle=%lu dir=%S", gle, dst_dir);
+            return 0;
+        }
+    }
+    /* 路径缓冲钳在 MAX_NAME_CHARS：XP 的 CopyFileW/FindFirstFileW 本来就不认
+     * 超过 260 的普通路径；且局部数组再大（*2）会把递归栈帧顶过 4096 页
+     * 阈值，clang 生成 -nostdlib 没有的 __alloca 调用。 */
+    wchar_t pattern[MAX_NAME_CHARS];
+    stage_join(pattern, MAX_NAME_CHARS, src_dir, L"*");
+    WIN32_FIND_DATAW wfd;
+    HANDLE find = FindFirstFileW(pattern, &wfd);
+    if (find == INVALID_HANDLE_VALUE) {
+        log_line("clip-bridge: staging find failed gle=%lu dir=%S", GetLastError(), src_dir);
+        return 0;
+    }
+    int ok = 1;
+    do {
+        if (wfd.cFileName[0] == L'.') {
+            if (wfd.cFileName[1] == 0) {
+                continue;
+            }
+            if (wfd.cFileName[1] == L'.' && wfd.cFileName[2] == 0) {
+                continue;
+            }
+        }
+        wchar_t child_src[MAX_NAME_CHARS];
+        wchar_t child_dst[MAX_NAME_CHARS];
+        stage_join(child_src, MAX_NAME_CHARS, src_dir, wfd.cFileName);
+        stage_join(child_dst, MAX_NAME_CHARS, dst_dir, wfd.cFileName);
+        if (wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            if (!stage_copy_tree(child_src, child_dst, bytes, depth + 1)) {
+                ok = 0;
+            }
+        } else if (!stage_copy_file(child_src, child_dst, bytes)) {
+            ok = 0;
+        }
+    } while (ok && FindNextFileW(find, &wfd));
+    FindClose(find);
+    return ok;
+}
+
+/* XP 用户复制了文件（剪贴板出现非本桥的 CF_HDROP）：先把源递归拷进共享根
+ * `.clipboard-out/<batch>/`（经 O: 盘的 SMB 直达宿主 VFS），再发共享根相对
+ * 路径的 OFFER，宿主粘贴时从共享根直读。v8 的「发 XP 绝对路径等宿主逐块
+ * 拉」链路（REQ/DATA 引擎）保留但不再被新 offer 触发。 */
+static void stage_and_offer_from_clipboard(void)
+{
+    /* 1) 快照 HDROP 路径列表——staging 要走真 IO，不能攥着剪贴板做。 */
     if (!OpenClipboard(NULL)) {
         return;
     }
@@ -1889,34 +2129,133 @@ static void send_offer_from_clipboard(void)
         return;
     }
     const wchar_t *list = (const wchar_t *)((char *)df + df->pFiles);
-    /* 先数一遍（≤4096 个），再逐个取尺寸拼帧。 */
     unsigned long count = 0;
+    unsigned long total_chars = 0;
     for (const wchar_t *c = list; *c && count < MAX_OFFER_FILES; c += lstrlenW(c) + 1) {
         count++;
+        total_chars += (unsigned long)lstrlenW(c) + 1;
     }
-    frame_buf *f = &g_tx;
-    f->len = 0;
-    fb_u32(f, FILE_OP_OFFER);
-    fb_u32(f, count);
-    fb_u32(f, FILE_MODE_COPY); /* XP 剪贴板的 cut 语义 v1 不区分 */
-    for (const wchar_t *c = list; *c; c += lstrlenW(c) + 1) {
-        WIN32_FIND_DATAW wfd;
-        unsigned long long size = 0;
-        HANDLE find = FindFirstFileW(c, &wfd);
-        if (find != INVALID_HANDLE_VALUE) {
-            size = ((unsigned long long)wfd.nFileSizeHigh << 32) | wfd.nFileSizeLow;
-            FindClose(find);
-        }
-        fb_u64(f, size);
-        fb_utf16z(f, c);
-        if (f->len > SHM_MAILBOX_DATA - 2) {
-            break; /* 防越界 */
+    wchar_t *snap = NULL;
+    if (count > 0) {
+        snap = (wchar_t *)HeapAlloc(GetProcessHeap(), 0,
+                                    (total_chars + 1) * sizeof(wchar_t));
+        if (snap != NULL) {
+            for (unsigned long i = 0; i < total_chars; i++) {
+                snap[i] = list[i];
+            }
+            snap[total_chars] = 0;
         }
     }
     GlobalUnlock(data);
     CloseClipboard();
+    if (snap == NULL) {
+        return;
+    }
+
+    /* 2) 回环防护：v9 助手挂上的 forward staging 真 HDROP（路径全在
+     * `<盘>:\.clipboard\` 下）是宿主复制来的清单，绝不能再反向拷贝。 */
+    wchar_t drive[4];
+    read_shared_drive(drive);
+    wchar_t in_prefix[20];
+    wsprintfW(in_prefix, L"%s\\%s\\", drive, L".clipboard");
+    int all_forward = 1;
+    for (const wchar_t *c = snap; *c && all_forward; c += lstrlenW(c) + 1) {
+        if (!path_is_under(c, in_prefix)) {
+            all_forward = 0;
+        }
+    }
+    if (all_forward) {
+        log_line("clip-bridge: forward staging HDROP on clipboard, no reverse copy");
+        HeapFree(GetProcessHeap(), 0, snap);
+        return;
+    }
+
+    /* 3) 批次目录：`<盘>:\.clipboard-out\b<hex>\`。批次号用 GetTickCount 的
+     * 十六进制——XP 没有 GetTickCount64，直接导入会让 exe 加载即失败。
+     * 路径缓冲静态（单线程，本函数不会被重入）：大局部数组被内联进
+     * bridge_main 后会顶过 4096 页阈值，生成 -nostdlib 没有的 __alloca。 */
+    static wchar_t out_root[MAX_NAME_CHARS * 2];
+    static wchar_t batch_dir[MAX_NAME_CHARS * 2];
+    static wchar_t rel[MAX_NAME_CHARS * 2];
+    static wchar_t dst[MAX_NAME_CHARS * 2];
+    wchar_t batch[16];
+    wsprintfW(batch, L"b%08x", (unsigned)GetTickCount());
+    stage_join(out_root, MAX_NAME_CHARS * 2, drive, CLIP_STAGING_OUT_DIR);
+    stage_join(batch_dir, MAX_NAME_CHARS * 2, out_root, batch);
+    CreateDirectoryW(out_root, NULL); /* 首次拷贝时才存在，已存在则忽略 */
+    if (!CreateDirectoryW(batch_dir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        log_line("clip-bridge: staging batch mkdir failed gle=%lu dir=%S",
+                 GetLastError(), batch_dir);
+        HeapFree(GetProcessHeap(), 0, snap);
+        return;
+    }
+    log_line("clip-bridge: reverse staging start entries=%lu dir=%S", count, batch_dir);
+    DWORD start = GetTickCount();
+
+    /* 4) 逐顶层条目拷贝并拼 offer 帧：path=/.clipboard-out/<batch>/<名>[/]，
+     * 目录条目以 / 结尾 size=0（沿用 v8 约定），文件填实测字节。单帧放不下
+     * 就截断（沿用现有 offer 的分批策略），count 回填实际条数。 */
+    frame_buf *f = &g_tx;
+    f->len = 0;
+    fb_u32(f, FILE_OP_OFFER);
+    fb_u32(f, 0); /* count 占位 */
+    fb_u32(f, FILE_MODE_COPY);
+    unsigned long sent_count = 0;
+    int truncated = 0;
+    for (const wchar_t *c = snap; *c && !truncated; c += lstrlenW(c) + 1) {
+        const wchar_t *name = my_wcsrchr(c, L'\\');
+        name = name ? name + 1 : c;
+        if (*name == 0) {
+            continue;
+        }
+        int is_dir = is_directory_path(c);
+        unsigned long rl = 0;
+        rl = stage_append(rel, MAX_NAME_CHARS * 2, rl, L"/");
+        rl = stage_append(rel, MAX_NAME_CHARS * 2, rl, CLIP_STAGING_OUT_DIR);
+        rl = stage_append(rel, MAX_NAME_CHARS * 2, rl, L"/");
+        rl = stage_append(rel, MAX_NAME_CHARS * 2, rl, batch);
+        rl = stage_append(rel, MAX_NAME_CHARS * 2, rl, L"/");
+        rl = stage_append(rel, MAX_NAME_CHARS * 2, rl, name);
+        if (is_dir) {
+            rl = stage_append(rel, MAX_NAME_CHARS * 2, rl, L"/");
+        }
+        rel[rl] = 0;
+        /* 单条上限 8 字节 size + utf16z 名字；放不下就到此为止。 */
+        if (f->len + 8 + (rl + 1) * 2 > SHM_MAILBOX_DATA - 2) {
+            truncated = 1;
+            log_line("clip-bridge: offer frame full, truncate rest (sent=%lu)",
+                     sent_count);
+            break;
+        }
+        stage_join(dst, MAX_NAME_CHARS * 2, batch_dir, name);
+        unsigned long long bytes = 0;
+        int ok = is_dir ? stage_copy_tree(c, dst, &bytes, 0)
+                        : stage_copy_file(c, dst, &bytes);
+        if (!ok) {
+            /* 单条失败：整条跳过并撤半成品，其余条目继续——不整体失败。 */
+            log_line("clip-bridge: staging entry failed, skip name=%S", name);
+            delete_directory_tree(dst);
+            DeleteFileW(dst); /* 文件条目的半成品（目录树已由上面递归撤掉） */
+            continue;
+        }
+        log_line("clip-bridge: staged %S (%s, low32bytes=%lu)", name,
+                 is_dir ? "dir" : "file", (unsigned long)(bytes & 0xFFFFFFFFu));
+        fb_u64(f, is_dir ? 0 : bytes);
+        fb_utf16z(f, rel);
+        sent_count++;
+    }
+    HeapFree(GetProcessHeap(), 0, snap);
+    f->bytes[4] = (unsigned char)(sent_count & 0xFF);
+    f->bytes[5] = (unsigned char)((sent_count >> 8) & 0xFF);
+    f->bytes[6] = (unsigned char)((sent_count >> 16) & 0xFF);
+    f->bytes[7] = (unsigned char)((sent_count >> 24) & 0xFF);
+    if (sent_count == 0) {
+        log_line("clip-bridge: reverse staging produced no entries, no offer");
+        return;
+    }
     if (g2h_transact(SHM_OP_FILE, f->bytes, f->len)) {
-        log_line("clip-bridge: offer sent (%lu files)", rd_u32(f->bytes, 4));
+        log_line("clip-bridge: staged offer sent files=%lu ms=%lu",
+                 sent_count, GetTickCount() - start);
     }
 }
 
@@ -2032,7 +2371,9 @@ static void bridge_tick(void)
     if (OpenClipboard(NULL)) {
         if (GetClipboardData(CF_HDROP) != NULL) {
             CloseClipboard();
-            send_offer_from_clipboard();
+            /* v9：外部 CF_HDROP → 先递归拷进 .clipboard-out 再发相对路径
+             * OFFER（forward staging 的 HDROP 在函数里按前缀识别跳过）。 */
+            stage_and_offer_from_clipboard();
             handled = 1;
         } else {
             HANDLE data = GetClipboardData(CF_UNICODETEXT);
