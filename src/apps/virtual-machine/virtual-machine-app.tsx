@@ -5,7 +5,6 @@ import { useOs, useWindowCloseHandler, useWindowForceCloseHandler } from '../../
 import { recordSystemDebugTimeline } from '../../os/system-debug-log.ts'
 import { releaseDiskImagePath } from '../files/files-disk-image-occupancy.ts'
 import { Button } from '../../ui/button.tsx'
-import { useHud } from '../../ui/hud.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
@@ -725,7 +724,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     ownWindowId !== undefined &&
     windows.find((window) => window.id === ownWindowId)?.fullscreen === true
   const modal = useWindowModal()
-  const hud = useHud()
   const skipDiskWriteLossPromptIdsRef = useRef(new Set<string>())
   const promptedDiskWriteLossKeyRef = useRef<string | undefined>(undefined)
   const runtimeOrigin = getVmRuntimeOrigin()
@@ -1119,13 +1117,11 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   // 关机收尾落盘中的机器：整块屏幕换成「正在写入」硬控画面（客机不可见、不可操作），
   // 占用声明到写完才释放。
   const displayedFlushing = displayedId !== undefined && pool.flushingIds.includes(displayedId)
-  // 软关机进行中（命令已送达、客机尚未断电）：整段窗口也要有覆盖层。
-  // 这段可能持续一段时间（客机自己关机 + 差量合并进镜像），此前界面
-  // 只有一行小字、按钮还被禁用，用户会误判为「没反应」而去找手动断电。
+  // 软关机进行中（命令已送达、客机尚未断电）。这段可能持续一段时间（客机自己关机 +
+  // 差量合并进镜像），但不遮挡画面：客机可能弹框拦截关机（未保存文档、「结束任务」），
+  // 需要用户能看能点。状态靠工具栏状态行红字（powerHint）表达，电源按钮由 powerBusy 禁用。
   const displayedShutdownPending =
     awaitingGuestShutdown && displayedId !== undefined && displayedId === selected?.id
-  // 软关机等待期文案按档位说话：不保存档此时不能预告「会写入硬盘」。
-  const displayedShutdownMode = selected?.diskWriteMode
   const [flushProgress, setFlushProgress] = useState<VmFlushProgress | undefined>(undefined)
   useEffect(() => {
     if (displayedId === undefined || !pool.flushingIds.includes(displayedId)) {
@@ -1159,18 +1155,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       window.clearInterval(timer)
     }
   }, [displayedId, pool.flushingIds, pool.startMessages, pool.latestStats])
-  useEffect(() => {
-    // 写盘硬控由全屏画面承担，不再叠一张「正在写入硬盘」的小卡片。
-    if (displayedShutdownPending) {
-      hud.show({
-        mode: 'spinner',
-        text: '正在关机',
-        detail: displayedShutdownMode === 'none' ? '正在等待客机断电' : '完成后会写入硬盘',
-      })
-      return
-    }
-    hud.hide()
-  }, [displayedShutdownPending, displayedShutdownMode, hud.show, hud.hide])
   // 所有在跑机器里尚未交给宿主差量层的在途字节。已经写入差量的部分关页面也不会丢。
   const unflushedDiskBytes = useMemo(() => {
     const snapshots: (InstantVmStatsSnapshot | undefined)[] = []
@@ -1234,7 +1218,8 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const displayedBusy = Boolean(
     displayedId !== undefined && selectedSnapshot && !selectedSnapshot.ready,
   )
-  const showFlushHud = displayedFlushing || displayedShutdownPending
+  // 落盘期或软关机等待期不弹「硬盘文件可能不完整」：画面/流程正在收口，不打断。
+  const suppressDiskWriteLossPrompt = displayedFlushing || displayedShutdownPending
   const diskWriteLossPromptKey =
     selected?.id && selected.diskWriteLoss ? `${selected.id}:${selected.diskWriteLoss.at}` : undefined
   useEffect(() => {
@@ -1246,7 +1231,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
     }
   }, [selectedId])
   useEffect(() => {
-    if (showFlushHud) {
+    if (suppressDiskWriteLossPrompt) {
       return
     }
     const id = selected?.id
@@ -1283,7 +1268,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
           openDiskUtilityFirstAid(path)
         }
       })
-  }, [diskWriteLossPromptKey, modal, selected?.devices, selected?.diskWriteLoss, selected?.id, showFlushHud])
+  }, [diskWriteLossPromptKey, modal, selected?.devices, selected?.diskWriteLoss, selected?.id, suppressDiskWriteLossPrompt])
   // 发送按键始终发给当前显示的画面，有运行中的画面就可用。
   const canSendKeys = displayedId !== undefined
 
@@ -2490,7 +2475,6 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       class={`virtual-machine${vmWindowFullscreen ? ' virtual-machine--fullscreen' : ''}`}
       ref={narrowHostRef}
     >
-      {hud.view}
       <div class="virtual-machine__toolbar" onPointerDown={releaseGuestKeyboard}>
         <div class="virtual-machine__toolbar-actions">
           <Button onClick={handleNew}>
