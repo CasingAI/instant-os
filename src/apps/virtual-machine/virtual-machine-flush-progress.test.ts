@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import {
   createVmFlushProgressTracker,
+  VM_FLUSH_SPEED_WINDOW_MS,
   VM_FLUSH_STALL_THRESHOLD_MS,
   type VmFlushProgress,
 } from './virtual-machine-flush-progress.ts'
@@ -37,14 +38,14 @@ function testGuestStageDecreasesFromPinnedBaseline(): void {
   assert.equal(percent(first), 0)
 
   // VM pending 真实递减、宿主 cache 等量增长（两者相加恒定，不能用宿主侧计量）。
-  const mid = track(sample(500, 96 * MB, 96 * MB, 96 * MB))
+  const mid = track(sample(1000, 96 * MB, 96 * MB, 96 * MB))
   assert.equal(mid.stage, 'guest')
   assert.equal(mid.totalBytes, 192 * MB)
   assert.equal(mid.pendingBytes, 96 * MB)
   assert.equal(percent(mid), 50)
   assert.ok(mid.speedBytesPerSec !== undefined && mid.speedBytesPerSec > 0)
 
-  const done = track(sample(1000, 1 * MB, 191 * MB, 191 * MB))
+  const done = track(sample(2000, 1 * MB, 191 * MB, 191 * MB))
   assert.equal(done.stage, 'guest')
   assert.ok(percent(done)! > 99)
 }
@@ -78,7 +79,7 @@ function testHostStageStartsOnObservedDecrease(): void {
   assert.equal(merging.totalBytes, 64 * MB)
   assert.equal(merging.pendingBytes, 63 * MB)
 
-  const later = track(sample(1500, 0, 32 * MB, 64 * MB))
+  const later = track(sample(2500, 0, 32 * MB, 64 * MB))
   assert.equal(later.stage, 'host')
   assert.equal(percent(later), 50)
   assert.ok(later.speedBytesPerSec !== undefined && later.speedBytesPerSec > 0)
@@ -117,15 +118,60 @@ function testStaleGuestStatsDoNotBlockHostProgress(): void {
 function testSpeedResetsAcrossStageSwitch(): void {
   const track = createVmFlushProgressTracker()
   track(sample(0, 200 * MB, 0, 0))
-  const guestFast = track(sample(500, 100 * MB, 100 * MB, 100 * MB))
-  assert.ok(guestFast.speedBytesPerSec! > 100 * MB)
-  track(sample(1000, 0, 200 * MB, 200 * MB))
+  const guestFast = track(sample(1000, 100 * MB, 100 * MB, 100 * MB))
+  assert.ok(guestFast.speedBytesPerSec! >= 100 * MB)
+  track(sample(2000, 0, 200 * MB, 200 * MB))
   // 刚切进阶段 B：采样重置，没有跨阶段的负跳污染，首拍无速度。
-  const entered = track(sample(1500, 0, 199 * MB, 200 * MB))
+  const entered = track(sample(2500, 0, 199 * MB, 200 * MB))
   assert.equal(entered.stage, 'host')
   assert.equal(entered.speedBytesPerSec, undefined)
-  const next = track(sample(2000, 0, 198 * MB, 200 * MB))
+  const next = track(sample(4000, 0, 198 * MB, 200 * MB))
   assert.ok(next.speedBytesPerSec !== undefined && next.speedBytesPerSec < 10 * MB)
+}
+
+function testBurstyBatchPaceReportsTrueAverageSpeed(): void {
+  const track = createVmFlushProgressTracker()
+  // drain 逐批往返：批周期 1s、采样 500ms——每隔一拍才有一次 1MB 下降。
+  // 「只在下降拍更新」的估计会把一批 ÷ 采样间隔误当恒速（报 2MB/s，虚高一倍）；
+  // 窗口速度必须贴近全程均速 1MB/s。
+  const total = 16 * MB
+  let last: VmFlushProgress | undefined
+  for (let tick = 0; tick <= 10; tick += 1) {
+    const delivered = Math.floor(tick / 2) * MB
+    last = track(sample(tick * 500, total - delivered, 0, 0))
+  }
+  assert.equal(last?.stage, 'guest')
+  const expected = (5 * MB) / 5 // 5MB / 5s
+  assert.ok(last?.speedBytesPerSec !== undefined)
+  assert.ok(Math.abs(last!.speedBytesPerSec! - expected) / expected < 0.05)
+}
+
+function testSpeedSagsAndDropsDuringStall(): void {
+  const track = createVmFlushProgressTracker()
+  track(sample(0, 10 * MB, 0, 0))
+  const moving = track(sample(1000, 9 * MB, 0, 0))
+  assert.equal(moving.speedBytesPerSec, 1 * MB)
+  // 停滞：pending 不再下降，窗口跨度被真实拉长，速度随之下坠而不是原地冻结。
+  const stalled2s = track(sample(2000, 9 * MB, 0, 0))
+  assert.ok(stalled2s.speedBytesPerSec !== undefined)
+  assert.ok(stalled2s.speedBytesPerSec! < moving.speedBytesPerSec!)
+  const stalled5s = track(sample(5000, 9 * MB, 0, 0))
+  assert.ok(stalled5s.speedBytesPerSec !== undefined)
+  assert.ok(stalled5s.speedBytesPerSec! < stalled2s.speedBytesPerSec!)
+  // 停滞超过窗口：峰值样本滑出窗口，不再有可计量的下降，速度交回 undefined。
+  const stalledOut = track(sample(1001 + VM_FLUSH_SPEED_WINDOW_MS, 9 * MB, 0, 0))
+  assert.equal(stalledOut.speedBytesPerSec, undefined)
+}
+
+function testPendingRiseInsideWindowDoesNotYieldSpeed(): void {
+  const track = createVmFlushProgressTracker()
+  track(sample(0, 10 * MB, 0, 0))
+  // 客机收尾仍在写入新脏数据：pending 上涨。锚点跟随窗口峰值，不产生负速度。
+  const risen = track(sample(1000, 12 * MB, 0, 0))
+  assert.equal(risen.speedBytesPerSec, undefined)
+  // 峰值之后开始下降：速度从峰值起算，只计真实下降段。
+  const falling = track(sample(2000, 11 * MB, 0, 0))
+  assert.equal(falling.speedBytesPerSec, 1 * MB)
 }
 
 function testStallHeartbeat(): void {
@@ -161,6 +207,9 @@ testMidMergeEntryGoesStraightToHostStage()
 testMountedVolumeBlackBoxStaysIndeterminate()
 testStaleGuestStatsDoNotBlockHostProgress()
 testSpeedResetsAcrossStageSwitch()
+testBurstyBatchPaceReportsTrueAverageSpeed()
+testSpeedSagsAndDropsDuringStall()
+testPendingRiseInsideWindowDoesNotYieldSpeed()
 testStallHeartbeat()
 testInvalidNumbersAreTolerated()
 console.log('virtual-machine-flush-progress.test.ts ok')

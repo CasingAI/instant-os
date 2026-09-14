@@ -105,7 +105,7 @@ ivm-agent v4 起，登录身份的常驻实例顺带提供 Win7 Aero Snap 的 XP
 - 升级注意：旧版 agent 还持着会话互斥时，新 exe 的登录实例会单实例退场，
   先结束旧 `ivm-agent.exe`（或重启 XP）再用新功能。
 
-## 共享文件夹（WebDAV，agent v5 起）
+## 共享文件夹（SMB 网络盘）
 
 宿主「虚拟机设置 → 存储 → 添加设备 → 共享文件夹」主动添加（能力开关在
 「体验增强 → 共享文件夹」，未开启时添加项置灰并提示去开启；未选客机系统
@@ -114,24 +114,29 @@ ivm-agent v4 起，登录身份的常驻实例顺带提供 Win7 Aero Snap 的 XP
 机」随时弹出/重连（即时生效），缺网卡时有一键启用。保存即自动配置客机，
 **全程无需手工脚本**：
 
-- **链路**：宿主把所选目录暴露成本地 WebDAV 服务（`files-api` 全能力，
-  含 Range 断点/中文名/移动重命名）→ XP 的 WebClient 服务经 v86 虚拟网卡
-  访问 `http://instant-vm-files.local/`（v86 fetch 桥经 postMessage 转发，
-  纯本地假栈、不需要真实网络）→ 客机映射成网络驱动器 `Z:`；
+- **链路**：XP 原生 SMB 客户端（网上邻居/文件共享本体，不是已被证伪的
+  mrxdav WebDAV 重定向器）直连 v86 假网络网关 445 端口
+  `\\192.168.87.1\share`（139 被 RST 后自然回落 445 直邮）；运行时页实现
+  SMB1 服务端（协议编解码 + 会话状态机，见 Instant-virtual-machine 的
+  `smb-protocol.ts` / `smb-server.ts`），文件操作经 postMessage 桥
+  （`smb-fs-bridge.ts` ↔ 宿主 `virtual-machine-smb-host.ts`）落到 Files
+  VFS——客机是**真网络盘**，读写双向实时直达宿主目录，没有同步副本；
 - **收敛机制**：宿主把配置写进 `HKLM\SOFTWARE\InstantVM\SharedFolder`
-  （Seq/Enabled/Url/Drive），agent 登录实例在 bridge_tick 里 150ms 轮询，
-  按 `HKCU\Network\<盘>` 的 RemotePath 判断现状做幂等 `net use`；换盘符或
-  停用时按 RemotePath 枚举自动清掉指向本共享的旧盘符映射（v6 起）。直接在
-  设置里开关/换目录/换盘符，客机十秒内自动跟随；EXEC 直映落在 session 0
-  不可见，所以走注册表下发、登录侧收敛；
+  （Seq/Enabled/Url/Drive，Url = UNC），agent 登录实例在 bridge_tick 里
+  150ms 轮询，按 `HKCU\Network\<盘>` 的 RemotePath 判断现状做幂等
+  `net use`（保持 /persistent:yes：留痕是幂等出口的依据，且省去每次推送
+  的 delete+重挂抖动）；映射前先 `subst <盘> /d` 压掉旧 subst 方案残留的
+  目录别名。换盘符或停用时按 RemotePath 枚举自动清掉指向本共享的旧盘符
+  映射。直接在设置里开关/换目录/换盘符，客机十秒内自动跟随；EXEC 直映落
+  在 session 0 不可见，所以走注册表下发、登录侧收敛；
 - **开机重推**：guest 注册表配置不依赖磁盘持久化（硬盘写入「不写入」时重
-  启即蒸发）——宿主在每次开机、agent 命令链就绪后自动重推一遍配置，并当场
-  启动 WebClient（`start= auto` 只管下次开机），任何写入模式下进桌面不久
-  盘符都会自动挂上；
-- **前提**：客机装 v6 及以上 agent（登录实例在跑）+ 虚拟机网卡启用；
+  启即蒸发）——宿主在每次开机、agent 命令链就绪后自动重推一遍配置，任何
+  写入模式下进桌面不久盘符都会自动挂上；
+- **前提**：客机装最新 agent（登录实例在跑）+ 虚拟机网卡启用；
 - **日志**：`C:\Tools\shared-folder.log`；
-- **已知限制**：单文件 ≤ 512MB（宿主已调 WebClient 的 FileSizeLimit）；
-  传大文件时 XP 资源管理器进度条不走属正常，等它完成即可。
+- **已知差异**：跨目录改名经 VFS 复制+删除实现，附加属性不随；服务端认证
+  accept-all（暴露面不出 192.168.87.1 假网关）、不授予 oplock、锁请求
+  noop；文件长度扩展按写零处理（无稀疏语义）。
 
 ## 怎么构建 / 更新 out/
 

@@ -1046,22 +1046,6 @@ static int resolve_shell_window_path(HWND hwnd, wchar_t *out, unsigned long cap)
     return 0;
 }
 
-/* 用 SHBrowseForFolderW 让用户手选目标位置（兜底）。 */
-static int pick_target_folder(wchar_t *out, unsigned long cap)
-{
-    BROWSEINFOW bi;
-    memset(&bi, 0, sizeof(bi));
-    bi.lpszTitle = L"选择粘贴位置";
-    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-    LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
-    if (!pidl) {
-        return 0;
-    }
-    int ok = SHGetPathFromIDListW(pidl, out) ? 1 : 0;
-    CoTaskMemFree(pidl);
-    return ok;
-}
-
 /* 从当前前台窗口/右键菜单所有者推导目标路径。 */
 static int resolve_target_path(wchar_t *out, unsigned long cap)
 {
@@ -1964,9 +1948,9 @@ static void run_takeover(void)
 
     int resolved = resolve_target_path(g_target_path, MAX_NAME_CHARS);
     if (!resolved) {
-        resolved = pick_target_folder(g_target_path, MAX_NAME_CHARS);
-    }
-    if (!resolved) {
+        /* 解析不到目标 = 这次 GetData 不是 Explorer 正常粘贴（系统组件探询、
+         * 前台无资源管理器窗口等）。静默放弃，绝不弹框替用户发起计划外粘贴。 */
+        log_line("clip-bridge: takeover ignored (no resolvable target)");
         g_pending.in_progress = 0;
         g_ignore_getdata_until = GetTickCount() + 400;
         return;

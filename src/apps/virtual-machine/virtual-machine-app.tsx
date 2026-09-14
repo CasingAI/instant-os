@@ -49,6 +49,7 @@ import {
   type VmDiskFirstAidReport,
 } from './virtual-machine-disk-first-aid.ts'
 import { setWebdavSharedRoot } from './virtual-machine-webdav-host.ts'
+import { setSmbSharedRoot } from './virtual-machine-smb-host.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
 import {
@@ -156,9 +157,9 @@ function execReceipt(result: unknown): { rc: number | null; timedOut: boolean; e
 }
 
 /**
- * 共享文件夹的客机配置（同步目录 + subst 引导 + Run 键注册），逐条经
- * execResult（SYSTEM 身份、等待退出码）下发；盘符由登录会话的 Run 键脚本
- * subst（EXEC 在 session 0 里 subst 用户看不见）。
+ * 共享文件夹的客机配置（SharedFolder 注册表组：Url=UNC、Drive、Enabled、Seq），
+ * 逐条经 execResult（SYSTEM 身份、等待退出码）下发；盘符映射由登录会话的
+ * agent 收敛（net use \\192.168.87.1\share——EXEC 在 session 0 里映射用户看不见）。
  * 返回值 = 关键配置（SharedFolder 注册表组）是否全部确认落盘。
  *
  * 重入互斥：开机 effect 与保存设置可能并发触发推送，同一时刻全局只允许一个
@@ -218,78 +219,21 @@ async function pushSharedFolderGuestConfigInner(
   }
 
   if (enabled) {
-    // 共享文件夹：XP 的 mrxdav WebDAV 重定向器实测不可用（`net use http://…`
-    // 本地即刻失败：系统错误 67，客机侧零网络帧，WebClient/mrxdav/Provider
-    // 注册均正常也照错）——登录实例桥里那条 net use 通路只是兜底，不能依赖。
-    // 真正的通路是 MSXML 同步 + subst：文件内容由客机 msxml 走桥 HTTP 拉取
-    // （裸 IP 192.168.87.1，零 DNS），写入 C:\InstantShare；盘符由登录会话的
-    // Run 键脚本 subst 出来。这里只做：清目录建目录、写引导脚本、连跑同步。
-    // 同步脚本本体由桥下发（__sync_script），引导脚本逐行 echo 写入。
+    // 旧 subst+同步方案的客机残留清理（幂等，删过再删无害）：Run 键里的
+    // share-start.bat 会在登录时 subst 出同名盘符，不压掉会挡在 SMB 映射前面。
+    // 盘符本身的 subst 解除由登录会话的 agent 做（EXEC 在 session 0 解不了
+    // 用户会话的 subst）。
+    await runLogged(
+      'cmd /c reg delete HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run /v InstantShare /f',
+    )
+    await runLogged('cmd /c del /q C:\\Tools\\share-boot.vbs C:\\Tools\\share-sync.vbs C:\\Tools\\share-start.bat')
     await runLogged('cmd /c if exist C:\\InstantShare rd /s /q C:\\InstantShare')
-    await runLogged('cmd /c md C:\\InstantShare')
-    // 引导脚本逐行 echo 写入：单条 EXEC 帧上限 200 字节（VM_AGENT_MAX_FRAME_PAYLOAD），
-    // 合并成一条会超限被静默吞掉。行尾是数字时补一个空格，避免 cmd 把 `1>>`
-    // 解析成句柄重定向把数字吞掉。
-    const shareBootLines = [
-      'Set x=CreateObject("MSXML2.ServerXMLHTTP")',
-      'Set s=CreateObject("ADODB.Stream")',
-      'x.Open "GET","http://192.168.87.1/__sync_script",False',
-      'x.Send',
-      's.Open',
-      's.Type=1',
-      's.Write x.responseBody',
-      's.SaveToFile "C:\\Tools\\share-sync.vbs",2',
-      's.Close',
-    ]
-    for (const [index, line] of shareBootLines.entries()) {
-      const redirect = (index === 0 ? '>' : '>>') + 'C:\\Tools\\share-boot.vbs'
-      const safeLine = /[0-9]$/.test(line) ? line + ' ' : line
-      await runLogged(`cmd /c echo ${safeLine}${redirect}`)
-    }
-    // 同步本体可能超出 15s EXEC 窗口（大目录），截断无害——每个文件原子落盘，
-    // 连跑三次幂等续完；失败行都进日志。
-    await runLogged('cmd /c cscript //nologo C:\\Tools\\share-boot.vbs')
-    await runLogged(
-      'cmd /c cscript //nologo C:\\Tools\\share-sync.vbs >> C:\\Tools\\share-sync-run.txt 2>&1',
-    )
-    await runLogged(
-      'cmd /c cscript //nologo C:\\Tools\\share-sync.vbs >> C:\\Tools\\share-sync-run.txt 2>&1',
-    )
-    // 登录会话脚本（Run 键，下次登录执行）：Enabled=1 时建目录 + subst 盘符 +
-    // 后台续同步；Enabled=0 时解除盘符。注意 subst/盘符映射是登录会话私有的，
-    // EXEC 在 session 0 里 subst 用户看不见，必须走登录脚本。
-    await runLogged('cmd /c echo @echo off>C:\\Tools\\share-start.bat')
-    await runLogged(
-      'cmd /c echo reg query HKLM\\SOFTWARE\\InstantVM\\SharedFolder /v Enabled ^| findstr 0x1 ^>nul ^|^| goto off>>C:\\Tools\\share-start.bat',
-    )
-    await runLogged('cmd /c echo if not exist C:\\InstantShare md C:\\InstantShare>>C:\\Tools\\share-start.bat')
-    // 注意：echo 的行尾若是数字，`1>>file` 会被 cmd 当成「句柄 1 追加重定向」，
-    // 把数字整个吃掉（曾把 `2>&1` 吃成 `2>&`，批处理遇非法重定向直接中止）。
-    // 所以重定向符前必须留一个空格。
-    await runLogged(
-      `cmd /c echo subst ${driveValue}: /d ^>nul 2^>^&1 >>C:\\Tools\\share-start.bat`,
-    )
-    await runLogged(
-      `cmd /c echo subst ${driveValue}: C:\\InstantShare>>C:\\Tools\\share-start.bat`,
-    )
-    await runLogged(
-      'cmd /c echo start "" /b cscript //nologo C:\\Tools\\share-sync.vbs>>C:\\Tools\\share-start.bat',
-    )
-    await runLogged('cmd /c echo exit /b>>C:\\Tools\\share-start.bat')
-    await runLogged('cmd /c echo :off>>C:\\Tools\\share-start.bat')
-    await runLogged(
-      `cmd /c echo subst ${driveValue}: /d ^>nul 2^>^&1 >>C:\\Tools\\share-start.bat`,
-    )
-    await runLogged('cmd /c echo exit /b>>C:\\Tools\\share-start.bat')
-    await runLogged(
-      'cmd /c reg add HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run /v InstantShare /t REG_SZ /d C:\\Tools\\share-start.bat /f',
-    )
   }
 
   // Enabled/Seq 必须显式 /t REG_DWORD：agent 按 DWORD 读（sf_reg_read_dword），
   // reg add 不带 /t 默认写 REG_SZ，agent 在 Seq 这道门就零动作退出。
   // Seq 放最后：它一变 agent 就动手，必须意味着前面全部就绪。
-  await addSharedFolderValue('/v Url', '/d http://instant-vm-files.local/ /f')
+  await addSharedFolderValue('/v Url', '/d \\\\192.168.87.1\\share /f')
   await addSharedFolderValue('/v Drive', `/d ${driveValue}: /f`)
   await addSharedFolderValue('/v Enabled', `/t REG_DWORD /d ${enabled ? 1 : 0} /f`)
   // Date.now() 超出 DWORD 范围（≈42.9 亿），取模截进 32 位；agent 只要求 Seq 变化。
@@ -1398,6 +1342,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
   const sharedFolderPath = displayedMachine?.sharedFolderPath ?? ''
   useEffect(() => {
     setWebdavSharedRoot(sharedFolderActive ? sharedFolderPath : undefined)
+    setSmbSharedRoot(sharedFolderActive ? sharedFolderPath : undefined)
     if (displayedId === undefined || !selectedRunning) {
       return
     }
@@ -2009,6 +1954,7 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               ? settings.sharedFolderPath
               : undefined
             setWebdavSharedRoot(sharedRoot)
+            setSmbSharedRoot(sharedRoot)
             await pool.setSharedFolder(settingsSession.id, sharedRoot !== undefined)
             // 运行中切硬盘写入档：只允许不保存 ⇄ 关机后写入（设置对话框已拦
             // 尽快写入），流侧只改最终是否合并，缓存不删。

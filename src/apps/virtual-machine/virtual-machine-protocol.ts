@@ -41,6 +41,8 @@ export const INSTANT_VM_MESSAGE_TYPE = {
   guestFileDone: 'instant-vm:guest-file-done',
   webdavRequest: 'instant-vm:webdav-request',
   webdavResult: 'instant-vm:webdav-result',
+  smbFsRequest: 'instant-vm:smb-fs-request',
+  smbFsResult: 'instant-vm:smb-fs-result',
   setSharedFolder: 'instant-vm:set-shared-folder',
 } as const
 
@@ -299,6 +301,75 @@ export type InstantVmSetSharedFolderMessage = {
   type: typeof INSTANT_VM_MESSAGE_TYPE.setSharedFolder
   requestId: string
   enabled: boolean
+}
+
+// ---------------------------------------------------------------------------
+// SMB 共享文件夹（445 端口 SMB 服务端 ↔ 宿主 Files VFS 的 postMessage 桥）
+// ---------------------------------------------------------------------------
+
+/** SMB 桥操作集；路径一律相对共享根、'/' 分隔、'' = 根。 */
+export const INSTANT_VM_SMB_FS_OPS = [
+  'stat',
+  'list',
+  'read',
+  'write',
+  'create',
+  'truncate',
+  'mkdir',
+  'remove',
+  'rename',
+  'move',
+  'setEof',
+] as const
+
+export type InstantVmSmbFsOp = (typeof INSTANT_VM_SMB_FS_OPS)[number]
+
+/** 桥错误词汇表（服务端映射 NTSTATUS；host 侧预检产出确定性的种类）。 */
+export const INSTANT_VM_SMB_FS_ERRORS = [
+  'not-found',
+  'exists',
+  'not-dir',
+  'not-empty',
+  'denied',
+  'invalid',
+  'other',
+] as const
+
+export type InstantVmSmbFsErrorKind = (typeof INSTANT_VM_SMB_FS_ERRORS)[number]
+
+export type InstantVmSmbFsEntry = {
+  name: string
+  isDir: boolean
+  size: number
+  mtimeMs: number
+  ctimeMs: number
+}
+
+/** 运行时 → 宿主：SMB 服务端的文件系统原语调用。 */
+export type InstantVmSmbFsRequestMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.smbFsRequest
+  requestId: string
+  op: InstantVmSmbFsOp
+  path: string
+  /** rename 的新名字 / move 的目标目录。 */
+  path2?: string
+  /** read/write 的偏移。 */
+  offset?: number
+  /** read 的长度 / setEof 的目标长度。 */
+  length?: number
+  /** write 的字节。 */
+  data?: ArrayBuffer
+}
+
+/** 宿主 → 运行时：SMB 文件系统调用回执。stat 未找到 = ok + entry null。 */
+export type InstantVmSmbFsResultMessage = {
+  type: typeof INSTANT_VM_MESSAGE_TYPE.smbFsResult
+  requestId: string
+  ok: boolean
+  error?: InstantVmSmbFsErrorKind
+  entry?: InstantVmSmbFsEntry | null
+  entries?: InstantVmSmbFsEntry[]
+  data?: ArrayBuffer
 }
 
 export type InstantVmStopMessage = {
@@ -641,6 +712,7 @@ export type InstantVmRuntimeToHostMessage =
   | InstantVmGuestFileDoneMessage
   | InstantVmNativeKeyMessage
   | InstantVmWebdavRequestMessage
+  | InstantVmSmbFsRequestMessage
 
 const MEMORY_MB_MIN = 16
 const MEMORY_MB_MAX = 2032
@@ -928,6 +1000,98 @@ export function isInstantVmSetSharedFolderMessage(
     isRequestId(value.requestId) &&
     typeof value.enabled === 'boolean'
   )
+}
+
+/** SMB 桥单条路径长度上限（防呆；XP 侧路径上限 260 远在此之下）。 */
+const SMB_FS_PATH_MAX = 1024
+/** 桥单条读写上限（与服务端 SMB_IO_CHUNK_MAX 一致，1 MiB）。 */
+const SMB_FS_DATA_MAX = 1048576
+
+function isSmbFsPath(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= SMB_FS_PATH_MAX
+}
+
+function isSmbFsOp(value: unknown): value is InstantVmSmbFsOp {
+  return (
+    typeof value === 'string' && (INSTANT_VM_SMB_FS_OPS as readonly string[]).includes(value)
+  )
+}
+
+function isSmbFsEntry(value: unknown): value is InstantVmSmbFsEntry {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    value.name.length <= 512 &&
+    typeof value.isDir === 'boolean' &&
+    isNonNegFinite(value.size) &&
+    isNonNegFinite(value.mtimeMs) &&
+    isNonNegFinite(value.ctimeMs)
+  )
+}
+
+export function isInstantVmSmbFsRequestMessage(
+  value: unknown,
+): value is InstantVmSmbFsRequestMessage {
+  if (
+    !isRecord(value) ||
+    value.type !== INSTANT_VM_MESSAGE_TYPE.smbFsRequest ||
+    !isRequestId(value.requestId) ||
+    !isSmbFsOp(value.op) ||
+    !isSmbFsPath(value.path)
+  ) {
+    return false
+  }
+  if (value.path2 !== undefined && !isSmbFsPath(value.path2)) {
+    return false
+  }
+  if (value.offset !== undefined && !isNonNegFinite(value.offset)) {
+    return false
+  }
+  if (value.length !== undefined && !isNonNegFinite(value.length)) {
+    return false
+  }
+  if (
+    value.data !== undefined &&
+    (!(value.data instanceof ArrayBuffer) || value.data.byteLength > SMB_FS_DATA_MAX)
+  ) {
+    return false
+  }
+  return true
+}
+
+export function isInstantVmSmbFsResultMessage(
+  value: unknown,
+): value is InstantVmSmbFsResultMessage {
+  if (
+    !isRecord(value) ||
+    value.type !== INSTANT_VM_MESSAGE_TYPE.smbFsResult ||
+    !isRequestId(value.requestId) ||
+    typeof value.ok !== 'boolean'
+  ) {
+    return false
+  }
+  if (
+    value.error !== undefined &&
+    !(typeof value.error === 'string' && (INSTANT_VM_SMB_FS_ERRORS as readonly string[]).includes(value.error))
+  ) {
+    return false
+  }
+  if (value.entry !== undefined && value.entry !== null && !isSmbFsEntry(value.entry)) {
+    return false
+  }
+  if (
+    value.entries !== undefined &&
+    !(Array.isArray(value.entries) && value.entries.length <= 65536 && value.entries.every(isSmbFsEntry))
+  ) {
+    return false
+  }
+  if (
+    value.data !== undefined &&
+    (!(value.data instanceof ArrayBuffer) || value.data.byteLength > SMB_FS_DATA_MAX)
+  ) {
+    return false
+  }
+  return true
 }
 
 export function isInstantVmStartMessage(value: unknown): value is InstantVmStartMessage {
@@ -1457,6 +1621,9 @@ export function isInstantVmRuntimeToHostMessage(
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.webdavRequest) {
     return isInstantVmWebdavRequestMessage(value)
+  }
+  if (value.type === INSTANT_VM_MESSAGE_TYPE.smbFsRequest) {
+    return isInstantVmSmbFsRequestMessage(value)
   }
   if (value.type === INSTANT_VM_MESSAGE_TYPE.agentResult) {
     return isInstantVmAgentResultMessage(value)

@@ -386,55 +386,6 @@ async function ensureSparseCacheAttachment(key: DiskOverlayKey): Promise<{
   return { attachPath, imageSize: stat.byteSize }
 }
 
-async function seedSlotBuffer(
-  attachPath: string,
-  imagePath: string,
-  slotOffset: number,
-  slotLength: number,
-  occupied: ReadonlySet<number>,
-): Promise<Uint8Array> {
-  if (occupied.has(slotOffset)) {
-    return readRangeBytes(attachPath, slotOffset, slotLength)
-  }
-  return readRangeBytes(imagePath, slotOffset, slotLength)
-}
-
-async function writeSeededRange(
-  attachPath: string,
-  imagePath: string,
-  imageSize: number,
-  offset: number,
-  bytes: Uint8Array,
-): Promise<void> {
-  const node = await resolveNodeByAbsolutePath(attachPath, { follow: true })
-  if (!node) {
-    throw new Error(`缓存附加不存在：${attachPath}`)
-  }
-  const slotSize = SPARSE_DEFAULT_CHUNK_SIZE
-  const writeEnd = offset + bytes.byteLength
-  const firstSlot = Math.floor(offset / slotSize)
-  const lastSlot = Math.floor((writeEnd - 1) / slotSize)
-  const occupied = new Set(
-    (await listSparseOccupiedSlots(node.id)).map((slot) => slot.offset),
-  )
-  const rangeStart = firstSlot * slotSize
-  const rangeEnd = Math.min((lastSlot + 1) * slotSize, imageSize)
-  const buf = new Uint8Array(rangeEnd - rangeStart)
-  for (let slot = firstSlot; slot <= lastSlot; slot += 1) {
-    const slotOffset = slot * slotSize
-    const slotLength = Math.min(slotSize, imageSize - slotOffset)
-    if (slotLength <= 0) continue
-    buf.set(await seedSlotBuffer(attachPath, imagePath, slotOffset, slotLength, occupied), slotOffset - rangeStart)
-  }
-  buf.set(bytes, offset - rangeStart)
-  await writeBlobBytesRange({
-    nodeId: node.id,
-    offset: rangeStart,
-    bytes: buf,
-    retainZeroSlots: true,
-  })
-}
-
 function makeMemoryStore(id: string): DiskOverlayStore {
   const loadRuns = (): DiskOverlayRun[] => memoryLogs.get(id) ?? []
   return {
@@ -482,29 +433,128 @@ function makeMemoryStore(id: string): DiskOverlayStore {
   }
 }
 
+/** 会话内最多留几段已写槽内容：关机 drain 的散段反复触碰同槽时不再重读种子。 */
+const SLOT_CACHE_MAX_ENTRIES = 4
+
 async function makeAttachmentStore(
   key: DiskOverlayKey,
   attachPath: string,
   imageSize: number,
 ): Promise<DiskOverlayStore> {
   const id = cacheKey(key)
+  // 会话级缓存：附加节点只解析一次；已占槽集合初始化播种一次、之后随写成功增量
+  // 维护。此前每批写都要重解析路径 + 两次全量列槽（随脏槽增多变重）+ 重复读 1MB
+  // 槽种子，关机收尾的散段批因此只有几十 KB/s。
+  let cachedNodeId: string | undefined
+  const occupied = new Set<number>()
+  const slotBytes = new Map<number, Uint8Array>()
   let cachedDirty = 0
-  const refreshDirty = async (): Promise<void> => {
+
+  const slotLengthAt = (slotOffset: number): number =>
+    Math.min(SPARSE_DEFAULT_CHUNK_SIZE, imageSize - slotOffset)
+
+  const seedSession = async (): Promise<void> => {
     const node = await resolveNodeByAbsolutePath(attachPath, { follow: true })
+    cachedNodeId = node?.id
+    occupied.clear()
+    slotBytes.clear()
+    cachedDirty = 0
     if (!node) {
-      cachedDirty = 0
       return
     }
-    const slots = await listSparseOccupiedSlots(node.id)
-    cachedDirty = slots.reduce((sum, slot) => sum + slot.length, 0)
+    for (const slot of await listSparseOccupiedSlots(node.id)) {
+      occupied.add(slot.offset)
+      cachedDirty += slot.length
+    }
   }
-  await refreshDirty()
+
+  const ensureNodeId = async (): Promise<string> => {
+    if (cachedNodeId !== undefined) {
+      return cachedNodeId
+    }
+    const node = await resolveNodeByAbsolutePath(attachPath, { follow: true })
+    if (!node) {
+      throw new Error(`缓存附加不存在：${attachPath}`)
+    }
+    cachedNodeId = node.id
+    return node.id
+  }
+
+  const loadSlot = async (slotOffset: number, slotLength: number): Promise<Uint8Array> => {
+    const cached = slotBytes.get(slotOffset)
+    if (cached !== undefined) {
+      // LRU 触碰：提到最新位置
+      slotBytes.delete(slotOffset)
+      slotBytes.set(slotOffset, cached)
+      return cached
+    }
+    // 已占槽必须读附件（含此前全部写入）；未占槽从基础镜像播种——
+    // 「已占槽 = 完整槽内容」是合并阶段整槽写回主镜像的正确性前提。
+    return readRangeBytes(occupied.has(slotOffset) ? attachPath : key.imagePath, slotOffset, slotLength)
+  }
+
+  const rememberSlot = (slotOffset: number, bytes: Uint8Array): void => {
+    if (!occupied.has(slotOffset)) {
+      occupied.add(slotOffset)
+      cachedDirty += slotLengthAt(slotOffset)
+    }
+    slotBytes.delete(slotOffset)
+    slotBytes.set(slotOffset, copyBytes(bytes))
+    while (slotBytes.size > SLOT_CACHE_MAX_ENTRIES) {
+      const oldest = slotBytes.keys().next().value
+      if (oldest === undefined) {
+        break
+      }
+      slotBytes.delete(oldest)
+    }
+  }
+
+  const appendRange = async (offset: number, bytes: Uint8Array): Promise<void> => {
+    if (!Number.isFinite(offset) || offset < 0 || bytes.byteLength <= 0) {
+      return
+    }
+    const slotSize = SPARSE_DEFAULT_CHUNK_SIZE
+    const writeEnd = offset + bytes.byteLength
+    const firstSlot = Math.floor(offset / slotSize)
+    const lastSlot = Math.floor((writeEnd - 1) / slotSize)
+    const nodeId = await ensureNodeId()
+    const rangeStart = firstSlot * slotSize
+    const rangeEnd = Math.min((lastSlot + 1) * slotSize, imageSize)
+    const buf = new Uint8Array(rangeEnd - rangeStart)
+    for (let slot = firstSlot; slot <= lastSlot; slot += 1) {
+      const slotOffset = slot * slotSize
+      const slotLength = slotLengthAt(slotOffset)
+      if (slotLength <= 0) {
+        continue
+      }
+      buf.set(await loadSlot(slotOffset, slotLength), slotOffset - rangeStart)
+    }
+    buf.set(bytes, offset - rangeStart)
+    try {
+      await writeBlobBytesRange({ nodeId, offset: rangeStart, bytes: buf, retainZeroSlots: true })
+    } catch (error) {
+      // 附加可能被外部删掉：清掉节点缓存让下次重解析。槽缓存不动——写没成功，
+      // 缓存里仍是从盘里读出的内容，与盘一致。
+      cachedNodeId = undefined
+      throw error
+    }
+    // 写穿成功后才把新槽内容记入会话缓存，ack 语义不变（落库完毕才应答客机）。
+    for (let slot = firstSlot; slot <= lastSlot; slot += 1) {
+      const slotOffset = slot * slotSize
+      const slotLength = slotLengthAt(slotOffset)
+      if (slotLength <= 0) {
+        continue
+      }
+      rememberSlot(
+        slotOffset,
+        buf.subarray(slotOffset - rangeStart, slotOffset - rangeStart + slotLength),
+      )
+    }
+  }
+
+  await seedSession()
   return {
-    async append(offset, bytes) {
-      if (!Number.isFinite(offset) || offset < 0 || bytes.byteLength <= 0) return
-      await writeSeededRange(attachPath, key.imagePath, imageSize, offset, bytes)
-      await refreshDirty()
-    },
+    append: appendRange,
     async flush() {},
     async records() {
       const node = await resolveNodeByAbsolutePath(attachPath, { follow: true })
@@ -550,15 +600,23 @@ async function makeAttachmentStore(
         chunkSize: SPARSE_DEFAULT_CHUNK_SIZE,
         nameMode: 'exact',
       })
+      // 附加已重建（节点 id 变了）：会话状态作废重播；occupied 为空，
+      // appendRange 会从基础镜像重新播种，不变量保持。
+      cachedNodeId = undefined
+      occupied.clear()
+      slotBytes.clear()
+      cachedDirty = 0
       for (const run of runs) {
         if (!Number.isFinite(run.offset) || run.offset < 0 || run.bytes.byteLength <= 0) continue
-        await writeSeededRange(attachPath, key.imagePath, imageSize, run.offset, run.bytes)
+        await appendRange(run.offset, run.bytes)
       }
-      await refreshDirty()
     },
     async remove() {
       storeCache.delete(id)
       await deleteAttachmentAt(attachPath)
+      cachedNodeId = undefined
+      occupied.clear()
+      slotBytes.clear()
       cachedDirty = 0
     },
     dirtyBytes() {

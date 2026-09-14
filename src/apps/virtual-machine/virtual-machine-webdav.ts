@@ -61,15 +61,6 @@ const WEBDAV_ALLOW = 'OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCO
 
 export const WEBDAV_LOCK_TOKEN = 'opaquelocktoken:instant-vm-shared-folder'
 
-// ---------------------------------------------------------------------------
-// 共享目录同步（subst 方案的客机侧拉取）
-// ---------------------------------------------------------------------------
-
-/** 保留路径：客机引导脚本下载的同步脚本本体。 */
-export const SHARE_SYNC_SCRIPT_PATH = '/__sync_script'
-/** 保留路径：同步清单（D/目录、F/文件，行 = 类型<TAB>相对路径）。 */
-export const SHARE_SYNC_MANIFEST_PATH = '/__sync_manifest'
-
 /** 一期探针只读夹具。UNC `\\host\DavWWWRoot\__clip_probe` 对应此 URL 前缀。 */
 export const CLIP_PROBE_ROOT = '/__clip_probe'
 
@@ -249,76 +240,6 @@ function clipProbeEntry(rel: string, folder: boolean): WebdavFsEntry {
     updatedAt: CLIP_PROBE_STAMP,
   }
 }
-
-/**
- * 客机侧同步脚本（VBScript，cscript 执行，系统 ANSI 无中文）。
- * 引导脚本（exec echo 写入的 8 行）下载本文件后执行；它再拉清单、逐文件
- * 拉取写入 C:\InstantShare。文件名含中文时清单以 UTF-8 下发，ServerXMLHTTP
- * responseText 按 charset 解码成 Unicode，FSO 落盘自动转本机 ANSI 文件名。
- */
-export const SHARE_SYNC_SCRIPT = [
-  'Option Explicit',
-  'On Error Resume Next',
-  'Dim fso, log, x, s, lines, line, parts, kind, url, local, root, n',
-  'root = "C:\\InstantShare"',
-  'Set fso = CreateObject("Scripting.FileSystemObject")',
-  'If Err.Number <> 0 Then WScript.Quit 1',
-  'Set log = fso.OpenTextFile("C:\\Tools\\share-sync.txt", 8, True)',
-  'log.WriteLine Now & " sync begin"',
-  'Set x = CreateObject("MSXML2.ServerXMLHTTP")',
-  'x.Open "GET", "http://192.168.87.1/__sync_manifest", False',
-  'x.Send',
-  'If x.status <> 200 Then',
-  '  log.WriteLine "manifest status=" & x.status',
-  '  log.Close',
-  '  WScript.Quit 1',
-  'End If',
-  'lines = Split(x.responseText, vbLf)',
-  'For Each line In lines',
-  '  line = Trim(line)',
-  '  If Len(line) > 0 Then',
-  '    kind = Left(line, 1)',
-  '    If kind = "D" Then',
-  '      local = Mid(line, 3)',
-  '      If Not fso.FolderExists(root & "\\" & local) Then',
-  '        fso.CreateFolder root & "\\" & local',
-  '        log.WriteLine "mkdir " & local',
-  '      End If',
-  '    ElseIf kind = "F" Then',
-  '      parts = Split(line, Chr(9))',
-  '      url = parts(1)',
-  '      local = parts(2)',
-  '      x.Open "GET", "http://192.168.87.1/" & url, False',
-  '      x.Send',
-  '      If x.status <> 200 Then',
-  '        log.WriteLine "fail " & url & " status=" & x.status',
-  // 保存序列前先 Err.Clear：On Error Resume Next 下 Err 跨语句/跨循环残留，
-  // 前面任何一步（上个文件的 x.Send、CreateFolder 等）失败未清，会让本次成功
-  // 的保存被误判成 savefail。n 用 LenB 而非 UBound+1：0 字节文件的 responseBody
-  // 是空数组，UBound 抛下标越界又会污染下一个文件；空体跳过 Write 直接落空文件。
-  '      Else',
-  '        Err.Clear',
-  '        Set s = CreateObject("ADODB.Stream")',
-  '        s.Open',
-  '        s.Type = 1',
-  '        n = LenB(x.responseBody)',
-  '        If n > 0 Then s.Write x.responseBody',
-  '        s.SaveToFile root & "\\" & local, 2',
-  '        s.Close',
-  '        Set s = Nothing',
-  '        If Err.Number <> 0 Then',
-  '          log.WriteLine "savefail " & local & " 0x" & Hex(Err.Number) & " " & Err.Description',
-  '          Err.Clear',
-  '        Else',
-  '          log.WriteLine "saved " & local & " bytes=" & n',
-  '        End If',
-  '      End If',
-  '    End If',
-  '  End If',
-  'Next',
-  'log.WriteLine Now & " sync done"',
-  'log.Close',
-].join('\r\n')
 
 // ---------------------------------------------------------------------------
 // 路径映射
@@ -644,52 +565,11 @@ export function createWebdavHandler(root: string, fs: WebdavFs): (request: Webda
   return async (request: WebdavRequest): Promise<WebdavResponse> => {
     const method = request.method.toUpperCase()
 
-    // 同步脚本/清单走保留路径，绕过 DAV 语义（subst 方案的客机侧拉取）。
     let pathname = ''
     try {
       pathname = new URL(request.url).pathname
     } catch {
       pathname = ''
-    }
-    if (pathname === SHARE_SYNC_SCRIPT_PATH) {
-      if (method !== 'GET') {
-        return emptyResponse(405, 'Method Not Allowed')
-      }
-      return textResponse(200, 'OK', SHARE_SYNC_SCRIPT)
-    }
-    if (pathname === SHARE_SYNC_MANIFEST_PATH) {
-      if (method !== 'GET') {
-        return emptyResponse(405, 'Method Not Allowed')
-      }
-      const lines: string[] = []
-      let visited = 0
-      const walk = async (dir: string, prefix: string): Promise<void> => {
-        if (visited > 20_000) {
-          return
-        }
-        for (const entry of await fs.list(dir)) {
-          if (visited > 20_000) {
-            return
-          }
-          visited += 1
-          if (entry.kind === 'symlink') {
-            continue
-          }
-          const rel = prefix ? `${prefix}/${entry.name}` : entry.name
-          if (entry.kind === 'folder') {
-            lines.push(`D\t${rel.split('/').join('\\')}`)
-            await walk(entry.path, rel)
-          } else {
-            const urlPath = rel
-              .split('/')
-              .map((segment) => encodeURIComponent(segment))
-              .join('/')
-            lines.push(`F\t${urlPath}\t${rel.split('/').join('\\')}`)
-          }
-        }
-      }
-      await walk(root.replace(/\/+$/, ''), '')
-      return textResponse(200, 'OK', `${lines.join('\n')}\n`)
     }
 
     if (method === 'OPTIONS') {

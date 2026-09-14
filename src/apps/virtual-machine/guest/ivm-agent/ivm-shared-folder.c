@@ -1,8 +1,11 @@
-/* ivm-shared-folder.c —— 共享文件夹（WebDAV 网络驱动器映射）收敛执行。
+/* ivm-shared-folder.c —— 共享文件夹（SMB 网络驱动器映射）收敛执行。
  *
  * 配置流：宿主设置开关 → EXEC（SYSTEM 身份）写
  *   HKLM\SOFTWARE\InstantVM\SharedFolder 下的 Seq/Enabled/Url/Drive
  *   （见 instant-app virtual-machine-app.tsx pushSharedFolderGuestConfig）。
+ * Url 现在是 SMB UNC（\\192.168.87.1\share，v86 假网络网关上的 SMB 服务端，
+ * 运行时页实现、postMessage 桥到宿主 VFS）；旧的 subst 假盘 + 开机同步脚本
+ * 方案已退役。
  * 本模块在登录会话实例的 bridge_tick 里轮询 Seq，变化后在【用户会话】内
  * 幂等收敛 net use 映射。映射是每登录会话的资源：EXEC 直发会落进 session 0
  * （SYSTEM 的映射用户看不见），所以必须在登录实例里做，且用轮询 + 收敛
@@ -11,6 +14,10 @@
  * 幂等规则：HKCU\Network\<drive> 的 RemotePath 是 persistent 映射的注册表
  * 留痕，已等于 Url 就什么都不做；否则 net use <drive> /delete /y（忽略失败）
  * 后 net use <drive> <url> /persistent:yes。Enabled=0 时只删不挂。
+ * 注意保持 /persistent:yes：改成 no 会丢掉 HKCU\Network 留痕，幂等出口失效，
+ * 每次 Seq 推送都会 delete+重挂——正在使用的盘会被整个拆掉。
+ * 挂载前先 subst <drive> /d（忽略失败）：清掉旧 subst 方案留下的目录别名，
+ * 否则同盘符的 subst 会挡住 net use。
  * 日志：C:\Tools\shared-folder.log（尽力而为，绝不阻塞）。
  */
 
@@ -80,11 +87,11 @@ static int sf_reg_read_dword(HKEY root, const char *path, const char *name, DWOR
     return 1;
 }
 
-/* net.exe 子命令执行；返回退出码，0xFFFFFFFF = 启动失败。 */
-static DWORD sf_run_net(const char *args)
+/* net.exe / subst.exe 子命令执行；返回退出码，0xFFFFFFFF = 启动失败。 */
+static DWORD sf_run_tool(const char *tool, const char *args)
 {
     char cmdline[600];
-    wsprintfA(cmdline, "net %s", args);
+    wsprintfA(cmdline, "%s %s", tool, args);
     static const STARTUPINFOA zero_si;
     static const PROCESS_INFORMATION zero_pi;
     STARTUPINFOA si = zero_si;
@@ -102,6 +109,11 @@ static DWORD sf_run_net(const char *args)
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return exit_code;
+}
+
+static DWORD sf_run_net(const char *args)
+{
+    return sf_run_tool("net", args);
 }
 
 static void sf_apply(int enabled, const char *url, const char *drive)
@@ -130,6 +142,11 @@ static void sf_apply(int enabled, const char *url, const char *drive)
         sf_run_net(action);
     }
     if (enabled) {
+        /* 旧 subst 方案的目录别名占着盘符时 net use 报系统错误 55（本地设备名
+         * 已被使用）；先解 subst（无别名时失败，忽略）。 */
+        char unsubst[32];
+        wsprintfA(unsubst, "%s /d", drive);
+        sf_run_tool("subst", unsubst);
         char add[520];
         wsprintfA(add, "use %s %s /persistent:yes", drive, url);
         DWORD rc = sf_run_net(add);
@@ -204,7 +221,7 @@ void ivm_shared_folder_tick(void)
 
     DWORD enabled = 0;
     sf_reg_read_dword(HKEY_LOCAL_MACHINE, SF_REG_KEY, "Enabled", &enabled);
-    char url[SF_URL_MAX] = "http://instant-vm-files.local/";
+    char url[SF_URL_MAX] = "\\\\192.168.87.1\\share";
     sf_reg_read_string(HKEY_LOCAL_MACHINE, SF_REG_KEY, "Url", url, (DWORD)sizeof(url));
     char drive[8] = "Z:";
     sf_reg_read_string(HKEY_LOCAL_MACHINE, SF_REG_KEY, "Drive", drive, (DWORD)sizeof(drive));

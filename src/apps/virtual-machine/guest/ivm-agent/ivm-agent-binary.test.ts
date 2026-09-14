@@ -146,6 +146,7 @@ function buildAndAssert(directory: string): PeInfo {
     'ctlsb16',
     'IVMSnapPreview',
     'InstantVM\\SharedFolder',
+    '\\\\192.168.87.1\\share',
   ]) {
     assert.ok(image.includes(marker), `产物缺少关键字符串 "${marker}"（旧构建或链接丢了入口分发）`)
   }

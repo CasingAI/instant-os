@@ -32,7 +32,7 @@ export type VmFlushProgress = {
   pendingBytes: number | undefined
   /** 当前阶段的基准总量；indeterminate 阶段为 undefined。 */
   totalBytes: number | undefined
-  /** EMA 平滑后的速度；样本不足或无进展时为 undefined。 */
+  /** 速度窗口内的平均下降速率；样本不足或无进展时为 undefined。 */
   speedBytesPerSec: number | undefined
   /** 距上次观测到 pending 下降的毫秒数；阶段刚切换时为 0（宽限期）。 */
   stalledMs: number
@@ -41,7 +41,16 @@ export type VmFlushProgress = {
 /** 停滞心跳阈值：超过此时长无进展，覆盖层追加「仍在写入」提示。 */
 export const VM_FLUSH_STALL_THRESHOLD_MS = 4000
 
-const SPEED_EMA_ALPHA = 0.3
+/**
+ * 速度窗口时长。速度 = 窗口内 pending 峰值到当前的下降 ÷ 窗口真实跨度——停滞拍计入
+ * 分母。此前用「只在 pending 下降拍更新」的 EMA：drain 逐批往返、批周期超过采样间隔时，
+ * 无变化的拍被全部丢弃，EMA 把「一批 ÷ 采样间隔」误记为恒速，速度与 ETA 系统性虚高
+ * 数倍（批周期越长虚高越多）。
+ */
+export const VM_FLUSH_SPEED_WINDOW_MS = 5000
+
+/** 窗口跨度不足此值不出速度：样本太少，速率没有统计意义。 */
+const SPEED_MIN_SPAN_MS = 1000
 
 function finiteOrUndefined(value: number | undefined): number | undefined {
   return value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined
@@ -58,8 +67,8 @@ export function createVmFlushProgressTracker(): VmFlushProgressTracker {
   let guestBaseline: number | undefined
   let sawGuestStage = false
   let lastHostPending: number | undefined
-  let lastSample: { atMs: number; pendingBytes: number } | null = null
-  let speedBytesPerSec: number | undefined
+  let samples: { atMs: number; pendingBytes: number }[] = []
+  let lastPending: number | undefined
   let lastProgressAtMs: number | undefined
 
   return (sample: VmFlushProgressSample): VmFlushProgress => {
@@ -90,8 +99,8 @@ export function createVmFlushProgressTracker(): VmFlushProgressTracker {
 
     if (nextStage !== stage) {
       stage = nextStage
-      lastSample = null
-      speedBytesPerSec = undefined
+      samples = []
+      lastPending = undefined
       lastProgressAtMs = sample.nowMs
     }
     if (stage === 'guest') {
@@ -110,20 +119,30 @@ export function createVmFlushProgressTracker(): VmFlushProgressTracker {
       totalBytes = hostTotal > 0 ? hostTotal : undefined
     }
 
+    let speedBytesPerSec: number | undefined
     if (pendingBytes !== undefined) {
-      if (lastSample) {
-        const dtSec = (sample.nowMs - lastSample.atMs) / 1000
-        const written = lastSample.pendingBytes - pendingBytes
-        if (dtSec > 0 && written > 0) {
-          const instant = written / dtSec
-          speedBytesPerSec =
-            speedBytesPerSec === undefined
-              ? instant
-              : speedBytesPerSec * (1 - SPEED_EMA_ALPHA) + instant * SPEED_EMA_ALPHA
-          lastProgressAtMs = sample.nowMs
+      if (lastPending !== undefined && pendingBytes < lastPending) {
+        lastProgressAtMs = sample.nowMs
+      }
+      lastPending = pendingBytes
+      samples.push({ atMs: sample.nowMs, pendingBytes })
+      const cutoff = sample.nowMs - VM_FLUSH_SPEED_WINDOW_MS
+      while (samples.length > 1 && samples[0]!.atMs < cutoff) {
+        samples.shift()
+      }
+      // 锚点取窗口内 pending 最大的样本：阶段 A 早期客机收尾仍可能写入新脏数据，
+      // 从窗口峰值起算避免把「先涨后降」算成负速率。
+      let anchor = samples[0]!
+      for (const entry of samples) {
+        if (entry.pendingBytes > anchor.pendingBytes) {
+          anchor = entry
         }
       }
-      lastSample = { atMs: sample.nowMs, pendingBytes }
+      const spanMs = sample.nowMs - anchor.atMs
+      const dropped = anchor.pendingBytes - pendingBytes
+      if (spanMs >= SPEED_MIN_SPAN_MS && dropped > 0) {
+        speedBytesPerSec = dropped / (spanMs / 1000)
+      }
     }
 
     const stalledMs =
