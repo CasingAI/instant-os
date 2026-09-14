@@ -51,7 +51,7 @@ export type VmExecResult =
   | { ok: true; exitCode: number; timedOut: boolean }
   | {
       ok: false
-      error: 'busy' | 'timeout' | 'launch' | 'args' | 'ascii' | 'unbound'
+      error: 'busy' | 'timeout' | 'launch' | 'args' | 'ascii' | 'toolong' | 'unbound'
       detail?: string
     }
 

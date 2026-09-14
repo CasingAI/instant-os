@@ -215,19 +215,34 @@ async function pushSharedFolderGuestConfigInner(
   }
 
   if (enabled) {
-    // 共享文件夹：网上邻居的 WebDAV（宿主桥）为主通道，XP 的 dav 重定向器
-    // 已验证可用（根/子目录 PROPFIND、GET 均通）。这里的同步 + subst 是盘符
-    // 补充方案：文件内容由客机 msxml 走桥 HTTP 拉取（裸 IP 192.168.87.1，零
-    // DNS），写入 C:\InstantShare；盘符由登录会话的 Run 键脚本 subst 出来。
-    // 这里只做：清目录建目录、写引导脚本、连跑同步。同步脚本本体由桥下发
-    // （__sync_script），引导脚本只有 8 行、可逐行 echo 写入。
+    // 共享文件夹：XP 的 mrxdav WebDAV 重定向器实测不可用（`net use http://…`
+    // 本地即刻失败：系统错误 67，客机侧零网络帧，WebClient/mrxdav/Provider
+    // 注册均正常也照错）——登录实例桥里那条 net use 通路只是兜底，不能依赖。
+    // 真正的通路是 MSXML 同步 + subst：文件内容由客机 msxml 走桥 HTTP 拉取
+    // （裸 IP 192.168.87.1，零 DNS），写入 C:\InstantShare；盘符由登录会话的
+    // Run 键脚本 subst 出来。这里只做：清目录建目录、写引导脚本、连跑同步。
+    // 同步脚本本体由桥下发（__sync_script），引导脚本逐行 echo 写入。
     await runLogged('cmd /c if exist C:\\InstantShare rd /s /q C:\\InstantShare')
     await runLogged('cmd /c md C:\\InstantShare')
-    // 8 行 echo 合并成一条命令（行内无 &/|/( 等需转义字符），省 7 次 EXEC
-    // 往返；引导脚本只负责下载同步脚本本体并落盘。
-    await runLogged(
-      'cmd /c (echo Set x=CreateObject("MSXML2.ServerXMLHTTP")&echo Set s=CreateObject("ADODB.Stream")&echo x.Open "GET","http://192.168.87.1/__sync_script",False&echo x.Send&echo s.Open&echo s.Type=1&echo s.Write x.responseBody&echo s.SaveAs "C:\\Tools\\share-sync.vbs",2&echo s.Close)>C:\\Tools\\share-boot.vbs',
-    )
+    // 引导脚本逐行 echo 写入：单条 EXEC 帧上限 200 字节（VM_AGENT_MAX_FRAME_PAYLOAD），
+    // 合并成一条会超限被静默吞掉。行尾是数字时补一个空格，避免 cmd 把 `1>>`
+    // 解析成句柄重定向把数字吞掉。
+    const shareBootLines = [
+      'Set x=CreateObject("MSXML2.ServerXMLHTTP")',
+      'Set s=CreateObject("ADODB.Stream")',
+      'x.Open "GET","http://192.168.87.1/__sync_script",False',
+      'x.Send',
+      's.Open',
+      's.Type=1',
+      's.Write x.responseBody',
+      's.SaveToFile "C:\\Tools\\share-sync.vbs",2',
+      's.Close',
+    ]
+    for (const [index, line] of shareBootLines.entries()) {
+      const redirect = (index === 0 ? '>' : '>>') + 'C:\\Tools\\share-boot.vbs'
+      const safeLine = /[0-9]$/.test(line) ? line + ' ' : line
+      await runLogged(`cmd /c echo ${safeLine}${redirect}`)
+    }
     // 同步本体可能超出 15s EXEC 窗口（大目录），截断无害——每个文件原子落盘，
     // 连跑三次幂等续完；失败行都进日志。
     await runLogged('cmd /c cscript //nologo C:\\Tools\\share-boot.vbs')
@@ -245,8 +260,11 @@ async function pushSharedFolderGuestConfigInner(
       'cmd /c echo reg query HKLM\\SOFTWARE\\InstantVM\\SharedFolder /v Enabled ^| findstr 0x1 ^>nul ^|^| goto off>>C:\\Tools\\share-start.bat',
     )
     await runLogged('cmd /c echo if not exist C:\\InstantShare md C:\\InstantShare>>C:\\Tools\\share-start.bat')
+    // 注意：echo 的行尾若是数字，`1>>file` 会被 cmd 当成「句柄 1 追加重定向」，
+    // 把数字整个吃掉（曾把 `2>&1` 吃成 `2>&`，批处理遇非法重定向直接中止）。
+    // 所以重定向符前必须留一个空格。
     await runLogged(
-      `cmd /c echo subst ${driveValue}: /d ^>nul 2^>^&1>>C:\\Tools\\share-start.bat`,
+      `cmd /c echo subst ${driveValue}: /d ^>nul 2^>^&1 >>C:\\Tools\\share-start.bat`,
     )
     await runLogged(
       `cmd /c echo subst ${driveValue}: C:\\InstantShare>>C:\\Tools\\share-start.bat`,
@@ -257,7 +275,7 @@ async function pushSharedFolderGuestConfigInner(
     await runLogged('cmd /c echo exit /b>>C:\\Tools\\share-start.bat')
     await runLogged('cmd /c echo :off>>C:\\Tools\\share-start.bat')
     await runLogged(
-      `cmd /c echo subst ${driveValue}: /d ^>nul 2^>^&1>>C:\\Tools\\share-start.bat`,
+      `cmd /c echo subst ${driveValue}: /d ^>nul 2^>^&1 >>C:\\Tools\\share-start.bat`,
     )
     await runLogged('cmd /c echo exit /b>>C:\\Tools\\share-start.bat')
     await runLogged(
