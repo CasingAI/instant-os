@@ -15,6 +15,11 @@ import {
 import { listVmDiskStreamIds } from './virtual-machine-disk-stream-metrics.ts'
 import { combineDiskWriteLoss } from './virtual-machine-disk-write-status.ts'
 import {
+  resolveLeftoverDiskCacheBeforeBoot,
+  type VmLeftoverCacheDecision,
+} from './virtual-machine-leftover-cache.ts'
+import type { VmDiskFirstAidReport } from './virtual-machine-disk-first-aid.ts'
+import {
   INSTANT_VM_MESSAGE_TYPE,
   collectStartTransfers,
   isInstantVmRuntimeToHostMessage,
@@ -891,6 +896,16 @@ export type VmRuntimePoolOptions = {
    * 'merge' = 合并进可见文件。没接这个回调时按合并收尾（不丢用户数据）。
    */
   onDiskCacheDecision?: (id: string) => Promise<VmDiskCacheDecision>
+  /**
+   * 开机前检出残留硬盘缓存（上次异常结束跳过了关机收尾）时的询问。
+   * 返回 'merge'/'discard' = 处理完再开机；'first-aid' = 取消本次开机（用户要去
+   * 磁盘工具，镜像不能被 VM 占用）；'keep' = 照常开机，残留由下次正常关机兜底。
+   * 没接这个回调时按 'keep' 处理（安全默认，不丢数据）。
+   */
+  onLeftoverDiskCache?: (
+    id: string,
+    reports: readonly VmDiskFirstAidReport[],
+  ) => Promise<VmLeftoverCacheDecision>
 }
 
 export function useVirtualMachineRuntimePool(
@@ -1130,6 +1145,34 @@ export function useVirtualMachineRuntimePool(
       try {
         // 上次运行可能异常退出，残留的热插媒体流在这里兜底清理。
         await releaseVirtualMachineRemovableMedia(id)
+        // 异常结束残留的硬盘缓存：占用声明之前处理（急救合并自带占用检查，
+        // 与 VM 占用互斥）。用户选「去磁盘工具」则取消本次开机——镜像一旦被
+        // 这次开机占用，磁盘工具那边就处理不了了。
+        const leftoverOutcome = await resolveLeftoverDiskCacheBeforeBoot(
+          machine,
+          (reports) =>
+            optionsRef.current.onLeftoverDiskCache
+              ? optionsRef.current.onLeftoverDiskCache(id, reports)
+              : Promise.resolve('keep' as const),
+          (info) => {
+            const percent =
+              info.totalBytes > 0 ? Math.round((info.mergedBytes / info.totalBytes) * 100) : 0
+            setHints((current) =>
+              new Map(current).set(id, `正在合并上次会话的改动… ${percent}%`),
+            )
+          },
+        )
+        if (leftoverOutcome === 'abort') {
+          recordSystemDebugTimeline({ layer: 'vm', op: 'boot-aborted-for-first-aid', detail: id })
+          runningIdsRef.current.delete(id)
+          setRunningIds([...runningIdsRef.current])
+          setHints((current) => {
+            const next = new Map(current)
+            next.delete(id)
+            return next
+          })
+          return
+        }
         await claimVirtualMachineDiskImageOccupancy(id, machine.devices)
         disks = await withTimeout(
           loadVirtualMachineDisks(machine),

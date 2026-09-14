@@ -44,6 +44,10 @@ import {
   type VmFlushStage,
 } from './virtual-machine-flush-progress.ts'
 import { openDiskUtilityFirstAid } from '../disk-utility/disk-utility-route-open.ts'
+import {
+  analyzeVirtualMachineDiskCache,
+  type VmDiskFirstAidReport,
+} from './virtual-machine-disk-first-aid.ts'
 import { setWebdavSharedRoot } from './virtual-machine-webdav-host.ts'
 import { VirtualMachineActivity } from './virtual-machine-activity.tsx'
 import { VirtualMachineInspectorOverlay } from './virtual-machine-inspector-overlay.tsx'
@@ -766,6 +770,51 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
       })
       return answer?.key === 'discard' ? 'discard' : 'merge'
     },
+    // 开机前检出残留缓存（上次异常结束跳过了关机收尾）：在虚拟机里就地补问一次。
+    // 「去磁盘工具处理」取消本次开机——镜像一旦被 VM 占用，急救就处理不了了。
+    onLeftoverDiskCache: async (id, reports: readonly VmDiskFirstAidReport[]) => {
+      const machineName = machinesRef.current.find((machine) => machine.id === id)?.name
+      const totalBytes = reports.reduce((sum, report) => sum + report.cacheBytes, 0)
+      const answer = await modal.choose({
+        title: '上次的改动尚未写入硬盘文件',
+        message: `「${
+          machineName ?? '这台虚拟机'
+        }」上次结束时没有走完关机流程，还有约 ${formatVmDiskBytes(
+          totalBytes,
+        )} 的改动留在缓存里。合并会写进硬盘文件；不处理也可以先开机，改动不会丢。`,
+        options: [
+          { key: 'merge', label: '合并后开机', tone: 'primary' },
+          { key: 'first-aid', label: '去磁盘工具处理' },
+          { key: 'discard', label: '丢弃这些改动', tone: 'danger' },
+          { key: 'keep', label: '直接开机，稍后再说' },
+        ],
+        themeColor: THEME,
+      })
+      if (answer?.key === 'merge') {
+        return 'merge'
+      }
+      if (answer?.key === 'first-aid') {
+        const path = reports[0]?.imagePath
+        if (path) {
+          openDiskUtilityFirstAid(path)
+        }
+        return 'first-aid'
+      }
+      if (answer?.key === 'discard') {
+        // 丢弃是这份缓存唯一的销毁路径，对齐急救 UI 再确认一次；
+        // 取消按「直接开机」处理（缓存原样保留），不替用户丢数据。
+        const confirmed = await modal.confirm({
+          title: '丢弃这些改动？',
+          message: '缓存里的改动会被删掉，硬盘文件保持更早的内容。此操作无法撤销。',
+          confirmLabel: '丢弃',
+          cancelLabel: '取消',
+          confirmTone: 'danger',
+          themeColor: THEME,
+        })
+        return confirmed ? 'discard' : 'keep'
+      }
+      return 'keep'
+    },
   })
   const [machines, setMachines] = useState<VirtualMachineRecord[]>([])
   // pool 的回调（弹窗决策）要读最新机器表，不能依赖渲染闭包。
@@ -1269,6 +1318,50 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
         }
       })
   }, [diskWriteLossPromptKey, modal, selected?.devices, selected?.diskWriteLoss, selected?.id, suppressDiskWriteLossPrompt])
+  // 停机状态下的残留缓存入口：急救处理有占用拦截，运行中提示了也处理不了，
+  // 所以只在机器没开时检测。窗口聚焦时重检（用户可能刚从磁盘工具合并完回来）。
+  const [leftoverCache, setLeftoverCache] = useState<
+    { imagePath: string; cacheBytes: number } | undefined
+  >(undefined)
+  useEffect(() => {
+    setLeftoverCache(undefined)
+    if (!selected || selectedRunning || selected.diskWriteMode === 'live') {
+      return
+    }
+    let cancelled = false
+    const detect = async () => {
+      for (const device of selected.devices) {
+        if (device.type !== 'hdd') {
+          continue
+        }
+        const path = device.path.trim()
+        if (!path) {
+          continue
+        }
+        try {
+          const report = await analyzeVirtualMachineDiskCache(path)
+          if (report) {
+            if (!cancelled) {
+              setLeftoverCache({ imagePath: path, cacheBytes: report.cacheBytes })
+            }
+            return
+          }
+        } catch {
+          // 占用/读取失败按无残留处理：真有冲突开机时开机流程自身会报错。
+        }
+      }
+      if (!cancelled) {
+        setLeftoverCache(undefined)
+      }
+    }
+    void detect()
+    const onFocus = () => void detect()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [selected, selectedRunning])
   // 发送按键始终发给当前显示的画面，有运行中的画面就可用。
   const canSendKeys = displayedId !== undefined
 
@@ -2587,6 +2680,15 @@ export function VirtualMachineApp({ windowId }: { windowId?: string }) {
               <div class="virtual-machine__screen virtual-machine__screen--single">
                 {screenMessage ? (
                   <div class="virtual-machine__screen-message">{screenMessage}</div>
+                ) : null}
+                {leftoverCache ? (
+                  <div class="virtual-machine__screen-message">
+                    上次会话的改动尚未写入硬盘文件（约{' '}
+                    {formatVmDiskBytes(leftoverCache.cacheBytes)}）。{' '}
+                    <Button onClick={() => openDiskUtilityFirstAid(leftoverCache.imagePath)}>
+                      去急救
+                    </Button>
+                  </div>
                 ) : null}
               </div>
             ) : null}
